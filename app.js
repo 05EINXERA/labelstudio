@@ -2236,18 +2236,22 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // Complete Task Logic
-const completeTaskBtn = document.getElementById('completeTaskBtn');
-if (completeTaskBtn) {
-  completeTaskBtn.addEventListener('click', async () => {
-    if (state.gallery.length === 0) return;
-    const currentTask = state.gallery[state.currentIndex];
-    
-    // Only update if it has an id
-    if (currentTask.id) {
-      try {
-        const username = localStorage.getItem('dataset_username') || 'Unknown';
-        const res = await fetch('/api/tasks', {
-          method: 'POST',
+document.addEventListener('DOMContentLoaded', () => {
+  const completeTaskBtn = document.getElementById('completeTaskBtn');
+  if (completeTaskBtn) {
+    completeTaskBtn.addEventListener('click', async () => {
+      if (state.gallery.length === 0) {
+        alert("No image to complete!");
+        return;
+      }
+      const currentTask = state.gallery[state.currentIndex];
+      
+      // Only update if it has an id
+      if (currentTask.id) {
+        try {
+          const username = localStorage.getItem('dataset_username') || 'Unknown';
+          const res = await fetch('/api/tasks', {
+            method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({
             id: currentTask.id,
@@ -2274,3 +2278,4 @@ if (completeTaskBtn) {
     }
   });
 }
+});
