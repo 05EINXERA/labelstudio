@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard - Dataset Workspace</title>
+  <link rel="icon" type="image/png" href="logo.png">
+  <link rel="stylesheet" href="styles.css">
+  <script src="sync.js"></script>
+</head>
+<body style="background: var(--bg);">
+
+  <!-- Brand Header -->
+  <header style="background: var(--panel); border-bottom: 1px solid var(--line); padding: 15px 30px; display: flex; align-items: center; justify-content: space-between;">
+    <div style="display: flex; align-items: center; gap: 15px;">
+      <img src="logo.png" alt="Logo" style="height: 32px;">
+      <h1 style="font-size: 1.2rem; font-weight: 700; margin: 0; color: var(--ink);">Metrics Dashboard</h1>
+    </div>
+    <a href="app.html" style="text-decoration: none;">
+      <button class="primary" style="padding: 8px 16px; border-radius: 6px;">← Back to Workspace</button>
+    </a>
+  </header>
+
+  <main class="dashboard-container">
+    <div class="dashboard-header">
+      <div>
+        <p class="eyebrow">Overview</p>
+        <h1>Project Metrics</h1>
+      </div>
+      <div>
+        <p style="color: var(--muted); font-size: 0.9rem;">Logged in as: <strong id="dashUser" style="color: var(--accent);">Guest</strong></p>
+      </div>
+    </div>
+
+    <div class="metrics-grid">
+      <!-- Card 1: Images -->
+      <div class="metric-card" data-metric="images">
+        <div class="metric-icon">🖼️</div>
+        <h3>Loaded Images</h3>
+        <p class="metric-value" id="valImages">0</p>
+      </div>
+      
+      <!-- Card 2: Annotations -->
+      <div class="metric-card" data-metric="annotations">
+        <div class="metric-icon">✏️</div>
+        <h3>Total Annotations</h3>
+        <p class="metric-value" id="valAnnotations">0</p>
+      </div>
+      
+      <!-- Card 3: Classes -->
+      <div class="metric-card" data-metric="classes">
+        <div class="metric-icon">🏷️</div>
+        <h3>Classes Created</h3>
+        <p class="metric-value" id="valClasses">0</p>
+      </div>
+      
+      <!-- Card 4: Team Members -->
+      <div class="metric-card" data-metric="team">
+        <div class="metric-icon">👥</div>
+        <h3>Team Members</h3>
+        <p class="metric-value" id="valTeam">0</p>
+      </div>
+
+      <!-- Card 5: Tasks -->
+      <div class="metric-card" data-metric="tasks">
+        <div class="metric-icon">📋</div>
+        <h3>Tasks Assigned</h3>
+        <p class="metric-value" id="valTasks">0</p>
+      </div>
+    </div>
+
+    <div class="dashboard-header" style="margin-top: 40px; border-top: 1px solid var(--line); padding-top: 20px;">
+      <div>
+        <p class="eyebrow">Projects</p>
+        <h2>Project Matrices</h2>
+      </div>
+    </div>
+    <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 20px;">
+      <table style="width: 100%; text-align: left; border-collapse: collapse;">
+        <thead>
+          <tr style="border-bottom: 2px solid var(--line);">
+            <th style="padding: 10px; color: var(--muted);">Project Name</th>
+            <th style="padding: 10px; color: var(--muted);">Progress</th>
+            <th style="padding: 10px; color: var(--muted);">Completed</th>
+            <th style="padding: 10px; color: var(--muted);">Total Tasks</th>
+          </tr>
+        </thead>
+        <tbody id="projectsMatrixBody">
+          <!-- Projects injected via JS -->
+        </tbody>
+      </table>
+    </div>
+
+  </main>
+
+  <!-- Modal Overlay -->
+  <div id="metricModal" class="modal-overlay">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="modalTitle">Details</h2>
+        <button class="modal-close" id="modalClose">&times;</button>
+      </div>
+      <div class="modal-body">
+        <ul class="modal-list" id="modalList">
+          <!-- Items injected via JS -->
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", async () => {
+      // Load Username
+      const username = localStorage.getItem('dataset_username');
+      if (username) {
+        document.getElementById('dashUser').textContent = username;
+      }
+
+      // Load Annotation Data
+      const storageKey = 'image-annotation-mvp-v1';
+      const savedData = localStorage.getItem(storageKey);
+      
+      let numImages = 0;
+      let numAnnotations = 0;
+      let numClasses = 0;
+      
+      let payload = {};
+
+      if (savedData) {
+        try {
+          payload = JSON.parse(savedData);
+          if (payload.image) numImages = 1; // MVP currently only stores 1 image at a time
+          if (payload.annotations && Array.isArray(payload.annotations)) {
+            numAnnotations = payload.annotations.length;
+          }
+          if (payload.labels && Array.isArray(payload.labels)) {
+            numClasses = payload.labels.length;
+          }
+        } catch (e) {
+          console.error("Error parsing metrics", e);
+        }
+      }
+
+      // Load Team Data
+      let team = [];
+      let tasks = [];
+      try {
+        const teamRes = await fetch('/api/team');
+        if (teamRes.ok) team = await teamRes.json();
+        
+        const tasksRes = await fetch('/api/tasks');
+        if (tasksRes.ok) tasks = await tasksRes.json();
+      } catch (e) {
+        console.error("Failed to fetch team data", e);
+      }
+
+      // Update DOM
+      document.getElementById('valImages').textContent = numImages;
+      document.getElementById('valAnnotations').textContent = numAnnotations;
+      document.getElementById('valClasses').textContent = numClasses;
+      document.getElementById('valTeam').textContent = team.length;
+      document.getElementById('valTasks').textContent = tasks.length;
+
+      // Modal Logic
+      const modal = document.getElementById('metricModal');
+      const modalTitle = document.getElementById('modalTitle');
+      const modalList = document.getElementById('modalList');
+      const modalClose = document.getElementById('modalClose');
+
+      function openModal(title, itemsHTML) {
+        modalTitle.textContent = title;
+        modalList.innerHTML = itemsHTML || '<li class="modal-list-item"><span style="text-align:center;">No data available</span></li>';
+        modal.classList.add('is-active');
+      }
+
+      modalClose.addEventListener('click', () => {
+        modal.classList.remove('is-active');
+      });
+
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal.classList.remove('is-active');
+      });
+
+      
+      // Load Project Matrices
+      try {
+        const projectsRes = await fetch('/api/projects');
+        if (projectsRes.ok) {
+          const projects = await projectsRes.json();
+          const tbody = document.getElementById('projectsMatrixBody');
+          tbody.innerHTML = '';
+          
+          if (projects.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" style="padding: 10px; text-align: center; color: var(--muted);">No projects found</td></tr>';
+          }
+          
+          for (const project of projects) {
+            let progress = 0;
+            let completed = 0;
+            let total = 0;
+            
+            try {
+              const metricsRes = await fetch(`/api/projects/${project.id}/metrics`);
+              if (metricsRes.ok) {
+                const metrics = await metricsRes.json();
+                progress = metrics.progress || 0;
+                completed = metrics.completed || 0;
+                total = metrics.total || 0;
+              }
+            } catch(e) {}
+            
+            const tr = document.createElement('tr');
+            tr.style.borderBottom = '1px solid var(--line)';
+            tr.innerHTML = `
+              <td style="padding: 10px; font-weight: 500;">
+                <a href="project_details.html?id=${project.id}" style="color: #3b82f6; text-decoration: underline;">
+                  ${project.name}
+                </a>
+              </td>
+              <td style="padding: 10px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <div style="flex: 1; height: 8px; background: var(--line); border-radius: 4px; overflow: hidden;">
+                    <div style="height: 100%; width: ${progress}%; background: var(--accent);"></div>
+                  </div>
+                  <span style="font-size: 0.85rem; font-weight: 600;">${progress}%</span>
+                </div>
+              </td>
+              <td style="padding: 10px;">${completed}</td>
+              <td style="padding: 10px;">${total}</td>
+            `;
+            tbody.appendChild(tr);
+          }
+        }
+      } catch (e) {
+        console.error("Failed to load project matrices", e);
+      }
+
+      // Card Click Listeners
+      document.querySelectorAll('.metric-card').forEach(card => {
+        card.addEventListener('click', () => {
+          const metricType = card.getAttribute('data-metric');
+          let itemsHTML = '';
+
+          switch (metricType) {
+            case 'images':
+              if (payload.image) {
+                itemsHTML = `<li class="modal-list-item"><strong>Base64 Image Data</strong><span>Present in memory</span></li>`;
+              }
+              openModal('🖼️ Loaded Images', itemsHTML);
+              break;
+
+            case 'annotations':
+              if (payload.annotations && payload.annotations.length > 0) {
+                itemsHTML = payload.annotations.map(a => `<li class="modal-list-item"><strong>${a.type}</strong><span>Class: ${a.label || 'None'}</span></li>`).join('');
+              }
+              openModal('✏️ Annotations Details', itemsHTML);
+              break;
+
+            case 'classes':
+              if (payload.labels && payload.labels.length > 0) {
+                itemsHTML = payload.labels.map(l => `<li class="modal-list-item"><strong style="display:flex;align-items:center;gap:8px;"><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${l.color};"></span>${l.name}</strong></li>`).join('');
+              }
+              openModal('🏷️ Classes Created', itemsHTML);
+              break;
+
+            case 'team':
+              if (team.length > 0) {
+                itemsHTML = team.map(member => {
+                  const secs = member.time_logged || 0;
+                  const h = Math.floor(secs / 3600).toString().padStart(2, '0');
+                  const m = Math.floor((secs % 3600) / 60).toString().padStart(2, '0');
+                  const s = (secs % 60).toString().padStart(2, '0');
+                  const formattedTime = `${h}:${m}:${s}`;
+                  
+                  return `<li class="modal-list-item" style="display:flex; justify-content:space-between; align-items:center;">
+                    <strong>👤 ${member.name}</strong>
+                    <span style="font-family: monospace; color: var(--accent); font-weight: bold; background: var(--panel-2); padding: 4px 8px; border-radius: 4px;">⏱️ ${formattedTime}</span>
+                  </li>`;
+                }).join('');
+              }
+              openModal('👥 Team Members', itemsHTML);
+              break;
+
+            case 'tasks':
+              if (tasks.length > 0) {
+                itemsHTML = tasks.map(task => `<li class="modal-list-item"><strong>${task.description}</strong><span>Assigned to: ${task.assignee}</span></li>`).join('');
+              }
+              openModal('📋 Assigned Tasks', itemsHTML);
+              break;
+          }
+        });
+      });
+    });
+  </script>
+</body>
+</html>

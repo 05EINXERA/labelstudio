@@ -1,0 +1,550 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Image Annotation MVP</title>
+  <link rel="icon" type="image/png" href="logo.png">
+  <link rel="stylesheet" href="styles.css">
+  <script src="sync.js"></script>
+</head>
+
+<body>
+  <main class="app-shell">
+    <aside class="sidebar" aria-label="Annotation workspace controls">
+      <section class="brand-block" style="flex-direction: column; align-items: stretch; gap: 16px;">
+        <div style="display: flex; align-items: flex-start; justify-content: space-between; width: 100%;">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <img src="logo.png" alt="Dataset Workspace Logo" style="width: 42px; height: 42px; border-radius: 8px;">
+            <div>
+              <p class="eyebrow">Image annotation</p>
+              <h1>Dataset Workspace</h1>
+            </div>
+          </div>
+          <span class="status-pill" id="saveStatus">Ready</span>
+        </div>
+        <a href="dashboard.html" style="text-decoration: none; display: block;">
+          <button type="button"
+            style="width: 100%; padding: 8px; border-radius: 6px; background: var(--panel-2); border: 1px solid var(--line); color: var(--ink); font-weight: 600; font-size: 0.85rem; cursor: pointer; transition: background 0.2s ease;">
+            📊 View Dashboard
+          </button>
+        </a>
+      </section>
+
+      <section class="panel accordion-item is-active">
+        <button class="accordion-header" type="button">
+          <h2>Projects</h2>
+          <span class="chevron">▾</span>
+        </button>
+        <div class="accordion-grid">
+          <div class="accordion-content">
+            <div class="accordion-content-inner" style="display: flex; flex-direction: column; gap: 8px;">
+              <form id="createProjectSidebarForm" style="display: flex; flex-direction: column; gap: 4px;">
+                <label for="newProjectName" style="font-size: 0.85rem; font-weight: 500;">Create Project</label>
+                <div style="display: flex; gap: 4px;">
+                  <input type="text" id="newProjectName" placeholder="Project name" style="flex: 1; padding: 4px; border-radius: 4px; border: 1px solid var(--line); font-size: 0.85rem;" required>
+                  <button type="submit" class="primary" style="padding: 4px 8px; border-radius: 4px; font-size: 0.85rem; border: none; cursor: pointer;">Add</button>
+                </div>
+              </form>
+              <hr style="border: none; border-top: 1px solid var(--line); margin: 4px 0;">
+              <div id="projectsSidebarList" style="font-size: 0.85rem; display: flex; flex-direction: column; gap: 4px;">
+                <!-- Projects injected here -->
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel accordion-item is-active">
+        <button class="accordion-header" type="button">
+          <h2>Image</h2>
+          <span class="chevron">▾</span>
+        </button>
+        <div class="accordion-grid">
+          <div class="accordion-content">
+            <div class="accordion-content-inner">
+              <label class="file-drop" for="imageInput">
+                <span class="file-drop-icon" aria-hidden="true">+</span>
+                <span>
+                  <strong>Load image(s)</strong>
+                  <small>PNG, JPG, GIF, or WebP</small>
+                </span>
+              </label>
+              <input id="imageInput" class="sr-only" type="file" accept="image/*" multiple>
+              <div class="meta-grid">
+                <span>File</span>
+                <strong id="imageName">None loaded</strong>
+                <span>Size</span>
+                <strong id="imageSize">-</strong>
+              </div>
+              <div class="gallery-nav"
+                style="display: flex; align-items: center; justify-content: space-between; margin-top: 10px;">
+                <button class="icon-button" id="prevImageButton" type="button" disabled>&lt; Prev</button>
+                <span id="galleryPosition" style="font-size: 0.8rem;">0 / 0</span>
+                <button class="icon-button" id="nextImageButton" type="button" disabled>Next &gt;</button>
+              </div>
+              <button class="icon-button" id="clearGalleryButton" type="button" style="width: 100%; margin-top: 8px;"
+                disabled>Clear image(s)</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel accordion-item">
+        <button class="accordion-header" type="button">
+          <h2>API Sync (COCO)</h2>
+          <span class="chevron">▾</span>
+        </button>
+        <div class="accordion-grid">
+          <div class="accordion-content">
+            <div class="accordion-content-inner">
+              <div class="api-form">
+                <input id="labelStudioProxyInput" type="url" placeholder="Endpoint URL (e.g. https://...)"
+                  autocomplete="off">
+                <button class="primary" id="labelStudioButton" type="button">Send annotations</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel accordion-item">
+        <button class="accordion-header" type="button">
+          <h2>Team & Tasks</h2>
+          <div class="header-actions">
+            <span class="icon-button" id="addPersonButton" title="Add Person"
+              style="min-height: 24px; padding: 2px 8px; font-size: 0.8rem;" onclick="event.stopPropagation()">+
+              Person</span>
+            <span class="chevron">▾</span>
+          </div>
+        </button>
+        <div class="accordion-grid">
+          <div class="accordion-content">
+            <div class="accordion-content-inner">
+
+              <form class="label-form is-hidden" id="newPersonForm"
+                style="margin-bottom: 12px; grid-template-columns: 1fr auto;">
+                <input id="newPersonName" type="text" placeholder="Person's name" required autocomplete="off">
+                <button type="submit">Add</button>
+              </form>
+
+              <form class="api-form" id="newTaskForm" style="margin-bottom: 12px;">
+                <div class="split-fields">
+                  <select id="taskAssignee"
+                    style="padding: 10px; border-radius: 8px; border: 1px solid var(--line); font-family: inherit; width: 100%;"
+                    required>
+                    <option value="" disabled selected>Assign to...</option>
+                  </select>
+                  <input id="taskDescription" type="text" placeholder="Task description..." required autocomplete="off"
+                    style="padding: 10px; border-radius: 8px; border: 1px solid var(--line); width: 100%;">
+                </div>
+                <button type="submit" style="min-height: 32px; font-size: 0.85rem;">Assign Task</button>
+              </form>
+
+              <div class="classes-list" id="tasksList" style="max-height: 150px;">
+                <!-- Tasks will appear here -->
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel accordion-item">
+        <button class="accordion-header" type="button">
+          <h2>Classes</h2>
+          <div class="header-actions">
+            <span class="icon-button" id="addClassButton" title="New Class"
+              style="min-height: 24px; padding: 2px 8px; font-size: 0.8rem;" onclick="event.stopPropagation()">+
+              New</span>
+            <span class="chevron">▾</span>
+          </div>
+        </button>
+        <div class="accordion-grid">
+          <div class="accordion-content">
+            <div class="accordion-content-inner">
+              <div class="classes-list" id="classesList"></div>
+              <form class="label-form is-hidden" id="newClassForm" style="margin-top: 8px;">
+                <input id="newClassName" type="text" placeholder="Class name" required autocomplete="off">
+                <input id="newClassColor" type="color" value="#0f8b8d" title="Class Color">
+                <button id="saveClassButton" type="submit">Add</button>
+              </form>
+              <p class="hint" id="shapeHint" style="margin-top: 8px;">Select a class, then draw a shape.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel accordion-item">
+        <button class="accordion-header" type="button">
+          <h2>Objects</h2>
+          <div class="header-actions">
+            <strong id="annotationCount">0</strong>
+            <span class="chevron">▾</span>
+          </div>
+        </button>
+        <div class="accordion-grid">
+          <div class="accordion-content">
+            <div class="accordion-content-inner">
+              <div class="annotation-list" id="annotationList"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" id="userPanel"
+        style="display: none; margin-top: auto; background: var(--panel-2); border-color: var(--line);">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+          <div style="display: flex; align-items: center; gap: 10px; min-width: 0;">
+            <div
+              style="width: 36px; height: 36px; border-radius: 50%; background: var(--accent); color: white; display: grid; place-items: center; font-weight: bold; font-size: 1.1rem; flex-shrink: 0;">
+              👤
+            </div>
+            <div style="min-width: 0;">
+              <p
+                style="margin: 0; font-size: 0.7rem; color: var(--muted); text-transform: uppercase; font-weight: 800; letter-spacing: 0.05em;">
+                Logged in as</p>
+              <p id="displayUsername"
+                style="margin: 0; font-size: 0.9rem; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+              </p>
+            </div>
+          </div>
+          <button id="openSettingsBtn" class="icon-button" style="padding: 6px; font-size: 1.2rem; border-radius: 6px;"
+            title="Settings">⚙️</button>
+        </div>
+      </section>
+    </aside>
+
+    <section class="workspace" aria-label="Image annotation canvas">
+      <header class="toolbar">
+        <div class="tool-group" role="group" aria-label="Annotation mode">
+          <button class="tool-button is-active" id="drawMode" type="button">Draw</button>
+          <button class="tool-button" id="selectMode" type="button">Select</button>
+        </div>
+        <div class="tool-group" role="group" aria-label="Session Timer" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 4px 8px; border-radius: 12px; background: #fff; color: #333; border: none; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+          <span id="sessionTimerDisplay" style="font-family: 'Courier New', Courier, monospace; font-size: 1rem; font-weight: 800; color: #0f172a; text-align: center; letter-spacing: 1px; line-height: 1;">00:00:00</span>
+          <div style="display: flex; gap: 4px;">
+            <button class="icon-button" id="timerToggleBtn" type="button" title="Start Timer" onmouseover="this.style.background='rgba(0,0,0,0.08)'" onmouseout="this.style.background='rgba(0,0,0,0.04)'" style="min-height: 24px; width: 28px; padding: 0; display: grid; place-items: center; border: none; background: rgba(0,0,0,0.04); color: #475569; border-radius: 50%; box-shadow: none; cursor: pointer; transition: background 0.2s;">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+            </button>
+            <button class="icon-button" id="timerStopBtn" type="button" title="Stop Timer" onmouseover="this.style.background='rgba(239,68,68,0.1)'" onmouseout="this.style.background='transparent'" style="min-height: 24px; width: 28px; padding: 0; display: grid; place-items: center; border: none; background: transparent; color: #ef4444; border-radius: 50%; box-shadow: none; cursor: pointer; transition: background 0.2s;">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h12v12H6z"/></svg>
+            </button>
+            <button class="icon-button" id="timerResetBtn" type="button" title="Reset Timer" onmouseover="this.style.background='rgba(0,0,0,0.08)'" onmouseout="this.style.background='transparent'" style="min-height: 24px; width: 28px; padding: 0; display: grid; place-items: center; border: none; background: transparent; color: #475569; border-radius: 50%; box-shadow: none; cursor: pointer; transition: background 0.2s;">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="tool-group" role="group" aria-label="Shape mode">
+          <button class="tool-button is-active" id="boxMode" type="button">Bounding box</button>
+          <button class="tool-button" id="polygonMode" type="button">Polygon</button>
+        </div>
+        <div class="tool-group" role="group" aria-label="Canvas controls">
+          <button class="tool-button primary" id="autoDetectButton" type="button"
+            title="Detect objects with AI">Detect</button>
+          <button class="icon-button" id="undoButton" type="button" title="Undo">Undo</button>
+          <button class="icon-button" id="deleteButton" type="button" title="Delete selected">Delete</button>
+          <button class="icon-button" id="clearButton" type="button" title="Clear all annotations">Clear</button>
+        </div>
+        <div class="tool-group" role="group" aria-label="Data controls">
+          <div class="dropdown">
+            <button class="icon-button" id="importMenuButton" type="button" title="Import Data">Import ▾</button>
+            <div class="dropdown-content" id="importDropdown">
+              <button type="button" id="importJsonButton">JSON</button>
+              <button type="button" id="importCsvButton">CSV</button>
+            </div>
+          </div>
+          <div class="dropdown">
+            <button class="icon-button primary" id="exportMenuButton" type="button" title="Export Data">Export
+              ▾</button>
+            <div class="dropdown-content" id="exportDropdown">
+              <button type="button" id="exportJsonButton">JSON</button>
+              <button type="button" id="exportCsvButton">CSV</button>
+            </div>
+          </div>
+        </div>
+        <input id="importJsonInput" class="sr-only" type="file" accept="application/json,.json">
+        <input id="importCsvInput" class="sr-only" type="file" accept="text/csv,.csv">
+      </header>
+
+      <div class="stage-wrap">
+        <div class="empty-state" id="emptyState">
+          <div>
+            <p class="eyebrow">Start annotating</p>
+            <h2>Drop an image, draw a selection, then Annote </h2>
+          </div>
+        </div>
+        <canvas id="annotationCanvas" width="1280" height="800" aria-label="Annotation canvas"></canvas>
+      </div>
+
+      <footer class="details-bar">
+        <div>
+          <span>Detection</span>
+          <strong>YOLOv8 + OpenCV</strong>
+        </div>
+        <div>
+          <span>Selected</span>
+          <strong id="selectedInfo">None</strong>
+        </div>
+        <div>
+          <span>Total Working Time</span>
+          <strong id="totalTimeLogged">00:00:00</strong>
+        </div>
+        <div>
+          <span>Format</span>
+          <strong>COCO-style JSON</strong>
+        </div>
+      </footer>
+    </section>
+  </main>
+
+  <!-- Settings Modal Overlay -->
+  <div id="settingsModal" class="modal-overlay">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 style="margin: 0; font-size: 1.2rem; color: var(--ink); display: flex; align-items: center; gap: 10px;">⚙️
+          Settings</h2>
+        <button class="modal-close" id="settingsClose">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 24px; display: flex; flex-direction: column; gap: 20px;">
+
+        <div style="background: var(--panel-2); padding: 16px; border-radius: 8px; border: 1px solid var(--line);">
+          <h3 style="margin: 0 0 12px 0; font-size: 0.9rem; color: var(--ink);">👤 User Profile</h3>
+          <div style="display: flex; gap: 10px;">
+            <input type="text" id="settingsUsernameInput" placeholder="New username"
+              style="flex: 1; padding: 8px; border: 1px solid var(--line); border-radius: 6px;" autocomplete="off">
+            <button id="saveUsernameBtn" class="primary" style="padding: 8px 16px;">Save</button>
+          </div>
+        </div>
+
+        <div style="background: var(--panel-2); padding: 16px; border-radius: 8px; border: 1px solid var(--line);">
+          <h3 style="margin: 0 0 12px 0; font-size: 0.9rem; color: var(--ink);">💾 Data Management</h3>
+          <div style="display: flex; flex-direction: column; gap: 10px;">
+            <button id="exportDataBtn" class="tool-button"
+              style="width: 100%; text-align: left; display: flex; justify-content: space-between; align-items: center;">
+              <span>📥 Export Workspace Backup</span>
+              <span style="font-size: 0.8rem; color: var(--muted);">.json</span>
+            </button>
+            <label class="tool-button"
+              style="width: 100%; text-align: left; display: flex; justify-content: space-between; align-items: center; cursor: pointer; margin: 0;">
+              <span>📤 Import Workspace Backup</span>
+              <span style="font-size: 0.8rem; color: var(--muted);">Choose File</span>
+              <input type="file" id="importDataInput" accept=".json" class="sr-only">
+            </label>
+            <button id="clearDataBtn" class="tool-button"
+              style="width: 100%; text-align: left; display: flex; justify-content: space-between; align-items: center; border-color: var(--danger); color: var(--danger);">
+              <span>🗑️ Clear Local Data</span>
+              <span style="font-size: 0.8rem;">Danger Zone</span>
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Session Finished Modal Overlay -->
+  <div id="sessionModal" class="modal-overlay">
+    <div class="modal-content" style="max-width: 400px; text-align: center;">
+      <div class="modal-header">
+        <h2 style="margin: 0; font-size: 1.2rem; color: var(--ink);">⏱️ Session Finished</h2>
+        <button class="modal-close" id="sessionClose">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 24px;">
+        <p style="margin-top: 0; color: var(--ink-light);">Your annotation session has been recorded.</p>
+        <div style="background: var(--panel-2); padding: 24px; border-radius: 12px; border: 1px solid var(--line); margin: 20px 0;">
+          <div style="font-size: 0.9rem; color: var(--ink-light); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;">Session Time</div>
+          <div id="sessionModalTime" style="font-family: 'Courier New', Courier, monospace; font-size: 2.5rem; font-weight: 800; color: var(--accent);">00:00:00</div>
+        </div>
+        <button id="sessionOkBtn" class="primary" style="width: 100%; padding: 12px;">Got it</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Team Validation Modal Overlay -->
+  <div id="teamValidationModal" class="modal-overlay" style="z-index: 9999;">
+    <div class="modal-content" style="max-width: 400px; text-align: center;">
+      <div class="modal-header">
+        <h2 style="margin: 0; font-size: 1.2rem; color: var(--ink);">👤 Start Annotation Session</h2>
+      </div>
+      <div class="modal-body" style="padding: 24px;">
+        <p style="margin-top: 0; margin-bottom: 16px; color: var(--ink-light);">Please enter your team member name to begin annotating.</p>
+        <form id="teamValidationForm" style="display: flex; flex-direction: column; gap: 12px;">
+          <div id="teamValidationError" style="color: var(--danger); font-size: 0.85rem; display: none;">Name not found in the team list.</div>
+          <input type="text" id="teamValidationName" placeholder="Enter your name" required style="padding: 10px; border-radius: 6px; border: 1px solid var(--line);">
+          <button type="submit" class="primary" style="padding: 12px; margin-top: 8px;">Start Session</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Load and display username if present
+    const storedUsername = localStorage.getItem('dataset_username');
+    if (storedUsername) {
+      document.getElementById('displayUsername').textContent = storedUsername;
+      document.getElementById('userPanel').style.display = 'block';
+    }
+
+    // Team & Tasks Management
+    (async function () {
+      const addPersonBtn = document.getElementById('addPersonButton');
+      const newPersonForm = document.getElementById('newPersonForm');
+      const newPersonName = document.getElementById('newPersonName');
+      const taskAssignee = document.getElementById('taskAssignee');
+      const newTaskForm = document.getElementById('newTaskForm');
+      const taskDescription = document.getElementById('taskDescription');
+      const tasksList = document.getElementById('tasksList');
+      const currentUser = storedUsername || '';
+
+      let team = [];
+      let tasks = [];
+
+      async function fetchTeam() {
+        try {
+          const res = await fetch('/api/team');
+          if (res.ok) {
+            const data = await res.json();
+            team = data.map(t => t.name);
+            renderTeam();
+          }
+        } catch (e) { console.error(e); }
+      }
+
+      async function fetchTasks() {
+        try {
+          const res = await fetch('/api/tasks');
+          if (res.ok) {
+            tasks = await res.json();
+            renderTasks();
+          }
+        } catch (e) { console.error(e); }
+      }
+
+      function renderTeam() {
+        taskAssignee.innerHTML = '<option value="" disabled selected>Assign to...</option>';
+        team.forEach(person => {
+          const opt = document.createElement('option');
+          opt.value = person;
+          opt.textContent = person;
+          taskAssignee.appendChild(opt);
+        });
+      }
+
+      function renderTasks() {
+        tasksList.innerHTML = '';
+        if (tasks.length === 0) {
+          tasksList.innerHTML = '<p class="hint">No tasks assigned yet.</p>';
+          return;
+        }
+        tasks.forEach((task) => {
+          const isMine = task.assignee === currentUser;
+          const div = document.createElement('div');
+          div.className = 'class-item';
+          div.style.gridTemplateColumns = 'auto 1fr auto';
+          div.style.background = isMine ? '#d9efee' : '#fff';
+          div.style.borderColor = isMine ? 'var(--accent)' : 'var(--line)';
+
+          const badge = document.createElement('div');
+          badge.style.fontSize = '0.7rem';
+          badge.style.fontWeight = 'bold';
+          badge.style.background = isMine ? 'var(--accent)' : 'var(--panel-2)';
+          badge.style.color = isMine ? '#fff' : 'inherit';
+          badge.style.padding = '2px 6px';
+          badge.style.borderRadius = '4px';
+          badge.textContent = task.assignee;
+
+          const desc = document.createElement('div');
+          desc.className = 'chip-name';
+          desc.style.fontSize = '0.85rem';
+          desc.textContent = task.description;
+
+          const delBtn = document.createElement('button');
+          delBtn.textContent = '×';
+          delBtn.style.border = 'none';
+          delBtn.style.background = 'transparent';
+          delBtn.style.color = 'var(--danger)';
+          delBtn.style.cursor = 'pointer';
+          delBtn.style.fontWeight = 'bold';
+          delBtn.style.padding = '0 4px';
+          delBtn.onclick = async () => {
+            await fetch(`/api/tasks/${task.id}`, { method: 'DELETE' });
+            await fetchTasks();
+          };
+
+          div.appendChild(badge);
+          div.appendChild(desc);
+          div.appendChild(delBtn);
+          tasksList.appendChild(div);
+        });
+      }
+
+      addPersonBtn.addEventListener('click', () => {
+        newPersonForm.classList.toggle('is-hidden');
+        if (!newPersonForm.classList.contains('is-hidden')) {
+          newPersonName.focus();
+        }
+      });
+
+      newPersonForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const name = newPersonName.value.trim();
+        if (name) {
+          await fetch('/api/team', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ name })
+          });
+          await fetchTeam();
+          newPersonName.value = '';
+          newPersonForm.classList.add('is-hidden');
+        }
+      });
+
+      newTaskForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const assignee = taskAssignee.value;
+        const desc = taskDescription.value.trim();
+        if (assignee && desc) {
+          await fetch('/api/tasks', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ assignee, description: desc })
+          });
+          await fetchTasks();
+          taskDescription.value = '';
+        }
+      });
+
+      await fetchTeam();
+      await fetchTasks();
+    })();
+
+    // Accordion Logic
+    document.querySelectorAll('.accordion-header').forEach(header => {
+      header.addEventListener('click', () => {
+        const item = header.closest('.accordion-item');
+        item.classList.toggle('is-active');
+      });
+    });
+  </script>
+  
+  <!-- All Projects Modal -->
+  <div id="allProjectsModal" class="modal-overlay">
+    <div class="modal-content" style="max-width: 500px;">
+      <div class="modal-header">
+        <h2>All Projects</h2>
+        <button class="modal-close" id="allProjectsClose">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="allProjectsListModal" style="display: flex; flex-direction: column; gap: 8px;">
+          <!-- Injected via JS -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+
+</html

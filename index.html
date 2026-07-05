@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login - Dataset Workspace</title>
+  <link rel="icon" type="image/png" href="logo.png">
+  <link rel="stylesheet" href="login.css">
+  <script src="sync.js"></script>
+</head>
+
+<body>
+  <div class="login-container">
+    <div class="brand-header">
+      <img src="logo.png" alt="Dataset Workspace Logo">
+      <h1>Image Annotation</h1>
+      <p>Sign in to access your annotation tools</p>
+    </div>
+
+    <form class="login-form" id="loginForm">
+      <div class="input-group">
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" placeholder="Enter your username" required
+          autocomplete="username">
+      </div>
+
+      <div class="input-group">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" placeholder="Enter your password" required
+          autocomplete="current-password">
+      </div>
+
+      <button type="submit" class="submit-btn" id="submitBtn">
+        <span class="btn-text">Sign In</span>
+        <div class="spinner"></div>
+      </button>
+    </form>
+  </div>
+
+  <script>
+    document.getElementById('loginForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+
+      const btn = document.getElementById('submitBtn');
+      btn.classList.add('is-loading');
+      btn.disabled = true;
+
+      // Save username to display in the app
+      const username = document.getElementById('username').value;
+      localStorage.setItem('dataset_username', username);
+
+      // Simulate a network request for the dummy login
+      setTimeout(() => {
+        window.location.href = 'app.html';
+      }, 800);
+    });
+  </script>
+</body>
+
+</html>
