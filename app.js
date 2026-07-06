@@ -1299,6 +1299,7 @@ function switchImage(index) {
   if (index < 0 || index >= state.gallery.length) return;
   
   if (state.galleryIndex >= 0 && state.gallery[state.galleryIndex]) {
+    syncTaskTime(state.gallery[state.galleryIndex]);
     state.gallery[state.galleryIndex].annotations = [...state.annotations];
   }
   
@@ -1904,9 +1905,27 @@ const timerStopBtn = document.getElementById("timerStopBtn");
 
 let timerInterval = null;
 let sessionSeconds = 0;
+let taskSessionSeconds = 0;
 let currentUserForTimer = localStorage.getItem('dataset_username') || 'Unknown';
 let totalSeconds = 0;
 let isTimerRunning = false;
+
+async function syncTaskTime(task) {
+  if (task && task.id && taskSessionSeconds > 0) {
+    const timeDelta = taskSessionSeconds;
+    taskSessionSeconds = 0;
+    fetch('/api/tasks', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        id: task.id,
+        time_spent_delta: timeDelta,
+        status: task.status || 'In Progress',
+        assignee: localStorage.getItem('dataset_username') || 'Unknown'
+      })
+    }).catch(() => {});
+  }
+}
 
 // Fetch initial time
 (async () => {
@@ -1964,6 +1983,7 @@ function startTimer() {
   timerInterval = setInterval(() => {
     sessionSeconds++;
     totalSeconds++;
+    taskSessionSeconds++;
     
     if (sessionSeconds % 5 === 0) {
       syncTimeToServer();
@@ -2265,16 +2285,19 @@ document.addEventListener('DOMContentLoaded', () => {
       // Only update if it has an id
       if (currentTask.id) {
         try {
+          const timeDelta = taskSessionSeconds;
+          taskSessionSeconds = 0;
           const username = localStorage.getItem('dataset_username') || 'Unknown';
           const res = await fetch('/api/tasks', {
             method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({
-            id: currentTask.id,
-            status: 'Completed',
-            assignee: username
-          })
-        });
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+              id: currentTask.id,
+              status: 'Completed',
+              time_spent_delta: timeDelta,
+              assignee: username
+            })
+          });
         
         if (res.ok) {
           const tcModal = document.getElementById('taskCompletedModal');

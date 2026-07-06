@@ -66,6 +66,12 @@ class AnnotationServer(SimpleHTTPRequestHandler):
             project_id = query.get('projectId', [None])[0]
             self.handle_tasks_post(project_id)
             return
+        if path == "/api/tasks/bulk-delete":
+            self.handle_tasks_bulk_delete()
+            return
+        if path == "/api/tasks/bulk-update":
+            self.handle_tasks_bulk_update()
+            return
         if path == "/api/team":
             self.handle_team_post()
             return
@@ -243,12 +249,12 @@ class AnnotationServer(SimpleHTTPRequestHandler):
             conn = sqlite3.connect("workspace.db")
             c = conn.cursor()
             if project_id:
-                c.execute("SELECT id, description, assignee, image_path, status FROM tasks WHERE project_id = ?", (project_id,))
+                c.execute("SELECT id, description, assignee, image_path, status, time_spent, updated_at FROM tasks WHERE project_id = ?", (project_id,))
             else:
-                c.execute("SELECT id, description, assignee, image_path, status FROM tasks")
+                c.execute("SELECT id, description, assignee, image_path, status, time_spent, updated_at FROM tasks")
             tasks = []
             for row in c.fetchall():
-                tasks.append({"id": row[0], "description": row[1], "assignee": row[2], "image_path": row[3], "status": row[4]})
+                tasks.append({"id": row[0], "description": row[1], "assignee": row[2], "image_path": row[3], "status": row[4], "time_spent": row[5], "updated_at": row[6]})
             conn.close()
             self.write_json(200, tasks)
         except Exception as e:
@@ -259,17 +265,57 @@ class AnnotationServer(SimpleHTTPRequestHandler):
             payload = self.read_json()
             conn = sqlite3.connect("workspace.db")
             c = conn.cursor()
-            # If it's an update to an existing task (e.g. status or assignee change)
             if "id" in payload:
-                c.execute("UPDATE tasks SET assignee = ?, status = ? WHERE id = ?", (payload.get("assignee"), payload.get("status", "New"), payload.get("id")))
+                c.execute("UPDATE tasks SET assignee = ?, status = ?, description = COALESCE(?, description), time_spent = COALESCE(time_spent, 0) + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", 
+                          (payload.get("assignee"), payload.get("status", "New"), payload.get("description"), payload.get("time_spent_delta", 0), payload.get("id")))
                 task_id = payload.get("id")
             else:
-                c.execute("INSERT INTO tasks (description, assignee, project_id, status) VALUES (?, ?, ?, ?)", 
-                          (payload.get("description"), payload.get("assignee"), project_id, payload.get("status", "New")))
+                c.execute("INSERT INTO tasks (description, assignee, project_id, status, time_spent, updated_at) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)", 
+                          (payload.get("description"), payload.get("assignee"), project_id, payload.get("status", "New"), payload.get("time_spent_delta", 0)))
                 task_id = c.lastrowid
             conn.commit()
             conn.close()
             self.write_json(200, {"id": task_id, "status": "ok"})
+        except Exception as e:
+            self.write_json(500, {"error": str(e)})
+
+    def handle_tasks_bulk_delete(self):
+        try:
+            payload = self.read_json()
+            ids = payload.get("ids", [])
+            if not ids:
+                self.write_json(400, {"error": "No ids provided"})
+                return
+            conn = sqlite3.connect("workspace.db")
+            c = conn.cursor()
+            c.execute(f"DELETE FROM tasks WHERE id IN ({','.join('?' * len(ids))})", tuple(ids))
+            conn.commit()
+            conn.close()
+            self.write_json(200, {"status": "ok"})
+        except Exception as e:
+            self.write_json(500, {"error": str(e)})
+
+    def handle_tasks_bulk_update(self):
+        try:
+            payload = self.read_json()
+            ids = payload.get("ids", [])
+            if not ids:
+                self.write_json(400, {"error": "No ids provided"})
+                return
+            assignee = payload.get("assignee")
+            status = payload.get("status")
+            
+            conn = sqlite3.connect("workspace.db")
+            c = conn.cursor()
+            if assignee is not None and status is not None:
+                c.execute(f"UPDATE tasks SET assignee = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id IN ({','.join('?' * len(ids))})", (assignee, status, *ids))
+            elif assignee is not None:
+                c.execute(f"UPDATE tasks SET assignee = ?, updated_at = CURRENT_TIMESTAMP WHERE id IN ({','.join('?' * len(ids))})", (assignee, *ids))
+            elif status is not None:
+                c.execute(f"UPDATE tasks SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id IN ({','.join('?' * len(ids))})", (status, *ids))
+            conn.commit()
+            conn.close()
+            self.write_json(200, {"status": "ok"})
         except Exception as e:
             self.write_json(500, {"error": str(e)})
 
@@ -424,7 +470,9 @@ def init_db():
         image_path TEXT,
         description TEXT, 
         status TEXT,
-        assignee TEXT
+        assignee TEXT,
+        time_spent INTEGER DEFAULT 0,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )''')
     
     # Migration for existing DB: safely try to add missing columns to tasks table
@@ -440,6 +488,16 @@ def init_db():
         
     try:
         c.execute("ALTER TABLE tasks ADD COLUMN status TEXT")
+    except sqlite3.OperationalError:
+        pass
+        
+    try:
+        c.execute("ALTER TABLE tasks ADD COLUMN time_spent INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+        
+    try:
+        c.execute("ALTER TABLE tasks ADD COLUMN updated_at DATETIME")
     except sqlite3.OperationalError:
         pass
         
