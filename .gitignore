@@ -1,0 +1,21 @@
+# SQLite databases
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-shm
+*.db-wal
+workspace.db
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+
+# Uploaded Media
+uploads/
+
+# macOS
+.DS_Store
