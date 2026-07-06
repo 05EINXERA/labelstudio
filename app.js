@@ -44,6 +44,7 @@ const prevImageButton = document.querySelector("#prevImageButton");
 const nextImageButton = document.querySelector("#nextImageButton");
 const galleryPosition = document.querySelector("#galleryPosition");
 const clearGalleryButton = document.querySelector("#clearGalleryButton");
+const logoutBtnApp = document.querySelector("#logoutBtnApp");
 
 const storageKey = "image-annotation-mvp-v1";
 const labelStudioStorageKey = "image-annotation-label-studio-settings";
@@ -729,6 +730,13 @@ function renderControls() {
   exportMenuButton.disabled = noData;
   labelStudioButton.disabled = labelStudioBusy || noData;
   emptyState.classList.toggle("is-hidden", imageLoaded);
+}
+
+if (logoutBtnApp) {
+  logoutBtnApp.addEventListener("click", () => {
+    localStorage.removeItem("dataset_username");
+    window.location.href = "index.html";
+  });
 }
 
 function render() {

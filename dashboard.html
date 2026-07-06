@@ -28,7 +28,10 @@
         <h1>Project Metrics</h1>
       </div>
       <div>
-        <p style="color: var(--muted); font-size: 0.9rem;">Logged in as: <strong id="dashUser" style="color: var(--accent);">Guest</strong></p>
+        <p style="color: var(--muted); font-size: 0.9rem;">
+          Logged in as: <strong id="dashUser" style="color: var(--accent);">Guest</strong>
+          <button type="button" id="logoutBtnDash" style="background: none; border: none; color: #e85d75; cursor: pointer; text-decoration: underline; margin-left: 8px; padding: 0; font-size: 0.85rem;">(Log out)</button>
+        </p>
       </div>
     </div>
 
@@ -233,6 +236,15 @@
         }
       } catch (e) {
         console.error("Failed to load project matrices", e);
+      }
+
+      // Logout listener
+      const logoutBtn = document.getElementById('logoutBtnDash');
+      if (logoutBtn) {
+        logoutBtn.addEventListener('click', () => {
+          localStorage.removeItem('dataset_username');
+          window.location.href = 'index.html';
+        });
       }
 
       // Card Click Listeners
