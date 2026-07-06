@@ -128,6 +128,9 @@ const urlParams = new URLSearchParams(window.location.search);
 
       // 4. Render Rows
       pageData.forEach(task => {
+        // Calculate a 1-based index for this project based on its original position
+        const displayId = allTasks.findIndex(t => t.id === task.id) + 1;
+
         const tr = document.createElement('tr');
         const badgeClass = task.status.toLowerCase() === 'completed' ? 'completed' : 'new';
         const imgUrl = '/' + task.image_path.replace(/\\\\/g, '/');
@@ -154,7 +157,7 @@ const urlParams = new URLSearchParams(window.location.search);
 
         tr.innerHTML = `
           <td style="text-align: center;"><input type="checkbox" class="row-checkbox" data-id="${task.id}" ${isChecked}></td>
-          <td>${task.id}</td>
+          <td>${displayId}</td>
           <td><img src="${imgUrl}" style="height: 40px; border-radius: 4px; border: 1px solid var(--line);"></td>
           <td style="max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${task.description}</td>
           <td>${task.assignee || '<span style="color:var(--muted)">Unassigned</span>'}</td>
