@@ -18,6 +18,7 @@ const drawMode = document.querySelector("#drawMode");
 const selectMode = document.querySelector("#selectMode");
 const boxMode = document.querySelector("#boxMode");
 const polygonMode = document.querySelector("#polygonMode");
+const commentMode = document.querySelector("#commentMode");
 const autoDetectButton = document.querySelector("#autoDetectButton");
 const undoButton = document.querySelector("#undoButton");
 const deleteButton = document.querySelector("#deleteButton");
@@ -452,6 +453,33 @@ function updateAnnotationBounds(annotation) {
 }
 
 function drawAnnotation(annotation, selected = false) {
+  if (annotation.type === "comment") {
+    const screenPoint = {
+      x: imageBox.x + annotation.x * imageBox.scale,
+      y: imageBox.y + annotation.y * imageBox.scale
+    };
+    ctx.save();
+    ctx.fillStyle = selected ? "#f4a261" : "#e85d75";
+    ctx.beginPath();
+    ctx.arc(screenPoint.x, screenPoint.y, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    const text = `${annotation.author || 'User'}: ${annotation.text}`;
+    ctx.font = "600 12px Inter, system-ui, sans-serif";
+    const tw = ctx.measureText(text).width + 12;
+    ctx.fillStyle = "rgba(0,0,0,0.75)";
+    ctx.beginPath();
+    ctx.roundRect(screenPoint.x + 12, screenPoint.y - 12, tw, 24, 4);
+    ctx.fill();
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText(text, screenPoint.x + 18, screenPoint.y + 4);
+    ctx.restore();
+    return;
+  }
+
   const label = labelById(annotation.labelId);
   const points = annotationPoints(annotation);
   const screenPoints = points.map((point) => ({
@@ -682,7 +710,7 @@ function renderAnnotations() {
   }
 
   state.annotations.forEach((annotation, index) => {
-    const label = labelById(annotation.labelId);
+    const label = annotation.type === "comment" ? { name: "Comment", color: "#e85d75" } : labelById(annotation.labelId);
     const bounds = annotationPoints(annotation);
     const item = document.createElement("button");
     item.type = "button";
@@ -692,8 +720,8 @@ function renderAnnotations() {
       <strong></strong>
       <span></span>
     `;
-    item.querySelector("strong").textContent = `${index + 1}. ${labelDisplayName(label)}`;
-    item.querySelector("span:last-child").textContent = `${bounds.length} pts`;
+    item.querySelector("strong").textContent = annotation.type === "comment" ? `💬 ${annotation.text || "Comment"}` : `${index + 1}. ${labelDisplayName(label)}`;
+    item.querySelector("span:last-child").textContent = annotation.type === "comment" ? "" : `${bounds.length} pts`;
     item.addEventListener("click", () => {
       state.selectedId = annotation.id;
       state.mode = "select";
@@ -704,9 +732,15 @@ function renderAnnotations() {
   });
 
   const selected = state.annotations.find((item) => item.id === state.selectedId);
-  selectedInfo.textContent = selected
-    ? `${labelDisplayName(labelById(selected.labelId))}, ${annotationPoints(selected).length} points`
-    : "None";
+  if (selected) {
+    if (selected.type === "comment") {
+      selectedInfo.textContent = `Comment by ${selected.author || "User"}`;
+    } else {
+      selectedInfo.textContent = `${labelDisplayName(labelById(selected.labelId))}, ${annotationPoints(selected).length} points`;
+    }
+  } else {
+    selectedInfo.textContent = "None";
+  }
 }
 
 function renderControls() {
@@ -714,9 +748,14 @@ function renderControls() {
   selectMode.classList.toggle("is-active", state.mode === "select");
   boxMode.classList.toggle("is-active", state.shape === "box");
   polygonMode.classList.toggle("is-active", state.shape === "polygon");
-  shapeHint.textContent = state.shape === "polygon"
-    ? "Select a class, then draw a polygon."
-    : "Select a class, then draw a bounding box.";
+  commentMode.classList.toggle("is-active", state.shape === "comment");
+  if (state.shape === "polygon") {
+    shapeHint.textContent = "Select a class, then draw a polygon.";
+  } else if (state.shape === "comment") {
+    shapeHint.textContent = "Click anywhere on the image to leave a comment.";
+  } else {
+    shapeHint.textContent = "Select a class, then draw a bounding box.";
+  }
   autoDetectButton.disabled = detectionBusy || !imageLoaded;
   const labelSpan = autoDetectButton.querySelector(".btn-label");
   if (labelSpan) {
@@ -815,6 +854,7 @@ function buildCocoExport() {
     });
 
     item.annotations.forEach(ann => {
+      if (ann.type === "comment") return; // skip comments in COCO export
       const label = labelById(ann.labelId);
       const category_id = labelToCategoryId[label.name] || 1;
       const points = annotationPoints(ann);
@@ -947,7 +987,7 @@ function buildExportTasks() {
     width: item.width || 0,
     height: item.height || 0,
     secondsToAnnotate: 0,
-    annotations: item.annotations.map((annotation, index) => buildExportAnnotation(annotation, index)),
+    annotations: item.annotations.filter(a => a.type !== "comment").map((annotation, index) => buildExportAnnotation(annotation, index)),
     relations: [],
     tags: [],
     metadatas: [],
@@ -1001,7 +1041,7 @@ function exportCsvData() {
     const allRows = [];
     
     items.forEach(item => {
-      const rows = item.annotations.map(annotation => {
+      const rows = item.annotations.filter(a => a.type !== "comment").map(annotation => {
         const label = labelById(annotation.labelId);
         const labelName = exportLabelName(annotation, label);
         const pts = annotationPoints(annotation);
@@ -1372,12 +1412,23 @@ boxMode.addEventListener("click", () => {
   if (drag?.type === "draw-polygon") {
     finalizePolygon();
   }
+  state.mode = "draw";
   state.shape = "box";
   render();
 });
 
 polygonMode.addEventListener("click", () => {
+  state.mode = "draw";
   state.shape = "polygon";
+  render();
+});
+
+commentMode.addEventListener("click", () => {
+  if (drag?.type === "draw-polygon") {
+    finalizePolygon();
+  }
+  state.mode = "draw";
+  state.shape = "comment";
   render();
 });
 
@@ -1554,6 +1605,36 @@ canvas.addEventListener("pointerdown", (event) => {
 
   if (state.mode === "draw") {
     const pointInImage = imagePoint(point);
+    
+    if (state.shape === "comment") {
+      const text = prompt("Enter your comment:");
+      if (text && text.trim() !== "") {
+        snapshot();
+        const annotation = {
+          id: crypto.randomUUID(),
+          type: "comment",
+          text: text.trim(),
+          author: localStorage.getItem('dataset_username') || "Unknown",
+          x: round(pointInImage.x),
+          y: round(pointInImage.y),
+          width: 20,
+          height: 20,
+          points: [
+            { x: pointInImage.x - 10, y: pointInImage.y - 10 },
+            { x: pointInImage.x + 10, y: pointInImage.y - 10 },
+            { x: pointInImage.x + 10, y: pointInImage.y + 10 },
+            { x: pointInImage.x - 10, y: pointInImage.y + 10 }
+          ]
+        };
+        state.annotations.push(annotation);
+        state.selectedId = annotation.id;
+        render();
+        save();
+        setStatus("Comment added");
+      }
+      return;
+    }
+
     if (state.shape === "polygon") {
       if (drag?.type !== "draw-polygon") {
         // First point – create annotation immediately so it appears in the Objects panel
