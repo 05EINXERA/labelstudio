@@ -2234,20 +2234,6 @@ document.addEventListener('DOMContentLoaded', () => {
     loadWorkspaceTasks();
   }
 
-const tcModal = document.getElementById('taskCompletedModal');
-const tcClose = document.getElementById('taskCompletedClose');
-const tcOk = document.getElementById('taskCompletedOkBtn');
-
-function closeTaskCompletedModal() {
-  if (tcModal) tcModal.style.display = 'none';
-  if (state.galleryIndex < state.gallery.length - 1) {
-    switchImage(state.galleryIndex + 1);
-  }
-}
-
-if (tcClose) tcClose.addEventListener('click', closeTaskCompletedModal);
-if (tcOk) tcOk.addEventListener('click', closeTaskCompletedModal);
-
 });
 
 // Complete Task Logic
