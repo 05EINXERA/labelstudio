@@ -1299,8 +1299,8 @@ function switchImage(index) {
   if (index < 0 || index >= state.gallery.length) return;
   
   if (state.galleryIndex >= 0 && state.gallery[state.galleryIndex]) {
-    syncTaskTime(state.gallery[state.galleryIndex]);
     state.gallery[state.galleryIndex].annotations = [...state.annotations];
+    syncTaskTime(state.gallery[state.galleryIndex]);
   }
   
   state.galleryIndex = index;
@@ -1911,7 +1911,7 @@ let totalSeconds = 0;
 let isTimerRunning = false;
 
 async function syncTaskTime(task) {
-  if (task && task.id && taskSessionSeconds > 0) {
+  if (task && task.id) {
     const timeDelta = taskSessionSeconds;
     taskSessionSeconds = 0;
     fetch('/api/tasks', {
@@ -1921,7 +1921,8 @@ async function syncTaskTime(task) {
         id: task.id,
         time_spent_delta: timeDelta,
         status: task.status || 'In Progress',
-        assignee: localStorage.getItem('dataset_username') || 'Unknown'
+        assignee: localStorage.getItem('dataset_username') || 'Unknown',
+        annotations: JSON.stringify(task.annotations || [])
       })
     }).catch(() => {});
   }
@@ -2244,7 +2245,7 @@ async function loadWorkspaceTasks() {
         id: t.id,
         name: t.description,
         url: "/" + t.image_path.replace(/\\/g, "/"),
-        annotations: [],
+        annotations: t.annotations || [],
         width: 0,
         height: 0,
         status: t.status,
@@ -2295,7 +2296,8 @@ document.addEventListener('DOMContentLoaded', () => {
               id: currentTask.id,
               status: 'Completed',
               time_spent_delta: timeDelta,
-              assignee: username
+              assignee: username,
+              annotations: JSON.stringify(state.annotations)
             })
           });
         

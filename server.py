@@ -249,12 +249,19 @@ class AnnotationServer(SimpleHTTPRequestHandler):
             conn = sqlite3.connect("workspace.db")
             c = conn.cursor()
             if project_id:
-                c.execute("SELECT id, description, assignee, image_path, status, time_spent, updated_at FROM tasks WHERE project_id = ?", (project_id,))
+                c.execute("SELECT id, description, assignee, image_path, status, time_spent, updated_at, annotations FROM tasks WHERE project_id = ?", (project_id,))
             else:
-                c.execute("SELECT id, description, assignee, image_path, status, time_spent, updated_at FROM tasks")
+                c.execute("SELECT id, description, assignee, image_path, status, time_spent, updated_at, annotations FROM tasks")
             tasks = []
             for row in c.fetchall():
-                tasks.append({"id": row[0], "description": row[1], "assignee": row[2], "image_path": row[3], "status": row[4], "time_spent": row[5], "updated_at": row[6]})
+                annotations_data = []
+                if row[7]:
+                    try:
+                        import json
+                        annotations_data = json.loads(row[7])
+                    except:
+                        pass
+                tasks.append({"id": row[0], "description": row[1], "assignee": row[2], "image_path": row[3], "status": row[4], "time_spent": row[5], "updated_at": row[6], "annotations": annotations_data})
             conn.close()
             self.write_json(200, tasks)
         except Exception as e:
@@ -266,12 +273,12 @@ class AnnotationServer(SimpleHTTPRequestHandler):
             conn = sqlite3.connect("workspace.db")
             c = conn.cursor()
             if "id" in payload:
-                c.execute("UPDATE tasks SET assignee = ?, status = ?, description = COALESCE(?, description), time_spent = COALESCE(time_spent, 0) + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", 
-                          (payload.get("assignee"), payload.get("status", "New"), payload.get("description"), payload.get("time_spent_delta", 0), payload.get("id")))
+                c.execute("UPDATE tasks SET assignee = ?, status = ?, description = COALESCE(?, description), time_spent = COALESCE(time_spent, 0) + ?, annotations = COALESCE(?, annotations), updated_at = CURRENT_TIMESTAMP WHERE id = ?", 
+                          (payload.get("assignee"), payload.get("status", "New"), payload.get("description"), payload.get("time_spent_delta", 0), payload.get("annotations"), payload.get("id")))
                 task_id = payload.get("id")
             else:
-                c.execute("INSERT INTO tasks (description, assignee, project_id, status, time_spent, updated_at) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)", 
-                          (payload.get("description"), payload.get("assignee"), project_id, payload.get("status", "New"), payload.get("time_spent_delta", 0)))
+                c.execute("INSERT INTO tasks (description, assignee, project_id, status, time_spent, annotations, updated_at) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)", 
+                          (payload.get("description"), payload.get("assignee"), project_id, payload.get("status", "New"), payload.get("time_spent_delta", 0), payload.get("annotations")))
                 task_id = c.lastrowid
             conn.commit()
             conn.close()
@@ -472,7 +479,8 @@ def init_db():
         status TEXT,
         assignee TEXT,
         time_spent INTEGER DEFAULT 0,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        updated_at DATETIME,
+        annotations TEXT
     )''')
     
     # Migration for existing DB: safely try to add missing columns to tasks table
@@ -498,6 +506,11 @@ def init_db():
         
     try:
         c.execute("ALTER TABLE tasks ADD COLUMN updated_at DATETIME")
+    except sqlite3.OperationalError:
+        pass
+        
+    try:
+        c.execute("ALTER TABLE tasks ADD COLUMN annotations TEXT")
     except sqlite3.OperationalError:
         pass
         
