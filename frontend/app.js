@@ -2441,7 +2441,9 @@ async function loadWorkspaceTasks() {
       
       if (state.gallery.length > 0) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        updateGalleryUI();
+        // Start from index 1 as requested, fallback to 0 if only 1 image
+        const startIndex = state.gallery.length > 1 ? 1 : 0;
+        switchImage(startIndex);
       } else {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         updateGalleryUI();
