@@ -12,8 +12,11 @@ from schemas import ProjectModel
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
 @router.get("")
-def get_projects(db: Session = Depends(get_db)):
-    projects = db.query(models.Project).all()
+def get_projects(creator: Optional[str] = Query(None), db: Session = Depends(get_db)):
+    if creator:
+        projects = db.query(models.Project).filter(models.Project.creator == creator).all()
+    else:
+        projects = db.query(models.Project).all()
     return [{"id": p.id, "name": p.name, "slug": p.slug, "type": p.type, "status": p.status, "creator": p.creator, "created_at": p.created_at} for p in projects]
 
 @router.get("/{project_id}/metrics")

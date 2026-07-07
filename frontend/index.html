@@ -49,6 +49,9 @@
       // Save username to display in the app
       const username = document.getElementById('username').value;
       localStorage.setItem('dataset_username', username);
+      
+      // Clear previous session canvas state
+      localStorage.removeItem('image-annotation-mvp-v1');
 
       // Simulate a network request for the dummy login
       setTimeout(() => {

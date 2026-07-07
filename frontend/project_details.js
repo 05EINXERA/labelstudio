@@ -51,7 +51,8 @@ const urlParams = new URLSearchParams(window.location.search);
 
     async function loadProjectDetails() {
       try {
-        const res = await fetch('/api/projects');
+        const username = localStorage.getItem('dataset_username') || '';
+        const res = await fetch(`/api/projects?creator=${encodeURIComponent(username)}`);
         if (res.ok) {
           const projects = await res.json();
           const project = projects.find(p => p.id == projectId);

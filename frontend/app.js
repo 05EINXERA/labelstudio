@@ -2184,7 +2184,8 @@ let activeProjectId = null;
 
 async function fetchSidebarProjects() {
   try {
-    const res = await fetch('/api/projects');
+    const username = localStorage.getItem('dataset_username') || '';
+    const res = await fetch(`/api/projects?creator=${encodeURIComponent(username)}`);
     if (res.ok) {
       const projects = await res.json();
       renderSidebarProjects(projects);

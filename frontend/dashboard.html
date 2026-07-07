@@ -189,7 +189,8 @@
       
       // Load Project Matrices
       try {
-        const projectsRes = await fetch('/api/projects');
+        const username = localStorage.getItem('dataset_username') || '';
+        const projectsRes = await fetch(`/api/projects?creator=${encodeURIComponent(username)}`);
         if (projectsRes.ok) {
           const projects = await projectsRes.json();
           const tbody = document.getElementById('projectsMatrixBody');
