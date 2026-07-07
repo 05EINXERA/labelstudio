@@ -146,12 +146,13 @@
             <th data-sort="time_spent" style="cursor: pointer; user-select: none;">Time Spent ↕</th>
             <th data-sort="status" style="cursor: pointer; user-select: none;">Status ↕</th>
             <th data-sort="updated_at" style="cursor: pointer; user-select: none;">Updated ↕</th>
+            <th style="text-align: center;">Comments</th>
             <th style="text-align: center;">Actions</th>
           </tr>
         </thead>
         <tbody id="taskTableBody">
           <tr>
-            <td colspan="9" style="text-align: center; color: var(--muted);">Loading tasks...</td>
+            <td colspan="10" style="text-align: center; color: var(--muted);">Loading tasks...</td>
           </tr>
         </tbody>
       </table>
@@ -167,7 +168,7 @@
 
   </main>
 
-  <script src="project_details.js?v=1"></script>
+  <script src="project_details.js?v=4"></script>
 
   <!-- Edit Task Modal -->
   <div class="modal-overlay" id="editTaskModal">
@@ -178,6 +179,12 @@
       </div>
       <form id="editTaskForm">
         <input type="hidden" id="editTaskId">
+        <div style="margin-bottom: 12px; text-align: center;">
+          <img id="editTaskImagePreview" src="" style="max-width: 100%; max-height: 200px; border-radius: 6px; border: 1px solid var(--line); display: none;">
+        </div>
+        <div style="margin-bottom: 12px;">
+          <button type="button" class="primary" id="editTaskStartAnnotatingBtn" style="padding: 8px 16px; border-radius: 6px; width: 100%;">✏️ Start Annotating This Image</button>
+        </div>
         <div style="margin-bottom: 12px;">
           <label style="display: block; margin-bottom: 4px; font-weight: 600; font-size: 0.85rem; color: var(--muted);">Filename (Description)</label>
           <input type="text" id="editTaskDescription" required style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--line); background: rgba(0,0,0,0.1); color: var(--ink);">

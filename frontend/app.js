@@ -101,6 +101,7 @@ if (!commentOverlay) {
   commentOverlayInput = document.querySelector("#commentOverlayInput");
 }
 let pendingCommentPoint = null;
+let pendingCommentEditId = null;
 
 const storageKey = "image-annotation-mvp-v1";
 const labelStudioStorageKey = "image-annotation-label-studio-settings";
@@ -361,6 +362,35 @@ function snapshot() {
   }
 }
 
+let backendSyncTimeout = null;
+
+function syncToBackend() {
+  if (typeof state === 'undefined' || state.galleryIndex < 0 || !state.gallery || !state.gallery[state.galleryIndex]) return;
+  const currentTask = state.gallery[state.galleryIndex];
+  if (!currentTask.id) return;
+  
+  const timeDelta = taskSessionSeconds;
+  taskSessionSeconds = 0;
+  const username = localStorage.getItem('dataset_username') || 'Unknown';
+  let saveStatus = currentTask.status;
+  if (saveStatus === 'New') saveStatus = 'In Progress';
+  currentTask.status = saveStatus;
+  currentTask.annotations = [...state.annotations];
+  
+  fetch('/api/tasks', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      id: currentTask.id,
+      status: saveStatus,
+      time_spent_delta: timeDelta,
+      assignee: username,
+      annotations: JSON.stringify(currentTask.annotations)
+    }),
+    keepalive: true
+  }).catch(e => console.error("Auto-save failed", e));
+}
+
 function save() {
   const payload = {
     labels: state.labels,
@@ -369,6 +399,13 @@ function save() {
   };
   localStorage.setItem(storageKey, JSON.stringify(payload));
   setStatus("Saved");
+  
+  if (window.backendSyncTimeout) {
+    clearTimeout(window.backendSyncTimeout);
+  }
+  window.backendSyncTimeout = setTimeout(() => {
+    syncToBackend();
+  }, 1000);
 }
 
 function loadSaved() {
@@ -807,7 +844,17 @@ function renderAnnotations() {
   const selected = state.annotations.find((item) => item.id === state.selectedId);
   if (selected) {
     if (selected.type === "comment") {
-      selectedInfo.textContent = `Comment by ${selected.author || "User"}`;
+      selectedInfo.innerHTML = `Comment by ${selected.author || "User"} <button id="editCommentBtn" class="icon-button" style="font-size: 0.8rem; margin-left: 8px;">✏️ Edit</button>`;
+      document.getElementById('editCommentBtn').addEventListener('click', () => {
+        pendingCommentEditId = selected.id;
+        const screenX = imageBox.x + selected.x * imageBox.scale;
+        const screenY = imageBox.y + selected.y * imageBox.scale;
+        commentOverlay.style.left = `${screenX + 15}px`;
+        commentOverlay.style.top = `${screenY - 15}px`;
+        commentOverlayInput.value = selected.text || "";
+        commentOverlay.classList.remove("is-hidden");
+        commentOverlayInput.focus();
+      });
     } else {
       selectedInfo.textContent = `${labelDisplayName(labelById(selected.labelId))}, ${annotationPoints(selected).length} points`;
     }
@@ -1411,12 +1458,31 @@ function loadGallery(fileList) {
 
 function switchImage(index) {
   if (index < 0 || index >= state.gallery.length) return;
-  
   if (state.galleryIndex >= 0 && state.gallery[state.galleryIndex]) {
-    state.gallery[state.galleryIndex].annotations = [...state.annotations];
-    syncTaskTime(state.gallery[state.galleryIndex]);
+    const prevTask = state.gallery[state.galleryIndex];
+    prevTask.annotations = [...state.annotations];
+    syncTaskTime(prevTask);
+    
+    if (prevTask.id) {
+      const timeDelta = taskSessionSeconds;
+      taskSessionSeconds = 0;
+      const username = localStorage.getItem('dataset_username') || 'Unknown';
+      let saveStatus = prevTask.status;
+      if (saveStatus === 'New') saveStatus = 'In Progress';
+      
+      fetch('/api/tasks', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          id: prevTask.id,
+          status: saveStatus,
+          time_spent_delta: timeDelta,
+          assignee: username,
+          annotations: JSON.stringify(prevTask.annotations)
+        })
+      }).catch(e => console.error("Auto-save failed", e));
+    }
   }
-  
   state.galleryIndex = index;
   const item = state.gallery[index];
   
@@ -1510,40 +1576,55 @@ commentOverlayInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
     const text = commentOverlayInput.value;
-    if (text && text.trim() !== "" && pendingCommentPoint) {
-      snapshot();
-      const annotation = {
-        id: crypto.randomUUID(),
-        type: "comment",
-        text: text.trim(),
-        author: localStorage.getItem('dataset_username') || "Unknown",
-        x: round(pendingCommentPoint.x),
-        y: round(pendingCommentPoint.y),
-        width: 20,
-        height: 20,
-        points: [
-          { x: pendingCommentPoint.x - 10, y: pendingCommentPoint.y - 10 },
-          { x: pendingCommentPoint.x + 10, y: pendingCommentPoint.y - 10 },
-          { x: pendingCommentPoint.x + 10, y: pendingCommentPoint.y + 10 },
-          { x: pendingCommentPoint.x - 10, y: pendingCommentPoint.y + 10 }
-        ]
-      };
-      state.annotations.push(annotation);
-      state.selectedId = annotation.id;
-      pendingCommentPoint = null;
-      commentOverlay.classList.add("is-hidden");
-      render();
-      save();
-      setStatus("Comment added");
+    if (text && text.trim() !== "") {
+      if (pendingCommentEditId) {
+        const annotation = state.annotations.find(a => a.id === pendingCommentEditId);
+        if (annotation) {
+          snapshot();
+          annotation.text = text.trim();
+          render();
+          save();
+          setStatus("Comment updated");
+        }
+        pendingCommentEditId = null;
+        commentOverlay.classList.add("is-hidden");
+      } else if (pendingCommentPoint) {
+        snapshot();
+        const annotation = {
+          id: crypto.randomUUID(),
+          type: "comment",
+          text: text.trim(),
+          author: localStorage.getItem('dataset_username') || "Unknown",
+          x: round(pendingCommentPoint.x),
+          y: round(pendingCommentPoint.y),
+          width: 20,
+          height: 20,
+          points: [
+            { x: pendingCommentPoint.x - 10, y: pendingCommentPoint.y - 10 },
+            { x: pendingCommentPoint.x + 10, y: pendingCommentPoint.y - 10 },
+            { x: pendingCommentPoint.x + 10, y: pendingCommentPoint.y + 10 },
+            { x: pendingCommentPoint.x - 10, y: pendingCommentPoint.y + 10 }
+          ]
+        };
+        state.annotations.push(annotation);
+        state.selectedId = annotation.id;
+        pendingCommentPoint = null;
+        commentOverlay.classList.add("is-hidden");
+        render();
+        save();
+        setStatus("Comment added");
+      }
     } else {
       // If empty, treat as cancel
       pendingCommentPoint = null;
+      pendingCommentEditId = null;
       commentOverlay.classList.add("is-hidden");
       render();
     }
   } else if (e.key === "Escape") {
     e.preventDefault();
     pendingCommentPoint = null;
+    pendingCommentEditId = null;
     commentOverlay.classList.add("is-hidden");
     render();
   }
@@ -2415,6 +2496,11 @@ createProjectSidebarForm.addEventListener('submit', async (e) => {
 });
 
 document.addEventListener('DOMContentLoaded', () => {
+  window.addEventListener('beforeunload', () => {
+    if (typeof state !== 'undefined' && state && state.galleryIndex >= 0) {
+      syncToBackend();
+    }
+  });
   fetchSidebarProjects();
 });
 
@@ -2441,9 +2527,13 @@ async function loadWorkspaceTasks() {
       
       if (state.gallery.length > 0) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        // Start from index 1 as requested, fallback to 0 if only 1 image
-        const startIndex = state.gallery.length > 1 ? 1 : 0;
-        switchImage(startIndex);
+        let initialIndex = 0;
+        const targetTaskId = urlParams.get('taskId');
+        if (targetTaskId) {
+            const foundIndex = state.gallery.findIndex(t => t.id == targetTaskId);
+            if (foundIndex !== -1) initialIndex = foundIndex;
+        }
+        switchImage(initialIndex);
       } else {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         updateGalleryUI();

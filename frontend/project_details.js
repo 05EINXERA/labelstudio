@@ -156,6 +156,22 @@ const urlParams = new URLSearchParams(window.location.search);
 
         const isChecked = selectedTaskIds.has(task.id) ? 'checked' : '';
 
+        let commentCount = 0;
+        if (task.annotations) {
+          if (Array.isArray(task.annotations)) {
+            commentCount = task.annotations.filter(a => a.type === "comment").length;
+          } else if (typeof task.annotations === 'string') {
+            try {
+              const anns = JSON.parse(task.annotations);
+              if (Array.isArray(anns)) {
+                commentCount = anns.filter(a => a.type === "comment").length;
+              }
+            } catch (e) {
+              console.error("Failed to parse annotations for task", task.id);
+            }
+          }
+        }
+
         tr.innerHTML = `
           <td style="text-align: center;"><input type="checkbox" class="row-checkbox" data-id="${task.id}" ${isChecked}></td>
           <td>${displayId}</td>
@@ -165,12 +181,14 @@ const urlParams = new URLSearchParams(window.location.search);
           <td style="font-family: monospace; font-size: 0.95rem;">${formattedTime}</td>
           <td><span class="status-badge ${badgeClass}">${task.status}</span></td>
           <td style="font-size: 0.85rem; color: var(--muted);">${formattedDate}</td>
+          <td style="text-align: center; color: var(--muted);">💬 ${commentCount}</td>
           <td style="text-align: center; white-space: nowrap;">
             <button type="button" class="icon-button edit-task-btn" 
               data-id="${task.id}" 
               data-description="${task.description}" 
               data-assignee="${task.assignee || ''}" 
               data-status="${task.status}" 
+              data-image="${imgUrl}"
               style="padding: 6px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center;" title="Edit Task">
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></svg>
             </button>
@@ -201,7 +219,7 @@ const urlParams = new URLSearchParams(window.location.search);
       document.querySelectorAll('.edit-task-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
           const b = e.currentTarget;
-          openEditTaskModal(b.dataset.id, b.dataset.description, b.dataset.assignee, b.dataset.status);
+          openEditTaskModal(b.dataset.id, b.dataset.description, b.dataset.assignee, b.dataset.status, b.dataset.image);
         });
       });
 
@@ -347,11 +365,20 @@ const urlParams = new URLSearchParams(window.location.search);
     });
 
     // --- Edit Task Modal Logic ---
-    function openEditTaskModal(id, description, assignee, status) {
+    function openEditTaskModal(id, description, assignee, status, imageUrl) {
       document.getElementById('editTaskId').value = id;
       document.getElementById('editTaskDescription').value = description;
       document.getElementById('editTaskAssignee').value = assignee;
       document.getElementById('editTaskStatus').value = status;
+      
+      const imgPreview = document.getElementById('editTaskImagePreview');
+      if (imageUrl) {
+        imgPreview.src = imageUrl;
+        imgPreview.style.display = 'inline-block';
+      } else {
+        imgPreview.style.display = 'none';
+      }
+      
       document.getElementById('editTaskModal').classList.add('is-active');
     }
 
@@ -362,6 +389,13 @@ const urlParams = new URLSearchParams(window.location.search);
     document.addEventListener('DOMContentLoaded', () => {
       document.getElementById('editTaskClose').addEventListener('click', closeEditTaskModal);
       document.getElementById('editTaskCancelBtn').addEventListener('click', closeEditTaskModal);
+
+      document.getElementById('editTaskStartAnnotatingBtn').addEventListener('click', () => {
+        const taskId = document.getElementById('editTaskId').value;
+        if (taskId && projectId) {
+          window.location.href = `app.html?projectId=${projectId}&taskId=${taskId}`;
+        }
+      });
 
       document.getElementById('editTaskForm').addEventListener('submit', async (e) => {
         e.preventDefault();
