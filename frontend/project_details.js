@@ -160,7 +160,7 @@ const urlParams = new URLSearchParams(window.location.search);
           <td style="text-align: center;"><input type="checkbox" class="row-checkbox" data-id="${task.id}" ${isChecked}></td>
           <td>${displayId}</td>
           <td><img src="${imgUrl}" style="height: 40px; border-radius: 4px; border: 1px solid var(--line);"></td>
-          <td style="max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${task.description}</td>
+          <td style="max-width: 400px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${task.description}</td>
           <td>${task.assignee || '<span style="color:var(--muted)">Unassigned</span>'}</td>
           <td style="font-family: monospace; font-size: 0.95rem;">${formattedTime}</td>
           <td><span class="status-badge ${badgeClass}">${task.status}</span></td>

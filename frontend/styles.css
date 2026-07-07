@@ -1112,12 +1112,12 @@ canvas {
   position: absolute;
   top: 0;
   left: 0;
-  background-color: var(--surface);
-  border: 1px solid var(--border);
+  background-color: var(--panel);
+  border: 1px solid var(--line);
   border-radius: 8px;
   padding: 12px;
   width: 240px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow);
   z-index: 100;
   display: flex;
   flex-direction: column;
@@ -1126,17 +1126,18 @@ canvas {
 .comment-overlay textarea {
   width: 100%;
   resize: vertical;
-  background-color: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--border);
+  background-color: var(--bg);
+  border: 1px solid var(--line);
   border-radius: 4px;
-  color: var(--text);
+  color: var(--ink);
   padding: 8px;
   font-family: inherit;
   font-size: 0.9rem;
 }
 .comment-overlay textarea:focus {
   outline: none;
-  border-color: var(--primary);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(15, 139, 141, 0.2);
 }
 .comment-overlay-actions {
   display: flex;
@@ -1146,5 +1147,10 @@ canvas {
 .comment-overlay-actions .btn {
   padding: 6px 12px;
   font-size: 0.85rem;
+}
+
+
+.comment-overlay.is-hidden {
+  display: none;
 }
 

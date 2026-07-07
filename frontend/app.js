@@ -47,10 +47,59 @@ const galleryPosition = document.querySelector("#galleryPosition");
 const clearGalleryButton = document.querySelector("#clearGalleryButton");
 const logoutBtnApp = document.querySelector("#logoutBtnApp");
 
-const commentOverlay = document.querySelector("#commentOverlay");
-const commentOverlayInput = document.querySelector("#commentOverlayInput");
-const commentOverlaySave = document.querySelector("#commentOverlaySave");
-const commentOverlayCancel = document.querySelector("#commentOverlayCancel");
+let commentOverlay = document.querySelector("#commentOverlay");
+let commentOverlayInput = document.querySelector("#commentOverlayInput");
+
+if (!commentOverlay) {
+  const styleHtml = `
+    <style>
+      .comment-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        background-color: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 12px;
+        width: 240px;
+        box-shadow: var(--shadow);
+        z-index: 100;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .comment-overlay textarea {
+        width: 100%;
+        resize: vertical;
+        background-color: var(--bg);
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        color: var(--ink);
+        padding: 8px;
+        font-family: inherit;
+        font-size: 0.9rem;
+      }
+      .comment-overlay textarea:focus {
+        outline: none;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 2px rgba(15, 139, 141, 0.2);
+      }
+      .comment-overlay.is-hidden {
+        display: none;
+      }
+    </style>
+  `;
+  document.head.insertAdjacentHTML('beforeend', styleHtml);
+  
+  const overlayHtml = `
+    <div id="commentOverlay" class="comment-overlay is-hidden">
+      <textarea id="commentOverlayInput" placeholder="Enter comment and press Enter..." rows="3"></textarea>
+    </div>
+  `;
+  stageWrap.insertAdjacentHTML('beforeend', overlayHtml);
+  commentOverlay = document.querySelector("#commentOverlay");
+  commentOverlayInput = document.querySelector("#commentOverlayInput");
+}
 let pendingCommentPoint = null;
 
 const storageKey = "image-annotation-mvp-v1";
@@ -1457,45 +1506,47 @@ commentMode.addEventListener("click", () => {
   render();
 });
 
-commentOverlaySave.addEventListener("click", () => {
-  const text = commentOverlayInput.value;
-  if (text && text.trim() !== "" && pendingCommentPoint) {
-    snapshot();
-    const annotation = {
-      id: crypto.randomUUID(),
-      type: "comment",
-      text: text.trim(),
-      author: localStorage.getItem('dataset_username') || "Unknown",
-      x: round(pendingCommentPoint.x),
-      y: round(pendingCommentPoint.y),
-      width: 20,
-      height: 20,
-      points: [
-        { x: pendingCommentPoint.x - 10, y: pendingCommentPoint.y - 10 },
-        { x: pendingCommentPoint.x + 10, y: pendingCommentPoint.y - 10 },
-        { x: pendingCommentPoint.x + 10, y: pendingCommentPoint.y + 10 },
-        { x: pendingCommentPoint.x - 10, y: pendingCommentPoint.y + 10 }
-      ]
-    };
-    state.annotations.push(annotation);
-    state.selectedId = annotation.id;
-    pendingCommentPoint = null;
-    commentOverlay.classList.add("is-hidden");
-    render();
-    save();
-    setStatus("Comment added");
-  } else if (!text || text.trim() === "") {
-    // If empty, treat as cancel
+commentOverlayInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    const text = commentOverlayInput.value;
+    if (text && text.trim() !== "" && pendingCommentPoint) {
+      snapshot();
+      const annotation = {
+        id: crypto.randomUUID(),
+        type: "comment",
+        text: text.trim(),
+        author: localStorage.getItem('dataset_username') || "Unknown",
+        x: round(pendingCommentPoint.x),
+        y: round(pendingCommentPoint.y),
+        width: 20,
+        height: 20,
+        points: [
+          { x: pendingCommentPoint.x - 10, y: pendingCommentPoint.y - 10 },
+          { x: pendingCommentPoint.x + 10, y: pendingCommentPoint.y - 10 },
+          { x: pendingCommentPoint.x + 10, y: pendingCommentPoint.y + 10 },
+          { x: pendingCommentPoint.x - 10, y: pendingCommentPoint.y + 10 }
+        ]
+      };
+      state.annotations.push(annotation);
+      state.selectedId = annotation.id;
+      pendingCommentPoint = null;
+      commentOverlay.classList.add("is-hidden");
+      render();
+      save();
+      setStatus("Comment added");
+    } else {
+      // If empty, treat as cancel
+      pendingCommentPoint = null;
+      commentOverlay.classList.add("is-hidden");
+      render();
+    }
+  } else if (e.key === "Escape") {
+    e.preventDefault();
     pendingCommentPoint = null;
     commentOverlay.classList.add("is-hidden");
     render();
   }
-});
-
-commentOverlayCancel.addEventListener("click", () => {
-  pendingCommentPoint = null;
-  commentOverlay.classList.add("is-hidden");
-  render();
 });
 
 undoButton.addEventListener("click", () => {

@@ -21,8 +21,19 @@ def get_projects(creator: Optional[str] = Query(None), db: Session = Depends(get
 
 @router.get("/{project_id}/metrics")
 def get_project_metrics(project_id: int, db: Session = Depends(get_db)):
-    total = db.query(models.Task).filter(models.Task.project_id == project_id).count()
-    completed = db.query(models.Task).filter(models.Task.project_id == project_id, models.Task.status == 'Completed').count()
+    tasks = db.query(models.Task).filter(models.Task.project_id == project_id).all()
+    total = len(tasks)
+    completed = sum(1 for t in tasks if t.status == 'Completed')
+    
+    comments_count = 0
+    import json
+    for t in tasks:
+        if t.annotations:
+            try:
+                annots = json.loads(t.annotations)
+                comments_count += sum(1 for a in annots if a.get('type') == 'comment')
+            except Exception:
+                pass
     
     progress = int((completed / total * 100)) if total > 0 else 0
     
@@ -35,7 +46,7 @@ def get_project_metrics(project_id: int, db: Session = Depends(get_db)):
             project.status = 'In Progress'
             db.commit()
 
-    return {"total": total, "completed": completed, "progress": progress}
+    return {"total": total, "completed": completed, "progress": progress, "comments": comments_count}
 
 @router.post("")
 def create_project(project: ProjectModel, db: Session = Depends(get_db)):
