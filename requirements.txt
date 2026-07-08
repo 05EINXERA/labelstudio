@@ -7,3 +7,5 @@ uvicorn>=0.30.0
 python-multipart>=0.0.9
 sqlalchemy>=2.0.0
 alembic>=1.13.0
+torch>=2.0.0
+transformers>=4.30.0
