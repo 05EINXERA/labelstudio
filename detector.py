@@ -375,7 +375,7 @@ def detect_objects(image_data, selection=None):
         x2 = x + box_width
         y2 = y + box_height
         left, top, clamped_width, clamped_height = clamp_box(x, y, x2, y2, width, height)
-        predictions.append({
+        pred_dict = {
             "class": item["class"],
             "score": item["score"],
             "bbox": [
@@ -384,7 +384,15 @@ def detect_objects(image_data, selection=None):
                 round(clamped_width, 2),
                 round(clamped_height, 2),
             ],
-        })
+        }
+        
+        if "points" in item:
+            pred_dict["points"] = [
+                {"x": round(pt["x"] + origin_x, 2), "y": round(pt["y"] + origin_y, 2)}
+                for pt in item["points"]
+            ]
+            
+        predictions.append(pred_dict)
 
     return {
         "width": original_width,
