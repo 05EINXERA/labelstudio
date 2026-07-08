@@ -1126,7 +1126,7 @@ function buildExportTasks() {
 
 function exportJsonData() {
   try {
-    const payload = buildExportTasks();
+    const payload = buildCocoExport();
 
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
