@@ -6,6 +6,7 @@ from fastapi.responses import FileResponse
 
 from database import engine, Base
 from api.routers import projects, tasks, team, data, detect, label_studio, labels
+from config import DATA_DIR
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("APP_PORT", "8765"))
@@ -32,8 +33,9 @@ app.include_router(label_studio.router)
 app.include_router(labels.router)
 
 # Ensure uploads directory exists
-os.makedirs("uploads", exist_ok=True)
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+uploads_dir = os.path.join(DATA_DIR, "uploads")
+os.makedirs(uploads_dir, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=uploads_dir), name="uploads")
 
 # Serve frontend static files
 # Route the root URL to index.html

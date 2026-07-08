@@ -1,8 +1,12 @@
+import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker
 
-SQLALCHEMY_DATABASE_URL = "sqlite:///./workspace.db"
+from config import DATA_DIR
+
+db_path = os.path.join(DATA_DIR, "workspace.db")
+SQLALCHEMY_DATABASE_URL = f"sqlite:///{db_path}"
 
 # check_same_thread is needed for SQLite
 engine = create_engine(
