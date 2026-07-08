@@ -3,13 +3,14 @@ import io
 import os
 import threading
 import urllib.request
+from config import DATA_DIR
 
 import cv2
 import numpy as np
 from PIL import Image
 
 
-MODEL_DIR = os.path.join(os.path.dirname(__file__), "models")
+MODEL_DIR = os.path.join(DATA_DIR, "models")
 MODEL_FILE = os.environ.get("YOLO_MODEL", "yolov8n-seg.onnx")
 MODEL_PATH = MODEL_FILE if os.path.isabs(MODEL_FILE) else os.path.join(MODEL_DIR, MODEL_FILE)
 MODEL_URL = os.environ.get(

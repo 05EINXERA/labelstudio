@@ -56,9 +56,12 @@ def create_project(project: ProjectModel, db: Session = Depends(get_db)):
     db.refresh(db_project)
     return {"id": db_project.id, "status": "ok"}
 
+from config import DATA_DIR
+
 @router.post("/{project_id}/upload")
 def upload_files(project_id: int, assignee: Optional[str] = Query(None), file: List[UploadFile] = File(...), db: Session = Depends(get_db)):
-    os.makedirs("uploads", exist_ok=True)
+    uploads_dir = os.path.join(DATA_DIR, "uploads")
+    os.makedirs(uploads_dir, exist_ok=True)
     saved_files = []
     
     ALLOWED_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.gif', '.webp'}
@@ -69,14 +72,17 @@ def upload_files(project_id: int, assignee: Optional[str] = Query(None), file: L
             raise HTTPException(status_code=400, detail=f"File type {ext} is not allowed.")
             
         new_filename = f"{uuid.uuid4().hex}{ext}"
-        filepath = os.path.join("uploads", new_filename)
+        filepath = os.path.join(uploads_dir, new_filename)
+        
+        # Save relative to uploads dir for DB
+        db_filepath = os.path.join("uploads", new_filename)
         
         with open(filepath, "wb") as out_file:
             out_file.write(f.file.read())
             
-        task = models.Task(project_id=project_id, image_path=filepath, description=f.filename, status='New', assignee=assignee)
+        task = models.Task(project_id=project_id, image_path=db_filepath, description=f.filename, status='New', assignee=assignee)
         db.add(task)
-        saved_files.append(filepath)
+        saved_files.append(db_filepath)
         
     db.commit()
     return {"status": "ok", "files": saved_files}
