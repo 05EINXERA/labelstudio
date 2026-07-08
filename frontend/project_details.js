@@ -33,8 +33,12 @@ const urlParams = new URLSearchParams(window.location.search);
 
       try {
         const assignee = encodeURIComponent(localStorage.getItem('dataset_username') || 'Unknown');
+        const token = localStorage.getItem('access_token');
         const res = await fetch(`/api/projects/${projectId}/upload?assignee=${assignee}`, {
           method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          },
           body: formData
         });
         if (res.ok) {
@@ -52,7 +56,12 @@ const urlParams = new URLSearchParams(window.location.search);
     async function loadProjectDetails() {
       try {
         const username = localStorage.getItem('dataset_username') || '';
-        const res = await fetch(`/api/projects?creator=${encodeURIComponent(username)}`);
+        const token = localStorage.getItem('access_token');
+        const res = await fetch(`/api/projects?creator=${encodeURIComponent(username)}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
         if (res.ok) {
           const projects = await res.json();
           const project = projects.find(p => p.id == projectId);

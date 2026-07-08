@@ -5,8 +5,9 @@ from typing import List
 import models
 from database import get_db
 from schemas import LabelModel
+from api.auth import get_current_user
 
-router = APIRouter(prefix="/api/labels", tags=["labels"])
+router = APIRouter(prefix="/api/labels", tags=["labels"], dependencies=[Depends(get_current_user)])
 
 @router.get("", response_model=List[LabelModel])
 def get_labels(db: Session = Depends(get_db)):

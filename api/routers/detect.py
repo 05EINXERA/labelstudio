@@ -1,9 +1,10 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 
 from detector import DetectionClientError, detect_objects, classify_image
-from schemas import DetectPayload, ClassifyPayload
+from schemas import DetectPayload, ClassifyPayload, SegmentPayload
+from api.auth import get_current_user
 
-router = APIRouter(prefix="/api/detect", tags=["detect"])
+router = APIRouter(prefix="/api/detect", tags=["detect"], dependencies=[Depends(get_current_user)])
 
 @router.post("")
 def detect(payload: DetectPayload):
@@ -25,3 +26,15 @@ def classify(payload: ClassifyPayload):
     except Exception as e:
         print(f"Classification error: {e}")
         raise HTTPException(status_code=500, detail="Image classification failed.")
+
+@router.post("/segment")
+def segment(payload: SegmentPayload):
+    from detector import segment_point
+    try:
+        response = segment_point(payload.image, payload.point.x, payload.point.y)
+        return response
+    except DetectionClientError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+    except Exception as e:
+        print(f"Segmentation error: {e}")
+        raise HTTPException(status_code=500, detail="Image segmentation failed.")

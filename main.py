@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from database import engine, Base
-from api.routers import projects, tasks, team, data, detect, label_studio, labels
+from api.routers import projects, tasks, team, data, detect, label_studio, labels, auth
 from config import DATA_DIR
 
 HOST = "127.0.0.1"
@@ -16,9 +16,10 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
+_cors_origins = os.environ.get("CORS_ORIGINS", "*")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins.split(","),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -31,6 +32,7 @@ app.include_router(team.router)
 app.include_router(detect.router)
 app.include_router(label_studio.router)
 app.include_router(labels.router)
+app.include_router(auth.router)
 
 # Ensure uploads directory exists
 uploads_dir = os.path.join(DATA_DIR, "uploads")

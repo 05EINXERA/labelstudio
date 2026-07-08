@@ -1,3 +1,22 @@
+if (!localStorage.getItem('access_token')) {
+  window.location.href = '/';
+}
+
+async function apiFetch(url, options = {}) {
+  const token = localStorage.getItem('access_token');
+  if (!token) {
+    window.location.href = '/';
+    return;
+  }
+  options.headers = { ...options.headers, 'Authorization': `Bearer ${token}` };
+  const res = await fetch(url, options);
+  if (res.status === 401) {
+    localStorage.removeItem('access_token');
+    window.location.href = '/';
+  }
+  return res;
+}
+
 const canvas = document.querySelector("#annotationCanvas");
 const ctx = canvas.getContext("2d");
 
@@ -19,6 +38,7 @@ const selectMode = document.querySelector("#selectMode");
 const boxMode = document.querySelector("#boxMode");
 const polygonMode = document.querySelector("#polygonMode");
 const commentMode = document.querySelector("#commentMode");
+const magicWandMode = document.querySelector("#magicWandMode");
 const autoDetectButton = document.querySelector("#autoDetectButton");
 const autoTagButton = document.querySelector("#autoTagButton");
 const undoButton = document.querySelector("#undoButton");
@@ -178,7 +198,7 @@ function ensureLabel(className, customColor = null) {
   state.labels.push(label);
   
   // Persist to backend asynchronously
-  fetch('/api/labels', {
+  apiFetch('/api/labels', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(label)
@@ -260,10 +280,10 @@ async function autoDetectObjects({ replace = true } = {}) {
   setStatus(selection ? "Detecting selection" : "Detecting");
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10000);
+  const timeoutId = setTimeout(() => controller.abort(), 60000);
 
   try {
-    const response = await fetch(`${window.location.origin}/api/detect`, {
+    const response = await apiFetch(`${window.location.origin}/api/detect`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       signal: controller.signal,
@@ -275,7 +295,7 @@ async function autoDetectObjects({ replace = true } = {}) {
     clearTimeout(timeoutId);
     const payload = await response.json();
     if (!response.ok) {
-      throw new Error(payload.error || `Detection failed (${response.status})`);
+      throw new Error(payload.detail || payload.error || `Detection failed (${response.status})`);
     }
 
     const predictions = payload.predictions || [];
@@ -341,7 +361,7 @@ async function autoTagObjects() {
       image: state.image?.src || imageElement.src
     };
 
-    const response = await fetch(`${window.location.origin}/api/detect/classify`, {
+    const response = await apiFetch(`${window.location.origin}/api/detect/classify`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
@@ -365,6 +385,57 @@ async function autoTagObjects() {
     console.error(error);
     setStatus("Auto-tag failed");
     window.alert(error.message || "Auto-tagging failed. Is server.py running?");
+  } finally {
+    setDetectionBusy(false);
+  }
+}
+
+async function performMagicWandSegmentation(point) {
+  if (!imageLoaded || detectionBusy) return;
+
+  setDetectionBusy(true);
+  setStatus("Segmenting object...");
+
+  try {
+    const response = await apiFetch(`${window.location.origin}/api/detect/segment`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        image: state.image?.src || imageElement.src,
+        point: { x: Math.round(point.x), y: Math.round(point.y) }
+      })
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.detail || `Segmentation failed (${response.status})`);
+    }
+
+    const points = payload.points || [];
+    if (!points.length) {
+      setStatus("No object found at point");
+      return;
+    }
+
+    snapshot();
+
+    const labelId = state.activeLabelId || ensureLabel("object").id;
+    const annotation = {
+      id: crypto.randomUUID(),
+      labelId: labelId,
+      points: points,
+      source: "magic-wand"
+    };
+    updateAnnotationBounds(annotation);
+    
+    state.annotations.push(annotation);
+    state.selectedId = annotation.id;
+    render();
+    save();
+    setStatus("Segmented object");
+  } catch (error) {
+    console.error(error);
+    setStatus("Segmentation failed");
+    window.alert(error.message || "Segmentation failed.");
   } finally {
     setDetectionBusy(false);
   }
@@ -421,17 +492,17 @@ function syncToBackend() {
   const timeDelta = taskSessionSeconds;
   taskSessionSeconds = 0;
   const username = localStorage.getItem('dataset_username') || 'Unknown';
-  let saveStatus = currentTask.status;
-  if (saveStatus === 'New') saveStatus = 'In Progress';
-  currentTask.status = saveStatus;
+  let taskStatus = currentTask.status;
+  if (taskStatus === 'New') taskStatus = 'In Progress';
+  currentTask.status = taskStatus;
   currentTask.annotations = [...state.annotations];
   
-  fetch('/api/tasks', {
+  apiFetch('/api/tasks', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({
       id: currentTask.id,
-      status: saveStatus,
+      status: taskStatus,
       time_spent_delta: timeDelta,
       assignee: username,
       annotations: JSON.stringify(currentTask.annotations)
@@ -765,6 +836,44 @@ function hitTest(point) {
   return null;
 }
 
+function hitTestPoint(point, annotation) {
+  if (!annotation || !annotation.points) return -1;
+  const img = imagePoint(point);
+  const threshold = 6 / imageBox.scale;
+  for (let i = 0; i < annotation.points.length; i++) {
+    const pt = annotation.points[i];
+    if (Math.hypot(pt.x - img.x, pt.y - img.y) < threshold) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function hitTestLine(point, annotation) {
+  if (!annotation || !annotation.points || annotation.points.length < 3) return -1;
+  const img = imagePoint(point);
+  const threshold = 6 / imageBox.scale;
+  const pts = annotation.points;
+  for (let i = 0; i < pts.length; i++) {
+    const p1 = pts[i];
+    const p2 = pts[(i + 1) % pts.length];
+    
+    const l2 = (p1.x - p2.x) ** 2 + (p1.y - p2.y) ** 2;
+    if (l2 === 0) continue;
+    
+    let t = ((img.x - p1.x) * (p2.x - p1.x) + (img.y - p1.y) * (p2.y - p1.y)) / l2;
+    t = Math.max(0, Math.min(1, t));
+    
+    const projX = p1.x + t * (p2.x - p1.x);
+    const projY = p1.y + t * (p2.y - p1.y);
+    
+    if (Math.hypot(img.x - projX, img.y - projY) < threshold) {
+      return i;
+    }
+  }
+  return -1;
+}
+
 function selectedAnnotation() {
   return state.annotations.find((item) => item.id === state.selectedId) || null;
 }
@@ -918,6 +1027,7 @@ function renderControls() {
   boxMode.classList.toggle("is-active", state.shape === "box");
   polygonMode.classList.toggle("is-active", state.shape === "polygon");
   commentMode.classList.toggle("is-active", state.shape === "comment");
+  magicWandMode.classList.toggle("is-active", state.shape === "magicWand");
   if (state.shape === "polygon") {
     shapeHint.textContent = "Select a class, then draw a polygon.";
   } else if (state.shape === "comment") {
@@ -944,6 +1054,7 @@ if (logoutBtnApp) {
   logoutBtnApp.addEventListener("click", () => {
     localStorage.removeItem("dataset_username");
     localStorage.removeItem("image-annotation-mvp-v1");
+    localStorage.removeItem("access_token");
     window.location.href = "index.html";
   });
 }
@@ -1076,7 +1187,7 @@ async function sendToEndpoint() {
 
   try {
     const payload = buildCocoExport();
-    const response = await fetch(url, {
+    const response = await apiFetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
@@ -1511,26 +1622,6 @@ function switchImage(index) {
     const prevTask = state.gallery[state.galleryIndex];
     prevTask.annotations = [...state.annotations];
     syncTaskTime(prevTask);
-    
-    if (prevTask.id) {
-      const timeDelta = taskSessionSeconds;
-      taskSessionSeconds = 0;
-      const username = localStorage.getItem('dataset_username') || 'Unknown';
-      let saveStatus = prevTask.status;
-      if (saveStatus === 'New') saveStatus = 'In Progress';
-      
-      fetch('/api/tasks', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          id: prevTask.id,
-          status: saveStatus,
-          time_spent_delta: timeDelta,
-          assignee: username,
-          annotations: JSON.stringify(prevTask.annotations)
-        })
-      }).catch(e => console.error("Auto-save failed", e));
-    }
   }
   state.galleryIndex = index;
   const item = state.gallery[index];
@@ -1618,6 +1709,15 @@ commentMode.addEventListener("click", () => {
   }
   state.mode = "draw";
   state.shape = "comment";
+  render();
+});
+
+magicWandMode.addEventListener("click", () => {
+  if (drag?.type === "draw-polygon") {
+    finalizePolygon();
+  }
+  state.mode = "draw";
+  state.shape = "magicWand";
   render();
 });
 
@@ -1823,10 +1923,43 @@ function finalizePolygon() {
   setStatus("Annotation created");
 }
 
+canvas.addEventListener("contextmenu", (event) => {
+  if (state.selectedId) {
+    event.preventDefault();
+  }
+});
+
 canvas.addEventListener("pointerdown", (event) => {
   if (!imageLoaded) return;
   canvas.setPointerCapture(event.pointerId);
   const point = canvasPoint(event);
+
+  if (state.selectedId && (event.altKey || event.button === 2)) {
+    const selected = state.annotations.find(a => a.id === state.selectedId);
+    if (selected && selected.points && selected.points.length > 3) {
+      const ptIndex = hitTestPoint(point, selected);
+      if (ptIndex !== -1) {
+        snapshot();
+        selected.points.splice(ptIndex, 1);
+        updateAnnotationBounds(selected);
+        render();
+        save();
+        return;
+      }
+      const lnIndex = hitTestLine(point, selected);
+      if (lnIndex !== -1) {
+        snapshot();
+        const nextIndex = (lnIndex + 1) % selected.points.length;
+        const toRemove = [lnIndex, nextIndex].sort((a,b)=>b-a);
+        selected.points.splice(toRemove[0], 1);
+        selected.points.splice(toRemove[1], 1);
+        updateAnnotationBounds(selected);
+        render();
+        save();
+        return;
+      }
+    }
+  }
 
   // In draw mode, skip hit-testing – clicks should create shapes, not select existing ones
   if (state.mode !== "draw") {
@@ -1856,6 +1989,11 @@ canvas.addEventListener("pointerdown", (event) => {
   if (state.mode === "draw") {
     const pointInImage = imagePoint(point);
     
+    if (state.shape === "magicWand") {
+      performMagicWandSegmentation(pointInImage);
+      return;
+    }
+
     if (state.shape === "comment") {
       pendingCommentPoint = pointInImage;
       render();
@@ -2233,7 +2371,7 @@ async function syncTaskTime(task) {
   if (task && task.id) {
     const timeDelta = taskSessionSeconds;
     taskSessionSeconds = 0;
-    fetch('/api/tasks', {
+    apiFetch('/api/tasks', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
@@ -2251,7 +2389,7 @@ async function syncTaskTime(task) {
 (async () => {
   if (currentUserForTimer !== 'Unknown') {
     try {
-      const res = await fetch('/api/team');
+      const res = await apiFetch('/api/team');
       if (res.ok) {
         const team = await res.json();
         const member = team.find(m => m.name === currentUserForTimer);
@@ -2281,7 +2419,7 @@ function updateTimerDisplays() {
 
 function syncTimeToServer() {
   if (currentUserForTimer !== 'Unknown') {
-    fetch('/api/team/time', {
+    apiFetch('/api/team/time', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ name: currentUserForTimer, time_logged: totalSeconds })
@@ -2305,7 +2443,7 @@ function startTimer() {
     totalSeconds++;
     taskSessionSeconds++;
     
-    if (sessionSeconds % 5 === 0) {
+    if (sessionSeconds % 30 === 0) {
       syncTimeToServer();
     }
     
@@ -2387,7 +2525,7 @@ if (teamValidationForm) {
     
     let team = [];
     try {
-      const res = await fetch('/api/team');
+      const res = await apiFetch('/api/team');
       if (res.ok) {
         const data = await res.json();
         team = data.map(t => t.name);
@@ -2423,7 +2561,7 @@ let activeProjectId = null;
 async function fetchSidebarProjects() {
   try {
     const username = localStorage.getItem('dataset_username') || '';
-    const res = await fetch(`/api/projects?creator=${encodeURIComponent(username)}`);
+    const res = await apiFetch(`/api/projects?creator=${encodeURIComponent(username)}`);
     if (res.ok) {
       const projects = await res.json();
       renderSidebarProjects(projects);
@@ -2455,13 +2593,14 @@ function renderSidebarProjects(projects) {
     a.style.alignItems = 'center';
     a.style.textDecoration = 'underline';
     
+    const escapeHTML = (str) => String(str).replace(/[&<>'"]/g, match => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[match]));
     if (activeProjectId === p.id) {
       a.style.background = 'var(--accent)';
       a.style.color = '#fff';
-      a.innerHTML = `<strong style="color: #fff; text-decoration: underline;">${p.name}</strong> <span style="font-size: 0.75rem;">${p.status}</span>`;
+      a.innerHTML = `<strong style="color: #fff; text-decoration: underline;">${escapeHTML(p.name)}</strong> <span style="font-size: 0.75rem;">${escapeHTML(p.status)}</span>`;
     } else {
       a.style.background = 'var(--panel-2)';
-      a.innerHTML = `<strong style="color: #3b82f6; text-decoration: underline;">${p.name}</strong> <span style="font-size: 0.75rem;">${p.status}</span>`;
+      a.innerHTML = `<strong style="color: #3b82f6; text-decoration: underline;">${escapeHTML(p.name)}</strong> <span style="font-size: 0.75rem;">${escapeHTML(p.status)}</span>`;
     }
     
     projectsSidebarList.appendChild(a);
@@ -2506,8 +2645,9 @@ function openAllProjectsModal(projects) {
     a.style.color = 'inherit';
     a.style.border = '1px solid var(--line)';
     
-    a.innerHTML = `<strong style="color: #3b82f6; text-decoration: underline; font-size: 1rem;">${p.name}</strong> 
-                   <span class="status-badge" style="background: var(--bg); padding: 4px 8px; border-radius: 12px; font-size: 0.75rem;">${p.status}</span>`;
+    const escapeHTML = (str) => String(str).replace(/[&<>'"]/g, match => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[match]));
+    a.innerHTML = `<strong style="color: #3b82f6; text-decoration: underline; font-size: 1rem;">${escapeHTML(p.name)}</strong> 
+                   <span class="status-badge" style="background: var(--bg); padding: 4px 8px; border-radius: 12px; font-size: 0.75rem;">${escapeHTML(p.status)}</span>`;
     
     list.appendChild(a);
   });
@@ -2530,7 +2670,7 @@ createProjectSidebarForm.addEventListener('submit', async (e) => {
   const username = localStorage.getItem('dataset_username') || 'Unknown';
   
   try {
-    const res = await fetch('/api/projects', {
+    const res = await apiFetch('/api/projects', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, slug, creator: username })
@@ -2549,7 +2689,7 @@ createProjectSidebarForm.addEventListener('submit', async (e) => {
 
 async function fetchLabels() {
   try {
-    const res = await fetch('/api/labels');
+    const res = await apiFetch('/api/labels');
     if (res.ok) {
       const labels = await res.json();
       state.labels = labels;
@@ -2560,16 +2700,6 @@ async function fetchLabels() {
   }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  window.addEventListener('beforeunload', () => {
-    if (typeof state !== 'undefined' && state && state.galleryIndex >= 0) {
-      syncToBackend();
-    }
-  });
-  fetchSidebarProjects();
-  fetchLabels();
-});
-
 // Workspace Project Support
 const urlParams = new URLSearchParams(window.location.search);
 const projectId = urlParams.get('projectId');
@@ -2577,7 +2707,7 @@ const projectId = urlParams.get('projectId');
 async function loadWorkspaceTasks() {
   if (!projectId) return;
   try {
-    const res = await fetch(`/api/tasks?projectId=${projectId}`);
+    const res = await apiFetch(`/api/tasks?projectId=${projectId}`);
     if (res.ok) {
       const tasks = await res.json();
       state.gallery = tasks.map(t => ({
@@ -2611,14 +2741,17 @@ async function loadWorkspaceTasks() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  window.addEventListener('beforeunload', () => {
+    if (typeof state !== 'undefined' && state && state.galleryIndex >= 0) {
+      syncToBackend();
+    }
+  });
+  fetchSidebarProjects();
+  fetchLabels();
   if (projectId) {
     loadWorkspaceTasks();
   }
 
-});
-
-// Complete Task Logic
-document.addEventListener('DOMContentLoaded', () => {
   const completeTaskBtn = document.getElementById('completeTaskBtn');
   if (completeTaskBtn) {
     completeTaskBtn.addEventListener('click', async () => {
@@ -2635,7 +2768,7 @@ document.addEventListener('DOMContentLoaded', () => {
           const timeDelta = taskSessionSeconds;
           taskSessionSeconds = 0;
           const username = localStorage.getItem('dataset_username') || 'Unknown';
-          const res = await fetch('/api/tasks', {
+          const res = await apiFetch('/api/tasks', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({

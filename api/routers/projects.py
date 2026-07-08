@@ -8,8 +8,9 @@ from sqlalchemy.orm import Session
 import models
 from database import get_db
 from schemas import ProjectModel
+from api.auth import get_current_user
 
-router = APIRouter(prefix="/api/projects", tags=["projects"])
+router = APIRouter(prefix="/api/projects", tags=["projects"], dependencies=[Depends(get_current_user)])
 
 @router.get("")
 def get_projects(creator: Optional[str] = Query(None), db: Session = Depends(get_db)):

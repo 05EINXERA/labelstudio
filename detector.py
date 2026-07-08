@@ -21,8 +21,8 @@ INPUT_SIZE = int(os.environ.get("YOLO_INPUT_SIZE", "640"))
 CONFIDENCE = float(os.environ.get("DETECT_CONFIDENCE", "0.35"))
 NMS_THRESHOLD = float(os.environ.get("DETECT_NMS", "0.45"))
 MAX_DETECTIONS = int(os.environ.get("DETECT_MAX", "100"))
-MAX_IMAGE_BYTES = int(os.environ.get("MAX_IMAGE_BYTES", str(20 * 1024 * 1024)))
-MAX_IMAGE_PIXELS = int(os.environ.get("MAX_IMAGE_PIXELS", str(25_000_000)))
+MAX_IMAGE_BYTES = int(os.environ.get("MAX_IMAGE_BYTES", str(50 * 1024 * 1024)))
+MAX_IMAGE_PIXELS = int(os.environ.get("MAX_IMAGE_PIXELS", str(50_000_000)))
 
 CLIP_MODEL_NAME = "openai/clip-vit-base-patch32"
 
@@ -34,6 +34,8 @@ _model_lock = threading.Lock()
 _clip_model = None
 _clip_processor = None
 _clip_model_lock = threading.Lock()
+
+_sam_model = None
 
 COCO_CLASSES = [
     "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat",
@@ -138,13 +140,43 @@ def decode_image(image_data):
     if not image_data:
         raise DetectionClientError("Missing image data.")
 
-    if "," in image_data:
-        image_data = image_data.split(",", 1)[1]
-
-    try:
-        raw = base64.b64decode(image_data, validate=True)
-    except Exception as error:
-        raise DetectionClientError("Invalid base64 image data.") from error
+    if isinstance(image_data, str):
+        if image_data.startswith("http://") or image_data.startswith("https://"):
+            try:
+                request = urllib.request.Request(image_data, headers={"User-Agent": "labelstudio"})
+                with urllib.request.urlopen(request, timeout=10) as response:
+                    raw = response.read()
+            except Exception as error:
+                raise DetectionClientError("Could not fetch image from URL.") from error
+        elif image_data.startswith("/uploads/"):
+            uploads_dir = os.path.realpath(os.path.join(DATA_DIR, "uploads"))
+            filepath = os.path.realpath(os.path.join(DATA_DIR, image_data.lstrip("/")))
+            if not filepath.startswith(uploads_dir):
+                raise DetectionClientError("Invalid image path.")
+            if os.path.isfile(filepath):
+                try:
+                    image = Image.open(filepath).convert("RGB")
+                    image.load()
+                    if image.width * image.height > MAX_IMAGE_PIXELS:
+                        raise DetectionClientError("Image resolution is too large.")
+                    return image
+                except DetectionClientError:
+                    raise
+                except Exception as error:
+                    raise DetectionClientError("Could not read local image.") from error
+            else:
+                raise DetectionClientError("Image not found.")
+        else:
+            if "," in image_data:
+                image_data = image_data.split(",", 1)[1]
+            try:
+                raw = base64.b64decode(image_data, validate=True)
+            except Exception as error:
+                raise DetectionClientError("Invalid base64 image data.") from error
+    elif isinstance(image_data, bytes):
+        raw = image_data
+    else:
+        raise DetectionClientError("Unsupported image data type.")
 
     if len(raw) > MAX_IMAGE_BYTES:
         raise DetectionClientError(f"Image exceeds {MAX_IMAGE_BYTES // (1024 * 1024)} MB limit.")
@@ -459,4 +491,37 @@ def classify_image(image_data, top_k=5):
     
     return {
         "tags": results
+    }
+
+def segment_point(image_data, x, y):
+    import torch
+    try:
+        from ultralytics import SAM
+    except ImportError:
+        raise RuntimeError("Please install ultralytics and torch to use SAM.")
+    
+    image = decode_image(image_data)
+    image_bgr = pil_to_bgr(image)
+    
+    global _sam_model
+    if _sam_model is None:
+        with _model_lock:
+            if _sam_model is None:
+                _sam_model = SAM('mobile_sam.pt')
+                
+    with _model_lock:
+        results = _sam_model(image_bgr, points=[[x, y]], labels=[1], verbose=False)
+    
+    points_res = []
+    if results and len(results) > 0 and results[0].masks:
+        masks = results[0].masks
+        # Masks.xy is a list of segments [ (N,2) arrays ]
+        if masks.xy and len(masks.xy) > 0:
+            # Taking the first mask segment
+            segment = masks.xy[0]
+            for pt in segment:
+                points_res.append({"x": float(pt[0]), "y": float(pt[1])})
+                
+    return {
+        "points": points_res
     }

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, func, Text
+from sqlalchemy import Column, Integer, String, DateTime, func, Text, ForeignKey
 from database import Base
 
 class WorkspaceData(Base):
@@ -19,7 +19,7 @@ class Project(Base):
 class Task(Base):
     __tablename__ = "tasks"
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    project_id = Column(Integer, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), index=True)
     image_path = Column(String)
     description = Column(String)
     status = Column(String)
@@ -38,3 +38,10 @@ class Label(Base):
     id = Column(String, primary_key=True, index=True)
     name = Column(String)
     color = Column(String)
+
+class User(Base):
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    username = Column(String, unique=True, index=True)
+    hashed_password = Column(String)
+    created_at = Column(DateTime, server_default=func.now())

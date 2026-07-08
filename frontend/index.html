@@ -19,6 +19,7 @@
     </div>
 
     <form class="login-form" id="loginForm">
+      <div id="error-message" style="color: var(--danger); text-align: center; margin-bottom: 1rem; display: none;"></div>
       <div class="input-group">
         <label for="username">Username</label>
         <input type="text" id="username" name="username" placeholder="Enter your username" required
@@ -32,31 +33,92 @@
       </div>
 
       <button type="submit" class="submit-btn" id="submitBtn">
-        <span class="btn-text">Sign In</span>
+        <span class="btn-text" id="btnText">Sign In</span>
         <div class="spinner"></div>
       </button>
+
+      <div style="text-align: center; margin-top: 1rem;">
+        <a href="#" id="toggleMode" style="color: var(--accent); text-decoration: none; font-size: 0.9rem;">Need an account? Register</a>
+      </div>
     </form>
   </div>
 
   <script>
-    document.getElementById('loginForm').addEventListener('submit', function (e) {
+    let isLoginMode = true;
+    const toggleModeBtn = document.getElementById('toggleMode');
+    const btnText = document.getElementById('btnText');
+    const headerText = document.querySelector('.brand-header p');
+
+    toggleModeBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      isLoginMode = !isLoginMode;
+      if (isLoginMode) {
+        btnText.textContent = 'Sign In';
+        headerText.textContent = 'Sign in to access your annotation tools';
+        toggleModeBtn.textContent = 'Need an account? Register';
+      } else {
+        btnText.textContent = 'Register';
+        headerText.textContent = 'Create an account to start annotating';
+        toggleModeBtn.textContent = 'Already have an account? Sign In';
+      }
+    });
+
+    document.getElementById('loginForm').addEventListener('submit', async function (e) {
       e.preventDefault();
 
       const btn = document.getElementById('submitBtn');
+      const errorMsg = document.getElementById('error-message');
       btn.classList.add('is-loading');
       btn.disabled = true;
+      errorMsg.style.display = 'none';
 
-      // Save username to display in the app
       const username = document.getElementById('username').value;
-      localStorage.setItem('dataset_username', username);
-      
-      // Clear previous session canvas state
-      localStorage.removeItem('image-annotation-mvp-v1');
+      const password = document.getElementById('password').value;
 
-      // Simulate a network request for the dummy login
-      setTimeout(() => {
+      try {
+        if (!isLoginMode) {
+          // Register
+          const regRes = await fetch('/api/auth/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+          });
+          if (!regRes.ok) {
+            const data = await regRes.json();
+            throw new Error(data.detail || 'Registration failed');
+          }
+          // Fall through to auto-login (or could use the returned token directly)
+        }
+
+        // Login
+        const formData = new URLSearchParams();
+        formData.append('username', username);
+        formData.append('password', password);
+
+        const loginRes = await fetch('/api/auth/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: formData
+        });
+
+        if (!loginRes.ok) {
+           const data = await loginRes.json();
+           throw new Error(data.detail || 'Login failed');
+        }
+
+        const data = await loginRes.json();
+        
+        localStorage.setItem('access_token', data.access_token);
+        localStorage.setItem('dataset_username', username);
+        localStorage.removeItem('image-annotation-mvp-v1');
+        
         window.location.href = 'app.html';
-      }, 800);
+      } catch (err) {
+        errorMsg.textContent = err.message;
+        errorMsg.style.display = 'block';
+        btn.classList.remove('is-loading');
+        btn.disabled = false;
+      }
     });
   </script>
 </body>
