@@ -41,6 +41,14 @@ class DetectPayload(BaseModel):
 class ClassifyPayload(BaseModel):
     image: str
 
+class PointModel(BaseModel):
+    x: float
+    y: float
+
+class SegmentPayload(BaseModel):
+    image: str
+    point: PointModel
+
 class LabelStudioPayload(BaseModel):
     projectId: Optional[str] = None
     taskId: Optional[str] = None
@@ -51,3 +59,11 @@ class LabelModel(BaseModel):
     id: str
     name: str
     color: str
+
+class UserCreate(BaseModel):
+    username: str
+    password: str
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
