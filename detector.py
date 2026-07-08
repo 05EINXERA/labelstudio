@@ -23,10 +23,16 @@ MAX_DETECTIONS = int(os.environ.get("DETECT_MAX", "100"))
 MAX_IMAGE_BYTES = int(os.environ.get("MAX_IMAGE_BYTES", str(20 * 1024 * 1024)))
 MAX_IMAGE_PIXELS = int(os.environ.get("MAX_IMAGE_PIXELS", str(25_000_000)))
 
+CLIP_MODEL_NAME = "openai/clip-vit-base-patch32"
+
 Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
 
 _model = None
 _model_lock = threading.Lock()
+
+_clip_model = None
+_clip_processor = None
+_clip_model_lock = threading.Lock()
 
 COCO_CLASSES = [
     "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat",
@@ -40,6 +46,8 @@ COCO_CLASSES = [
     "remote", "keyboard", "cell phone", "microwave", "oven", "toaster", "sink", "refrigerator",
     "book", "clock", "vase", "scissors", "teddy bear", "hair drier", "toothbrush",
 ]
+
+CLIP_CANDIDATE_TAGS = COCO_CLASSES + ["daytime", "nighttime", "indoor", "outdoor", "screenshot", "document", "selfie", "landscape"]
 
 
 class DetectionClientError(ValueError):
@@ -107,6 +115,22 @@ def get_model():
                 net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
                 _model = net
     return _model
+
+
+def get_clip_model():
+    global _clip_model, _clip_processor
+    if _clip_model is None:
+        with _clip_model_lock:
+            if _clip_model is None:
+                try:
+                    from transformers import CLIPProcessor, CLIPModel
+                except ImportError:
+                    raise RuntimeError("Please install torch and transformers to use CLIP classification.")
+                
+                print(f"Loading CLIP model {CLIP_MODEL_NAME}...")
+                _clip_model = CLIPModel.from_pretrained(CLIP_MODEL_NAME)
+                _clip_processor = CLIPProcessor.from_pretrained(CLIP_MODEL_NAME)
+    return _clip_model, _clip_processor
 
 
 def decode_image(image_data):
@@ -398,4 +422,40 @@ def detect_objects(image_data, selection=None):
         "width": original_width,
         "height": original_height,
         "predictions": predictions,
+    }
+
+
+def classify_image(image_data, top_k=5):
+    import torch
+    image = decode_image(image_data)
+    
+    model, processor = get_clip_model()
+    
+    prompts = [f"a photo of a {c}" for c in CLIP_CANDIDATE_TAGS]
+    
+    inputs = processor(text=prompts, images=image, return_tensors="pt", padding=True)
+    
+    with torch.no_grad(), _clip_model_lock:
+        outputs = model(**inputs)
+        
+    logits_per_image = outputs.logits_per_image
+    probs = logits_per_image.softmax(dim=1)
+    
+    probs_list = probs.squeeze().tolist()
+    if not isinstance(probs_list, list):
+        probs_list = [probs_list]
+        
+    results_with_scores = []
+    for idx, prob in enumerate(probs_list):
+        if idx < len(CLIP_CANDIDATE_TAGS):
+            results_with_scores.append({
+                "class": CLIP_CANDIDATE_TAGS[idx],
+                "score": round(prob, 4)
+            })
+            
+    results_with_scores.sort(key=lambda x: x["score"], reverse=True)
+    results = results_with_scores[:top_k]
+    
+    return {
+        "tags": results
     }

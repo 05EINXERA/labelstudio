@@ -38,8 +38,16 @@ class DetectPayload(BaseModel):
     image: str
     selection: Optional[List[dict]] = None
 
+class ClassifyPayload(BaseModel):
+    image: str
+
 class LabelStudioPayload(BaseModel):
     projectId: Optional[str] = None
     taskId: Optional[str] = None
     taskData: Optional[dict] = None
     result: Optional[list] = None
+
+class LabelModel(BaseModel):
+    id: str
+    name: str
+    color: str

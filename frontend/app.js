@@ -20,6 +20,7 @@ const boxMode = document.querySelector("#boxMode");
 const polygonMode = document.querySelector("#polygonMode");
 const commentMode = document.querySelector("#commentMode");
 const autoDetectButton = document.querySelector("#autoDetectButton");
+const autoTagButton = document.querySelector("#autoTagButton");
 const undoButton = document.querySelector("#undoButton");
 const deleteButton = document.querySelector("#deleteButton");
 const clearButton = document.querySelector("#clearButton");
@@ -175,6 +176,14 @@ function ensureLabel(className, customColor = null) {
     color: customColor || colorForName(name)
   };
   state.labels.push(label);
+  
+  // Persist to backend asynchronously
+  fetch('/api/labels', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(label)
+  }).catch(err => console.error("Failed to save label to backend:", err));
+
   return label;
 }
 
@@ -316,6 +325,46 @@ async function autoDetectObjects({ replace = true } = {}) {
       window.alert(error.message || "Automatic object detection failed. Is server.py running?");
     }
     return 0;
+  } finally {
+    setDetectionBusy(false);
+  }
+}
+
+async function autoTagObjects() {
+  if (!imageLoaded || detectionBusy) return;
+
+  setDetectionBusy(true);
+  setStatus("Auto-tagging image...");
+
+  try {
+    const payload = {
+      image: state.image?.src || imageElement.src
+    };
+
+    const response = await fetch(`${window.location.origin}/api/detect/classify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      throw new Error(`Auto-tag failed (${response.status})`);
+    }
+
+    const { tags } = await response.json();
+
+    if (tags && tags.length > 0) {
+      setStatus(`Found ${tags.length} tags`);
+      tags.forEach(tag => ensureLabel(tag.class));
+      window.alert(`Auto-Tag complete!\n\nAdded tags as classes:\n${tags.map(t => `${t.class} (${(t.score * 100).toFixed(1)}%)`).join("\n")}`);
+      render();
+    } else {
+      setStatus("No tags found");
+    }
+  } catch (error) {
+    console.error(error);
+    setStatus("Auto-tag failed");
+    window.alert(error.message || "Auto-tagging failed. Is server.py running?");
   } finally {
     setDetectionBusy(false);
   }
@@ -1708,6 +1757,9 @@ exportCsvButton.addEventListener("click", (e) => {
   exportCsvData();
 });
 autoDetectButton.addEventListener("click", () => autoDetectObjects({ replace: true }));
+if (autoTagButton) {
+  autoTagButton.addEventListener("click", () => autoTagObjects());
+}
 
 addClassButton.addEventListener("click", () => {
   newClassForm.classList.toggle("is-hidden");
@@ -2495,6 +2547,19 @@ createProjectSidebarForm.addEventListener('submit', async (e) => {
   }
 });
 
+async function fetchLabels() {
+  try {
+    const res = await fetch('/api/labels');
+    if (res.ok) {
+      const labels = await res.json();
+      state.labels = labels;
+      render();
+    }
+  } catch (err) {
+    console.error("Failed to fetch labels from backend:", err);
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   window.addEventListener('beforeunload', () => {
     if (typeof state !== 'undefined' && state && state.galleryIndex >= 0) {
@@ -2502,6 +2567,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
   fetchSidebarProjects();
+  fetchLabels();
 });
 
 // Workspace Project Support

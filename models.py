@@ -32,3 +32,9 @@ class TeamMember(Base):
     __tablename__ = "team_members"
     name = Column(String, primary_key=True, index=True)
     time_logged = Column(Integer, default=0)
+
+class Label(Base):
+    __tablename__ = "labels"
+    id = Column(String, primary_key=True, index=True)
+    name = Column(String)
+    color = Column(String)

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 
-from detector import DetectionClientError, detect_objects
-from schemas import DetectPayload
+from detector import DetectionClientError, detect_objects, classify_image
+from schemas import DetectPayload, ClassifyPayload
 
 router = APIRouter(prefix="/api/detect", tags=["detect"])
 
@@ -14,3 +14,14 @@ def detect(payload: DetectPayload):
         raise HTTPException(status_code=400, detail=str(error))
     except Exception:
         raise HTTPException(status_code=500, detail="Object detection failed.")
+
+@router.post("/classify")
+def classify(payload: ClassifyPayload):
+    try:
+        response = classify_image(payload.image)
+        return response
+    except DetectionClientError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+    except Exception as e:
+        print(f"Classification error: {e}")
+        raise HTTPException(status_code=500, detail="Image classification failed.")
