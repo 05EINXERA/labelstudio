@@ -173,7 +173,7 @@ const urlParams = new URLSearchParams(window.location.search);
             commentCount = anns.filter(a => a.type === "comment").length;
             const uniqueClasses = new Set();
             anns.forEach(a => {
-              if (a.class) uniqueClasses.add(a.class);
+              if (a.labelId) uniqueClasses.add(a.labelId);
             });
             classCount = uniqueClasses.size;
           }
