@@ -427,6 +427,8 @@ function showAutoTagModal(tags) {
   const applyBtn = document.getElementById("autoTagApplyBtn");
   const cancelBtn = document.getElementById("autoTagCancelBtn");
   const closeBtn = document.getElementById("autoTagClose");
+  const colorsContainer = document.getElementById("autoTagSelectedColors");
+  const tagColors = {};
 
   suggestionsContainer.innerHTML = '';
   input.value = tags[0]?.class || "";
@@ -446,6 +448,45 @@ function showAutoTagModal(tags) {
         btn.style.opacity = "0.7";
       }
     });
+
+    if (colorsContainer) {
+      colorsContainer.innerHTML = '';
+      if (selected.length > 0) {
+        colorsContainer.style.display = 'flex';
+        selected.forEach(tag => {
+          if (!tagColors[tag]) tagColors[tag] = labelByName(tag)?.color || colorForName(tag);
+          
+          const row = document.createElement("div");
+          row.style.display = "flex";
+          row.style.alignItems = "center";
+          row.style.gap = "8px";
+          
+          const colorPicker = document.createElement("input");
+          colorPicker.type = "color";
+          colorPicker.value = tagColors[tag];
+          colorPicker.style.width = "30px";
+          colorPicker.style.height = "30px";
+          colorPicker.style.padding = "0";
+          colorPicker.style.border = "none";
+          colorPicker.style.borderRadius = "4px";
+          colorPicker.style.cursor = "pointer";
+          
+          colorPicker.addEventListener("input", (e) => {
+            tagColors[tag] = e.target.value;
+          });
+          
+          const label = document.createElement("span");
+          label.textContent = tag;
+          label.style.fontSize = "0.9rem";
+          
+          row.appendChild(colorPicker);
+          row.appendChild(label);
+          colorsContainer.appendChild(row);
+        });
+      } else {
+        colorsContainer.style.display = 'none';
+      }
+    }
   }
 
   tags.forEach(tag => {
@@ -484,8 +525,9 @@ function showAutoTagModal(tags) {
 
   const onApply = () => {
     const classNames = getSelectedTags();
+
     if (classNames.length > 0) {
-      classNames.forEach(className => ensureLabel(className));
+      classNames.forEach(className => ensureLabel(className, tagColors[className]));
       setStatus(`Added tags: ${classNames.join(", ")}`);
       render();
     }
