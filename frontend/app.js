@@ -2313,8 +2313,8 @@ canvas.addEventListener("wheel", (event) => {
   if (!imageLoaded) return;
   event.preventDefault();
   const rect = canvas.getBoundingClientRect();
-  const mouseX = (event.clientX - rect.left) * (canvas.width / rect.width);
-  const mouseY = (event.clientY - rect.top) * (canvas.height / rect.height);
+  const mouseX = event.clientX - rect.left;
+  const mouseY = event.clientY - rect.top;
   const zoomFactor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
   setZoom(viewZoom * zoomFactor, mouseX, mouseY);
 }, { passive: false });
@@ -2572,9 +2572,8 @@ canvas.addEventListener("pointermove", (event) => {
   if (isPanning) {
     const dx = event.clientX - panStart.x;
     const dy = event.clientY - panStart.y;
-    const ratio = window.devicePixelRatio || 1;
-    viewPan.x = panStart.panX + dx * ratio;
-    viewPan.y = panStart.panY + dy * ratio;
+    viewPan.x = panStart.panX + dx;
+    viewPan.y = panStart.panY + dy;
     draw();
     return;
   }
