@@ -264,6 +264,10 @@
           <button class="tool-button" id="polygonMode" type="button" title="Polygon"><span class="btn-icon">⬡</span><span class="btn-label">Polygon</span></button>
           <button class="tool-button" id="commentMode" type="button" title="Leave a comment"><span class="btn-icon">💬</span><span class="btn-label">Comment</span></button>
           <button class="tool-button" id="magicWandMode" type="button" title="Magic Wand (SAM)"><span class="btn-icon">🪄</span><span class="btn-label">Wand</span></button>
+          <div style="display: flex; flex-direction: column; justify-content: center; margin-left: 8px;" title="Magic Wand Precision (Left = Smooth, Right = High Detail)">
+            <label for="magicWandPrecision" style="font-size: 0.65rem; font-weight: bold; color: var(--muted); margin-bottom: 2px; text-transform: uppercase;">Wand Detail</label>
+            <input type="range" id="magicWandPrecision" min="0" max="100" value="70" style="width: 70px; height: 4px; accent-color: var(--accent); cursor: pointer;">
+          </div>
         </div>
         <div class="tool-group" role="group" aria-label="Canvas controls">
           <button class="tool-button primary" id="autoDetectButton" type="button" title="Detect objects with AI"><span class="btn-icon">🔍</span><span class="btn-label">Detect</span></button>

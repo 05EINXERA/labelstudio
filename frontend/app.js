@@ -541,7 +541,7 @@ function showAutoTagModal(tags) {
   modal.classList.add('is-active');
 }
 
-async function performMagicWandSegmentation(point) {
+async function performMagicWandSegmentation(point, bbox = null) {
   if (!imageLoaded || detectionBusy) return;
 
   setDetectionBusy(true);
@@ -551,6 +551,10 @@ async function performMagicWandSegmentation(point) {
     const activeLabelId = state.activeLabelId;
     const label = state.labels.find(l => l.id === activeLabelId);
     const labelName = label ? label.name : null;
+    
+    const precisionSlider = document.getElementById("magicWandPrecision");
+    const precisionVal = precisionSlider ? parseInt(precisionSlider.value) : 70;
+    const epsilonMult = 0.01 - (precisionVal / 100) * 0.0099;
 
     const response = await apiFetch(`${window.location.origin}/api/detect/segment`, {
       method: "POST",
@@ -558,7 +562,9 @@ async function performMagicWandSegmentation(point) {
       body: JSON.stringify({
         image: state.image?.src || imageElement.src,
         point: { x: Math.round(point.x), y: Math.round(point.y) },
-        prompt: labelName
+        prompt: labelName,
+        precision: epsilonMult,
+        bbox: bbox
       })
     });
     const payload = await response.json();
@@ -1149,9 +1155,26 @@ function renderClasses() {
     const item = document.createElement("button");
     item.type = "button";
     item.className = `class-item${label.id === state.activeLabelId ? " is-active" : ""}`;
+    const classAnns = state.annotations.filter(a => a.labelId === label.id && a.type !== "comment");
+    const uniqueGroups = new Set();
+    let count = 0;
+    classAnns.forEach(a => {
+      if (a.groupId) {
+        if (!uniqueGroups.has(a.groupId)) {
+          uniqueGroups.add(a.groupId);
+          count++;
+        }
+      } else {
+        count++;
+      }
+    });
+
     item.innerHTML = `
-      <span class="swatch" style="background:${label.color}"></span>
-      <strong></strong>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span class="swatch" style="background:${label.color}"></span>
+        <strong></strong>
+        <span style="font-size: 0.75rem; color: var(--muted); margin-left: 4px;">(${count})</span>
+      </div>
       <span class="delete-class-btn" title="Delete class" style="cursor: pointer; color: var(--muted); font-weight: bold;">×</span>
     `;
     item.querySelector("strong").textContent = labelDisplayName(label);
@@ -1349,22 +1372,23 @@ function renderImageClasses() {
   const imageClassesList = document.getElementById("imageClassesList");
   if (!imageClassesList) return;
 
-  const presentClasses = new Set();
+  const presentLabels = new Set();
   (state.annotations || []).forEach(ann => {
-    if (ann.class) {
-      presentClasses.add(ann.class);
+    if (ann.type !== "comment" && ann.labelId) {
+      presentLabels.add(ann.labelId);
     }
   });
 
   imageClassesList.innerHTML = '';
   
-  if (presentClasses.size === 0) {
+  if (presentLabels.size === 0) {
     imageClassesList.innerHTML = '<p class="hint">No classes in current image.</p>';
     return;
   }
 
-  Array.from(presentClasses).sort().forEach(className => {
-    const classDef = state.labels.find(l => l.name === className) || { name: className, color: '#0f8b8d' };
+  Array.from(presentLabels).forEach(labelId => {
+    const classDef = labelById(labelId);
+    if (!classDef) return;
     
     const div = document.createElement("div");
     div.className = "class-item";
@@ -1383,7 +1407,21 @@ function renderImageClasses() {
     const countSpan = document.createElement("span");
     countSpan.style.fontSize = "0.75rem";
     countSpan.style.color = "var(--muted)";
-    const count = (state.annotations || []).filter(a => a.class === classDef.name).length;
+    
+    const classAnns = (state.annotations || []).filter(a => a.labelId === labelId && a.type !== "comment");
+    const uniqueGroups = new Set();
+    let count = 0;
+    classAnns.forEach(a => {
+      if (a.groupId) {
+        if (!uniqueGroups.has(a.groupId)) {
+          uniqueGroups.add(a.groupId);
+          count++;
+        }
+      } else {
+        count++;
+      }
+    });
+    
     countSpan.textContent = `(${count})`;
 
     div.appendChild(colorIndicator);
@@ -1504,7 +1542,8 @@ function buildCocoExport() {
         segmentation: segmentation,
         area: round(area),
         bbox: bbox,
-        iscrowd: 0
+        iscrowd: 0,
+        num_objects: group.length
       });
     });
   });
@@ -2513,11 +2552,6 @@ canvas.addEventListener("pointerdown", (event) => {
   if (state.mode === "draw") {
     const pointInImage = imagePoint(point);
     
-    if (state.shape === "magicWand") {
-      performMagicWandSegmentation(pointInImage);
-      return;
-    }
-
     if (state.shape === "comment") {
       pendingCommentPoint = pointInImage;
       render();
@@ -2770,6 +2804,23 @@ canvas.addEventListener("pointerup", () => {
       render();
       save();
       setStatus("Annotation created");
+      return;
+    } else if (state.shape === "magicWand") {
+      const start = drag.draft.points?.[0] || { x: 0, y: 0 };
+      const end = drag.draft.points?.[2] || start;
+      const x1 = Math.min(start.x, end.x);
+      const y1 = Math.min(start.y, end.y);
+      const x2 = Math.max(start.x, end.x);
+      const y2 = Math.max(start.y, end.y);
+      
+      drag = null;
+      render();
+      
+      if (Math.abs(x2 - x1) < 3 && Math.abs(y2 - y1) < 3) {
+        performMagicWandSegmentation({ x: start.x, y: start.y }, null);
+      } else {
+        performMagicWandSegmentation({ x: start.x, y: start.y }, [x1, y1, x2, y2]);
+      }
       return;
     }
     draw();
