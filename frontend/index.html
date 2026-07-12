@@ -108,8 +108,9 @@
 
         const data = await loginRes.json();
         
-        localStorage.setItem('access_token', data.access_token);
+        // We no longer store access_token in localStorage because it's now an HttpOnly cookie!
         localStorage.setItem('dataset_username', username);
+        localStorage.setItem('logged_in', 'true');
         localStorage.removeItem('image-annotation-mvp-v1');
         
         window.location.href = 'app.html';

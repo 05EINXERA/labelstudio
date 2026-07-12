@@ -49,6 +49,40 @@ def get_project_metrics(project_id: int, db: Session = Depends(get_db)):
 
     return {"total": total, "completed": completed, "progress": progress, "comments": comments_count}
 
+@router.get("/metrics/batch")
+def get_projects_metrics_batch(creator: Optional[str] = Query(None), db: Session = Depends(get_db)):
+    if creator:
+        projects = db.query(models.Project).filter(models.Project.creator == creator).all()
+    else:
+        projects = db.query(models.Project).all()
+        
+    project_ids = [p.id for p in projects]
+    if not project_ids:
+        return {}
+        
+    tasks = db.query(models.Task).filter(models.Task.project_id.in_(project_ids)).all()
+    
+    metrics = {pid: {"total": 0, "completed": 0, "comments": 0, "progress": 0} for pid in project_ids}
+    import json
+    for t in tasks:
+        metrics[t.project_id]["total"] += 1
+        if t.status == 'Completed':
+            metrics[t.project_id]["completed"] += 1
+            
+        if t.annotations:
+            try:
+                annots = json.loads(t.annotations)
+                metrics[t.project_id]["comments"] += sum(1 for a in annots if a.get('type') == 'comment')
+            except Exception:
+                pass
+                
+    for pid in project_ids:
+        total = metrics[pid]["total"]
+        completed = metrics[pid]["completed"]
+        metrics[pid]["progress"] = int((completed / total * 100)) if total > 0 else 0
+        
+    return metrics
+
 @router.post("")
 def create_project(project: ProjectModel, db: Session = Depends(get_db)):
     db_project = models.Project(name=project.name, slug=project.slug, type=project.type, status="Preparing", creator=project.creator)

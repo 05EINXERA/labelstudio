@@ -266,7 +266,7 @@ h2 {
   margin-top: 4px;
   background-color: #fff;
   min-width: 120px;
-  box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.1);
+  box-shadow: 0px 8px 16px 0px rgba(0, 0, 0, 0.1);
   z-index: 100;
   border-radius: 8px;
   border: 1px solid var(--line);
@@ -387,7 +387,8 @@ h2 {
 }
 
 .btn-icon {
-  display: none; /* Hide icon on large screens */
+  display: none;
+  /* Hide icon on large screens */
   margin-right: 4px;
 }
 
@@ -513,28 +514,33 @@ canvas {
     flex-wrap: nowrap !important;
     overflow-x: auto;
     justify-content: flex-start;
-    padding-bottom: 8px; /* Room for scrollbar if needed */
+    padding-bottom: 8px;
+    /* Room for scrollbar if needed */
   }
 
   /* Hide scrollbar visually but keep functionality */
   .toolbar::-webkit-scrollbar {
     height: 4px;
   }
+
   .toolbar::-webkit-scrollbar-track {
     background: transparent;
   }
+
   .toolbar::-webkit-scrollbar-thumb {
-    background: rgba(0,0,0,0.1);
+    background: rgba(0, 0, 0, 0.1);
     border-radius: 4px;
   }
 
   .btn-icon {
-    display: inline; /* Show icon */
+    display: inline;
+    /* Show icon */
     margin-right: 0;
   }
-  
+
   .btn-label {
-    display: none; /* Hide text */
+    display: none;
+    /* Hide text */
   }
 
   .tool-button,
@@ -549,7 +555,7 @@ canvas {
     flex-direction: row !important;
     gap: 8px !important;
   }
-  
+
   #sessionTimerDisplay {
     font-size: 0.9rem !important;
   }
@@ -623,6 +629,10 @@ canvas {
   }
 
   .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    overflow-x: auto;
+    white-space: nowrap;
     gap: 8px;
     padding: 8px;
   }
@@ -1123,6 +1133,7 @@ canvas {
   flex-direction: column;
   gap: 8px;
 }
+
 .comment-overlay textarea {
   width: 100%;
   resize: vertical;
@@ -1134,16 +1145,19 @@ canvas {
   font-family: inherit;
   font-size: 0.9rem;
 }
+
 .comment-overlay textarea:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 2px rgba(15, 139, 141, 0.2);
 }
+
 .comment-overlay-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
 }
+
 .comment-overlay-actions .btn {
   padding: 6px 12px;
   font-size: 0.85rem;
@@ -1153,4 +1167,3 @@ canvas {
 .comment-overlay.is-hidden {
   display: none;
 }
-

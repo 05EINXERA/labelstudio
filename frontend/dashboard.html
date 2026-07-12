@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,10 +9,12 @@
   <link rel="stylesheet" href="styles.css?v=2">
   <script src="sync.js"></script>
 </head>
+
 <body style="background: var(--bg);">
 
   <!-- Brand Header -->
-  <header style="background: var(--panel); border-bottom: 1px solid var(--line); padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+  <header
+    style="background: var(--panel); border-bottom: 1px solid var(--line); padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
     <div style="display: flex; align-items: center; gap: 15px;">
       <img src="logo.png" alt="Logo" style="height: 32px;">
       <h1 style="font-size: 1.2rem; font-weight: 700; margin: 0; color: var(--ink);">Metrics Dashboard</h1>
@@ -38,21 +41,21 @@
         <h3>Loaded Images</h3>
         <p class="metric-value" id="valImages">0</p>
       </div>
-      
+
       <!-- Card 2: Annotations -->
       <div class="metric-card" data-metric="annotations">
         <div class="metric-icon">✏️</div>
         <h3>Total Annotations</h3>
         <p class="metric-value" id="valAnnotations">0</p>
       </div>
-      
+
       <!-- Card 3: Classes -->
       <div class="metric-card" data-metric="classes">
         <div class="metric-icon">🏷️</div>
         <h3>Classes Created</h3>
         <p class="metric-value" id="valClasses">0</p>
       </div>
-      
+
       <!-- Card 4: Team Members -->
       <div class="metric-card" data-metric="team">
         <div class="metric-icon">👥</div>
@@ -74,7 +77,8 @@
         <h2>Project Matrices</h2>
       </div>
     </div>
-    <div style="background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 20px; overflow-x: auto;">
+    <div
+      style="background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 20px; overflow-x: auto;">
       <table style="width: 100%; min-width: 600px; text-align: left; border-collapse: collapse;">
         <thead>
           <tr style="border-bottom: 2px solid var(--line);">
@@ -114,11 +118,11 @@
       // Load Annotation Data
       const storageKey = 'image-annotation-mvp-v1';
       const savedData = localStorage.getItem(storageKey);
-      
+
       let numImages = 0;
       let numAnnotations = 0;
       let numClasses = 0;
-      
+
       let payload = {};
 
       if (savedData) {
@@ -141,9 +145,13 @@
       let tasks = [];
       try {
         const teamRes = await fetch('/api/team');
-        if (teamRes.ok) team = await teamRes.json();
-        
+
+        if (teamRes.ok) {
+          team = await teamRes.json();
+        }
+
         const tasksRes = await fetch('/api/tasks');
+
         if (tasksRes.ok) tasks = await tasksRes.json();
       } catch (e) {
         console.error("Failed to fetch team data", e);
@@ -176,62 +184,60 @@
         if (e.target === modal) modal.classList.remove('is-active');
       });
 
-      
+
       // Load Project Matrices
       try {
         const username = localStorage.getItem('dataset_username') || '';
         const projectsRes = await fetch(`/api/projects?creator=${encodeURIComponent(username)}`);
+        
         if (projectsRes.ok) {
           const projects = await projectsRes.json();
           const tbody = document.getElementById('projectsMatrixBody');
           tbody.innerHTML = '';
-          
+
           if (projects.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="4" style="padding: 10px; text-align: center; color: var(--muted);">No projects found</td></tr>';
-          }
-          
-          for (const project of projects) {
-            let progress = 0;
-            let completed = 0;
-            let total = 0;
-            let comments = 0;
-            
-            try {
-              const metricsRes = await fetch(`/api/projects/${project.id}/metrics`);
-              if (metricsRes.ok) {
-                const metrics = await metricsRes.json();
-                progress = metrics.progress || 0;
-                completed = metrics.completed || 0;
-                total = metrics.total || 0;
-                comments = metrics.comments || 0;
-              }
-            } catch(e) {}
-            
-            const tr = document.createElement('tr');
-            tr.style.borderBottom = '1px solid var(--line)';
-            tr.innerHTML = `
-              <td style="padding: 10px; font-weight: 500;">
-                <a href="project_details.html?id=${project.id}" style="color: #3b82f6; text-decoration: underline;">
-                  ${project.name}
-                </a>
-              </td>
-              <td style="padding: 10px;">
-                <div style="display: flex; align-items: center; gap: 8px;">
-                  <div style="flex: 1; height: 8px; background: var(--line); border-radius: 4px; overflow: hidden;">
-                    <div style="height: 100%; width: ${progress}%; background: var(--accent);"></div>
+            tbody.innerHTML = '<tr><td colspan="5" style="padding: 10px; text-align: center; color: var(--muted);">No projects found</td></tr>';
+          } else {
+            // Fetch batch metrics
+            let batchMetrics = {};
+            const metricsRes = await fetch(`/api/projects/metrics/batch?creator=${encodeURIComponent(username)}`);
+            if (metricsRes.ok) {
+              batchMetrics = await metricsRes.json();
+            }
+
+            for (const project of projects) {
+              const m = batchMetrics[project.id] || {};
+              const progress = m.progress || 0;
+              const completed = m.completed || 0;
+              const total = m.total || 0;
+              const comments = m.comments || 0;
+
+              const tr = document.createElement('tr');
+              tr.style.borderBottom = '1px solid var(--line)';
+              tr.innerHTML = `
+                <td style="padding: 10px; font-weight: 500;">
+                  <a href="project_details.html?id=${project.id}" style="color: #3b82f6; text-decoration: underline;">
+                    ${project.name}
+                  </a>
+                </td>
+                <td style="padding: 10px;">
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <div style="flex: 1; height: 8px; background: var(--line); border-radius: 4px; overflow: hidden;">
+                      <div style="height: 100%; width: ${progress}%; background: var(--accent);"></div>
+                    </div>
+                    <span style="font-size: 0.85rem; font-weight: 600;">${progress}%</span>
                   </div>
-                  <span style="font-size: 0.85rem; font-weight: 600;">${progress}%</span>
-                </div>
-              </td>
-              <td style="padding: 10px;">${completed}</td>
-              <td style="padding: 10px;">${total}</td>
-              <td style="padding: 10px;">
-                <span style="background: rgba(15, 139, 141, 0.1); color: #0f8b8d; padding: 2px 8px; border-radius: 12px; font-weight: 600; font-size: 0.8rem;">
-                  💬 ${comments}
-                </span>
-              </td>
-            `;
-            tbody.appendChild(tr);
+                </td>
+                <td style="padding: 10px;">${completed}</td>
+                <td style="padding: 10px;">${total}</td>
+                <td style="padding: 10px;">
+                  <span style="background: rgba(15, 139, 141, 0.1); color: #0f8b8d; padding: 2px 8px; border-radius: 12px; font-weight: 600; font-size: 0.8rem;">
+                    💬 ${comments}
+                  </span>
+                </td>
+              `;
+              tbody.appendChild(tr);
+            }
           }
         }
       } catch (e) {
@@ -274,7 +280,7 @@
                   const m = Math.floor((secs % 3600) / 60).toString().padStart(2, '0');
                   const s = (secs % 60).toString().padStart(2, '0');
                   const formattedTime = `${h}:${m}:${s}`;
-                  
+
                   return `<li class="modal-list-item" style="display:flex; justify-content:space-between; align-items:center;">
                     <strong>👤 ${member.name}</strong>
                     <span style="font-family: monospace; color: var(--accent); font-weight: bold; background: var(--panel-2); padding: 4px 8px; border-radius: 4px;">⏱️ ${formattedTime}</span>
@@ -296,4 +302,5 @@
     });
   </script>
 </body>
+
 </html>

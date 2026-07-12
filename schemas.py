@@ -48,6 +48,7 @@ class PointModel(BaseModel):
 class SegmentPayload(BaseModel):
     image: str
     point: PointModel
+    prompt: Optional[str] = None
 
 class LabelStudioPayload(BaseModel):
     projectId: Optional[str] = None
