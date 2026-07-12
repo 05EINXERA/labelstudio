@@ -9,6 +9,8 @@ services:
         value: 3.10.12
       - key: DATA_DIR
         value: /data
+      - key: JWT_SECRET
+        value: "change-me-in-production"
     disk:
       name: data
       mountPath: /data

@@ -1,17 +1,18 @@
-if (!localStorage.getItem('access_token')) {
+if (!localStorage.getItem('logged_in')) {
   window.location.href = '/';
 }
 
 async function apiFetch(url, options = {}) {
-  const token = localStorage.getItem('access_token');
-  if (!token) {
+  const logged_in = localStorage.getItem('logged_in');
+  if (!logged_in) {
     window.location.href = '/';
     return;
   }
-  options.headers = { ...options.headers, 'Authorization': `Bearer ${token}` };
+  options.headers = { ...options.headers };
   const res = await fetch(url, options);
   if (res.status === 401) {
-    localStorage.removeItem('access_token');
+    localStorage.removeItem('logged_in');
+    localStorage.removeItem('dataset_username');
     window.location.href = '/';
   }
   return res;
@@ -140,18 +141,49 @@ let state = {
   image: null,
   gallery: [],
   galleryIndex: -1,
-  selectedId: null,
+  _selectedId: null,
+  selectedIds: new Set(),
   activeLabelId: null,
   mode: "draw",
   shape: "box",
   history: []
 };
 
+Object.defineProperty(state, "selectedId", {
+  get() {
+    return this._selectedId;
+  },
+  set(id) {
+    this._selectedId = id;
+    if (id === null) {
+      this.selectedIds.clear();
+    } else {
+      if (!this.selectedIds.has(id)) {
+        this.selectedIds.clear();
+        const ann = this.annotations.find(a => a.id === id);
+        if (ann && ann.groupId) {
+          this.annotations.forEach(a => {
+            if (a.groupId === ann.groupId) this.selectedIds.add(a.id);
+          });
+        } else {
+          this.selectedIds.add(id);
+        }
+      }
+    }
+  }
+});
+
 let imageElement = new Image();
 let imageLoaded = false;
+let viewZoom = 1;
+let viewPan = { x: 0, y: 0 };
+let isPanning = false;
+let panStart = null;
 let imageBox = { x: 0, y: 0, width: 0, height: 0, scale: 1 };
 let drag = null;
 let hoverHandle = null;
+let hoveredLineIndex = -1;
+let selectedLineIndex = -1;
 let labelStudioBusy = false;
 let detectionBusy = false;
 
@@ -375,9 +407,7 @@ async function autoTagObjects() {
 
     if (tags && tags.length > 0) {
       setStatus(`Found ${tags.length} tags`);
-      tags.forEach(tag => ensureLabel(tag.class));
-      window.alert(`Auto-Tag complete!\n\nAdded tags as classes:\n${tags.map(t => `${t.class} (${(t.score * 100).toFixed(1)}%)`).join("\n")}`);
-      render();
+      showAutoTagModal(tags);
     } else {
       setStatus("No tags found");
     }
@@ -390,6 +420,85 @@ async function autoTagObjects() {
   }
 }
 
+function showAutoTagModal(tags) {
+  const modal = document.getElementById("autoTagModal");
+  const suggestionsContainer = document.getElementById("autoTagSuggestions");
+  const input = document.getElementById("autoTagCustomInput");
+  const applyBtn = document.getElementById("autoTagApplyBtn");
+  const cancelBtn = document.getElementById("autoTagCancelBtn");
+  const closeBtn = document.getElementById("autoTagClose");
+
+  suggestionsContainer.innerHTML = '';
+  input.value = tags[0]?.class || "";
+
+  function getSelectedTags() {
+    return input.value.split(',').map(s => s.trim()).filter(s => s);
+  }
+
+  function updateSuggestionStyles() {
+    const selected = getSelectedTags();
+    Array.from(suggestionsContainer.children).forEach(btn => {
+      if (selected.includes(btn.dataset.tagClass)) {
+        btn.classList.add("primary");
+        btn.style.opacity = "1";
+      } else {
+        btn.classList.remove("primary");
+        btn.style.opacity = "0.7";
+      }
+    });
+  }
+
+  tags.forEach(tag => {
+    const btn = document.createElement("button");
+    btn.className = "tool-button";
+    btn.style.padding = "6px 12px";
+    btn.style.borderRadius = "20px";
+    btn.style.fontSize = "0.85rem";
+    btn.style.transition = "all 0.2s ease";
+    btn.dataset.tagClass = tag.class;
+    btn.textContent = `${tag.class} (${(tag.score * 100).toFixed(1)}%)`;
+    
+    btn.onclick = () => {
+      let selected = getSelectedTags();
+      if (selected.includes(tag.class)) {
+        selected = selected.filter(s => s !== tag.class);
+      } else {
+        selected.push(tag.class);
+      }
+      input.value = selected.join(", ");
+      updateSuggestionStyles();
+    };
+    suggestionsContainer.appendChild(btn);
+  });
+
+  input.addEventListener("input", updateSuggestionStyles);
+  updateSuggestionStyles();
+
+  const closeModal = () => {
+    modal.classList.remove('is-active');
+    input.removeEventListener("input", updateSuggestionStyles);
+    applyBtn.removeEventListener("click", onApply);
+    cancelBtn.removeEventListener("click", closeModal);
+    closeBtn.removeEventListener("click", closeModal);
+  };
+
+  const onApply = () => {
+    const classNames = getSelectedTags();
+    if (classNames.length > 0) {
+      classNames.forEach(className => ensureLabel(className));
+      setStatus(`Added tags: ${classNames.join(", ")}`);
+      render();
+    }
+    closeModal();
+  };
+
+  applyBtn.addEventListener("click", onApply);
+  cancelBtn.addEventListener("click", closeModal);
+  closeBtn.addEventListener("click", closeModal);
+
+  modal.classList.add('is-active');
+}
+
 async function performMagicWandSegmentation(point) {
   if (!imageLoaded || detectionBusy) return;
 
@@ -397,12 +506,17 @@ async function performMagicWandSegmentation(point) {
   setStatus("Segmenting object...");
 
   try {
+    const activeLabelId = state.activeLabelId;
+    const label = state.labels.find(l => l.id === activeLabelId);
+    const labelName = label ? label.name : null;
+
     const response = await apiFetch(`${window.location.origin}/api/detect/segment`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         image: state.image?.src || imageElement.src,
-        point: { x: Math.round(point.x), y: Math.round(point.y) }
+        point: { x: Math.round(point.x), y: Math.round(point.y) },
+        prompt: labelName
       })
     });
     const payload = await response.json();
@@ -570,12 +684,14 @@ function computeImageBox() {
   }
 
   const rect = canvas.getBoundingClientRect();
-  const scale = Math.min(rect.width / imageElement.naturalWidth, rect.height / imageElement.naturalHeight);
+  const baseScale = Math.min(rect.width / imageElement.naturalWidth, rect.height / imageElement.naturalHeight);
+  const scale = baseScale * viewZoom;
   const width = imageElement.naturalWidth * scale;
   const height = imageElement.naturalHeight * scale;
+  
   imageBox = {
-    x: (rect.width - width) / 2,
-    y: (rect.height - height) / 2,
+    x: (rect.width - width) / 2 + viewPan.x,
+    y: (rect.height - height) / 2 + viewPan.y,
     width,
     height,
     scale
@@ -591,7 +707,7 @@ function draw() {
 
   ctx.drawImage(imageElement, imageBox.x, imageBox.y, imageBox.width, imageBox.height);
 
-  state.annotations.forEach((annotation) => drawAnnotation(annotation, annotation.id === state.selectedId));
+  state.annotations.forEach((annotation) => drawAnnotation(annotation, state.selectedIds.has(annotation.id)));
 
   if (drag?.draft) {
     drawAnnotation(drag.draft, true);
@@ -757,6 +873,48 @@ function drawAnnotation(annotation, selected = false) {
   ctx.fillStyle = "#ffffff";
   ctx.fillText(tag, bounds.minX + 8, tagY + 15, tagWidth - 14);
 
+  // Draw highlighted/selected line segments on the selected annotation
+  if (selected && annotation.id === state.selectedId && screenPoints.length >= 3) {
+    // Draw hovered line highlight
+    if (hoveredLineIndex !== -1 && hoveredLineIndex !== selectedLineIndex) {
+      const p1 = screenPoints[hoveredLineIndex];
+      const p2 = screenPoints[(hoveredLineIndex + 1) % screenPoints.length];
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
+      ctx.strokeStyle = "rgba(255, 107, 107, 0.6)";
+      ctx.lineWidth = 5;
+      ctx.stroke();
+      ctx.restore();
+    }
+    // Draw selected line highlight
+    if (selectedLineIndex !== -1 && selectedLineIndex < screenPoints.length) {
+      const p1 = screenPoints[selectedLineIndex];
+      const p2 = screenPoints[(selectedLineIndex + 1) % screenPoints.length];
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
+      ctx.strokeStyle = "#ff4444";
+      ctx.lineWidth = 5;
+      ctx.stroke();
+      // Draw small "×" delete hint at the midpoint
+      const mx = (p1.x + p2.x) / 2;
+      const my = (p1.y + p2.y) / 2;
+      ctx.beginPath();
+      ctx.arc(mx, my, 10, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(255, 68, 68, 0.9)";
+      ctx.fill();
+      ctx.font = "bold 14px Inter, system-ui, sans-serif";
+      ctx.fillStyle = "#ffffff";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("×", mx, my);
+      ctx.restore();
+    }
+  }
+
   if (selected) {
     drawVertexHandles(screenPoints, label.color);
   }
@@ -897,9 +1055,18 @@ function updateCanvasCursor(point) {
     return;
   }
 
-  if (state.mode === "select" && hitTest(point)) {
-    canvas.style.cursor = "move";
-    return;
+  if (state.mode === "select") {
+    if (state.selectedId) {
+      const selected = state.annotations.find(a => a.id === state.selectedId);
+      if (selected && hitTestPoint(point, selected) !== -1) {
+        canvas.style.cursor = "crosshair";
+        return;
+      }
+    }
+    if (hitTest(point)) {
+      canvas.style.cursor = "move";
+      return;
+    }
   }
 
   canvas.style.cursor = state.mode === "draw" ? "crosshair" : "default";
@@ -951,6 +1118,24 @@ function renderClasses() {
     item.addEventListener("click", (e) => {
       if (e.target.classList.contains("delete-class-btn")) return;
       state.activeLabelId = label.id;
+      
+      // Reassign class to selected annotations
+      if (state.selectedIds.size > 0) {
+        snapshot();
+        let changed = false;
+        state.annotations.forEach(a => {
+          if (state.selectedIds.has(a.id) && a.type !== "comment" && a.labelId !== label.id) {
+            a.labelId = label.id;
+            changed = true;
+          }
+        });
+        if (changed) {
+          save();
+        } else {
+          state.history.pop();
+        }
+      }
+      
       render();
     });
 
@@ -967,7 +1152,6 @@ function renderClasses() {
 }
 
 function renderAnnotations() {
-  annotationCount.textContent = String(state.annotations.length);
   annotationList.innerHTML = "";
 
   if (!state.annotations.length) {
@@ -977,27 +1161,66 @@ function renderAnnotations() {
     annotationList.appendChild(empty);
   }
 
+  const processedGroups = new Set();
+  let displayCount = 0;
+
   state.annotations.forEach((annotation, index) => {
+    if (annotation.groupId) {
+      if (processedGroups.has(annotation.groupId)) return;
+      processedGroups.add(annotation.groupId);
+    }
+    
+    displayCount++;
+    const isGroup = !!annotation.groupId;
+    const groupAnns = isGroup ? state.annotations.filter(a => a.groupId === annotation.groupId) : [annotation];
+
     const label = annotation.type === "comment" ? { name: "Comment", color: "#e85d75" } : labelById(annotation.labelId);
-    const bounds = annotationPoints(annotation);
+    const totalPoints = groupAnns.reduce((sum, a) => sum + annotationPoints(a).length, 0);
+
     const item = document.createElement("button");
     item.type = "button";
-    item.className = `annotation-item${annotation.id === state.selectedId ? " is-active" : ""}`;
+    const isActive = state.selectedIds.has(annotation.id);
+    item.className = `annotation-item${isActive ? " is-active" : ""}`;
     item.innerHTML = `
       <span class="swatch" style="background:${label.color}"></span>
       <strong></strong>
       <span></span>
     `;
-    item.querySelector("strong").textContent = annotation.type === "comment" ? `💬 ${annotation.text || "Comment"}` : `${index + 1}. ${labelDisplayName(label)}`;
-    item.querySelector("span:last-child").textContent = annotation.type === "comment" ? "" : `${bounds.length} pts`;
-    item.addEventListener("click", () => {
-      state.selectedId = annotation.id;
+    
+    let text = annotation.type === "comment" ? `💬 ${annotation.text || "Comment"}` : `${displayCount}. ${labelDisplayName(label)}`;
+    if (isGroup) {
+      text = `${displayCount}. ${labelDisplayName(label)} (Group of ${groupAnns.length})`;
+    }
+    item.querySelector("strong").textContent = text;
+    item.querySelector("span:last-child").textContent = annotation.type === "comment" ? "" : `${totalPoints} pts`;
+    
+    item.addEventListener("click", (event) => {
       state.mode = "select";
+      if (event.shiftKey) {
+        const toSelect = isGroup ? groupAnns.map(a => a.id) : [annotation.id];
+
+        if (state.selectedIds.has(annotation.id)) {
+          toSelect.forEach(id => state.selectedIds.delete(id));
+        } else {
+          toSelect.forEach(id => state.selectedIds.add(id));
+        }
+        state._selectedId = state.selectedIds.size > 0 ? Array.from(state.selectedIds)[0] : null;
+      } else {
+        state.selectedIds.clear();
+        if (isGroup) {
+          groupAnns.forEach(a => state.selectedIds.add(a.id));
+        } else {
+          state.selectedIds.add(annotation.id);
+        }
+        state.selectedId = annotation.id;
+      }
       render();
       draw();
     });
     annotationList.appendChild(item);
   });
+  
+  annotationCount.textContent = String(displayCount);
 
   const selected = state.annotations.find((item) => item.id === state.selectedId);
   if (selected) {
@@ -1042,7 +1265,17 @@ function renderControls() {
   }
   autoDetectButton.title = selectedAnnotation() ? "Detect objects inside the selected area" : "Detect objects in the whole image";
   undoButton.disabled = state.history.length === 0;
-  deleteButton.disabled = !state.selectedId;
+  deleteButton.disabled = state.selectedIds.size === 0;
+  const groupButton = document.querySelector("#groupButton");
+  if (groupButton) {
+    const selectedList = state.annotations.filter(a => state.selectedIds.has(a.id));
+    const allSameGroup = selectedList.length > 1 && selectedList.every(a => a.groupId && a.groupId === selectedList[0].groupId);
+    groupButton.disabled = state.selectedIds.size <= 1 || allSameGroup;
+  }
+  const ungroupButton = document.querySelector("#ungroupButton");
+  if (ungroupButton) {
+    ungroupButton.disabled = !state.annotations.some(a => state.selectedIds.has(a.id) && a.groupId);
+  }
   clearButton.disabled = state.annotations.length === 0;
   const noData = !imageLoaded && state.annotations.length === 0;
   exportMenuButton.disabled = noData;
@@ -1051,19 +1284,71 @@ function renderControls() {
 }
 
 if (logoutBtnApp) {
-  logoutBtnApp.addEventListener("click", () => {
+  logoutBtnApp.addEventListener("click", async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch(e) {}
     localStorage.removeItem("dataset_username");
     localStorage.removeItem("image-annotation-mvp-v1");
-    localStorage.removeItem("access_token");
+    localStorage.removeItem("logged_in");
     window.location.href = "index.html";
   });
 }
 
 function render() {
   renderClasses();
+  renderImageClasses();
   renderAnnotations();
   renderControls();
   draw();
+}
+
+function renderImageClasses() {
+  const imageClassesList = document.getElementById("imageClassesList");
+  if (!imageClassesList) return;
+
+  const presentClasses = new Set();
+  (state.annotations || []).forEach(ann => {
+    if (ann.class) {
+      presentClasses.add(ann.class);
+    }
+  });
+
+  imageClassesList.innerHTML = '';
+  
+  if (presentClasses.size === 0) {
+    imageClassesList.innerHTML = '<p class="hint">No classes in current image.</p>';
+    return;
+  }
+
+  Array.from(presentClasses).sort().forEach(className => {
+    const classDef = state.labels.find(l => l.name === className) || { name: className, color: '#0f8b8d' };
+    
+    const div = document.createElement("div");
+    div.className = "class-item";
+    div.style.gridTemplateColumns = "auto 1fr auto";
+    
+    const colorIndicator = document.createElement("div");
+    colorIndicator.style.width = "12px";
+    colorIndicator.style.height = "12px";
+    colorIndicator.style.borderRadius = "50%";
+    colorIndicator.style.background = classDef.color;
+    
+    const nameSpan = document.createElement("div");
+    nameSpan.className = "chip-name";
+    nameSpan.textContent = classDef.name;
+    
+    const countSpan = document.createElement("span");
+    countSpan.style.fontSize = "0.75rem";
+    countSpan.style.color = "var(--muted)";
+    const count = (state.annotations || []).filter(a => a.class === classDef.name).length;
+    countSpan.textContent = `(${count})`;
+
+    div.appendChild(colorIndicator);
+    div.appendChild(nameSpan);
+    div.appendChild(countSpan);
+    imageClassesList.appendChild(div);
+  });
 }
 
 function loadImageFromSource(src, name, { autoDetect = false } = {}) {
@@ -1134,20 +1419,39 @@ function buildCocoExport() {
       file_name: item.name
     });
 
+    const grouped = {};
+    const ungrouped = [];
     item.annotations.forEach(ann => {
-      if (ann.type === "comment") return; // skip comments in COCO export
-      const label = labelById(ann.labelId);
+      if (ann.type === "comment") return;
+      if (ann.groupId) {
+        if (!grouped[ann.groupId]) grouped[ann.groupId] = [];
+        grouped[ann.groupId].push(ann);
+      } else {
+        ungrouped.push([ann]);
+      }
+    });
+
+    const exportGroups = [...Object.values(grouped), ...ungrouped];
+
+    exportGroups.forEach(group => {
+      const baseAnn = group[0];
+      const label = labelById(baseAnn.labelId);
       const category_id = labelToCategoryId[label.name] || 1;
-      const points = annotationPoints(ann);
-      const segmentation = [points.flatMap(p => [round(p.x), round(p.y)])];
       
+      const segmentation = [];
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      points.forEach(p => {
-        minX = Math.min(minX, p.x);
-        minY = Math.min(minY, p.y);
-        maxX = Math.max(maxX, p.x);
-        maxY = Math.max(maxY, p.y);
+      
+      group.forEach(ann => {
+        const points = annotationPoints(ann);
+        segmentation.push(points.flatMap(p => [round(p.x), round(p.y)]));
+        points.forEach(p => {
+          minX = Math.min(minX, p.x);
+          minY = Math.min(minY, p.y);
+          maxX = Math.max(maxX, p.x);
+          maxY = Math.max(maxY, p.y);
+        });
       });
+      
       const bbox = [round(minX), round(minY), round(maxX - minX), round(maxY - minY)];
       const area = bbox[2] * bbox[3];
 
@@ -1800,16 +2104,73 @@ deleteButton.addEventListener("click", () => {
 });
 
 function deleteSelected() {
-  if (!state.selectedId) return;
+  if (state.selectedIds.size === 0) return;
   snapshot();
   // If deleting the polygon being drawn, clean up drag state
-  if (drag?.type === "draw-polygon" && drag.annotationId === state.selectedId) {
+  if (drag?.type === "draw-polygon" && state.selectedIds.has(drag.annotationId)) {
     drag = null;
   }
-  state.annotations = state.annotations.filter((item) => item.id !== state.selectedId);
+  state.annotations = state.annotations.filter((item) => !state.selectedIds.has(item.id));
+  state.selectedIds.clear();
   state.selectedId = null;
+  selectedLineIndex = -1;
+  hoveredLineIndex = -1;
   render();
   save();
+}
+
+const groupButton = document.querySelector("#groupButton");
+if (groupButton) {
+  groupButton.addEventListener("click", () => {
+    groupSelectedAnnotations();
+  });
+}
+
+function groupSelectedAnnotations() {
+  if (state.selectedIds.size <= 1) return;
+  
+  snapshot();
+  
+  const selectedList = state.annotations.filter(a => state.selectedIds.has(a.id) && a.type !== "comment");
+  if (selectedList.length <= 1) {
+    state.history.pop();
+    return;
+  }
+  
+  const baseAnnotation = selectedList[0];
+  const groupId = crypto.randomUUID();
+  
+  state.annotations.forEach(a => {
+    if (state.selectedIds.has(a.id) && a.type !== "comment") {
+      a.groupId = groupId;
+      a.labelId = baseAnnotation.labelId;
+    }
+  });
+  
+  render();
+  save();
+  setStatus("Grouped annotations");
+}
+
+const ungroupButton = document.querySelector("#ungroupButton");
+if (ungroupButton) {
+  ungroupButton.addEventListener("click", () => {
+    snapshot();
+    let ungrouped = false;
+    state.annotations.forEach(a => {
+      if (state.selectedIds.has(a.id) && a.groupId) {
+        delete a.groupId;
+        ungrouped = true;
+      }
+    });
+    if (ungrouped) {
+      render();
+      save();
+      setStatus("Ungrouped annotations");
+    } else {
+      state.history.pop();
+    }
+  });
 }
 
 clearButton.addEventListener("click", () => {
@@ -1923,6 +2284,41 @@ function finalizePolygon() {
   setStatus("Annotation created");
 }
 
+function setZoom(newZoom, mouseX, mouseY) {
+  if (!imageLoaded) return;
+  const oldZoom = viewZoom;
+  viewZoom = Math.max(0.1, Math.min(10, newZoom));
+  
+  const rect = canvas.getBoundingClientRect();
+  const cx = mouseX !== undefined ? mouseX : rect.width / 2;
+  const cy = mouseY !== undefined ? mouseY : rect.height / 2;
+  
+  const baseScale = Math.min(rect.width / imageElement.naturalWidth, rect.height / imageElement.naturalHeight);
+  const oldScale = baseScale * oldZoom;
+  const newScale = baseScale * viewZoom;
+  
+  const imgX = (cx - imageBox.x) / oldScale;
+  const imgY = (cy - imageBox.y) / oldScale;
+  
+  const newWidth = imageElement.naturalWidth * newScale;
+  const newHeight = imageElement.naturalHeight * newScale;
+  
+  viewPan.x = cx - (rect.width - newWidth) / 2 - imgX * newScale;
+  viewPan.y = cy - (rect.height - newHeight) / 2 - imgY * newScale;
+  
+  draw();
+}
+
+canvas.addEventListener("wheel", (event) => {
+  if (!imageLoaded) return;
+  event.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const mouseX = (event.clientX - rect.left) * (canvas.width / rect.width);
+  const mouseY = (event.clientY - rect.top) * (canvas.height / rect.height);
+  const zoomFactor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
+  setZoom(viewZoom * zoomFactor, mouseX, mouseY);
+}, { passive: false });
+
 canvas.addEventListener("contextmenu", (event) => {
   if (state.selectedId) {
     event.preventDefault();
@@ -1932,8 +2328,52 @@ canvas.addEventListener("contextmenu", (event) => {
 canvas.addEventListener("pointerdown", (event) => {
   if (!imageLoaded) return;
   canvas.setPointerCapture(event.pointerId);
+  
+  if (event.button === 1 || (event.button === 0 && event.shiftKey && event.altKey)) {
+    event.preventDefault();
+    isPanning = true;
+    panStart = { x: event.clientX, y: event.clientY, panX: viewPan.x, panY: viewPan.y };
+    canvas.style.cursor = "grabbing";
+    return;
+  }
+  
   const point = canvasPoint(event);
 
+  // Left-click on a polygon edge to select/delete it
+  if (state.selectedId && event.button === 0 && !event.altKey) {
+    const selected = state.annotations.find(a => a.id === state.selectedId);
+    if (selected && selected.points && selected.points.length >= 3) {
+      const lnIndex = hitTestLine(point, selected);
+      if (lnIndex !== -1) {
+        // If clicking the already-selected line, delete it
+        if (selectedLineIndex === lnIndex && selected.points.length > 3) {
+          snapshot();
+          const nextIndex = (lnIndex + 1) % selected.points.length;
+          const toRemove = [lnIndex, nextIndex].sort((a,b)=>b-a);
+          selected.points.splice(toRemove[0], 1);
+          selected.points.splice(toRemove[1], 1);
+          selectedLineIndex = -1;
+          hoveredLineIndex = -1;
+          updateAnnotationBounds(selected);
+          render();
+          save();
+          setStatus("Line segment deleted");
+          return;
+        }
+        // Otherwise select this line
+        selectedLineIndex = lnIndex;
+        draw();
+        setStatus("Line selected — press Delete to remove, or click again");
+        return;
+      } else {
+        // Clicked away from any line — clear line selection
+        if (selectedLineIndex !== -1) {
+          selectedLineIndex = -1;
+          draw();
+        }
+      }
+    }
+  }
   if (state.selectedId && (event.altKey || event.button === 2)) {
     const selected = state.annotations.find(a => a.id === state.selectedId);
     if (selected && selected.points && selected.points.length > 3) {
@@ -1953,6 +2393,8 @@ canvas.addEventListener("pointerdown", (event) => {
         const toRemove = [lnIndex, nextIndex].sort((a,b)=>b-a);
         selected.points.splice(toRemove[0], 1);
         selected.points.splice(toRemove[1], 1);
+        selectedLineIndex = -1;
+        hoveredLineIndex = -1;
         updateAnnotationBounds(selected);
         render();
         save();
@@ -1963,16 +2405,53 @@ canvas.addEventListener("pointerdown", (event) => {
 
   // In draw mode, skip hit-testing – clicks should create shapes, not select existing ones
   if (state.mode !== "draw") {
+    if (state.selectedId) {
+      const selected = state.annotations.find(a => a.id === state.selectedId);
+      if (selected && selected.points && selected.points.length >= 3) {
+        const ptIndex = hitTestPoint(point, selected);
+        if (ptIndex !== -1) {
+          snapshot();
+          drag = {
+            type: "move-point",
+            annotationId: selected.id,
+            pointIndex: ptIndex
+          };
+          return;
+        }
+      }
+    }
+
     const hitId = hitTest(point);
     if (hitId) {
-      state.selectedId = hitId;
+      if (event.shiftKey) {
+        const hitAnnotation = state.annotations.find(a => a.id === hitId);
+        const toSelect = hitAnnotation.groupId ? state.annotations.filter(a => a.groupId === hitAnnotation.groupId).map(a => a.id) : [hitId];
+        if (state.selectedIds.has(hitId)) {
+          toSelect.forEach(id => state.selectedIds.delete(id));
+        } else {
+          toSelect.forEach(id => state.selectedIds.add(id));
+        }
+        state._selectedId = state.selectedIds.size > 0 ? Array.from(state.selectedIds)[0] : null;
+      } else {
+        state.selectedIds.clear();
+        const hitAnnotation = state.annotations.find(a => a.id === hitId);
+        if (hitAnnotation && hitAnnotation.groupId) {
+          state.annotations.forEach(a => {
+            if (a.groupId === hitAnnotation.groupId) state.selectedIds.add(a.id);
+          });
+        } else {
+          state.selectedIds.add(hitId);
+        }
+        state.selectedId = hitId;
+      }
+      selectedLineIndex = -1;
+      hoveredLineIndex = -1;
       state.mode = "select";
-      const annotation = state.annotations.find((item) => item.id === hitId);
       snapshot();
       drag = {
         type: "move",
         start: imagePoint(point),
-        original: { ...annotation }
+        originals: state.annotations.filter(a => state.selectedIds.has(a.id)).map(a => JSON.parse(JSON.stringify(a)))
       };
       render();
       return;
@@ -1981,6 +2460,9 @@ canvas.addEventListener("pointerdown", (event) => {
 
   if (state.mode === "select") {
     state.selectedId = null;
+    state.selectedIds.clear();
+    selectedLineIndex = -1;
+    hoveredLineIndex = -1;
     drag = null;
     render();
     return;
@@ -2087,8 +2569,45 @@ canvas.addEventListener("pointerdown", (event) => {
 });
 
 canvas.addEventListener("pointermove", (event) => {
+  if (isPanning) {
+    const dx = event.clientX - panStart.x;
+    const dy = event.clientY - panStart.y;
+    const ratio = window.devicePixelRatio || 1;
+    viewPan.x = panStart.panX + dx * ratio;
+    viewPan.y = panStart.panY + dy * ratio;
+    draw();
+    return;
+  }
   const point = canvasPoint(event);
   updateCanvasCursor(point);
+
+  // Detect line hover on selected polygon (even when no drag)
+  if (state.selectedId && !drag) {
+    const selected = state.annotations.find(a => a.id === state.selectedId);
+    if (selected && selected.points && selected.points.length >= 3) {
+      const ptIndex = hitTestPoint(point, selected);
+      if (ptIndex !== -1) {
+        if (hoveredLineIndex !== -1) {
+          hoveredLineIndex = -1;
+          draw();
+        }
+        canvas.style.cursor = "crosshair";
+      } else {
+        const lnIndex = hitTestLine(point, selected);
+        if (lnIndex !== hoveredLineIndex) {
+          hoveredLineIndex = lnIndex;
+          draw();
+        }
+        if (lnIndex !== -1) {
+          canvas.style.cursor = "pointer";
+        }
+      }
+    } else if (hoveredLineIndex !== -1) {
+      hoveredLineIndex = -1;
+      draw();
+    }
+  }
+
   if (!drag) return;
 
   const end = imagePoint(point);
@@ -2115,16 +2634,30 @@ canvas.addEventListener("pointermove", (event) => {
   }
 
   if (drag.type === "move") {
-    const updated = {
-      ...drag.original,
-      points: (drag.original.points || annotationPoints(drag.original)).map((item) => ({
-        x: round(clamp(item.x + (end.x - drag.start.x), 0, imageElement.naturalWidth)),
-        y: round(clamp(item.y + (end.y - drag.start.y), 0, imageElement.naturalHeight))
-      }))
-    };
-    updateAnnotationBounds(updated);
-    replaceAnnotation(updated);
+    drag.originals.forEach(original => {
+      const updated = {
+        ...original,
+        points: (original.points || annotationPoints(original)).map((item) => ({
+          x: round(clamp(item.x + (end.x - drag.start.x), 0, imageElement.naturalWidth)),
+          y: round(clamp(item.y + (end.y - drag.start.y), 0, imageElement.naturalHeight))
+        }))
+      };
+      updateAnnotationBounds(updated);
+      replaceAnnotation(updated);
+    });
     render();
+  }
+
+  if (drag.type === "move-point") {
+    const annotation = state.annotations.find((item) => item.id === drag.annotationId);
+    if (annotation) {
+      annotation.points[drag.pointIndex] = {
+        x: round(clamp(end.x, 0, imageElement.naturalWidth)),
+        y: round(clamp(end.y, 0, imageElement.naturalHeight))
+      };
+      updateAnnotationBounds(annotation);
+      render();
+    }
   }
 });
 
@@ -2135,11 +2668,27 @@ canvas.addEventListener("dblclick", () => {
 });
 
 canvas.addEventListener("pointerup", () => {
-  if (drag?.type === "move") {
-    const updated = selectedAnnotation();
-    const original = drag.original;
+  if (isPanning) {
+    isPanning = false;
+    canvas.style.cursor = "default";
+    return;
+  }
+  if (drag?.type === "move-point") {
     drag = null;
-    if (updated && annotationChanged(original, updated)) {
+    save();
+    return;
+  }
+
+  if (drag?.type === "move") {
+    let changed = false;
+    drag.originals.forEach(original => {
+      const updated = state.annotations.find(a => a.id === original.id);
+      if (updated && annotationChanged(original, updated)) {
+        changed = true;
+      }
+    });
+    drag = null;
+    if (changed) {
       save();
     } else {
       state.history.pop();
@@ -2187,10 +2736,22 @@ canvas.addEventListener("pointerup", () => {
 });
 
 canvas.addEventListener("pointerleave", () => {
+  if (isPanning) {
+    isPanning = false;
+  }
   if (!drag) canvas.style.cursor = "default";
+  if (hoveredLineIndex !== -1) {
+    hoveredLineIndex = -1;
+    draw();
+  }
 });
 
 canvas.addEventListener("pointercancel", () => {
+  if (isPanning) {
+    isPanning = false;
+    canvas.style.cursor = "default";
+    return;
+  }
   if (drag?.type === "draw-polygon") {
     const annotation = state.annotations.find((item) => item.id === drag.annotationId);
     if (annotation && (annotation.points || []).length < 3) {
@@ -2214,6 +2775,24 @@ window.addEventListener("keydown", (event) => {
 
   if (event.key === "Delete" || event.key === "Backspace") {
     event.preventDefault();
+    // If a line segment is selected on a polygon, delete just that segment
+    if (selectedLineIndex !== -1 && state.selectedId) {
+      const selected = state.annotations.find(a => a.id === state.selectedId);
+      if (selected && selected.points && selected.points.length > 3) {
+        snapshot();
+        const nextIndex = (selectedLineIndex + 1) % selected.points.length;
+        const toRemove = [selectedLineIndex, nextIndex].sort((a,b)=>b-a);
+        selected.points.splice(toRemove[0], 1);
+        selected.points.splice(toRemove[1], 1);
+        selectedLineIndex = -1;
+        hoveredLineIndex = -1;
+        updateAnnotationBounds(selected);
+        render();
+        save();
+        setStatus("Line segment deleted");
+        return;
+      }
+    }
     deleteSelected();
     return;
   }
@@ -2227,8 +2806,16 @@ window.addEventListener("keydown", (event) => {
       }
     }
     state.selectedId = null;
+    state.selectedIds.clear();
+    selectedLineIndex = -1;
+    hoveredLineIndex = -1;
     drag = null;
     render();
+    return;
+  }
+
+  if (event.key.toLowerCase() === "g") {
+    groupSelectedAnnotations();
     return;
   }
 

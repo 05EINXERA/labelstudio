@@ -29,11 +29,11 @@ CLIP_MODEL_NAME = "openai/clip-vit-base-patch32"
 Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
 
 _model = None
-_model_lock = threading.Lock()
+_model_lock = threading.RLock()
 
 _clip_model = None
 _clip_processor = None
-_clip_model_lock = threading.Lock()
+_clip_model_lock = threading.RLock()
 
 _sam_model = None
 
@@ -493,7 +493,7 @@ def classify_image(image_data, top_k=5):
         "tags": results
     }
 
-def segment_point(image_data, x, y):
+def segment_point(image_data, x, y, prompt=None):
     import torch
     try:
         from ultralytics import SAM
@@ -502,6 +502,29 @@ def segment_point(image_data, x, y):
     
     image = decode_image(image_data)
     image_bgr = pil_to_bgr(image)
+    
+    if prompt:
+        prompt_lower = prompt.lower()
+        if prompt_lower in COCO_CLASSES:
+            with _model_lock:
+                raw_predictions = run_inference(image_bgr)
+            
+            best_match = None
+            import cv2
+            import numpy as np
+            
+            for item in raw_predictions:
+                if item.get("points") and item["class"].lower() == prompt_lower:
+                    pts = np.array([[pt["x"], pt["y"]] for pt in item["points"]], np.float32)
+                    dist = cv2.pointPolygonTest(pts, (x, y), measureDist=False)
+                    if dist >= 0:
+                        best_match = item
+                        break
+            
+            if best_match:
+                return {
+                    "points": [{"x": float(pt["x"]), "y": float(pt["y"])} for pt in best_match["points"]]
+                }
     
     global _sam_model
     if _sam_model is None:
@@ -515,9 +538,37 @@ def segment_point(image_data, x, y):
     points_res = []
     if results and len(results) > 0 and results[0].masks:
         masks = results[0].masks
-        # Masks.xy is a list of segments [ (N,2) arrays ]
-        if masks.xy and len(masks.xy) > 0:
-            # Taking the first mask segment
+        if masks.data is not None and len(masks.data) > 0:
+            import cv2
+            import numpy as np
+            
+            # Convert binary mask tensor to numpy array
+            mask_np = (masks.data[0].cpu().numpy() * 255).astype(np.uint8)
+            
+            # Find external contours
+            contours, _ = cv2.findContours(mask_np, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            if contours:
+                # Find the contour that contains the clicked point (x, y)
+                best_contour = None
+                for c in contours:
+                    dist = cv2.pointPolygonTest(c, (x, y), False)
+                    if dist >= 0:
+                        best_contour = c
+                        break
+                
+                # Fallback to the largest contour if no contour contains the point directly
+                if best_contour is None:
+                    best_contour = max(contours, key=cv2.contourArea)
+                
+                # Approximate the contour to simplify it and remove redundant points/crisscross lines
+                epsilon = 0.003 * cv2.arcLength(best_contour, True)
+                approx = cv2.approxPolyDP(best_contour, epsilon, True)
+                
+                for pt in approx:
+                    points_res.append({"x": float(pt[0][0]), "y": float(pt[0][1])})
+        
+        # Fallback to masks.xy if masks.data is not accessible
+        if not points_res and masks.xy and len(masks.xy) > 0:
             segment = masks.xy[0]
             for pt in segment:
                 points_res.append({"x": float(pt[0]), "y": float(pt[1])})

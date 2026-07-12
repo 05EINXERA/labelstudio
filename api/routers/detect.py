@@ -31,7 +31,7 @@ def classify(payload: ClassifyPayload):
 def segment(payload: SegmentPayload):
     from detector import segment_point
     try:
-        response = segment_point(payload.image, payload.point.x, payload.point.y)
+        response = segment_point(payload.image, payload.point.x, payload.point.y, prompt=payload.prompt)
         return response
     except DetectionClientError as error:
         raise HTTPException(status_code=400, detail=str(error))

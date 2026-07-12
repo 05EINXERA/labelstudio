@@ -270,6 +270,8 @@
           <button class="tool-button" id="autoTagButton" type="button" title="Auto-tag image with AI"><span class="btn-icon">🏷️</span><span class="btn-label">Auto-Tag</span></button>
           <button class="icon-button" id="undoButton" type="button" title="Undo"><span class="btn-icon">↩</span><span class="btn-label">Undo</span></button>
           <button class="icon-button" id="deleteButton" type="button" title="Delete selected"><span class="btn-icon">🗑</span><span class="btn-label">Delete</span></button>
+          <button class="icon-button" id="groupButton" type="button" title="Group selected (Shift+Click to select multiple)" disabled><span class="btn-icon">🔗</span><span class="btn-label">Group</span></button>
+          <button class="icon-button" id="ungroupButton" type="button" title="Ungroup selected" disabled><span class="btn-icon">💥</span><span class="btn-label">Ungroup</span></button>
           <button class="icon-button" id="clearButton" type="button" title="Clear all annotations"><span class="btn-icon">✕</span><span class="btn-label">Clear</span></button>
         </div>
         <div class="tool-group" role="group" aria-label="Data controls">
@@ -386,6 +388,30 @@
           <div id="sessionModalTime" style="font-family: 'Courier New', Courier, monospace; font-size: 2.5rem; font-weight: 800; color: var(--accent);">00:00:00</div>
         </div>
         <button id="sessionOkBtn" class="primary" style="width: 100%; padding: 12px;">Got it</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Auto Tag Modal Overlay -->
+  <div id="autoTagModal" class="modal-overlay">
+    <div class="modal-content" style="max-width: 400px; text-align: center;">
+      <div class="modal-header">
+        <h2 style="margin: 0; font-size: 1.2rem; color: var(--ink);">🏷️ Auto-Tag Image</h2>
+        <button class="modal-close" id="autoTagClose">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 24px;">
+        <p style="margin-top: 0; color: var(--ink-light);">Suggested classes found:</p>
+        <div id="autoTagSuggestions" style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; justify-content: center;">
+          <!-- Suggestions injected here -->
+        </div>
+        <div style="margin-bottom: 16px; text-align: left;">
+          <label style="font-size: 0.85rem; font-weight: 500; display: block; margin-bottom: 4px;">Or create custom classes (comma-separated):</label>
+          <input type="text" id="autoTagCustomInput" placeholder="e.g. cat, dog, bird" style="width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--line);">
+        </div>
+        <div style="display: flex; gap: 10px;">
+          <button id="autoTagCancelBtn" class="tool-button" style="flex: 1; padding: 10px;">Cancel</button>
+          <button id="autoTagApplyBtn" class="primary" style="flex: 1; padding: 10px;">Apply Tags</button>
+        </div>
       </div>
     </div>
   </div>

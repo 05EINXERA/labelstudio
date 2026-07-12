@@ -33,12 +33,8 @@ const urlParams = new URLSearchParams(window.location.search);
 
       try {
         const assignee = encodeURIComponent(localStorage.getItem('dataset_username') || 'Unknown');
-        const token = localStorage.getItem('access_token');
         const res = await fetch(`/api/projects/${projectId}/upload?assignee=${assignee}`, {
           method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`
-          },
           body: formData
         });
         if (res.ok) {
@@ -56,12 +52,7 @@ const urlParams = new URLSearchParams(window.location.search);
     async function loadProjectDetails() {
       try {
         const username = localStorage.getItem('dataset_username') || '';
-        const token = localStorage.getItem('access_token');
-        const res = await fetch(`/api/projects?creator=${encodeURIComponent(username)}`, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
+        const res = await fetch(`/api/projects?creator=${encodeURIComponent(username)}`);
         if (res.ok) {
           const projects = await res.json();
           const project = projects.find(p => p.id == projectId);
@@ -131,7 +122,7 @@ const urlParams = new URLSearchParams(window.location.search);
       selectAllCb.checked = pageData.length > 0 && pageData.every(t => selectedTaskIds.has(t.id));
 
       if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--muted);">No tasks match your filters.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="11" style="text-align: center; color: var(--muted);">No tasks match your filters.</td></tr>';
         updateBulkUI();
         return;
       }
@@ -166,18 +157,25 @@ const urlParams = new URLSearchParams(window.location.search);
         const isChecked = selectedTaskIds.has(task.id) ? 'checked' : '';
 
         let commentCount = 0;
+        let classCount = 0;
         if (task.annotations) {
+          let anns = [];
           if (Array.isArray(task.annotations)) {
-            commentCount = task.annotations.filter(a => a.type === "comment").length;
+            anns = task.annotations;
           } else if (typeof task.annotations === 'string') {
             try {
-              const anns = JSON.parse(task.annotations);
-              if (Array.isArray(anns)) {
-                commentCount = anns.filter(a => a.type === "comment").length;
-              }
+              anns = JSON.parse(task.annotations);
             } catch (e) {
               console.error("Failed to parse annotations for task", task.id);
             }
+          }
+          if (Array.isArray(anns)) {
+            commentCount = anns.filter(a => a.type === "comment").length;
+            const uniqueClasses = new Set();
+            anns.forEach(a => {
+              if (a.class) uniqueClasses.add(a.class);
+            });
+            classCount = uniqueClasses.size;
           }
         }
 
@@ -190,6 +188,7 @@ const urlParams = new URLSearchParams(window.location.search);
           <td style="font-family: monospace; font-size: 0.95rem;">${formattedTime}</td>
           <td><span class="status-badge ${badgeClass}">${task.status}</span></td>
           <td style="font-size: 0.85rem; color: var(--muted);">${formattedDate}</td>
+          <td style="text-align: center; color: var(--muted);">${classCount}</td>
           <td style="text-align: center; color: var(--muted);">💬 ${commentCount}</td>
           <td style="text-align: center; white-space: nowrap;">
             <button type="button" class="icon-button edit-task-btn" 
