@@ -49,6 +49,8 @@ class SegmentPayload(BaseModel):
     image: str
     point: PointModel
     prompt: Optional[str] = None
+    precision: Optional[float] = 0.003
+    bbox: Optional[List[float]] = None
 
 class LabelStudioPayload(BaseModel):
     projectId: Optional[str] = None

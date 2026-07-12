@@ -493,7 +493,7 @@ def classify_image(image_data, top_k=5):
         "tags": results
     }
 
-def segment_point(image_data, x, y, prompt=None):
+def segment_point(image_data, x, y, prompt=None, precision=0.003, bbox=None):
     import torch
     try:
         from ultralytics import SAM
@@ -533,7 +533,10 @@ def segment_point(image_data, x, y, prompt=None):
                 _sam_model = SAM('mobile_sam.pt')
                 
     with _model_lock:
-        results = _sam_model(image_bgr, points=[[x, y]], labels=[1], verbose=False)
+        if bbox:
+            results = _sam_model(image_bgr, bboxes=[bbox], verbose=False)
+        else:
+            results = _sam_model(image_bgr, points=[[x, y]], labels=[1], verbose=False)
     
     points_res = []
     if results and len(results) > 0 and results[0].masks:
@@ -560,9 +563,35 @@ def segment_point(image_data, x, y, prompt=None):
                 if best_contour is None:
                     best_contour = max(contours, key=cv2.contourArea)
                 
+                # Convert precision (0.01 smooth to 0.0001 detailed) to a keep_fraction (0.02 smooth to 1.0 detailed)
+                keep_fraction = 0.02 + ((0.01 - precision) / 0.0099) * 0.98
+                keep_fraction = max(0.01, min(1.0, keep_fraction))
+                
+                contour_to_approx = best_contour
+                if len(best_contour) > 10 and keep_fraction < 0.99:
+                    x = best_contour[:, 0, 0]
+                    y = best_contour[:, 0, 1]
+                    z = x + 1j * y
+                    Z = np.fft.fft(z)
+                    
+                    N = len(Z)
+                    keep_n = max(1, int(N * keep_fraction / 2))
+                    
+                    Z_filtered = np.zeros_like(Z)
+                    Z_filtered[:keep_n] = Z[:keep_n]
+                    if keep_n > 1:
+                        Z_filtered[-keep_n+1:] = Z[-keep_n+1:]
+                        
+                    z_smooth = np.fft.ifft(Z_filtered)
+                    
+                    smooth_contour = np.zeros_like(best_contour)
+                    smooth_contour[:, 0, 0] = np.real(z_smooth)
+                    smooth_contour[:, 0, 1] = np.imag(z_smooth)
+                    contour_to_approx = smooth_contour.astype(np.int32)
+                
                 # Approximate the contour to simplify it and remove redundant points/crisscross lines
-                epsilon = 0.003 * cv2.arcLength(best_contour, True)
-                approx = cv2.approxPolyDP(best_contour, epsilon, True)
+                epsilon = precision * cv2.arcLength(contour_to_approx, True)
+                approx = cv2.approxPolyDP(contour_to_approx, epsilon, True)
                 
                 for pt in approx:
                     points_res.append({"x": float(pt[0][0]), "y": float(pt[0][1])})
