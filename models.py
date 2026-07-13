@@ -15,6 +15,7 @@ class Project(Base):
     status = Column(String)
     creator = Column(String)
     created_at = Column(DateTime, server_default=func.now())
+    assignee = Column(String)
 
 class Task(Base):
     __tablename__ = "tasks"
