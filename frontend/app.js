@@ -1155,6 +1155,9 @@ function renderClasses() {
     const item = document.createElement("button");
     item.type = "button";
     item.className = `class-item${label.id === state.activeLabelId ? " is-active" : ""}`;
+    item.style.display = "flex";
+    item.style.alignItems = "center";
+    item.style.justifyContent = "space-between";
     const classAnns = state.annotations.filter(a => a.labelId === label.id && a.type !== "comment");
     const uniqueGroups = new Set();
     let count = 0;
