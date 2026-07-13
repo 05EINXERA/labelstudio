@@ -703,10 +703,7 @@ function loadSaved() {
       state.annotations = payload.annotations;
     }
     repairLabelsFromAnnotations();
-    if (payload.image?.src) {
-      state.image = payload.image;
-      loadImageFromSource(payload.image.src, payload.image.name || "Restored image");
-    }
+    // Removed auto-loading of previous session image based on user request
   } catch {
     localStorage.removeItem(storageKey);
   }

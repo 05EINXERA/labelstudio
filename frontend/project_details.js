@@ -209,12 +209,6 @@ const urlParams = new URLSearchParams(window.location.search);
           <td>${displayId}</td>
           <td><img src="${imgUrl}" style="height: 40px; border-radius: 4px; border: 1px solid var(--line);"></td>
           <td style="max-width: 400px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${task.description}</td>
-          <td>
-            <select class="inline-assignee-select" data-id="${task.id}" style="padding: 4px; border-radius: 4px; border: 1px solid var(--line); background: transparent; font-size: 0.85rem; width: 100%; max-width: 150px; cursor: pointer;">
-              <option value="" ${!task.assignee ? 'selected' : ''}>Unassigned</option>
-              ${teamMembers.map(m => `<option value="${m}" ${task.assignee === m ? 'selected' : ''}>${m}</option>`).join('')}
-            </select>
-          </td>
           <td style="font-family: monospace; font-size: 0.95rem;">${formattedTime}</td>
           <td><span class="status-badge ${badgeClass}">${task.status}</span></td>
           <td style="font-size: 0.85rem; color: var(--muted);">${formattedDate}</td>
@@ -281,37 +275,7 @@ const urlParams = new URLSearchParams(window.location.search);
         });
       });
 
-      document.querySelectorAll('.inline-assignee-select').forEach(select => {
-        select.addEventListener('change', async (e) => {
-          const taskId = e.target.dataset.id;
-          const newAssignee = e.target.value;
-          const task = allTasks.find(t => t.id == taskId);
-          if (task) {
-            try {
-              const res = await fetch('/api/tasks', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ 
-                  id: task.id, 
-                  description: task.description, 
-                  assignee: newAssignee, 
-                  status: task.status 
-                })
-              });
-              if (res.ok) {
-                task.assignee = newAssignee;
-              } else {
-                alert('Failed to update assignee.');
-                e.target.value = task.assignee || '';
-              }
-            } catch (err) {
-              console.error(err);
-              alert('Failed to update assignee.');
-              e.target.value = task.assignee || '';
-            }
-          }
-        });
-      });
+
 
       updateBulkUI();
     }
