@@ -83,10 +83,12 @@
         <thead>
           <tr style="border-bottom: 2px solid var(--line);">
             <th style="padding: 10px; color: var(--muted);">Project Name</th>
+            <th style="padding: 10px; color: var(--muted);">Assignee</th>
             <th style="padding: 10px; color: var(--muted);">Progress</th>
             <th style="padding: 10px; color: var(--muted);">Completed</th>
             <th style="padding: 10px; color: var(--muted);">Total Tasks</th>
             <th style="padding: 10px; color: var(--muted);">Comments</th>
+            <th style="padding: 10px; color: var(--muted);">Actions</th>
           </tr>
         </thead>
         <tbody id="projectsMatrixBody">
@@ -113,6 +115,12 @@
   </div>
 
   <script>
+    async function apiFetch(url, options = {}) {
+      const token = localStorage.getItem('dataset_token');
+      options.headers = { ...options.headers, 'Authorization': `Bearer ${token}` };
+      return fetch(url, options);
+    }
+
     document.addEventListener("DOMContentLoaded", async () => {
 
       // Load Annotation Data
@@ -124,6 +132,18 @@
       let numClasses = 0;
 
       let payload = {};
+
+      function savePayload() {
+        localStorage.setItem(storageKey, JSON.stringify(payload));
+        if (payload.labels) {
+          numClasses = payload.labels.length;
+          document.getElementById('valClasses').textContent = numClasses;
+        }
+        if (payload.annotations) {
+          numAnnotations = payload.annotations.length;
+          document.getElementById('valAnnotations').textContent = numAnnotations;
+        }
+      }
 
       if (savedData) {
         try {
@@ -144,13 +164,13 @@
       let team = [];
       let tasks = [];
       try {
-        const teamRes = await fetch('/api/team');
+        const teamRes = await apiFetch('/api/team');
 
         if (teamRes.ok) {
           team = await teamRes.json();
         }
 
-        const tasksRes = await fetch('/api/tasks');
+        const tasksRes = await apiFetch('/api/tasks');
 
         if (tasksRes.ok) tasks = await tasksRes.json();
       } catch (e) {
@@ -188,57 +208,153 @@
       // Load Project Matrices
       try {
         const username = localStorage.getItem('dataset_username') || '';
-        const projectsRes = await fetch(`/api/projects?creator=${encodeURIComponent(username)}`);
+        const projectsRes = await apiFetch(`/api/projects?creator=${encodeURIComponent(username)}`);
         
         if (projectsRes.ok) {
-          const projects = await projectsRes.json();
+          let projects = await projectsRes.json();
           const tbody = document.getElementById('projectsMatrixBody');
-          tbody.innerHTML = '';
+          
+          let batchMetrics = {};
+          const metricsRes = await apiFetch(`/api/projects/metrics/batch?creator=${encodeURIComponent(username)}`);
+          if (metricsRes.ok) {
+            batchMetrics = await metricsRes.json();
+          }
 
-          if (projects.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" style="padding: 10px; text-align: center; color: var(--muted);">No projects found</td></tr>';
-          } else {
-            // Fetch batch metrics
-            let batchMetrics = {};
-            const metricsRes = await fetch(`/api/projects/metrics/batch?creator=${encodeURIComponent(username)}`);
-            if (metricsRes.ok) {
-              batchMetrics = await metricsRes.json();
+          const renderTable = () => {
+            tbody.innerHTML = '';
+            if (projects.length === 0) {
+              tbody.innerHTML = '<tr><td colspan="7" style="padding: 10px; text-align: center; color: var(--muted);">No projects found</td></tr>';
+              return;
             }
-
-            for (const project of projects) {
+            
+            projects.forEach(project => {
               const m = batchMetrics[project.id] || {};
               const progress = m.progress || 0;
               const completed = m.completed || 0;
               const total = m.total || 0;
               const comments = m.comments || 0;
-
+              
               const tr = document.createElement('tr');
               tr.style.borderBottom = '1px solid var(--line)';
-              tr.innerHTML = `
-                <td style="padding: 10px; font-weight: 500;">
-                  <a href="project_details.html?id=${project.id}" style="color: #3b82f6; text-decoration: underline;">
-                    ${project.name}
-                  </a>
-                </td>
-                <td style="padding: 10px;">
-                  <div style="display: flex; align-items: center; gap: 8px;">
-                    <div style="flex: 1; height: 8px; background: var(--line); border-radius: 4px; overflow: hidden;">
-                      <div style="height: 100%; width: ${progress}%; background: var(--accent);"></div>
+              
+              const renderRow = () => {
+                const escapeHTML = (str) => String(str).replace(/[&<>'"]/g, match => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[match]));
+                const assigneeHtml = `<span style="font-size: 0.85rem; color: var(--ink);">${project.assignee ? escapeHTML(project.assignee) : '<span style="color: var(--muted);">Unassigned</span>'}</span>`;
+                
+                tr.innerHTML = `
+                  <td style="padding: 10px; font-weight: 500;">
+                    <a href="project_details.html?id=${project.id}" style="color: #3b82f6; text-decoration: underline;">
+                      ${escapeHTML(project.name)}
+                    </a>
+                  </td>
+                  <td style="padding: 10px;">${assigneeHtml}</td>
+                  <td style="padding: 10px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <div style="flex: 1; height: 8px; background: var(--line); border-radius: 4px; overflow: hidden;">
+                        <div style="height: 100%; width: ${progress}%; background: var(--accent);"></div>
+                      </div>
+                      <span style="font-size: 0.85rem; font-weight: 600;">${progress}%</span>
                     </div>
-                    <span style="font-size: 0.85rem; font-weight: 600;">${progress}%</span>
-                  </div>
-                </td>
-                <td style="padding: 10px;">${completed}</td>
-                <td style="padding: 10px;">${total}</td>
-                <td style="padding: 10px;">
-                  <span style="background: rgba(15, 139, 141, 0.1); color: #0f8b8d; padding: 2px 8px; border-radius: 12px; font-weight: 600; font-size: 0.8rem;">
-                    💬 ${comments}
-                  </span>
-                </td>
-              `;
+                  </td>
+                  <td style="padding: 10px;">${completed}</td>
+                  <td style="padding: 10px;">${total}</td>
+                  <td style="padding: 10px;">
+                    <span style="background: rgba(15, 139, 141, 0.1); color: #0f8b8d; padding: 2px 8px; border-radius: 12px; font-weight: 600; font-size: 0.8rem;">
+                      💬 ${comments}
+                    </span>
+                  </td>
+                  <td style="padding: 10px;">
+                    <div style="display: flex; gap: 8px;">
+                      <button type="button" class="edit-project-btn" style="padding: 6px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; background: none; border: none; cursor: pointer; color: var(--ink);" title="Edit Project">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></svg>
+                      </button>
+                      <button type="button" class="delete-project-btn" style="padding: 6px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; background: none; border: none; cursor: pointer; color: #ff6b6b;" title="Delete Project">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+                      </button>
+                    </div>
+                  </td>
+                `;
+                
+                tr.querySelector('.edit-project-btn').addEventListener('click', () => {
+                  const assigneeOptions = team.map(m => `<option value="${escapeHTML(m.name)}" ${project.assignee === m.name ? 'selected' : ''}>${escapeHTML(m.name)}</option>`).join('');
+                  tr.innerHTML = `
+                    <td colspan="7" style="padding: 10px;">
+                      <form class="edit-project-form" style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center;" onsubmit="event.preventDefault();">
+                        <input type="text" class="edit-project-name" value="${escapeHTML(project.name)}" required style="flex: 1; min-width: 120px; padding: 6px; font-size: 0.85rem; border: 1px solid var(--line); border-radius: 4px; background: rgba(0,0,0,0.05); color: var(--ink);">
+                        <select class="edit-project-assignee" style="width: 120px; padding: 6px; border: 1px solid var(--line); border-radius: 4px; font-size: 0.85rem; background: rgba(0,0,0,0.05); color: var(--ink);">
+                          <option value="" ${!project.assignee ? 'selected' : ''}>Unassigned</option>
+                          ${assigneeOptions}
+                        </select>
+                        <select class="edit-project-status" style="width: 100px; padding: 6px; border: 1px solid var(--line); border-radius: 4px; font-size: 0.85rem; background: rgba(0,0,0,0.05); color: var(--ink);">
+                          <option value="Preparing" ${project.status === 'Preparing' ? 'selected' : ''}>Preparing</option>
+                          <option value="In Progress" ${project.status === 'In Progress' ? 'selected' : ''}>In Progress</option>
+                          <option value="Completed" ${project.status === 'Completed' ? 'selected' : ''}>Completed</option>
+                        </select>
+                        <button type="submit" class="primary" style="padding: 6px 12px; font-size: 0.85rem; border-radius: 4px;">Save</button>
+                        <button type="button" class="cancel-edit-btn" style="padding: 6px 12px; font-size: 0.85rem; background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; cursor: pointer;">Cancel</button>
+                      </form>
+                    </td>
+                  `;
+                  
+                  const form = tr.querySelector('.edit-project-form');
+                  const nameInput = tr.querySelector('.edit-project-name');
+                  const statusInput = tr.querySelector('.edit-project-status');
+                  const assigneeInput = tr.querySelector('.edit-project-assignee');
+                  nameInput.focus();
+                  
+                  const finishEdit = async (save) => {
+                    if (save) {
+                      const newName = nameInput.value.trim();
+                      const newStatus = statusInput.value;
+                      const newAssignee = assigneeInput.value;
+                      if (newName) {
+                        try {
+                          const res = await apiFetch('/api/projects/update', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ id: project.id, name: newName, status: newStatus, assignee: newAssignee })
+                          });
+                          if (res.ok) {
+                            project.name = newName;
+                            project.status = newStatus;
+                            project.assignee = newAssignee;
+                          } else {
+                            alert('Failed to update project.');
+                          }
+                        } catch(e) {
+                          alert('Failed to update project.');
+                        }
+                      }
+                    }
+                    renderRow();
+                  };
+                  
+                  form.addEventListener('submit', () => finishEdit(true));
+                  tr.querySelector('.cancel-edit-btn').addEventListener('click', () => finishEdit(false));
+                });
+                
+                tr.querySelector('.delete-project-btn').addEventListener('click', async () => {
+                  if (confirm(`Delete project "${project.name}"? This action cannot be undone.`)) {
+                    try {
+                      const res = await apiFetch(`/api/projects/${project.id}`, { method: 'DELETE' });
+                      if (res.ok) {
+                        projects = projects.filter(p => p.id !== project.id);
+                        renderTable();
+                      } else {
+                        alert('Failed to delete project.');
+                      }
+                    } catch(e) {
+                      alert('Failed to delete project.');
+                    }
+                  }
+                });
+              };
+              
+              renderRow();
               tbody.appendChild(tr);
-            }
-          }
+            });
+          };
+          renderTable();
         }
       } catch (e) {
         console.error("Failed to load project matrices", e);
@@ -266,10 +382,82 @@
               break;
 
             case 'classes':
-              if (payload.labels && payload.labels.length > 0) {
-                itemsHTML = payload.labels.map(l => `<li class="modal-list-item"><strong style="display:flex;align-items:center;gap:8px;"><span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${l.color};"></span>${l.name}</strong></li>`).join('');
-              }
-              openModal('🏷️ Classes Created', itemsHTML);
+              const renderClassesModal = () => {
+                if (!payload.labels || payload.labels.length === 0) {
+                  openModal('🏷️ Classes Created', '<li class="modal-list-item"><span style="text-align:center;">No classes defined</span></li>');
+                  return;
+                }
+                
+                modalList.innerHTML = '';
+                payload.labels.forEach(l => {
+                  const li = document.createElement('li');
+                  li.className = 'modal-list-item';
+                  li.style.display = 'flex';
+                  li.style.justifyContent = 'space-between';
+                  li.style.alignItems = 'center';
+                  
+                  const renderView = () => {
+                    li.innerHTML = `
+                      <strong style="display:flex;align-items:center;gap:8px;min-width:0;flex:1;">
+                        <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${l.color};flex-shrink:0;"></span>
+                        <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${l.name}</span>
+                      </strong>
+                      <div style="display: flex; gap: 8px; align-items: center; flex-shrink: 0;">
+                        <span class="edit-btn" style="cursor:pointer; font-size: 0.9rem;" title="Edit">✏️</span>
+                        <span class="delete-btn" style="cursor:pointer; font-size: 1.1rem; font-weight: bold; line-height: 1;" title="Delete">×</span>
+                      </div>
+                    `;
+                    
+                    li.querySelector('.edit-btn').addEventListener('click', () => {
+                      li.innerHTML = `
+                        <form class="edit-class-form" style="display: flex; gap: 4px; width: 100%; align-items: center;" onsubmit="event.preventDefault();">
+                          <input type="text" class="edit-class-name" value="${l.name}" required style="flex: 1; min-width: 0; padding: 2px 4px; font-size: 0.85rem;">
+                          <input type="color" class="edit-class-color" value="${l.color}" style="width: 24px; height: 24px; padding: 0; border: none; flex-shrink: 0;">
+                          <button type="submit" class="primary save-edit-btn" style="padding: 2px 6px; font-size: 0.75rem; border: none; border-radius: 4px; flex-shrink: 0;">Save</button>
+                          <button type="button" class="cancel-edit-btn" style="padding: 2px 6px; font-size: 0.75rem; background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; flex-shrink: 0;">Cancel</button>
+                        </form>
+                      `;
+                      const form = li.querySelector('.edit-class-form');
+                      const nameInput = li.querySelector('.edit-class-name');
+                      const colorInput = li.querySelector('.edit-class-color');
+                      nameInput.focus();
+                      
+                      const finishEdit = (saveChanges) => {
+                        if (saveChanges) {
+                          const newName = nameInput.value.trim();
+                          if (newName) {
+                            l.name = newName;
+                            l.color = colorInput.value;
+                            savePayload();
+                          }
+                        }
+                        renderView();
+                      };
+                      
+                      form.addEventListener('submit', () => finishEdit(true));
+                      li.querySelector('.cancel-edit-btn').addEventListener('click', () => finishEdit(false));
+                    });
+                    
+                    li.querySelector('.delete-btn').addEventListener('click', () => {
+                      if (confirm(`Delete class "${l.name}" and all its annotations?`)) {
+                        payload.labels = payload.labels.filter(label => label.id !== l.id);
+                        if (payload.annotations) {
+                          payload.annotations = payload.annotations.filter(a => a.labelId !== l.id);
+                        }
+                        savePayload();
+                        renderClassesModal();
+                      }
+                    });
+                  };
+                  
+                  renderView();
+                  modalList.appendChild(li);
+                });
+                
+                modalTitle.textContent = '🏷️ Classes Created';
+                modal.classList.add('is-active');
+              };
+              renderClassesModal();
               break;
 
             case 'team':

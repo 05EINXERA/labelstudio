@@ -18,7 +18,7 @@ def get_projects(creator: Optional[str] = Query(None), db: Session = Depends(get
         projects = db.query(models.Project).filter(models.Project.creator == creator).all()
     else:
         projects = db.query(models.Project).all()
-    return [{"id": p.id, "name": p.name, "slug": p.slug, "type": p.type, "status": p.status, "creator": p.creator, "created_at": p.created_at} for p in projects]
+    return [{"id": p.id, "name": p.name, "slug": p.slug, "type": p.type, "status": p.status, "creator": p.creator, "created_at": p.created_at, "assignee": p.assignee} for p in projects]
 
 @router.get("/{project_id}/metrics")
 def get_project_metrics(project_id: int, db: Session = Depends(get_db)):
@@ -83,13 +83,39 @@ def get_projects_metrics_batch(creator: Optional[str] = Query(None), db: Session
         
     return metrics
 
+import schemas
 @router.post("")
 def create_project(project: ProjectModel, db: Session = Depends(get_db)):
-    db_project = models.Project(name=project.name, slug=project.slug, type=project.type, status="Preparing", creator=project.creator)
+    db_project = models.Project(name=project.name, slug=project.slug, type=project.type, status="Preparing", creator=project.creator, assignee=project.assignee)
     db.add(db_project)
     db.commit()
     db.refresh(db_project)
     return {"id": db_project.id, "status": "ok"}
+
+@router.post("/update")
+def update_project(project_update: schemas.ProjectUpdate, db: Session = Depends(get_db)):
+    db_project = db.query(models.Project).filter(models.Project.id == project_update.id).first()
+    if db_project:
+        if project_update.name is not None:
+            db_project.name = project_update.name
+            db_project.slug = project_update.name.lower().replace(" ", "-")
+        if project_update.status is not None:
+            db_project.status = project_update.status
+        if project_update.assignee is not None:
+            db_project.assignee = project_update.assignee
+        db.commit()
+        return {"status": "ok"}
+    raise HTTPException(status_code=404, detail="Project not found")
+
+@router.delete("/{project_id}")
+def delete_project(project_id: int, db: Session = Depends(get_db)):
+    db_project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if db_project:
+        db.query(models.Task).filter(models.Task.project_id == project_id).delete()
+        db.delete(db_project)
+        db.commit()
+        return {"status": "ok"}
+    raise HTTPException(status_code=404, detail="Project not found")
 
 from config import DATA_DIR
 

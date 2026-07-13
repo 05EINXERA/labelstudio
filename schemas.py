@@ -10,6 +10,13 @@ class ProjectModel(BaseModel):
     slug: str
     type: str = "Image - Polygon"
     creator: str
+    assignee: Optional[str] = None
+
+class ProjectUpdate(BaseModel):
+    id: int
+    name: Optional[str] = None
+    status: Optional[str] = None
+    assignee: Optional[str] = None
 
 class TaskUpdate(BaseModel):
     id: Optional[int] = None

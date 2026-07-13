@@ -3352,32 +3352,135 @@ function renderSidebarProjects(projects) {
   }
 }
 
-function openAllProjectsModal(projects) {
+async function openAllProjectsModal(projects) {
   const modal = document.getElementById('allProjectsModal');
   const list = document.getElementById('allProjectsListModal');
   if (!modal || !list) return;
   
-  list.innerHTML = '';
-  projects.forEach(p => {
-    const a = document.createElement('a');
-    a.href = `project_details.html?id=${p.id}`;
-    a.style.padding = '8px 12px';
-    a.style.borderRadius = '6px';
-    a.style.background = 'var(--panel-2)';
-    a.style.display = 'flex';
-    a.style.justifyContent = 'space-between';
-    a.style.alignItems = 'center';
-    a.style.textDecoration = 'none';
-    a.style.color = 'inherit';
-    a.style.border = '1px solid var(--line)';
-    
-    const escapeHTML = (str) => String(str).replace(/[&<>'"]/g, match => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[match]));
-    a.innerHTML = `<strong style="color: #3b82f6; text-decoration: underline; font-size: 1rem;">${escapeHTML(p.name)}</strong> 
-                   <span class="status-badge" style="background: var(--bg); padding: 4px 8px; border-radius: 12px; font-size: 0.75rem;">${escapeHTML(p.status)}</span>`;
-    
-    list.appendChild(a);
-  });
+  let team = [];
+  try {
+    const teamRes = await apiFetch('/api/team');
+    if (teamRes.ok) {
+      const data = await teamRes.json();
+      team = data.map(t => t.name);
+    }
+  } catch(e) {}
   
+  const renderList = () => {
+    list.innerHTML = '';
+    projects.forEach(p => {
+      const item = document.createElement('div');
+      item.style.padding = '8px 12px';
+      item.style.borderRadius = '6px';
+      item.style.background = 'var(--panel-2)';
+      item.style.display = 'flex';
+      item.style.justifyContent = 'space-between';
+      item.style.alignItems = 'center';
+      item.style.border = '1px solid var(--line)';
+      item.style.gap = '8px';
+      
+      const renderView = () => {
+        const escapeHTML = (str) => String(str).replace(/[&<>'"]/g, match => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[match]));
+        
+        item.innerHTML = `
+          <a href="project_details.html?id=${p.id}" style="text-decoration: none; display: flex; flex: 1; align-items: center; justify-content: space-between; min-width: 0; color: inherit; gap: 8px;">
+            <strong style="color: #3b82f6; text-decoration: underline; font-size: 1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 8px;">${escapeHTML(p.name)}</strong> 
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <span style="font-size: 0.8rem; color: var(--muted);">${escapeHTML(p.assignee || 'Unassigned')}</span>
+              <span class="status-badge" style="background: var(--bg); padding: 4px 8px; border-radius: 12px; font-size: 0.75rem; white-space: nowrap;">${escapeHTML(p.status)}</span>
+            </div>
+          </a>
+          <div style="display: flex; gap: 8px; flex-shrink: 0;">
+            <button type="button" class="edit-project-btn" style="padding: 6px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; background: none; border: none; cursor: pointer; color: var(--ink);" title="Edit Project">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></svg>
+            </button>
+            <button type="button" class="delete-project-btn" style="padding: 6px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; background: none; border: none; cursor: pointer; color: #ff6b6b;" title="Delete Project">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+            </button>
+          </div>
+        `;
+        
+        item.querySelector('.edit-project-btn').addEventListener('click', () => {
+          const assigneeOptions = team.map(m => `<option value="${escapeHTML(m)}" ${p.assignee === m ? 'selected' : ''}>${escapeHTML(m)}</option>`).join('');
+          item.innerHTML = `
+            <form class="edit-project-form" style="display: flex; flex-wrap: wrap; gap: 6px; width: 100%; align-items: center;" onsubmit="event.preventDefault();">
+              <input type="text" class="edit-project-name" value="${escapeHTML(p.name)}" required style="flex: 1; min-width: 100px; padding: 4px; font-size: 0.85rem; border: 1px solid var(--line); border-radius: 4px; background: rgba(0,0,0,0.05); color: var(--ink);">
+              <select class="edit-project-assignee" style="width: 100px; padding: 4px; border: 1px solid var(--line); border-radius: 4px; font-size: 0.85rem; background: rgba(0,0,0,0.05); color: var(--ink);">
+                <option value="" ${!p.assignee ? 'selected' : ''}>Unassigned</option>
+                ${assigneeOptions}
+              </select>
+              <select class="edit-project-status" style="width: 100px; padding: 4px; border: 1px solid var(--line); border-radius: 4px; font-size: 0.85rem; background: rgba(0,0,0,0.05); color: var(--ink);">
+                <option value="Preparing" ${p.status === 'Preparing' ? 'selected' : ''}>Preparing</option>
+                <option value="In Progress" ${p.status === 'In Progress' ? 'selected' : ''}>In Progress</option>
+                <option value="Completed" ${p.status === 'Completed' ? 'selected' : ''}>Completed</option>
+              </select>
+              <button type="submit" class="primary" style="padding: 4px 8px; font-size: 0.75rem; border-radius: 4px;">Save</button>
+              <button type="button" class="cancel-edit-btn" style="padding: 4px 8px; font-size: 0.75rem; background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; cursor: pointer;">Cancel</button>
+            </form>
+          `;
+          
+          const form = item.querySelector('.edit-project-form');
+          const nameInput = item.querySelector('.edit-project-name');
+          const statusInput = item.querySelector('.edit-project-status');
+          const assigneeInput = item.querySelector('.edit-project-assignee');
+          nameInput.focus();
+          
+          const finishEdit = async (save) => {
+            if (save) {
+              const newName = nameInput.value.trim();
+              const newStatus = statusInput.value;
+              const newAssignee = assigneeInput.value;
+              if (newName) {
+                try {
+                  const res = await apiFetch('/api/projects/update', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ id: p.id, name: newName, status: newStatus, assignee: newAssignee })
+                  });
+                  if (res.ok) {
+                    p.name = newName;
+                    p.status = newStatus;
+                    p.assignee = newAssignee;
+                    fetchSidebarProjects();
+                  } else {
+                    alert('Failed to update project.');
+                  }
+                } catch(e) {
+                  alert('Failed to update project.');
+                }
+              }
+            }
+            renderView();
+          };
+          
+          form.addEventListener('submit', () => finishEdit(true));
+          item.querySelector('.cancel-edit-btn').addEventListener('click', () => finishEdit(false));
+        });
+        
+        item.querySelector('.delete-project-btn').addEventListener('click', async () => {
+          if (confirm(`Delete project "${p.name}"? This action cannot be undone.`)) {
+            try {
+              const res = await apiFetch(`/api/projects/${p.id}`, { method: 'DELETE' });
+              if (res.ok) {
+                projects = projects.filter(proj => proj.id !== p.id);
+                fetchSidebarProjects();
+                renderList();
+              } else {
+                alert('Failed to delete project.');
+              }
+            } catch(e) {
+              alert('Failed to delete project.');
+            }
+          }
+        });
+      };
+      
+      renderView();
+      list.appendChild(item);
+    });
+  };
+  
+  renderList();
   modal.classList.add('is-active');
 }
 
