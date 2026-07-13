@@ -1170,18 +1170,21 @@ function renderClasses() {
     });
 
     item.innerHTML = `
-      <div style="display: flex; align-items: center; gap: 8px;">
-        <span class="swatch" style="background:${label.color}"></span>
-        <strong></strong>
-        <span style="font-size: 0.75rem; color: var(--muted); margin-left: 4px;">(${count})</span>
+      <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;">
+        <span class="swatch" style="background:${label.color}; flex-shrink: 0;"></span>
+        <strong style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></strong>
+        <span style="font-size: 0.75rem; color: var(--muted); margin-left: 4px; flex-shrink: 0;">(${count})</span>
       </div>
-      <span class="delete-class-btn" title="Delete class" style="cursor: pointer; color: var(--muted); font-weight: bold;">×</span>
+      <div class="class-actions" style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
+        <span class="edit-class-btn" title="Edit class" style="cursor: pointer; color: var(--muted); font-size: 0.8rem;">✏️</span>
+        <span class="delete-class-btn" title="Delete class" style="cursor: pointer; color: var(--muted); font-weight: bold; font-size: 1.1rem; line-height: 1;">×</span>
+      </div>
     `;
     item.querySelector("strong").textContent = labelDisplayName(label);
 
     // Click on the item itself sets it as active
     item.addEventListener("click", (e) => {
-      if (e.target.classList.contains("delete-class-btn")) return;
+      if (e.target.closest('.class-actions') || e.target.closest('.edit-class-form')) return;
       state.activeLabelId = label.id;
       
       // Reassign class to selected annotations
@@ -1210,6 +1213,47 @@ function renderClasses() {
       if (confirm(`Delete class "${labelDisplayName(label)}" and all its annotations?`)) {
         deleteClass(label.id);
       }
+    });
+
+    // Click on edit button
+    item.querySelector(".edit-class-btn").addEventListener("click", (e) => {
+      e.stopPropagation();
+      item.innerHTML = `
+        <form class="edit-class-form" style="display: flex; gap: 4px; width: 100%; align-items: center;" onsubmit="event.preventDefault();">
+          <input type="text" class="edit-class-name" value="${label.name}" required style="flex: 1; min-width: 0; padding: 2px 4px; font-size: 0.85rem;" onclick="event.stopPropagation()">
+          <input type="color" class="edit-class-color" value="${label.color}" style="width: 24px; height: 24px; padding: 0; border: none; flex-shrink: 0;" onclick="event.stopPropagation()">
+          <button type="submit" class="primary save-edit-btn" style="padding: 2px 6px; font-size: 0.75rem; border: none; border-radius: 4px; flex-shrink: 0;" onclick="event.stopPropagation()">Save</button>
+          <button type="button" class="cancel-edit-btn" style="padding: 2px 6px; font-size: 0.75rem; background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; flex-shrink: 0;" onclick="event.stopPropagation()">Cancel</button>
+        </form>
+      `;
+      const form = item.querySelector(".edit-class-form");
+      const nameInput = item.querySelector(".edit-class-name");
+      const colorInput = item.querySelector(".edit-class-color");
+      nameInput.focus();
+
+      const finishEdit = (saveChanges) => {
+        if (saveChanges) {
+          const newName = nameInput.value.trim();
+          if (newName && (newName !== label.name || colorInput.value !== label.color)) {
+            snapshot();
+            label.name = newName;
+            label.color = colorInput.value;
+            save();
+            setStatus(`Updated class: ${label.name}`);
+          }
+        }
+        render(); // This will re-render classes list with original structure or new values
+      };
+
+      form.addEventListener("submit", (ev) => {
+        ev.preventDefault();
+        finishEdit(true);
+      });
+      item.querySelector(".cancel-edit-btn").addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        finishEdit(false);
+      });
+      form.addEventListener("click", (ev) => ev.stopPropagation());
     });
 
     classesList.appendChild(item);
