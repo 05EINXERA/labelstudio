@@ -1,6 +1,7 @@
 import base64
 import io
 import os
+import shutil
 import threading
 import urllib.request
 from config import DATA_DIR
@@ -25,6 +26,7 @@ MAX_IMAGE_BYTES = int(os.environ.get("MAX_IMAGE_BYTES", str(50 * 1024 * 1024)))
 MAX_IMAGE_PIXELS = int(os.environ.get("MAX_IMAGE_PIXELS", str(50_000_000)))
 
 CLIP_MODEL_NAME = "openai/clip-vit-base-patch32"
+YOLO_WORLD_MODEL = os.environ.get("YOLO_WORLD_MODEL", "yolov8s-worldv2.pt")
 
 Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
 
@@ -36,6 +38,7 @@ _clip_processor = None
 _clip_model_lock = threading.RLock()
 
 _sam_model = None
+_sam_lock = threading.RLock()
 
 _yolo_world_model = None
 _yolo_world_lock = threading.RLock()
@@ -78,7 +81,7 @@ def ensure_model_file():
         try:
             with urllib.request.urlopen(request, timeout=120) as response:
                 with open(download_path, "wb") as handle:
-                    handle.write(response.read())
+                    shutil.copyfileobj(response, handle)
         except Exception as error:
             raise RuntimeError(
                 f"Could not download YOLO model from {MODEL_URL} to {download_path}. "
@@ -95,7 +98,6 @@ def ensure_model_file():
             # Ultralytics saves the exported model in the same directory as the .pt file
             exported_path = download_path.replace(".pt", ".onnx")
             if exported_path != MODEL_PATH and os.path.isfile(exported_path):
-                import shutil
                 shutil.move(exported_path, MODEL_PATH)
         except ImportError:
             raise RuntimeError(
@@ -148,8 +150,8 @@ def get_yolo_world_model():
                     from ultralytics import YOLOWorld
                 except ImportError:
                     raise RuntimeError("Please install ultralytics and torch to use YOLO-World.")
-                print("Loading YOLO-World model yolov8s-worldv2.pt...")
-                _yolo_world_model = YOLOWorld("yolov8s-worldv2.pt")
+                print(f"Loading YOLO-World model {YOLO_WORLD_MODEL}...")
+                _yolo_world_model = YOLOWorld(YOLO_WORLD_MODEL)
     return _yolo_world_model
 
 
@@ -506,7 +508,7 @@ def detect_objects(image_data, selection=None, prompts=None):
 
 
 def classify_image(image_data, top_k=5):
-    import torch
+    import torch  # lazy import: torch is heavy and only needed for CLIP
     image = decode_image(image_data)
     
     model, processor = get_clip_model()
@@ -541,7 +543,7 @@ def classify_image(image_data, top_k=5):
     }
 
 def segment_point(image_data, x, y, prompt=None, precision=0.003, bbox=None):
-    import torch
+    import torch  # lazy import: torch is heavy and only needed for SAM
     try:
         from ultralytics import SAM
     except ImportError:
@@ -557,8 +559,6 @@ def segment_point(image_data, x, y, prompt=None, precision=0.003, bbox=None):
                 raw_predictions = run_inference(image_bgr)
             
             best_match = None
-            import cv2
-            import numpy as np
             
             for item in raw_predictions:
                 if item.get("points") and item["class"].lower() == prompt_lower:
@@ -575,11 +575,11 @@ def segment_point(image_data, x, y, prompt=None, precision=0.003, bbox=None):
     
     global _sam_model
     if _sam_model is None:
-        with _model_lock:
+        with _sam_lock:
             if _sam_model is None:
                 _sam_model = SAM('mobile_sam.pt')
                 
-    with _model_lock:
+    with _sam_lock:
         if bbox:
             results = _sam_model(image_bgr, bboxes=[bbox], verbose=False)
         else:
@@ -589,9 +589,6 @@ def segment_point(image_data, x, y, prompt=None, precision=0.003, bbox=None):
     if results and len(results) > 0 and results[0].masks:
         masks = results[0].masks
         if masks.data is not None and len(masks.data) > 0:
-            import cv2
-            import numpy as np
-            
             # Convert binary mask tensor to numpy array
             mask_np = (masks.data[0].cpu().numpy() * 255).astype(np.uint8)
             
@@ -610,15 +607,18 @@ def segment_point(image_data, x, y, prompt=None, precision=0.003, bbox=None):
                 if best_contour is None:
                     best_contour = max(contours, key=cv2.contourArea)
                 
-                # Convert precision (0.01 smooth to 0.0001 detailed) to a keep_fraction (0.02 smooth to 1.0 detailed)
+                # Map precision to FFT keep_fraction for contour smoothing.
+                # precision range: 0.01 (smooth) to 0.0001 (detailed)
+                # keep_fraction range: 0.02 (smooth) to 1.0 (detailed)
+                # Values outside [0.0001, 0.01] are clamped.
                 keep_fraction = 0.02 + ((0.01 - precision) / 0.0099) * 0.98
                 keep_fraction = max(0.01, min(1.0, keep_fraction))
                 
                 contour_to_approx = best_contour
                 if len(best_contour) > 10 and keep_fraction < 0.99:
-                    x = best_contour[:, 0, 0]
-                    y = best_contour[:, 0, 1]
-                    z = x + 1j * y
+                    cx = best_contour[:, 0, 0]
+                    cy = best_contour[:, 0, 1]
+                    z = cx + 1j * cy
                     Z = np.fft.fft(z)
                     
                     N = len(Z)
