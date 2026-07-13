@@ -37,6 +37,7 @@ class TeamTime(BaseModel):
 class DetectPayload(BaseModel):
     image: str
     selection: Optional[List[dict]] = None
+    prompts: Optional[List[str]] = None
 
 class ClassifyPayload(BaseModel):
     image: str

@@ -9,7 +9,7 @@ router = APIRouter(prefix="/api/detect", tags=["detect"], dependencies=[Depends(
 @router.post("")
 def detect(payload: DetectPayload):
     try:
-        response = detect_objects(payload.image, selection=payload.selection)
+        response = detect_objects(payload.image, selection=payload.selection, prompts=payload.prompts)
         return response
     except DetectionClientError as error:
         raise HTTPException(status_code=400, detail=str(error))

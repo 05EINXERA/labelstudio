@@ -37,6 +37,9 @@ _clip_model_lock = threading.RLock()
 
 _sam_model = None
 
+_yolo_world_model = None
+_yolo_world_lock = threading.RLock()
+
 COCO_CLASSES = [
     "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat",
     "traffic light", "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat",
@@ -134,6 +137,20 @@ def get_clip_model():
                 _clip_model = CLIPModel.from_pretrained(CLIP_MODEL_NAME)
                 _clip_processor = CLIPProcessor.from_pretrained(CLIP_MODEL_NAME)
     return _clip_model, _clip_processor
+
+
+def get_yolo_world_model():
+    global _yolo_world_model
+    if _yolo_world_model is None:
+        with _yolo_world_lock:
+            if _yolo_world_model is None:
+                try:
+                    from ultralytics import YOLOWorld
+                except ImportError:
+                    raise RuntimeError("Please install ultralytics and torch to use YOLO-World.")
+                print("Loading YOLO-World model yolov8s-worldv2.pt...")
+                _yolo_world_model = YOLOWorld("yolov8s-worldv2.pt")
+    return _yolo_world_model
 
 
 def decode_image(image_data):
@@ -365,7 +382,7 @@ def _normalize_selection_points(selection):
     return normalized
 
 
-def detect_objects(image_data, selection=None):
+def detect_objects(image_data, selection=None, prompts=None):
     image = decode_image(image_data)
     original_width, original_height = image.size
     origin_x = 0.0
@@ -423,33 +440,63 @@ def detect_objects(image_data, selection=None):
 
     image_bgr = pil_to_bgr(working_image)
 
-    with _model_lock:
-        raw_predictions = run_inference(image_bgr)
-
     predictions = []
-    for item in raw_predictions:
-        x, y, box_width, box_height = item["bbox"]
-        x2 = x + box_width
-        y2 = y + box_height
-        left, top, clamped_width, clamped_height = clamp_box(x, y, x2, y2, width, height)
-        pred_dict = {
-            "class": item["class"],
-            "score": item["score"],
-            "bbox": [
-                round(left + origin_x, 2),
-                round(top + origin_y, 2),
-                round(clamped_width, 2),
-                round(clamped_height, 2),
-            ],
-        }
-        
-        if "points" in item:
-            pred_dict["points"] = [
-                {"x": round(pt["x"] + origin_x, 2), "y": round(pt["y"] + origin_y, 2)}
-                for pt in item["points"]
-            ]
+    
+    if prompts and len(prompts) > 0:
+        world_model = get_yolo_world_model()
+        with _yolo_world_lock:
+            world_model.set_classes(prompts)
+            results = world_model.predict(image_bgr, conf=CONFIDENCE, verbose=False)
             
-        predictions.append(pred_dict)
+            if results and len(results) > 0:
+                result = results[0]
+                boxes = result.boxes
+                if boxes:
+                    for i in range(len(boxes)):
+                        box = boxes[i]
+                        x1, y1, x2, y2 = box.xyxy[0].tolist()
+                        score = float(box.conf[0])
+                        class_id = int(box.cls[0])
+                        class_name = prompts[class_id] if class_id < len(prompts) else f"class_{class_id}"
+                        
+                        left, top, clamped_width, clamped_height = clamp_box(x1, y1, x2, y2, width, height)
+                        predictions.append({
+                            "class": class_name,
+                            "score": round(score, 4),
+                            "bbox": [
+                                round(left + origin_x, 2),
+                                round(top + origin_y, 2),
+                                round(clamped_width, 2),
+                                round(clamped_height, 2),
+                            ],
+                        })
+    else:
+        with _model_lock:
+            raw_predictions = run_inference(image_bgr)
+
+        for item in raw_predictions:
+            x, y, box_width, box_height = item["bbox"]
+            x2 = x + box_width
+            y2 = y + box_height
+            left, top, clamped_width, clamped_height = clamp_box(x, y, x2, y2, width, height)
+            pred_dict = {
+                "class": item["class"],
+                "score": item["score"],
+                "bbox": [
+                    round(left + origin_x, 2),
+                    round(top + origin_y, 2),
+                    round(clamped_width, 2),
+                    round(clamped_height, 2),
+                ],
+            }
+            
+            if "points" in item:
+                pred_dict["points"] = [
+                    {"x": round(pt["x"] + origin_x, 2), "y": round(pt["y"] + origin_y, 2)}
+                    for pt in item["points"]
+                ]
+                
+            predictions.append(pred_dict)
 
     return {
         "width": original_width,
