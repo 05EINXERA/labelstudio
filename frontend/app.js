@@ -2370,6 +2370,66 @@ newClassForm.addEventListener("submit", (event) => {
   setStatus(`Added class: ${name}`);
 });
 
+const importClassesBtn = document.getElementById("importClassesBtn");
+const exportClassesBtn = document.getElementById("exportClassesBtn");
+const importClassesInput = document.getElementById("importClassesInput");
+
+if (importClassesBtn && importClassesInput) {
+  importClassesBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    importClassesInput.click();
+  });
+
+  importClassesInput.addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const importedLabels = JSON.parse(e.target.result);
+        if (!Array.isArray(importedLabels)) {
+          alert("Invalid classes file format. Expected a JSON array.");
+          return;
+        }
+        let count = 0;
+        for (const lbl of importedLabels) {
+          if (lbl.name) {
+            ensureLabel(lbl.name, lbl.color || null);
+            count++;
+          }
+        }
+        render();
+        save();
+        setStatus(`Imported ${count} classes.`);
+      } catch (err) {
+        console.error(err);
+        alert("Error parsing JSON file.");
+      }
+    };
+    reader.readAsText(file);
+    importClassesInput.value = ""; // reset
+  });
+}
+
+if (exportClassesBtn) {
+  exportClassesBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (!state.labels || state.labels.length === 0) {
+      alert("No classes to export.");
+      return;
+    }
+    // Create a clean array of classes for export (id, name, color)
+    const exportData = state.labels.map(l => ({ id: l.id, name: l.name, color: l.color }));
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportData, null, 2));
+    const dlAnchorElem = document.createElement('a');
+    dlAnchorElem.setAttribute("href", dataStr);
+    dlAnchorElem.setAttribute("download", "classes_export.json");
+    document.body.appendChild(dlAnchorElem);
+    dlAnchorElem.click();
+    document.body.removeChild(dlAnchorElem);
+  });
+}
+
 labelStudioButton.addEventListener("click", sendToEndpoint);
 
 labelStudioProxyInput.addEventListener("change", () => {

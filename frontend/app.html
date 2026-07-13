@@ -175,6 +175,11 @@
         <div class="accordion-grid">
           <div class="accordion-content">
             <div class="accordion-content-inner">
+              <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+                <button type="button" class="secondary" id="importClassesBtn" style="flex: 1; padding: 4px; font-size: 0.8rem;">Import JSON</button>
+                <button type="button" class="secondary" id="exportClassesBtn" style="flex: 1; padding: 4px; font-size: 0.8rem;">Export JSON</button>
+              </div>
+              <input type="file" id="importClassesInput" accept=".json" style="display: none;">
               <div class="classes-list" id="classesList"></div>
               <form class="label-form is-hidden" id="newClassForm" style="margin-top: 8px;">
                 <input id="newClassName" type="text" placeholder="Class name" required autocomplete="off">
