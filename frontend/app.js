@@ -1200,16 +1200,20 @@ function renderClasses() {
 
     item.innerHTML = `
       <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;">
-        <span class="swatch" style="background:${label.color}; flex-shrink: 0;"></span>
-        <strong style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></strong>
-        <span style="font-size: 0.75rem; color: var(--muted); margin-left: 4px; flex-shrink: 0;">(${count})</span>
+        <span class="swatch" style="background:${label.color || '#65727f'}; flex-shrink: 0;"></span>
+        <strong class="class-name" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></strong>
+        <span class="class-count" style="font-size: 0.75rem; color: var(--muted); margin-left: 4px; flex-shrink: 0;">(${count})</span>
       </div>
       <div class="class-actions" style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
-        <span class="edit-class-btn" title="Edit class" style="cursor: pointer; color: var(--muted); font-size: 0.8rem;">✏️</span>
-        <span class="delete-class-btn" title="Delete class" style="cursor: pointer; color: var(--muted); font-weight: bold; font-size: 1.1rem; line-height: 1;">×</span>
+        <span class="edit-class-btn" title="Edit class" style="cursor: pointer; color: var(--muted); display: grid; place-items: center; width: 20px; height: 20px;">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+        </span>
+        <span class="delete-class-btn" title="Delete class" style="cursor: pointer; color: #ff6b6b; display: grid; place-items: center; width: 20px; height: 20px;">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+        </span>
       </div>
     `;
-    item.querySelector("strong").textContent = labelDisplayName(label);
+    item.querySelector(".class-name").textContent = labelDisplayName(label);
 
     // Click on the item itself sets it as active
     item.addEventListener("click", (e) => {
@@ -1319,19 +1323,89 @@ function renderAnnotations() {
     item.type = "button";
     const isActive = state.selectedIds.has(annotation.id);
     item.className = `annotation-item${isActive ? " is-active" : ""}`;
+    item.style.display = "flex";
+    item.style.alignItems = "center";
+    item.style.justifyContent = "space-between";
     item.innerHTML = `
-      <span class="swatch" style="background:${label.color}"></span>
-      <strong></strong>
-      <span></span>
+      <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;">
+        <span class="swatch" style="background:${label.color || '#65727f'}; flex-shrink: 0;"></span>
+        <strong class="ann-name" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></strong>
+        <span class="ann-pts" style="font-size: 0.75rem; color: var(--muted); margin-left: 4px; flex-shrink: 0;"></span>
+      </div>
+      <div class="annotation-actions" style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
+        <span class="edit-ann-btn" title="Edit object class" style="cursor: pointer; color: var(--muted); display: grid; place-items: center; width: 20px; height: 20px;">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+        </span>
+        <span class="delete-ann-btn" title="Delete object" style="cursor: pointer; color: #ff6b6b; display: grid; place-items: center; width: 20px; height: 20px;">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+        </span>
+      </div>
     `;
     
     let text = annotation.type === "comment" ? `💬 ${annotation.text || "Comment"}` : `${displayCount}. ${labelDisplayName(label)}`;
     if (isGroup) {
       text = `${displayCount}. ${labelDisplayName(label)} (Group of ${groupAnns.length})`;
     }
-    item.querySelector("strong").textContent = text;
-    item.querySelector("span:last-child").textContent = annotation.type === "comment" ? "" : `${totalPoints} pts`;
+    item.querySelector(".ann-name").textContent = text;
+    item.querySelector(".ann-pts").textContent = annotation.type === "comment" ? "" : `${totalPoints} pts`;
     
+    const escapeHTML = (str) => String(str).replace(/[&<>'"]/g, match => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[match]));
+
+    item.querySelector(".edit-ann-btn").addEventListener("click", (e) => {
+      e.stopPropagation();
+      const options = state.labels.map(l => `<option value="${l.id}" ${l.id === annotation.labelId ? "selected" : ""}>${escapeHTML(l.name)}</option>`).join("");
+      item.innerHTML = `
+        <form class="edit-ann-form" style="display: flex; gap: 4px; width: 100%; align-items: center;" onsubmit="event.preventDefault();">
+          <select class="edit-ann-select" style="flex: 1; min-width: 0; padding: 2px 4px; font-size: 0.85rem;" onclick="event.stopPropagation()">
+            ${options}
+          </select>
+          <button type="submit" class="primary save-edit-btn" style="padding: 2px 6px; font-size: 0.75rem; border: none; border-radius: 4px; flex-shrink: 0;" onclick="event.stopPropagation()">Save</button>
+          <button type="button" class="cancel-edit-btn" style="padding: 2px 6px; font-size: 0.75rem; background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; flex-shrink: 0;" onclick="event.stopPropagation()">Cancel</button>
+        </form>
+      `;
+      const form = item.querySelector(".edit-ann-form");
+      const select = item.querySelector(".edit-ann-select");
+      
+      const finishEdit = (saveChanges) => {
+        if (saveChanges && select.value !== annotation.labelId) {
+          snapshot();
+          if (isGroup) {
+            groupAnns.forEach(a => a.labelId = select.value);
+          } else {
+            annotation.labelId = select.value;
+          }
+          save();
+        }
+        render(); // re-render
+      };
+      
+      form.addEventListener("submit", (ev) => {
+        ev.preventDefault();
+        finishEdit(true);
+      });
+      item.querySelector(".cancel-edit-btn").addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        finishEdit(false);
+      });
+      form.addEventListener("click", (ev) => ev.stopPropagation());
+    });
+
+    item.querySelector(".delete-ann-btn").addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (confirm(`Delete this object?`)) {
+        snapshot();
+        if (isGroup) {
+          state.annotations = state.annotations.filter(a => a.groupId !== annotation.groupId);
+        } else {
+          state.annotations = state.annotations.filter(a => a.id !== annotation.id);
+        }
+        state.selectedIds.clear();
+        state.selectedId = null;
+        save();
+        render();
+      }
+    });
+
     item.addEventListener("click", (event) => {
       state.mode = "select";
       if (event.shiftKey) {
@@ -2422,8 +2496,9 @@ if (importClassesBtn && importClassesInput) {
         }
         let count = 0;
         for (const lbl of importedLabels) {
-          if (lbl.name) {
-            ensureLabel(lbl.name, lbl.color || null);
+          const name = lbl.title || lbl.name;
+          if (name) {
+            ensureLabel(name, lbl.color || null);
             count++;
           }
         }
@@ -2447,8 +2522,42 @@ if (exportClassesBtn) {
       alert("No classes to export.");
       return;
     }
-    // Create a clean array of classes for export (id, name, color)
-    const exportData = state.labels.map(l => ({ id: l.id, name: l.name, color: l.color }));
+    // Create a clean array of classes for export matching the requested schema
+    const exportData = state.labels.map((l, index) => ({
+      type: "polygon",
+      title: l.name,
+      value: l.name.replace(/[^a-zA-Z0-9]/g, ''),
+      color: l.color,
+      order: index + 1,
+      useBBox: false,
+      useRotation: false,
+      defaultWidth: 0,
+      defaultHeight: 0,
+      defaultLength: 0,
+      minWidth: 0,
+      minHeight: 0,
+      isAllowMinAtLeastOne: false,
+      minLength: 0,
+      maxWidth: 0,
+      maxHeight: 0,
+      isAllowMaxAtLeastOne: false,
+      maxLength: 0,
+      verticalRatio: null,
+      horizontalRatio: null,
+      maxAreaCount: null,
+      minArea: null,
+      maxInstanceCount: 0,
+      vertex: 0,
+      isOverlapFrameSelect: false,
+      isOutsideAnnotationFrameSelect: false,
+      isUniformSizeAcrossFrames: false,
+      isFrameGapRestricted: false,
+      lockRotationX: false,
+      lockRotationY: false,
+      lockRotationZ: false,
+      attributes: [],
+      keypoints: []
+    }));
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportData, null, 2));
     const dlAnchorElem = document.createElement('a');
     dlAnchorElem.setAttribute("href", dataStr);
@@ -2475,9 +2584,57 @@ if (importObjectsBtn && importObjectsInput) {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const importedAnnotations = JSON.parse(e.target.result);
-        if (!Array.isArray(importedAnnotations)) {
-          alert("Invalid objects file format. Expected a JSON array.");
+        const importedData = JSON.parse(e.target.result);
+        let importedAnnotations = [];
+        
+        // Detect COCO Format
+        if (importedData.images && importedData.annotations && importedData.categories) {
+          // Map COCO category id (int) to our labelId (uuid)
+          const catIdToLabelId = {};
+          for (const cat of importedData.categories) {
+            const existing = ensureLabel(cat.name, cat.color);
+            catIdToLabelId[cat.id] = existing.id;
+          }
+          
+          for (const ann of importedData.annotations) {
+            const labelId = catIdToLabelId[ann.category_id];
+            if (!labelId) continue;
+            
+            let points = [];
+            if (ann.segmentation && ann.segmentation.length > 0 && ann.segmentation[0].length > 0) {
+              const seg = ann.segmentation[0];
+              for (let i = 0; i < seg.length; i += 2) {
+                points.push({ x: seg[i], y: seg[i+1] });
+              }
+            } else if (ann.bbox && ann.bbox.length === 4) {
+              // Convert bbox to polygon
+              const [x, y, w, h] = ann.bbox;
+              points = [
+                {x: x, y: y}, {x: x + w, y: y}, {x: x + w, y: y + h}, {x: x, y: y + h}
+              ];
+            }
+            
+            if (points.length > 0) {
+              const bounds = { x: Math.min(...points.map(p=>p.x)), y: Math.min(...points.map(p=>p.y)) };
+              bounds.width = Math.max(...points.map(p=>p.x)) - bounds.x;
+              bounds.height = Math.max(...points.map(p=>p.y)) - bounds.y;
+              
+              importedAnnotations.push({
+                id: crypto.randomUUID(),
+                labelId: labelId,
+                points: points,
+                x: bounds.x,
+                y: bounds.y,
+                width: bounds.width,
+                height: bounds.height
+              });
+            }
+          }
+        } else if (Array.isArray(importedData)) {
+          // Legacy format
+          importedAnnotations = importedData;
+        } else {
+          alert("Invalid objects file format. Expected COCO JSON or a JSON array.");
           return;
         }
         
@@ -2502,10 +2659,89 @@ if (exportObjectsBtn) {
       alert("No objects to export.");
       return;
     }
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state.annotations, null, 2));
+    
+    // Generate COCO format
+    const coco = {
+      images: [
+        { id: 1, width: imageElement?.naturalWidth || 800, height: imageElement?.naturalHeight || 600, file_name: state.imageName || "image.jpg" }
+      ],
+      categories: state.labels.map((l, index) => ({
+        id: index + 1,
+        name: l.name,
+        type: "polygon",
+        title: l.name,
+        value: l.name.replace(/[^a-zA-Z0-9]/g, ''),
+        color: l.color,
+        order: index + 1,
+        useBBox: false,
+        useRotation: false,
+        defaultWidth: 0,
+        defaultHeight: 0,
+        defaultLength: 0,
+        minWidth: 0,
+        minHeight: 0,
+        isAllowMinAtLeastOne: false,
+        minLength: 0,
+        maxWidth: 0,
+        maxHeight: 0,
+        isAllowMaxAtLeastOne: false,
+        maxLength: 0,
+        verticalRatio: null,
+        horizontalRatio: null,
+        maxAreaCount: null,
+        minArea: null,
+        maxInstanceCount: 0,
+        vertex: 0,
+        isOverlapFrameSelect: false,
+        isOutsideAnnotationFrameSelect: false,
+        isUniformSizeAcrossFrames: false,
+        isFrameGapRestricted: false,
+        lockRotationX: false,
+        lockRotationY: false,
+        lockRotationZ: false,
+        attributes: [],
+        keypoints: []
+      })),
+      annotations: []
+    };
+    
+    // Map our labelId (uuid) to COCO category id (int)
+    const labelIdToCatId = {};
+    state.labels.forEach((l, index) => { labelIdToCatId[l.id] = index + 1; });
+    
+    state.annotations.forEach((ann, index) => {
+      const catId = labelIdToCatId[ann.labelId] || 1;
+      let segmentation = [];
+      let bbox = [ann.x, ann.y, ann.width, ann.height];
+      let area = ann.width * ann.height; // Rough estimate
+      
+      if (ann.points && ann.points.length > 0) {
+        segmentation = [ ann.points.flatMap(p => [p.x, p.y]) ];
+        // Calculate precise area of polygon using shoelace formula
+        let polyArea = 0;
+        for (let i = 0; i < ann.points.length; i++) {
+          let j = (i + 1) % ann.points.length;
+          polyArea += ann.points[i].x * ann.points[j].y;
+          polyArea -= ann.points[j].x * ann.points[i].y;
+        }
+        area = Math.abs(polyArea / 2);
+      }
+      
+      coco.annotations.push({
+        id: index + 1,
+        image_id: 1,
+        category_id: catId,
+        segmentation: segmentation,
+        bbox: bbox,
+        area: area,
+        iscrowd: 0
+      });
+    });
+
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(coco, null, 2));
     const dlAnchorElem = document.createElement('a');
     dlAnchorElem.setAttribute("href", dataStr);
-    dlAnchorElem.setAttribute("download", "objects_export.json");
+    dlAnchorElem.setAttribute("download", "objects_export_coco.json");
     document.body.appendChild(dlAnchorElem);
     dlAnchorElem.click();
     document.body.removeChild(dlAnchorElem);
@@ -2670,24 +2906,24 @@ canvas.addEventListener("pointerdown", (event) => {
     }
   }
 
-  // In draw mode, skip hit-testing – clicks should create shapes, not select existing ones
-  if (state.mode !== "draw") {
-    if (state.selectedId) {
-      const selected = state.annotations.find(a => a.id === state.selectedId);
-      if (selected && selected.points && selected.points.length >= 3) {
-        const ptIndex = hitTestPoint(point, selected);
-        if (ptIndex !== -1) {
-          snapshot();
-          drag = {
-            type: "move-point",
-            annotationId: selected.id,
-            pointIndex: ptIndex
-          };
-          return;
-        }
+  if (state.selectedId) {
+    const selected = state.annotations.find(a => a.id === state.selectedId);
+    if (selected && selected.points && selected.points.length >= 3) {
+      const ptIndex = hitTestPoint(point, selected);
+      if (ptIndex !== -1) {
+        snapshot();
+        drag = {
+          type: "move-point",
+          annotationId: selected.id,
+          pointIndex: ptIndex
+        };
+        return;
       }
     }
+  }
 
+  // In draw mode, skip hit-testing – clicks should create shapes, not select existing ones
+  if (state.mode !== "draw") {
     const hitId = hitTest(point);
     if (hitId) {
       if (event.shiftKey) {
