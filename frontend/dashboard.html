@@ -84,6 +84,7 @@
           <tr style="border-bottom: 2px solid var(--line);">
             <th style="padding: 10px; color: var(--muted);">Project Name</th>
             <th style="padding: 10px; color: var(--muted);">Assignee</th>
+            <th style="padding: 10px; color: var(--muted);">Status</th>
             <th style="padding: 10px; color: var(--muted);">Progress</th>
             <th style="padding: 10px; color: var(--muted);">Completed</th>
             <th style="padding: 10px; color: var(--muted);">Total Tasks</th>
@@ -249,6 +250,11 @@
                   </td>
                   <td style="padding: 10px;">${assigneeHtml}</td>
                   <td style="padding: 10px;">
+                    <span style="font-size: 0.75rem; padding: 4px 8px; border-radius: 12px; background: rgba(0,0,0,0.05); color: var(--ink); white-space: nowrap;">
+                      ${escapeHTML(project.status || 'New')}
+                    </span>
+                  </td>
+                  <td style="padding: 10px;">
                     <div style="display: flex; align-items: center; gap: 8px;">
                       <div style="flex: 1; height: 8px; background: var(--line); border-radius: 4px; overflow: hidden;">
                         <div style="height: 100%; width: ${progress}%; background: var(--accent);"></div>
@@ -278,7 +284,7 @@
                 tr.querySelector('.edit-project-btn').addEventListener('click', () => {
                   const assigneeOptions = team.map(m => `<option value="${escapeHTML(m.name)}" ${project.assignee === m.name ? 'selected' : ''}>${escapeHTML(m.name)}</option>`).join('');
                   tr.innerHTML = `
-                    <td colspan="7" style="padding: 10px;">
+                    <td colspan="8" style="padding: 10px;">
                       <form class="edit-project-form" style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center;" onsubmit="event.preventDefault();">
                         <input type="text" class="edit-project-name" value="${escapeHTML(project.name)}" required style="flex: 1; min-width: 120px; padding: 6px; font-size: 0.85rem; border: 1px solid var(--line); border-radius: 4px; background: rgba(0,0,0,0.05); color: var(--ink);">
                         <select class="edit-project-assignee" style="width: 120px; padding: 6px; border: 1px solid var(--line); border-radius: 4px; font-size: 0.85rem; background: rgba(0,0,0,0.05); color: var(--ink);">
@@ -382,13 +388,60 @@
               break;
 
             case 'classes':
+              let selectedClassIds = new Set();
               const renderClassesModal = () => {
                 if (!payload.labels || payload.labels.length === 0) {
                   openModal('🏷️ Classes Created', '<li class="modal-list-item"><span style="text-align:center;">No classes defined</span></li>');
                   return;
                 }
                 
-                modalList.innerHTML = '';
+                modalList.innerHTML = `
+                  <li class="modal-list-item" style="display:flex; justify-content:space-between; align-items:center; background: var(--panel-2); font-size: 0.85rem; padding: 6px 12px; position: sticky; top: -12px; z-index: 10; margin-top: -12px; margin-bottom: 8px;">
+                    <label style="display:flex; align-items:center; gap: 8px; cursor: pointer; min-width: 0;">
+                      <input type="checkbox" id="selectAllClasses" ${selectedClassIds.size > 0 && selectedClassIds.size === payload.labels.length ? 'checked' : ''}>
+                      <strong>Select All</strong>
+                    </label>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                      <input type="color" id="bulkColorPicker" style="width: 20px; height: 20px; padding: 0; border: none; cursor: pointer;" title="Bulk edit color" value="#3b82f6">
+                      <button id="bulkEditBtn" class="primary" style="padding: 2px 6px; font-size: 0.75rem; border: none; border-radius: 4px; ${selectedClassIds.size > 0 ? 'cursor:pointer;' : 'opacity: 0.5; pointer-events: none;'}" title="Apply color to selected">Bulk Edit</button>
+                      <button id="bulkDeleteBtn" style="padding: 2px 6px; font-size: 0.75rem; background: #ef4444; color: white; border: none; border-radius: 4px; ${selectedClassIds.size > 0 ? 'cursor:pointer;' : 'opacity: 0.5; pointer-events: none;'}">Bulk Delete</button>
+                    </div>
+                  </li>
+                `;
+
+                // Add listeners to the bulk actions
+                document.getElementById('selectAllClasses').addEventListener('change', (e) => {
+                  if (e.target.checked) {
+                    payload.labels.forEach(l => selectedClassIds.add(l.id));
+                  } else {
+                    selectedClassIds.clear();
+                  }
+                  renderClassesModal();
+                });
+
+                document.getElementById('bulkDeleteBtn').addEventListener('click', () => {
+                  if (confirm(`Delete ${selectedClassIds.size} selected classes?`)) {
+                    payload.labels = payload.labels.filter(l => !selectedClassIds.has(l.id));
+                    if (payload.annotations) {
+                      payload.annotations = payload.annotations.filter(a => !selectedClassIds.has(a.labelId));
+                    }
+                    selectedClassIds.clear();
+                    savePayload();
+                    renderClassesModal();
+                  }
+                });
+
+                document.getElementById('bulkEditBtn').addEventListener('click', () => {
+                  const newColor = document.getElementById('bulkColorPicker').value;
+                  payload.labels.forEach(l => {
+                    if (selectedClassIds.has(l.id)) {
+                      l.color = newColor;
+                    }
+                  });
+                  savePayload();
+                  renderClassesModal();
+                });
+
                 payload.labels.forEach(l => {
                   const li = document.createElement('li');
                   li.className = 'modal-list-item';
@@ -399,6 +452,7 @@
                   const renderView = () => {
                     li.innerHTML = `
                       <strong style="display:flex;align-items:center;gap:8px;min-width:0;flex:1;">
+                        <input type="checkbox" class="class-checkbox" ${selectedClassIds.has(l.id) ? 'checked' : ''} style="cursor: pointer; flex-shrink: 0;">
                         <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${l.color};flex-shrink:0;"></span>
                         <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${l.name}</span>
                       </strong>
@@ -407,6 +461,16 @@
                         <span class="delete-btn" style="cursor:pointer; font-size: 1.1rem; font-weight: bold; line-height: 1;" title="Delete">×</span>
                       </div>
                     `;
+
+                    li.querySelector('.class-checkbox').addEventListener('change', (e) => {
+                      if (e.target.checked) {
+                        selectedClassIds.add(l.id);
+                      } else {
+                        selectedClassIds.delete(l.id);
+                      }
+                      renderClassesModal();
+                    });
+
                     
                     li.querySelector('.edit-btn').addEventListener('click', () => {
                       li.innerHTML = `

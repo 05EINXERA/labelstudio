@@ -288,6 +288,33 @@ function setDetectionBusy(isBusy) {
   }
 }
 
+/**
+ * Returns the image source suitable for the AI API.
+ * If the current image src is a blob: URL (local file), converts it to a
+ * base64 data URL via a canvas, since blob URLs are browser-only and
+ * cannot be fetched by the backend server.
+ */
+async function getImageSrcForAPI() {
+  const src = state.image?.src || imageElement?.src;
+  if (!src) return null;
+  // If it's already a normal URL or base64 data URL, send as-is
+  if (!src.startsWith("blob:")) return src;
+  // Convert blob URL -> base64 via canvas
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      const cvs = document.createElement("canvas");
+      cvs.width = img.naturalWidth;
+      cvs.height = img.naturalHeight;
+      cvs.getContext("2d").drawImage(img, 0, 0);
+      resolve(cvs.toDataURL("image/jpeg", 0.92));
+    };
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
 async function autoDetectObjects({ replace = true } = {}) {
   if (!imageLoaded || detectionBusy) return 0;
 
@@ -315,12 +342,13 @@ async function autoDetectObjects({ replace = true } = {}) {
   const timeoutId = setTimeout(() => controller.abort(), 60000);
 
   try {
+    const imageSrc = await getImageSrcForAPI();
     const response = await apiFetch(`${window.location.origin}/api/detect`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       signal: controller.signal,
       body: JSON.stringify({
-        image: state.image?.src || imageElement.src,
+        image: imageSrc,
         selection
       })
     });
@@ -390,7 +418,7 @@ async function autoTagObjects() {
 
   try {
     const payload = {
-      image: state.image?.src || imageElement.src
+      image: await getImageSrcForAPI()
     };
 
     const response = await apiFetch(`${window.location.origin}/api/detect/classify`, {
@@ -556,11 +584,12 @@ async function performMagicWandSegmentation(point, bbox = null) {
     const precisionVal = precisionSlider ? parseInt(precisionSlider.value) : 70;
     const epsilonMult = 0.01 - (precisionVal / 100) * 0.0099;
 
+    const imageSrc = await getImageSrcForAPI();
     const response = await apiFetch(`${window.location.origin}/api/detect/segment`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        image: state.image?.src || imageElement.src,
+        image: imageSrc,
         point: { x: Math.round(point.x), y: Math.round(point.y) },
         prompt: labelName,
         precision: epsilonMult,
@@ -3037,6 +3066,12 @@ stageWrap.addEventListener("drop", (event) => {
 
 window.addEventListener("resize", resizeCanvas);
 
+window.addEventListener("storage", (e) => {
+  if (e.key === storageKey) {
+    loadSaved();
+    render();
+  }
+});
 loadLabelStudioSettings();
 loadSaved();
 resizeCanvas();

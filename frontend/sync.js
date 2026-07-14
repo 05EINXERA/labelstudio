@@ -28,7 +28,8 @@
       fetch('/api/data', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: key, value: value })
+        body: JSON.stringify({ key: key, value: value }),
+        keepalive: true
       }).catch(function(err) {
         console.error('Failed to sync ' + key + ' to server', err);
       });
@@ -48,7 +49,8 @@
       fetch('/api/data', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: key, value: defaultValues[key] })
+        body: JSON.stringify({ key: key, value: defaultValues[key] }),
+        keepalive: true
       }).catch(function(err) {});
     }
   };
