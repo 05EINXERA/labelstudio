@@ -1167,3 +1167,26 @@ canvas {
 .comment-overlay.is-hidden {
   display: none;
 }
+/* Drag and Drop Panel Styles */
+.drag-handle {
+  cursor: grab;
+  padding: 4px;
+  color: var(--muted);
+  user-select: none;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.panel.is-dragging {
+  opacity: 0.4;
+  border: 2px dashed var(--accent) !important;
+}
+
+.panel.drag-over {
+  border-top: 2px solid var(--accent);
+}
+

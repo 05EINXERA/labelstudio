@@ -2459,6 +2459,59 @@ if (exportClassesBtn) {
   });
 }
 
+const importObjectsBtn = document.getElementById("importObjectsBtn");
+const exportObjectsBtn = document.getElementById("exportObjectsBtn");
+const importObjectsInput = document.getElementById("importObjectsInput");
+
+if (importObjectsBtn && importObjectsInput) {
+  importObjectsBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    importObjectsInput.click();
+  });
+
+  importObjectsInput.addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const importedAnnotations = JSON.parse(e.target.result);
+        if (!Array.isArray(importedAnnotations)) {
+          alert("Invalid objects file format. Expected a JSON array.");
+          return;
+        }
+        
+        state.annotations = [...state.annotations, ...importedAnnotations];
+        render();
+        save();
+        setStatus(`Imported ${importedAnnotations.length} objects.`);
+      } catch (err) {
+        console.error(err);
+        alert("Failed to parse objects JSON.");
+      }
+    };
+    reader.readAsText(file);
+    importObjectsInput.value = ""; // reset
+  });
+}
+
+if (exportObjectsBtn) {
+  exportObjectsBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (!state.annotations || state.annotations.length === 0) {
+      alert("No objects to export.");
+      return;
+    }
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state.annotations, null, 2));
+    const dlAnchorElem = document.createElement('a');
+    dlAnchorElem.setAttribute("href", dataStr);
+    dlAnchorElem.setAttribute("download", "objects_export.json");
+    document.body.appendChild(dlAnchorElem);
+    dlAnchorElem.click();
+    document.body.removeChild(dlAnchorElem);
+  });
+}
+
 labelStudioButton.addEventListener("click", sendToEndpoint);
 
 labelStudioProxyInput.addEventListener("change", () => {
@@ -3661,7 +3714,84 @@ async function loadWorkspaceTasks() {
   }
 }
 
+function initPanelDragAndDrop() {
+  const container = document.getElementById('sidebarPanels');
+  if (!container) return;
+
+  // 1. Restore layout
+  const savedLayout = localStorage.getItem('panelLayout');
+  if (savedLayout) {
+    try {
+      const order = JSON.parse(savedLayout);
+      order.forEach(id => {
+        const panel = document.getElementById(id);
+        if (panel) container.appendChild(panel);
+      });
+    } catch(e) {}
+  }
+
+  // 2. Setup dragging
+  const panels = container.querySelectorAll('.panel');
+  let draggedElement = null;
+
+  panels.forEach(panel => {
+    const handle = panel.querySelector('.drag-handle');
+    if (handle) {
+      handle.addEventListener('mousedown', () => panel.setAttribute('draggable', 'true'));
+      handle.addEventListener('mouseup', () => panel.setAttribute('draggable', 'false'));
+      handle.addEventListener('mouseleave', () => panel.setAttribute('draggable', 'false'));
+    }
+
+    panel.addEventListener('dragstart', (e) => {
+      draggedElement = panel;
+      e.dataTransfer.effectAllowed = 'move';
+      // Firefox requires some data to be set
+      e.dataTransfer.setData('text/plain', panel.id);
+      setTimeout(() => panel.classList.add('is-dragging'), 0);
+    });
+
+    panel.addEventListener('dragend', () => {
+      panel.classList.remove('is-dragging');
+      panel.removeAttribute('draggable');
+      draggedElement = null;
+      savePanelLayout();
+    });
+  });
+
+  container.addEventListener('dragover', e => {
+    e.preventDefault();
+    if (!draggedElement) return;
+    const afterElement = getDragAfterElement(container, e.clientY);
+    if (afterElement == null) {
+      container.appendChild(draggedElement);
+    } else {
+      container.insertBefore(draggedElement, afterElement);
+    }
+  });
+
+  function getDragAfterElement(container, y) {
+    const draggableElements = [...container.querySelectorAll('.panel:not(.is-dragging)')];
+    return draggableElements.reduce((closest, child) => {
+      const box = child.getBoundingClientRect();
+      const offset = y - box.top - box.height / 2;
+      if (offset < 0 && offset > closest.offset) {
+        return { offset: offset, element: child };
+      } else {
+        return closest;
+      }
+    }, { offset: Number.NEGATIVE_INFINITY }).element;
+  }
+
+  function savePanelLayout() {
+    const currentOrder = Array.from(container.children)
+      .filter(child => child.classList.contains('panel'))
+      .map(child => child.id);
+    localStorage.setItem('panelLayout', JSON.stringify(currentOrder));
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+  initPanelDragAndDrop();
   window.addEventListener('beforeunload', () => {
     if (typeof state !== 'undefined' && state && state.galleryIndex >= 0) {
       syncToBackend();
