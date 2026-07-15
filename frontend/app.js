@@ -1,6 +1,15 @@
 if (!localStorage.getItem('logged_in')) {
   window.location.href = '/';
 }
+function generateUUID() {
+  if (typeof crypto !== 'undefined' && crypto['randomUUID']) {
+    return crypto['randomUUID']();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    var r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+}
 
 async function apiFetch(url, options = {}) {
   const logged_in = localStorage.getItem('logged_in');
@@ -225,7 +234,7 @@ function ensureLabel(className, customColor = null) {
   if (existing) return existing;
 
   const label = {
-    id: crypto.randomUUID(),
+    id: generateUUID(),
     name,
     color: customColor || colorForName(name)
   };
@@ -598,7 +607,7 @@ function showAutoTagModal(tags) {
   modal.classList.add('is-active');
 }
 
-async function performMagicWandSegmentation(point, bbox = null) {
+async function performMagicWandSegmentation(point, bbox = null, isShift = false, isAlt = false) {
   if (!imageLoaded || detectionBusy) return;
 
   setDetectionBusy(true);
@@ -608,6 +617,22 @@ async function performMagicWandSegmentation(point, bbox = null) {
     const activeLabelId = state.activeLabelId;
     const label = state.labels.find(l => l.id === activeLabelId);
     const labelName = label ? label.name : null;
+    
+    let existingAnnotation = null;
+    if ((isShift || isAlt) && state.selectedId) {
+      existingAnnotation = state.annotations.find(a => a.id === state.selectedId && a.source === "magic-wand");
+    }
+
+    let promptPoints = [];
+    let promptLabels = [];
+
+    if (existingAnnotation && existingAnnotation.promptPoints) {
+      promptPoints = [...existingAnnotation.promptPoints];
+      promptLabels = [...existingAnnotation.promptLabels];
+    }
+
+    promptPoints.push({ x: Math.round(point.x), y: Math.round(point.y) });
+    promptLabels.push(isAlt ? 0 : 1);
     
     const precisionSlider = document.getElementById("magicWandPrecision");
     const precisionVal = precisionSlider ? parseInt(precisionSlider.value) : 70;
@@ -619,7 +644,8 @@ async function performMagicWandSegmentation(point, bbox = null) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         image: imageSrc,
-        point: { x: Math.round(point.x), y: Math.round(point.y) },
+        points: promptPoints,
+        labels: promptLabels,
         prompt: labelName,
         precision: epsilonMult,
         bbox: bbox,
@@ -636,23 +662,33 @@ async function performMagicWandSegmentation(point, bbox = null) {
     const result = await pollJob(job_id, null);
     const points = result.points || [];
     if (!points.length) {
-      setStatus("No object found at point");
+      setStatus("No object found at points");
       return;
     }
 
     snapshot();
 
-    const labelId = state.activeLabelId || ensureLabel("object").id;
-    const annotation = {
-      id: crypto.randomUUID(),
-      labelId: labelId,
-      points: points,
-      source: "magic-wand"
-    };
-    updateAnnotationBounds(annotation);
+    if (existingAnnotation) {
+      existingAnnotation.points = points;
+      existingAnnotation.promptPoints = promptPoints;
+      existingAnnotation.promptLabels = promptLabels;
+      updateAnnotationBounds(existingAnnotation);
+    } else {
+      const labelId = state.activeLabelId || ensureLabel("object").id;
+      const annotation = {
+        id: generateUUID(),
+        labelId: labelId,
+        points: points,
+        promptPoints: promptPoints,
+        promptLabels: promptLabels,
+        source: "magic-wand"
+      };
+      updateAnnotationBounds(annotation);
+      
+      state.annotations.push(annotation);
+      state.selectedId = annotation.id;
+    }
     
-    state.annotations.push(annotation);
-    state.selectedId = annotation.id;
     render();
     save();
     setStatus("Segmented object");
@@ -676,7 +712,7 @@ function predictionsToAnnotations(predictions) {
       height: round(Math.max(1, height))
     };
     return {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       labelId: label.id,
       points: prediction.points || [
         { x: box.x, y: box.y },
@@ -1997,7 +2033,7 @@ function importData(file) {
 
       if (importedLabels.length) {
         state.labels = importedLabels.map((label) => ({
-          id: label.id || crypto.randomUUID(),
+          id: label.id || generateUUID(),
           name: normalizeClassName(label.name || label.label || "object"),
           color: label.color || colorForName(label.name || label.label || "object")
         }));
@@ -2048,7 +2084,7 @@ function importData(file) {
           }
 
           const annotation = {
-            id: item.id || crypto.randomUUID(),
+            id: item.id || generateUUID(),
             labelId: label.id,
             score: item.score,
             source: item.source,
@@ -2174,7 +2210,7 @@ function importCsvData(file) {
           }
           
           const annotation = {
-            id: crypto.randomUUID(),
+            id: generateUUID(),
             labelId: label.id,
             points: points
           };
@@ -2351,7 +2387,7 @@ commentOverlayInput.addEventListener("keydown", (e) => {
       } else if (pendingCommentPoint) {
         snapshot();
         const annotation = {
-          id: crypto.randomUUID(),
+          id: generateUUID(),
           type: "comment",
           text: text.trim(),
           author: localStorage.getItem('dataset_username') || "Unknown",
@@ -2445,7 +2481,7 @@ function groupSelectedAnnotations() {
   }
   
   const baseAnnotation = selectedList[0];
-  const groupId = crypto.randomUUID();
+  const groupId = generateUUID();
   
   state.annotations.forEach(a => {
     if (state.selectedIds.has(a.id) && a.type !== "comment") {
@@ -2728,7 +2764,7 @@ if (importObjectsBtn && importObjectsInput) {
               bounds.height = Math.max(...points.map(p=>p.y)) - bounds.y;
               
               importedAnnotations.push({
-                id: crypto.randomUUID(),
+                id: generateUUID(),
                 labelId: labelId,
                 points: points,
                 x: bounds.x,
@@ -2976,7 +3012,8 @@ canvas.addEventListener("pointerdown", (event) => {
         if (lnIndex !== -1) {
           snapshot();
           // Insert new point exactly where clicked
-          const newPoint = { x: point.x, y: point.y };
+          const img = imagePoint(point);
+          const newPoint = { x: round(img.x), y: round(img.y) };
           selected.points.splice(lnIndex + 1, 0, newPoint);
           updateAnnotationBounds(selected);
           
@@ -3116,7 +3153,7 @@ canvas.addEventListener("pointerdown", (event) => {
           state.activeLabelId = defaultLabel.id;
         }
         const annotation = {
-          id: crypto.randomUUID(),
+          id: generateUUID(),
           labelId: state.activeLabelId,
           points: [{ x: round(pointInImage.x), y: round(pointInImage.y) }]
         };
@@ -3298,7 +3335,7 @@ canvas.addEventListener("dblclick", (event) => {
   }
 });
 
-canvas.addEventListener("pointerup", () => {
+canvas.addEventListener("pointerup", (e) => {
   if (isPanning) {
     isPanning = false;
     canvas.style.cursor = "default";
@@ -3349,7 +3386,7 @@ canvas.addEventListener("pointerup", () => {
 
       snapshot();
       const annotation = {
-        id: crypto.randomUUID(),
+        id: generateUUID(),
         labelId: drag.draft.labelId,
         points: drag.draft.points.map((point) => ({ x: round(point.x), y: round(point.y) }))
       };
@@ -3372,10 +3409,13 @@ canvas.addEventListener("pointerup", () => {
       drag = null;
       render();
       
+      const isShift = e.shiftKey;
+      const isAlt = e.altKey;
+      
       if (Math.abs(x2 - x1) < 3 && Math.abs(y2 - y1) < 3) {
-        performMagicWandSegmentation({ x: start.x, y: start.y }, null);
+        performMagicWandSegmentation({ x: start.x, y: start.y }, null, isShift, isAlt);
       } else {
-        performMagicWandSegmentation({ x: start.x, y: start.y }, [x1, y1, x2, y2]);
+        performMagicWandSegmentation({ x: start.x, y: start.y }, [x1, y1, x2, y2], isShift, isAlt);
       }
       return;
     }

@@ -41,8 +41,8 @@ def run_segment_job(job_id: str, payload: SegmentPayload):
     try:
         response = segment_point(
             payload.image, 
-            payload.point.x, 
-            payload.point.y, 
+            points=[{"x": p.x, "y": p.y} for p in payload.points], 
+            labels=payload.labels, 
             prompt=payload.prompt, 
             precision=payload.precision, 
             bbox=payload.bbox,

@@ -4,6 +4,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, UploadFile, File, Query, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 import models
 from database import get_db
@@ -15,7 +16,7 @@ router = APIRouter(prefix="/api/projects", tags=["projects"], dependencies=[Depe
 @router.get("")
 def get_projects(creator: Optional[str] = Query(None), db: Session = Depends(get_db)):
     if creator:
-        projects = db.query(models.Project).filter(models.Project.creator == creator).all()
+        projects = db.query(models.Project).filter(func.lower(models.Project.creator) == func.lower(creator)).all()
     else:
         projects = db.query(models.Project).all()
     return [{"id": p.id, "name": p.name, "slug": p.slug, "type": p.type, "status": p.status, "creator": p.creator, "created_at": p.created_at, "assignee": p.assignee} for p in projects]
@@ -52,7 +53,7 @@ def get_project_metrics(project_id: int, db: Session = Depends(get_db)):
 @router.get("/metrics/batch")
 def get_projects_metrics_batch(creator: Optional[str] = Query(None), db: Session = Depends(get_db)):
     if creator:
-        projects = db.query(models.Project).filter(models.Project.creator == creator).all()
+        projects = db.query(models.Project).filter(func.lower(models.Project.creator) == func.lower(creator)).all()
     else:
         projects = db.query(models.Project).all()
         
