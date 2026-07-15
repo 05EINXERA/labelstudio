@@ -317,6 +317,21 @@ async function getImageSrcForAPI() {
   });
 }
 
+async function pollJob(jobId, controller) {
+  while (true) {
+    if (controller && controller.signal.aborted) throw new Error("Aborted");
+    const res = await apiFetch(`${window.location.origin}/api/detect/status/${jobId}`);
+    if (res.status === 404) throw new Error("Job not found or expired");
+    if (!res.ok) throw new Error(`Polling failed (${res.status})`);
+    
+    const data = await res.json();
+    if (data.status === "completed") return data.result;
+    if (data.status === "failed") throw new Error(data.error);
+    
+    await new Promise(r => setTimeout(r, 1000));
+  }
+}
+
 async function autoDetectObjects({ replace = true } = {}) {
   if (!imageLoaded || detectionBusy) return 0;
 
@@ -357,7 +372,6 @@ async function autoDetectObjects({ replace = true } = {}) {
         nms_threshold: parseFloat(localStorage.getItem("ai_nms") || "0.45")
       })
     });
-    clearTimeout(timeoutId);
     const payload = await response.json();
     if (!response.ok) {
       let detailMsg = payload.detail;
@@ -365,7 +379,11 @@ async function autoDetectObjects({ replace = true } = {}) {
       throw new Error(detailMsg || payload.error || `Detection failed (${response.status})`);
     }
 
-    const predictions = payload.predictions || [];
+    const { job_id } = payload;
+    const result = await pollJob(job_id, controller);
+    clearTimeout(timeoutId);
+
+    const predictions = result.predictions || [];
     snapshot();
 
     if (!predictions.length) {
@@ -435,11 +453,14 @@ async function autoTagObjects() {
       body: JSON.stringify(payload)
     });
 
+    const data = await response.json();
     if (!response.ok) {
       throw new Error(`Auto-tag failed (${response.status})`);
     }
 
-    const { tags } = await response.json();
+    const { job_id } = data;
+    const result = await pollJob(job_id, null);
+    const tags = result.tags || [];
 
     if (tags && tags.length > 0) {
       setStatus(`Found ${tags.length} tags`);
@@ -605,12 +626,15 @@ async function performMagicWandSegmentation(point, bbox = null) {
         sam_model: localStorage.getItem("ai_sam_model") || "mobile_sam.pt"
       })
     });
+    
     const payload = await response.json();
     if (!response.ok) {
       throw new Error(payload.detail || `Segmentation failed (${response.status})`);
     }
 
-    const points = payload.points || [];
+    const { job_id } = payload;
+    const result = await pollJob(job_id, null);
+    const points = result.points || [];
     if (!points.length) {
       setStatus("No object found at point");
       return;
@@ -705,10 +729,26 @@ function syncToBackend() {
       status: taskStatus,
       time_spent_delta: timeDelta,
       assignee: username,
-      annotations: JSON.stringify(currentTask.annotations)
+      annotations: JSON.stringify(currentTask.annotations),
+      updated_at: currentTask.updated_at
     }),
     keepalive: true
-  }).catch(e => console.error("Auto-save failed", e));
+  })
+  .then(async res => {
+    if (res.status === 409) {
+      const errorMsg = await res.json();
+      alert(`Conflict: ${errorMsg.detail}`);
+      currentTask.id = null; // Prevent further autosaves for this task
+      return;
+    }
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.updated_at) {
+        currentTask.updated_at = data.updated_at;
+      }
+    }
+  })
+  .catch(e => console.error("Auto-save failed", e));
 }
 
 function save() {
@@ -724,9 +764,31 @@ function save() {
     clearTimeout(window.backendSyncTimeout);
   }
   window.backendSyncTimeout = setTimeout(() => {
+    window.backendSyncTimeout = null;
     syncToBackend();
   }, 1000);
 }
+
+function flushPendingSaves() {
+  if (window.backendSyncTimeout) {
+    clearTimeout(window.backendSyncTimeout);
+    window.backendSyncTimeout = null;
+    syncToBackend();
+  }
+  if (typeof syncTimeToServer === 'function') {
+    syncTimeToServer();
+  }
+}
+
+window.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    flushPendingSaves();
+  }
+});
+
+window.addEventListener('beforeunload', () => {
+  flushPendingSaves();
+});
 
 function loadSaved() {
   const saved = localStorage.getItem(storageKey);
@@ -3602,6 +3664,7 @@ let sessionSeconds = 0;
 let taskSessionSeconds = 0;
 let currentUserForTimer = localStorage.getItem('dataset_username') || 'Unknown';
 let totalSeconds = 0;
+let lastSyncedTotalSeconds = 0;
 let isTimerRunning = false;
 
 async function syncTaskTime(task) {
@@ -3616,9 +3679,25 @@ async function syncTaskTime(task) {
         time_spent_delta: timeDelta,
         status: task.status || 'In Progress',
         assignee: localStorage.getItem('dataset_username') || 'Unknown',
-        annotations: JSON.stringify(task.annotations || [])
+        annotations: JSON.stringify(task.annotations || []),
+        updated_at: task.updated_at
       })
-    }).catch(() => {});
+    })
+    .then(async res => {
+      if (res.status === 409) {
+        const errorMsg = await res.json();
+        alert(`Conflict: ${errorMsg.detail}`);
+        task.id = null; // Prevent further autosaves for this task
+        return;
+      }
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.updated_at) {
+          task.updated_at = data.updated_at;
+        }
+      }
+    })
+    .catch(() => {});
   }
 }
 
@@ -3632,6 +3711,7 @@ async function syncTaskTime(task) {
         const member = team.find(m => m.name === currentUserForTimer);
         if (member) {
           totalSeconds = member.time_logged || 0;
+          lastSyncedTotalSeconds = totalSeconds;
           updateTimerDisplays();
         }
       }
@@ -3656,11 +3736,15 @@ function updateTimerDisplays() {
 
 function syncTimeToServer() {
   if (currentUserForTimer !== 'Unknown') {
-    apiFetch('/api/team/time', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ name: currentUserForTimer, time_logged: totalSeconds })
-    }).catch(()=>{});
+    const delta = totalSeconds - lastSyncedTotalSeconds;
+    if (delta > 0) {
+      apiFetch('/api/team/time', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ name: currentUserForTimer, time_logged: delta })
+      }).catch(()=>{});
+      lastSyncedTotalSeconds = totalSeconds;
+    }
   }
 }
 

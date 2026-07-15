@@ -38,6 +38,13 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
     if task.id:
         db_task = db.query(models.Task).filter(models.Task.id == task.id).first()
         if db_task:
+            if task.updated_at and db_task.updated_at:
+                try:
+                    client_updated = datetime.datetime.fromisoformat(task.updated_at.replace('Z', '+00:00')).replace(tzinfo=None)
+                    if (db_task.updated_at - client_updated).total_seconds() > 1.0:
+                        raise HTTPException(status_code=409, detail="Task was updated by another user. Please refresh to see latest annotations.")
+                except ValueError:
+                    pass
             if task.assignee is not None:
                 db_task.assignee = task.assignee
             if task.status is not None:
@@ -50,6 +57,7 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
                 db_task.annotations = task.annotations
             db_task.updated_at = datetime.datetime.utcnow()
             task_id = db_task.id
+            new_updated_at = db_task.updated_at
         else:
             raise HTTPException(status_code=404, detail="Task not found")
     else:
@@ -66,9 +74,10 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
         db.commit()
         db.refresh(db_task)
         task_id = db_task.id
+        new_updated_at = db_task.updated_at
         
     db.commit()
-    return {"id": task_id, "status": "ok"}
+    return {"id": task_id, "status": "ok", "updated_at": new_updated_at.isoformat()}
 
 @router.delete("/{task_id}")
 def delete_task(task_id: int, db: Session = Depends(get_db)):

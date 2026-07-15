@@ -1,4 +1,5 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
+import uuid
 
 from detector import DetectionClientError, detect_objects, classify_image
 from schemas import DetectPayload, ClassifyPayload, SegmentPayload
@@ -6,8 +7,9 @@ from api.auth import get_current_user
 
 router = APIRouter(prefix="/api/detect", tags=["detect"], dependencies=[Depends(get_current_user)])
 
-@router.post("")
-def detect(payload: DetectPayload):
+JOBS = {}
+
+def run_detect_job(job_id: str, payload: DetectPayload):
     try:
         response = detect_objects(
             payload.image, 
@@ -17,26 +19,24 @@ def detect(payload: DetectPayload):
             confidence=payload.confidence,
             nms_threshold=payload.nms_threshold
         )
-        return response
+        JOBS[job_id] = {"status": "completed", "result": response}
     except DetectionClientError as error:
-        raise HTTPException(status_code=400, detail=str(error))
+        JOBS[job_id] = {"status": "failed", "error": str(error)}
     except Exception as e:
         print(f"Detection error: {e}")
-        raise HTTPException(status_code=500, detail="Object detection failed.")
+        JOBS[job_id] = {"status": "failed", "error": "Object detection failed."}
 
-@router.post("/classify")
-def classify(payload: ClassifyPayload):
+def run_classify_job(job_id: str, payload: ClassifyPayload):
     try:
         response = classify_image(payload.image)
-        return response
+        JOBS[job_id] = {"status": "completed", "result": response}
     except DetectionClientError as error:
-        raise HTTPException(status_code=400, detail=str(error))
+        JOBS[job_id] = {"status": "failed", "error": str(error)}
     except Exception as e:
         print(f"Classification error: {e}")
-        raise HTTPException(status_code=500, detail="Image classification failed.")
+        JOBS[job_id] = {"status": "failed", "error": "Image classification failed."}
 
-@router.post("/segment")
-def segment(payload: SegmentPayload):
+def run_segment_job(job_id: str, payload: SegmentPayload):
     from detector import segment_point
     try:
         response = segment_point(
@@ -48,9 +48,43 @@ def segment(payload: SegmentPayload):
             bbox=payload.bbox,
             sam_model=payload.sam_model
         )
-        return response
+        JOBS[job_id] = {"status": "completed", "result": response}
     except DetectionClientError as error:
-        raise HTTPException(status_code=400, detail=str(error))
+        JOBS[job_id] = {"status": "failed", "error": str(error)}
     except Exception as e:
         print(f"Segmentation error: {e}")
-        raise HTTPException(status_code=500, detail="Image segmentation failed.")
+        JOBS[job_id] = {"status": "failed", "error": "Image segmentation failed."}
+
+@router.get("/status/{job_id}")
+def get_job_status(job_id: str):
+    if job_id not in JOBS:
+        raise HTTPException(status_code=404, detail="Job not found or expired")
+    
+    job = JOBS[job_id]
+    if job["status"] in ["completed", "failed"]:
+        result = job
+        del JOBS[job_id]
+        return result
+    
+    return {"status": "pending"}
+
+@router.post("")
+def detect(payload: DetectPayload, background_tasks: BackgroundTasks):
+    job_id = str(uuid.uuid4())
+    JOBS[job_id] = {"status": "pending"}
+    background_tasks.add_task(run_detect_job, job_id, payload)
+    return {"job_id": job_id}
+
+@router.post("/classify")
+def classify(payload: ClassifyPayload, background_tasks: BackgroundTasks):
+    job_id = str(uuid.uuid4())
+    JOBS[job_id] = {"status": "pending"}
+    background_tasks.add_task(run_classify_job, job_id, payload)
+    return {"job_id": job_id}
+
+@router.post("/segment")
+def segment(payload: SegmentPayload, background_tasks: BackgroundTasks):
+    job_id = str(uuid.uuid4())
+    JOBS[job_id] = {"status": "pending"}
+    background_tasks.add_task(run_segment_job, job_id, payload)
+    return {"job_id": job_id}
