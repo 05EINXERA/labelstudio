@@ -374,7 +374,7 @@ async function autoDetectObjects({ replace = true } = {}) {
           state.annotations = state.annotations.filter((item) => item.id === selected.id || item.source !== "auto-detect");
           state.selectedId = selected.id;
         } else {
-          state.annotations = [];
+          state.annotations = state.annotations.filter(item => item.source !== "auto-detect");
           state.selectedId = null;
         }
         pruneUnusedLabels();
@@ -392,7 +392,8 @@ async function autoDetectObjects({ replace = true } = {}) {
         state.annotations = [...preserved, ...detected];
         state.selectedId = selected.id;
       } else {
-        state.annotations = detected;
+        const preserved = state.annotations.filter((item) => item.source !== "auto-detect");
+        state.annotations = [...preserved, ...detected];
         state.selectedId = null;
       }
       pruneUnusedLabels();
