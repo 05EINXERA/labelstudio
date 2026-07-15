@@ -25,7 +25,7 @@ MAX_DETECTIONS = int(os.environ.get("DETECT_MAX", "100"))
 MAX_IMAGE_BYTES = int(os.environ.get("MAX_IMAGE_BYTES", str(50 * 1024 * 1024)))
 MAX_IMAGE_PIXELS = int(os.environ.get("MAX_IMAGE_PIXELS", str(50_000_000)))
 
-CLIP_MODEL_NAME = "openai/clip-vit-base-patch32"
+CLIP_MODEL_NAME = "laion/CLIP-ViT-H-14-laion2B-s32B-b79K"
 YOLO_WORLD_MODEL = os.environ.get("YOLO_WORLD_MODEL", "yolov8s-worldv2.pt")
 
 Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
@@ -554,7 +554,7 @@ def classify_image(image_data, top_k=5):
         "tags": results
     }
 
-def segment_point(image_data, x, y, prompt=None, precision=0.001, bbox=None, sam_model=None):
+def segment_point(image_data, points=None, labels=None, prompt=None, precision=0.001, bbox=None, sam_model=None):
     model_size = "n"
     confidence = CONFIDENCE
     nms_threshold = NMS_THRESHOLD
@@ -563,6 +563,16 @@ def segment_point(image_data, x, y, prompt=None, precision=0.001, bbox=None, sam
         from ultralytics import SAM
     except ImportError:
         raise RuntimeError("Please install ultralytics and torch to use SAM.")
+    
+    if not points or len(points) == 0:
+        return {"points": []}
+        
+    # Use the first point as the reference point for pointPolygonTest fallback logic
+    x = points[0]["x"]
+    y = points[0]["y"]
+    
+    pts_array = [[p["x"], p["y"]] for p in points]
+    lbls_array = labels if labels else [1 for _ in points]
     
     image = decode_image(image_data)
     image_bgr = pil_to_bgr(image)
@@ -604,8 +614,8 @@ def segment_point(image_data, x, y, prompt=None, precision=0.001, bbox=None, sam
         with _hf_sam2_lock:
             inputs = _hf_sam2_processor(
                 images=image_pil, 
-                input_points=[[[[x, y]]]], 
-                input_labels=[[[1]]], 
+                input_points=[[pts_array]], 
+                input_labels=[[lbls_array]], 
                 return_tensors="pt"
             )
             
@@ -633,30 +643,7 @@ def segment_point(image_data, x, y, prompt=None, precision=0.001, bbox=None, sam
             if best_contour is None:
                 best_contour = max(contours, key=cv2.contourArea)
             
-            keep_fraction = 0.02 + ((0.01 - precision) / 0.0099) * 0.98
-            keep_fraction = max(0.01, min(1.0, keep_fraction))
-            
             contour_to_approx = best_contour
-            if len(best_contour) > 10 and keep_fraction < 0.99:
-                cx = best_contour[:, 0, 0]
-                cy = best_contour[:, 0, 1]
-                z = cx + 1j * cy
-                Z = np.fft.fft(z)
-                
-                N = len(Z)
-                keep_n = max(1, int(N * keep_fraction / 2))
-                
-                Z_filtered = np.zeros_like(Z)
-                Z_filtered[:keep_n] = Z[:keep_n]
-                if keep_n > 1:
-                    Z_filtered[-keep_n+1:] = Z[-keep_n+1:]
-                    
-                z_smooth = np.fft.ifft(Z_filtered)
-                
-                smooth_contour = np.zeros_like(best_contour)
-                smooth_contour[:, 0, 0] = np.real(z_smooth)
-                smooth_contour[:, 0, 1] = np.imag(z_smooth)
-                contour_to_approx = smooth_contour.astype(np.int32)
             
             epsilon = precision * cv2.arcLength(contour_to_approx, True)
             approx = cv2.approxPolyDP(contour_to_approx, epsilon, True)
@@ -684,7 +671,7 @@ def segment_point(image_data, x, y, prompt=None, precision=0.001, bbox=None, sam
         if bbox:
             results = active_sam(image_bgr, bboxes=[bbox], verbose=False)
         else:
-            results = active_sam(image_bgr, points=[[x, y]], labels=[1], verbose=False)
+            results = active_sam(image_bgr, points=[pts_array], labels=[lbls_array], verbose=False)
     
     points_res = []
     if results and len(results) > 0 and results[0].masks:
@@ -708,34 +695,7 @@ def segment_point(image_data, x, y, prompt=None, precision=0.001, bbox=None, sam
                 if best_contour is None:
                     best_contour = max(contours, key=cv2.contourArea)
                 
-                # Map precision to FFT keep_fraction for contour smoothing.
-                # precision range: 0.01 (smooth) to 0.0001 (detailed)
-                # keep_fraction range: 0.02 (smooth) to 1.0 (detailed)
-                # Values outside [0.0001, 0.01] are clamped.
-                keep_fraction = 0.02 + ((0.01 - precision) / 0.0099) * 0.98
-                keep_fraction = max(0.01, min(1.0, keep_fraction))
-                
                 contour_to_approx = best_contour
-                if len(best_contour) > 10 and keep_fraction < 0.99:
-                    cx = best_contour[:, 0, 0]
-                    cy = best_contour[:, 0, 1]
-                    z = cx + 1j * cy
-                    Z = np.fft.fft(z)
-                    
-                    N = len(Z)
-                    keep_n = max(1, int(N * keep_fraction / 2))
-                    
-                    Z_filtered = np.zeros_like(Z)
-                    Z_filtered[:keep_n] = Z[:keep_n]
-                    if keep_n > 1:
-                        Z_filtered[-keep_n+1:] = Z[-keep_n+1:]
-                        
-                    z_smooth = np.fft.ifft(Z_filtered)
-                    
-                    smooth_contour = np.zeros_like(best_contour)
-                    smooth_contour[:, 0, 0] = np.real(z_smooth)
-                    smooth_contour[:, 0, 1] = np.imag(z_smooth)
-                    contour_to_approx = smooth_contour.astype(np.int32)
                 
                 # Approximate the contour to simplify it and remove redundant points/crisscross lines
                 epsilon = precision * cv2.arcLength(contour_to_approx, True)

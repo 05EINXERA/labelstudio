@@ -59,7 +59,8 @@ class PointModel(BaseModel):
 
 class SegmentPayload(BaseModel):
     image: str
-    point: PointModel
+    points: List[PointModel]
+    labels: List[int]
     prompt: Optional[str] = None
     precision: Optional[float] = 0.001
     bbox: Optional[List[float]] = None
