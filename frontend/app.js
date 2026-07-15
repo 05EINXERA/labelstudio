@@ -360,7 +360,9 @@ async function autoDetectObjects({ replace = true } = {}) {
     clearTimeout(timeoutId);
     const payload = await response.json();
     if (!response.ok) {
-      throw new Error(payload.detail || payload.error || `Detection failed (${response.status})`);
+      let detailMsg = payload.detail;
+      if (typeof detailMsg === 'object') detailMsg = JSON.stringify(detailMsg);
+      throw new Error(detailMsg || payload.error || `Detection failed (${response.status})`);
     }
 
     const predictions = payload.predictions || [];
@@ -3448,11 +3450,7 @@ const clearDataBtn = document.getElementById("clearDataBtn");
 // AI Settings elements
 const aiModelSize = document.getElementById("settingsAiModelSize");
 const aiSamModel = document.getElementById("settingsAiSamModel");
-const aiConf = document.getElementById("settingsAiConf");
-const aiConfVal = document.getElementById("settingsAiConfVal");
-const aiNms = document.getElementById("settingsAiNms");
-const aiNmsVal = document.getElementById("settingsAiNmsVal");
-const saveAiSettingsBtn = document.getElementById("saveAiSettingsBtn");
+
 
 const dropdownAiConf = document.getElementById("dropdownAiConf");
 const dropdownAiConfVal = document.getElementById("dropdownAiConfVal");
@@ -3460,8 +3458,7 @@ const dropdownAiNms = document.getElementById("dropdownAiNms");
 const dropdownAiNmsVal = document.getElementById("dropdownAiNmsVal");
 const dropdownSaveAiSettingsBtn = document.getElementById("dropdownSaveAiSettingsBtn");
 
-if (aiConf) aiConf.addEventListener('input', e => { if (aiConfVal) aiConfVal.textContent = e.target.value; });
-if (aiNms) aiNms.addEventListener('input', e => { if (aiNmsVal) aiNmsVal.textContent = e.target.value; });
+
 
 if (dropdownAiConf) {
   dropdownAiConf.value = localStorage.getItem("ai_conf") || "0.35";
@@ -3495,31 +3492,13 @@ if (openSettingsBtn) {
   openSettingsBtn.addEventListener("click", () => {
     settingsUsernameInput.value = localStorage.getItem("dataset_username") || "";
     
-    if (aiConf) {
-      aiConf.value = localStorage.getItem("ai_conf") || "0.35";
-      if (aiConfVal) aiConfVal.textContent = aiConf.value;
-    }
-    if (aiNms) {
-      aiNms.value = localStorage.getItem("ai_nms") || "0.45";
-      if (aiNmsVal) aiNmsVal.textContent = aiNms.value;
-    }
+
 
     settingsModal.classList.add("is-active");
   });
 }
 
-if (saveAiSettingsBtn) {
-  saveAiSettingsBtn.addEventListener("click", () => {
-    localStorage.setItem("ai_model_size", aiModelSize.value);
-    localStorage.setItem("ai_sam_model", aiSamModel.value);
-    localStorage.setItem("ai_conf", aiConf.value);
-    localStorage.setItem("ai_nms", aiNms.value);
-    if (dropdownAiConf) { dropdownAiConf.value = aiConf.value; if (dropdownAiConfVal) dropdownAiConfVal.textContent = aiConf.value; }
-    if (dropdownAiNms) { dropdownAiNms.value = aiNms.value; if (dropdownAiNmsVal) dropdownAiNmsVal.textContent = aiNms.value; }
-    setStatus("AI Settings Applied");
-    setTimeout(() => settingsModal.classList.remove("is-active"), 500);
-  });
-}
+
 
 if (dropdownSaveAiSettingsBtn) {
   dropdownSaveAiSettingsBtn.addEventListener("click", () => {
@@ -3527,8 +3506,7 @@ if (dropdownSaveAiSettingsBtn) {
     localStorage.setItem("ai_sam_model", aiSamModel.value);
     localStorage.setItem("ai_conf", dropdownAiConf.value);
     localStorage.setItem("ai_nms", dropdownAiNms.value);
-    if (aiConf) { aiConf.value = dropdownAiConf.value; if (aiConfVal) aiConfVal.textContent = dropdownAiConf.value; }
-    if (aiNms) { aiNms.value = dropdownAiNms.value; if (aiNmsVal) aiNmsVal.textContent = dropdownAiNms.value; }
+
     setStatus("AI Settings Applied");
     // Dropdown will close automatically if it loses focus, or we just leave it open.
   });

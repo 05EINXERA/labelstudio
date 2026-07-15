@@ -43,7 +43,7 @@ class TeamTime(BaseModel):
 
 class DetectPayload(BaseModel):
     image: str
-    selection: Optional[List[dict]] = None
+    selection: Optional[dict] = None
     prompts: Optional[List[str]] = None
     model_size: Optional[str] = None
     confidence: Optional[float] = None
