@@ -45,6 +45,8 @@ const autoTagButton = document.querySelector("#autoTagButton");
 const undoButton = document.querySelector("#undoButton");
 const deleteButton = document.querySelector("#deleteButton");
 const clearButton = document.querySelector("#clearButton");
+const aiSettingsMenuButton = document.querySelector("#aiSettingsMenuButton");
+const aiSettingsDropdownContainer = document.querySelector("#aiSettingsDropdownContainer");
 const importMenuButton = document.querySelector("#importMenuButton");
 const importDropdown = document.querySelector("#importDropdown").parentElement;
 const importJsonButton = document.querySelector("#importJsonButton");
@@ -1357,28 +1359,36 @@ function renderAnnotations() {
 
     item.querySelector(".edit-ann-btn").addEventListener("click", (e) => {
       e.stopPropagation();
-      const options = state.labels.map(l => `<option value="${l.id}" ${l.id === annotation.labelId ? "selected" : ""}>${escapeHTML(l.name)}</option>`).join("");
+      const currentName = label.name;
+      const options = state.labels.map(l => `<option value="${escapeHTML(l.name)}"></option>`).join("");
       item.innerHTML = `
         <form class="edit-ann-form" style="display: flex; gap: 4px; width: 100%; align-items: center;" onsubmit="event.preventDefault();">
-          <select class="edit-ann-select" style="flex: 1; min-width: 0; padding: 2px 4px; font-size: 0.85rem;" onclick="event.stopPropagation()">
+          <input type="text" list="classNamesDatalist_${annotation.id}" class="edit-ann-input" value="${escapeHTML(currentName)}" style="flex: 1; min-width: 0; padding: 2px 4px; font-size: 0.85rem;" onclick="event.stopPropagation()">
+          <datalist id="classNamesDatalist_${annotation.id}">
             ${options}
-          </select>
+          </datalist>
           <button type="submit" class="primary save-edit-btn" style="padding: 2px 6px; font-size: 0.75rem; border: none; border-radius: 4px; flex-shrink: 0;" onclick="event.stopPropagation()">Save</button>
           <button type="button" class="cancel-edit-btn" style="padding: 2px 6px; font-size: 0.75rem; background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; flex-shrink: 0;" onclick="event.stopPropagation()">Cancel</button>
         </form>
       `;
       const form = item.querySelector(".edit-ann-form");
-      const select = item.querySelector(".edit-ann-select");
+      const input = item.querySelector(".edit-ann-input");
       
       const finishEdit = (saveChanges) => {
-        if (saveChanges && select.value !== annotation.labelId) {
-          snapshot();
-          if (isGroup) {
-            groupAnns.forEach(a => a.labelId = select.value);
-          } else {
-            annotation.labelId = select.value;
+        if (saveChanges) {
+          const newName = input.value.trim();
+          if (newName) {
+            const newLabel = ensureLabel(newName);
+            if (newLabel.id !== annotation.labelId) {
+              snapshot();
+              if (isGroup) {
+                groupAnns.forEach(a => a.labelId = newLabel.id);
+              } else {
+                annotation.labelId = newLabel.id;
+              }
+              save();
+            }
           }
-          save();
         }
         render(); // re-render
       };
@@ -2432,12 +2442,21 @@ exportMenuButton.addEventListener("click", (e) => {
   e.stopPropagation();
   exportDropdown.classList.toggle("show");
 });
+if (aiSettingsMenuButton) {
+  aiSettingsMenuButton.addEventListener("click", (e) => {
+    e.stopPropagation();
+    aiSettingsDropdownContainer.classList.toggle("show");
+  });
+}
 document.addEventListener("click", (e) => {
   if (!exportDropdown.contains(e.target)) {
     exportDropdown.classList.remove("show");
   }
   if (!importDropdown.contains(e.target)) {
     importDropdown.classList.remove("show");
+  }
+  if (aiSettingsDropdownContainer && !aiSettingsDropdownContainer.contains(e.target)) {
+    aiSettingsDropdownContainer.classList.remove("show");
   }
 });
 
@@ -2476,6 +2495,26 @@ newClassForm.addEventListener("submit", (event) => {
   save();
   setStatus(`Added class: ${name}`);
 });
+
+const newClassObjectsForm = document.getElementById("newClassObjectsForm");
+const newClassNameObj = document.getElementById("newClassNameObj");
+const newClassColorObj = document.getElementById("newClassColorObj");
+if (newClassObjectsForm) {
+  newClassObjectsForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const name = newClassNameObj.value.trim();
+    const color = newClassColorObj.value;
+    if (!name) return;
+
+    snapshot();
+    const label = ensureLabel(name, color);
+    state.activeLabelId = label.id;
+    newClassNameObj.value = "";
+    render();
+    save();
+    setStatus(`Added class: ${name}`);
+  });
+}
 
 const importClassesBtn = document.getElementById("importClassesBtn");
 const exportClassesBtn = document.getElementById("exportClassesBtn");
@@ -3415,8 +3454,26 @@ const aiNms = document.getElementById("settingsAiNms");
 const aiNmsVal = document.getElementById("settingsAiNmsVal");
 const saveAiSettingsBtn = document.getElementById("saveAiSettingsBtn");
 
+const dropdownAiConf = document.getElementById("dropdownAiConf");
+const dropdownAiConfVal = document.getElementById("dropdownAiConfVal");
+const dropdownAiNms = document.getElementById("dropdownAiNms");
+const dropdownAiNmsVal = document.getElementById("dropdownAiNmsVal");
+const dropdownSaveAiSettingsBtn = document.getElementById("dropdownSaveAiSettingsBtn");
+
 if (aiConf) aiConf.addEventListener('input', e => { if (aiConfVal) aiConfVal.textContent = e.target.value; });
 if (aiNms) aiNms.addEventListener('input', e => { if (aiNmsVal) aiNmsVal.textContent = e.target.value; });
+
+if (dropdownAiConf) {
+  dropdownAiConf.value = localStorage.getItem("ai_conf") || "0.35";
+  if (dropdownAiConfVal) dropdownAiConfVal.textContent = dropdownAiConf.value;
+  dropdownAiConf.addEventListener('input', e => { if (dropdownAiConfVal) dropdownAiConfVal.textContent = e.target.value; });
+}
+if (dropdownAiNms) {
+  dropdownAiNms.value = localStorage.getItem("ai_nms") || "0.45";
+  if (dropdownAiNmsVal) dropdownAiNmsVal.textContent = dropdownAiNms.value;
+  dropdownAiNms.addEventListener('input', e => { if (dropdownAiNmsVal) dropdownAiNmsVal.textContent = e.target.value; });
+}
+
 
 if (aiModelSize) {
   aiModelSize.value = localStorage.getItem("ai_model_size") || "n";
@@ -3457,8 +3514,23 @@ if (saveAiSettingsBtn) {
     localStorage.setItem("ai_sam_model", aiSamModel.value);
     localStorage.setItem("ai_conf", aiConf.value);
     localStorage.setItem("ai_nms", aiNms.value);
+    if (dropdownAiConf) { dropdownAiConf.value = aiConf.value; if (dropdownAiConfVal) dropdownAiConfVal.textContent = aiConf.value; }
+    if (dropdownAiNms) { dropdownAiNms.value = aiNms.value; if (dropdownAiNmsVal) dropdownAiNmsVal.textContent = aiNms.value; }
     setStatus("AI Settings Applied");
     setTimeout(() => settingsModal.classList.remove("is-active"), 500);
+  });
+}
+
+if (dropdownSaveAiSettingsBtn) {
+  dropdownSaveAiSettingsBtn.addEventListener("click", () => {
+    localStorage.setItem("ai_model_size", aiModelSize.value);
+    localStorage.setItem("ai_sam_model", aiSamModel.value);
+    localStorage.setItem("ai_conf", dropdownAiConf.value);
+    localStorage.setItem("ai_nms", dropdownAiNms.value);
+    if (aiConf) { aiConf.value = dropdownAiConf.value; if (aiConfVal) aiConfVal.textContent = dropdownAiConf.value; }
+    if (aiNms) { aiNms.value = dropdownAiNms.value; if (aiNmsVal) aiNmsVal.textContent = dropdownAiNms.value; }
+    setStatus("AI Settings Applied");
+    // Dropdown will close automatically if it loses focus, or we just leave it open.
   });
 }
 

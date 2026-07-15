@@ -13,9 +13,18 @@ from database import get_db
 
 _env_secret = os.environ.get("JWT_SECRET", "")
 if not _env_secret:
-    import secrets
-    _env_secret = secrets.token_hex(32)
-    print("WARNING: JWT_SECRET not set. Using a random secret — sessions will not survive restarts.")
+    secret_file = os.path.join(os.getcwd(), ".jwt_secret")
+    if os.path.exists(secret_file):
+        with open(secret_file, "r") as f:
+            _env_secret = f.read().strip()
+    else:
+        import secrets
+        _env_secret = secrets.token_hex(32)
+        try:
+            with open(secret_file, "w") as f:
+                f.write(_env_secret)
+        except Exception:
+            print("WARNING: Could not save JWT_SECRET. Sessions will not survive restarts.")
 SECRET_KEY = _env_secret
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7 # 7 days
