@@ -1,60 +1,52 @@
-# Image Annotation MVP
+# Image Annotation Workspace
 
-A browser workspace for AI-assisted bounding-box annotations on images, with optional Label Studio sync.
+A browser-based workspace for AI-assisted image annotation, featuring state-of-the-art zero-shot detection and segmentation models powered by a high-concurrency FastAPI backend.
+
+## Architecture & Tech Stack
+
+- **Frontend**: Vanilla JavaScript and HTML5 Canvas.
+- **Backend**: FastAPI (Python), serving concurrent ML inferences using an Asynchronous Job Polling Queue to prevent timeouts.
+- **Database**: SQLite (Configured with WAL mode for safe concurrent read/writes).
+- **AI Models**:
+  - **YOLO-World / YOLOv8**: Zero-shot object detection (Auto-Detect).
+  - **Meta SAM (Segment Anything Model)**: Pixel-perfect polygon segmentation (Magic Wand).
+  - **OpenAI CLIP**: Zero-shot image classification (Auto-Tagging).
 
 ## Setup
 
-Install Python dependencies (first run downloads the YOLOv8 ONNX model):
+1. Install Python dependencies:
 
 ```powershell
 .\venv\Scripts\pip.exe install -r requirements.txt
 ```
 
-## Run
-
-Start the local server (serves the app and runs object detection):
+2. Start the local FastAPI server:
 
 ```powershell
-$env:LABEL_STUDIO_URL = "http://localhost:8000/"
-$env:LABEL_STUDIO_API_KEY = "your-label-studio-token"
-.\venv\Scripts\python.exe server.py
+.\venv\Scripts\uvicorn.exe main:app --reload
 ```
 
-Then open `http://127.0.0.1:8765/`.
+Then open `http://127.0.0.1:8000/` (or whatever port Uvicorn specifies in the terminal).
 
-Optional detection settings:
+## Core Features
 
-- `YOLO_MODEL` — ONNX model filename or path (default `models/yolov8n.onnx`)
-- `YOLO_MODEL_URL` — download URL if the model file is missing (default Hugging Face `yolov8n.onnx`)
-- `YOLO_INPUT_SIZE` — inference size (default `640`)
-- `DETECT_CONFIDENCE` — minimum score (default `0.35`)
-- `DETECT_NMS` — non-max suppression threshold (default `0.45`)
-- `DETECT_MAX` — max boxes per image (default `100`)
-- `MAX_BODY_BYTES` — max POST body size (default `25` MB)
-- `MAX_IMAGE_BYTES` — max decoded image size (default `20` MB)
-- `MAX_IMAGE_PIXELS` — max image pixel count (default `25_000_000`)
+- **Auto-Detect**: Detect all objects in an image instantly using YOLOv8 or YOLO-World.
+- **Magic Wand**: Click any object to automatically generate precise polygon masks using Meta's Segment Anything Model (SAM).
+- **Auto-Tag**: Automatically assign scene and object tags to your images using CLIP zero-shot classification.
+- **Concurrent Workspace**: Safely work across multiple browser tabs with real-time SQLite database synchronization and conflict resolution (Optimistic Locking).
+- **Time Tracking**: Accurately tracks active session time spent annotating per user and task.
+- **AI Job Queue**: AI inference runs in a decoupled background queue, allowing multiple users to trigger heavy ML models simultaneously without locking up the server or timing out HTTP requests.
 
-## Features
+## Troubleshooting
 
-- Load or drag-and-drop an image.
-- **Auto-detect** objects on load using **YOLOv8 ONNX** with **OpenCV DNN**. Class names and boxes are created automatically — no manual label setup.
-- Draw or adjust bounding boxes manually (manual boxes use the `Object` class).
-- Move and resize selected boxes in Select mode.
-- Send the loaded image and current boxes to Label Studio with the Label Studio API.
-- Select, delete, clear, and undo annotations.
-- Use keyboard shortcuts: `D` draw, `S` select, `Delete` remove selected, `Ctrl/Cmd+Z` undo, `Esc` deselect.
-- Auto-save the workspace in local browser storage.
-- Import and export COCO-style JSON with `[x, y, width, height]` boxes.
+### Git Push Failing (Large Files)
+If you try to push this project to GitHub and it fails with a `Large files detected` error, it means you accidentally committed one of the heavy `.onnx`, `.pt`, or `.pth` AI models to your Git history. 
 
-## Label Studio
-
-Load an image, let detection run (or click **Auto-detect**), then fill in the Label Studio panel and click `Send annotations`.
-
-Fields:
-
-- Proxy URL: optional. Leave blank when using `server.py`.
-- Project ID: required when creating a new task.
-- Task ID: optional; when present, annotations are added to that existing task.
-- `from_name` and `to_name`: must match your Label Studio labeling config. Defaults are `label` and `image`.
-
-The browser posts to the local `/api/label-studio/send` proxy. Detection uses `/api/detect` on the same server. Your project config should include an image data field named `$image` and rectangle label names that match the detected classes (e.g. `person`, `car`, `dog`).
+To fix this:
+1. Ensure `models/*.onnx` and `models/*.pt` are in your `.gitignore` file.
+2. If you just committed them in your last commit, you can remove them from tracking and amend the commit:
+```bash
+git rm -r --cached models/
+git commit --amend -C HEAD
+git push origin main
+```
