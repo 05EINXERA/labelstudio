@@ -25,6 +25,7 @@ class TaskUpdate(BaseModel):
     description: Optional[str] = None
     time_spent_delta: Optional[int] = 0
     annotations: Optional[str] = None
+    updated_at: Optional[str] = None
 
 class BulkDelete(BaseModel):
     ids: List[int]

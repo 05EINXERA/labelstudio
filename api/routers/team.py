@@ -35,6 +35,6 @@ def delete_team_member(name: str, db: Session = Depends(get_db)):
 def update_team_time(payload: TeamTime, db: Session = Depends(get_db)):
     member = db.query(models.TeamMember).filter(models.TeamMember.name == payload.name).first()
     if member:
-        member.time_logged = payload.time_logged
+        member.time_logged = (member.time_logged or 0) + payload.time_logged
         db.commit()
     return {"status": "ok"}
