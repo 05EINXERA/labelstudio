@@ -13,9 +13,9 @@ from PIL import Image
 
 MODEL_DIR = os.path.join(DATA_DIR, "models")
 MODEL_FILE = os.environ.get("YOLO_MODEL", "yolov8n-seg.onnx")
-MODEL_PATH = MODEL_FILE if os.path.isabs(MODEL_FILE) else os.path.join(MODEL_DIR, MODEL_FILE)
-MODEL_URL = os.environ.get(
-    "YOLO_MODEL_URL",
+model_path = MODEL_FILE if os.path.isabs(MODEL_FILE) else os.path.join(MODEL_DIR, MODEL_FILE)
+download_url = os.environ.get(
+    "YOLO_download_url",
     "https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8n-seg.pt", 
 )
 INPUT_SIZE = int(os.environ.get("YOLO_INPUT_SIZE", "640"))
@@ -63,19 +63,23 @@ class DetectionClientError(ValueError):
     """Invalid or unsupported client input."""
 
 
-def ensure_model_file():
-    if os.path.isfile(MODEL_PATH):
-        return MODEL_PATH
+def ensure_model_file(model_size='n'):
+    file_name = f'yolov8{model_size}-seg.onnx'
+    download_url = f'https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8{model_size}-seg.pt'
+    model_path = os.path.join(MODEL_DIR, file_name)
 
-    model_dir = os.path.dirname(MODEL_PATH) or "."
+    if os.path.isfile(model_path):
+        return model_path
+
+    model_dir = os.path.dirname(model_path) or "."
     os.makedirs(model_dir, exist_ok=True)
     
-    is_pt_url = MODEL_URL.endswith(".pt")
-    download_path = MODEL_PATH.replace(".onnx", ".pt") if is_pt_url else MODEL_PATH
+    is_pt_url = download_url.endswith(".pt")
+    download_path = model_path.replace(".onnx", ".pt") if is_pt_url else model_path
 
     if not os.path.isfile(download_path):
         request = urllib.request.Request(
-            MODEL_URL,
+            download_url,
             headers={"User-Agent": "labelstudio-annotation-mvp/1.0"},
         )
         try:
@@ -84,8 +88,8 @@ def ensure_model_file():
                     shutil.copyfileobj(response, handle)
         except Exception as error:
             raise RuntimeError(
-                f"Could not download YOLO model from {MODEL_URL} to {download_path}. "
-                "Set YOLO_MODEL_URL or place the model file in the models folder."
+                f"Could not download YOLO model from {download_url} to {download_path}. "
+                "Set YOLO_download_url or place the model file in the models folder."
             ) from error
 
     if is_pt_url:
@@ -97,8 +101,8 @@ def ensure_model_file():
             
             # Ultralytics saves the exported model in the same directory as the .pt file
             exported_path = download_path.replace(".pt", ".onnx")
-            if exported_path != MODEL_PATH and os.path.isfile(exported_path):
-                shutil.move(exported_path, MODEL_PATH)
+            if exported_path != model_path and os.path.isfile(exported_path):
+                shutil.move(exported_path, model_path)
         except ImportError:
             raise RuntimeError(
                 f"Model downloaded as PyTorch (.pt) to {download_path}, but OpenCV requires ONNX (.onnx).\n"
@@ -106,23 +110,24 @@ def ensure_model_file():
                 "  pip install ultralytics\n"
                 "Or manually run:\n"
                 f"  yolo export model={download_path} format=onnx\n"
-                f"And ensure the resulting .onnx file is at {MODEL_PATH}"
+                f"And ensure the resulting .onnx file is at {model_path}"
             )
 
-    return MODEL_PATH
+    return model_path
 
 
-def get_model():
-    global _model
-    if _model is None:
-        with _model_lock:
-            if _model is None:
-                model_path = ensure_model_file()
-                net = cv2.dnn.readNetFromONNX(model_path)
-                net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
-                net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
-                _model = net
-    return _model
+_models = {}
+
+def get_model(model_size='n'):
+    global _models
+    with _model_lock:
+        if model_size not in _models:
+            path = ensure_model_file(model_size)
+            net = cv2.dnn.readNetFromONNX(path)
+            net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
+            net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
+            _models[model_size] = net
+    return _models[model_size]
 
 
 def get_clip_model():
@@ -247,7 +252,7 @@ def flatten_nms_indices(indices):
     return [int(indices)]
 
 
-def run_inference(image_bgr):
+def run_inference(image_bgr, model_size, confidence, nms_threshold):
     height, width = image_bgr.shape[:2]
     side = max(height, width)
     square = np.zeros((side, side, 3), np.uint8)
@@ -261,7 +266,7 @@ def run_inference(image_bgr):
         swapRB=True,
     )
 
-    net = get_model()
+    net = get_model(model_size)
     net.setInput(blob)
     out_names = net.getUnconnectedOutLayersNames()
     outputs = net.forward(out_names)
@@ -287,7 +292,7 @@ def run_inference(image_bgr):
     for row in out0[0]:
         class_scores = row[4:4+len(COCO_CLASSES)]
         _min_score, max_score, _min_loc, (_x, class_id) = cv2.minMaxLoc(class_scores)
-        if float(max_score) < CONFIDENCE:
+        if float(max_score) < confidence:
             continue
 
         boxes.append([
@@ -305,7 +310,7 @@ def run_inference(image_bgr):
     if not boxes:
         return []
 
-    indices = flatten_nms_indices(cv2.dnn.NMSBoxes(boxes, scores, CONFIDENCE, NMS_THRESHOLD))
+    indices = flatten_nms_indices(cv2.dnn.NMSBoxes(boxes, scores, confidence, nms_threshold))
 
     predictions = []
     for index in indices[:MAX_DETECTIONS]:
@@ -345,7 +350,7 @@ def run_inference(image_bgr):
             contours, _ = cv2.findContours(cropped_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             if contours:
                 contour = max(contours, key=cv2.contourArea)
-                epsilon = 0.005 * cv2.arcLength(contour, True)
+                epsilon = 0.001 * cv2.arcLength(contour, True)
                 approx = cv2.approxPolyDP(contour, epsilon, True)
                 
                 points = []
@@ -384,7 +389,10 @@ def _normalize_selection_points(selection):
     return normalized
 
 
-def detect_objects(image_data, selection=None, prompts=None):
+def detect_objects(image_data, selection=None, prompts=None, model_size=None, confidence=None, nms_threshold=None):
+    model_size = model_size or "n"
+    confidence = confidence or CONFIDENCE
+    nms_threshold = nms_threshold or NMS_THRESHOLD
     image = decode_image(image_data)
     original_width, original_height = image.size
     origin_x = 0.0
@@ -448,7 +456,7 @@ def detect_objects(image_data, selection=None, prompts=None):
         world_model = get_yolo_world_model()
         with _yolo_world_lock:
             world_model.set_classes(prompts)
-            results = world_model.predict(image_bgr, conf=CONFIDENCE, verbose=False)
+            results = world_model.predict(image_bgr, conf=confidence, verbose=False)
             
             if results and len(results) > 0:
                 result = results[0]
@@ -474,7 +482,7 @@ def detect_objects(image_data, selection=None, prompts=None):
                         })
     else:
         with _model_lock:
-            raw_predictions = run_inference(image_bgr)
+            raw_predictions = run_inference(image_bgr, model_size, confidence, nms_threshold)
 
         for item in raw_predictions:
             x, y, box_width, box_height = item["bbox"]
@@ -542,7 +550,10 @@ def classify_image(image_data, top_k=5):
         "tags": results
     }
 
-def segment_point(image_data, x, y, prompt=None, precision=0.003, bbox=None):
+def segment_point(image_data, x, y, prompt=None, precision=0.001, bbox=None, sam_model=None):
+    model_size = "n"
+    confidence = CONFIDENCE
+    nms_threshold = NMS_THRESHOLD
     import torch  # lazy import: torch is heavy and only needed for SAM
     try:
         from ultralytics import SAM
@@ -556,7 +567,7 @@ def segment_point(image_data, x, y, prompt=None, precision=0.003, bbox=None):
         prompt_lower = prompt.lower()
         if prompt_lower in COCO_CLASSES:
             with _model_lock:
-                raw_predictions = run_inference(image_bgr)
+                raw_predictions = run_inference(image_bgr, model_size, confidence, nms_threshold)
             
             best_match = None
             
@@ -574,16 +585,25 @@ def segment_point(image_data, x, y, prompt=None, precision=0.003, bbox=None):
                 }
     
     global _sam_model
-    if _sam_model is None:
+    sam_model_file = sam_model if sam_model else 'mobile_sam.pt'
+    
+    if type(_sam_model) is dict:
+        pass
+    else:
+        _sam_model = {}
+        
+    if sam_model_file not in _sam_model:
         with _sam_lock:
-            if _sam_model is None:
-                _sam_model = SAM('mobile_sam.pt')
+            if sam_model_file not in _sam_model:
+                _sam_model[sam_model_file] = SAM(sam_model_file)
+    
+    active_sam = _sam_model[sam_model_file]
                 
     with _sam_lock:
         if bbox:
-            results = _sam_model(image_bgr, bboxes=[bbox], verbose=False)
+            results = active_sam(image_bgr, bboxes=[bbox], verbose=False)
         else:
-            results = _sam_model(image_bgr, points=[[x, y]], labels=[1], verbose=False)
+            results = active_sam(image_bgr, points=[[x, y]], labels=[1], verbose=False)
     
     points_res = []
     if results and len(results) > 0 and results[0].masks:

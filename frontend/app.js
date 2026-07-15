@@ -349,7 +349,10 @@ async function autoDetectObjects({ replace = true } = {}) {
       signal: controller.signal,
       body: JSON.stringify({
         image: imageSrc,
-        selection
+        selection,
+        model_size: localStorage.getItem("ai_model_size") || "n",
+        confidence: parseFloat(localStorage.getItem("ai_conf") || "0.35"),
+        nms_threshold: parseFloat(localStorage.getItem("ai_nms") || "0.45")
       })
     });
     clearTimeout(timeoutId);
@@ -593,7 +596,8 @@ async function performMagicWandSegmentation(point, bbox = null) {
         point: { x: Math.round(point.x), y: Math.round(point.y) },
         prompt: labelName,
         precision: epsilonMult,
-        bbox: bbox
+        bbox: bbox,
+        sam_model: localStorage.getItem("ai_sam_model") || "mobile_sam.pt"
       })
     });
     const payload = await response.json();
@@ -2592,7 +2596,7 @@ if (importObjectsBtn && importObjectsInput) {
           // Map COCO category id (int) to our labelId (uuid)
           const catIdToLabelId = {};
           for (const cat of importedData.categories) {
-            const existing = ensureLabel(cat.name, cat.color);
+            const existing = ensureLabel(cat.title || cat.name, cat.color);
             catIdToLabelId[cat.id] = existing.id;
           }
           
@@ -2631,6 +2635,21 @@ if (importObjectsBtn && importObjectsInput) {
             }
           }
         } else if (Array.isArray(importedData)) {
+          // Detect if they accidentally imported the classes array into the objects panel
+          if (importedData.length > 0 && (importedData[0].title || importedData[0].name) && !importedData[0].points && !importedData[0].labelId) {
+            let count = 0;
+            for (const lbl of importedData) {
+              const name = lbl.title || lbl.name;
+              if (name) {
+                ensureLabel(name, lbl.color || null);
+                count++;
+              }
+            }
+            render();
+            save();
+            setStatus(`Imported ${count} classes.`);
+            return;
+          }
           // Legacy format
           importedAnnotations = importedData;
         } else {
@@ -2842,37 +2861,30 @@ canvas.addEventListener("pointerdown", (event) => {
   
   const point = canvasPoint(event);
 
-  // Left-click on a polygon edge to select/delete it
+  // Left-click on a polygon edge to add a vertex
   if (state.selectedId && event.button === 0 && !event.altKey) {
     const selected = state.annotations.find(a => a.id === state.selectedId);
     if (selected && selected.points && selected.points.length >= 3) {
-      const lnIndex = hitTestLine(point, selected);
-      if (lnIndex !== -1) {
-        // If clicking the already-selected line, delete it
-        if (selectedLineIndex === lnIndex && selected.points.length > 3) {
+      // Prioritize point hit test so we don't accidentally split a line when clicking a point
+      const ptIndex = hitTestPoint(point, selected);
+      if (ptIndex === -1) {
+        const lnIndex = hitTestLine(point, selected);
+        if (lnIndex !== -1) {
           snapshot();
-          const nextIndex = (lnIndex + 1) % selected.points.length;
-          const toRemove = [lnIndex, nextIndex].sort((a,b)=>b-a);
-          selected.points.splice(toRemove[0], 1);
-          selected.points.splice(toRemove[1], 1);
-          selectedLineIndex = -1;
-          hoveredLineIndex = -1;
+          // Insert new point exactly where clicked
+          const newPoint = { x: point.x, y: point.y };
+          selected.points.splice(lnIndex + 1, 0, newPoint);
           updateAnnotationBounds(selected);
+          
+          drag = {
+            type: "move-point",
+            annotationId: selected.id,
+            pointIndex: lnIndex + 1
+          };
           render();
           save();
-          setStatus("Line segment deleted");
+          setStatus("Vertex added");
           return;
-        }
-        // Otherwise select this line
-        selectedLineIndex = lnIndex;
-        draw();
-        setStatus("Line selected — press Delete to remove, or click again");
-        return;
-      } else {
-        // Clicked away from any line — clear line selection
-        if (selectedLineIndex !== -1) {
-          selectedLineIndex = -1;
-          draw();
         }
       }
     }
@@ -3158,9 +3170,27 @@ canvas.addEventListener("pointermove", (event) => {
   }
 });
 
-canvas.addEventListener("dblclick", () => {
-  if (state.shape === "polygon") {
+canvas.addEventListener("dblclick", (event) => {
+  if (state.mode === "draw" && state.shape === "polygon") {
     finalizePolygon();
+    return;
+  }
+  
+  if (state.selectedId) {
+    const point = canvasPoint(event);
+    const selected = state.annotations.find(a => a.id === state.selectedId);
+    if (selected && selected.points && selected.points.length > 3) {
+      const ptIndex = hitTestPoint(point, selected);
+      if (ptIndex !== -1) {
+        snapshot();
+        selected.points.splice(ptIndex, 1);
+        updateAnnotationBounds(selected);
+        render();
+        save();
+        setStatus("Vertex removed");
+        return;
+      }
+    }
   }
 });
 
@@ -3376,10 +3406,59 @@ const exportDataBtn = document.getElementById("exportDataBtn");
 const importDataInput = document.getElementById("importDataInput");
 const clearDataBtn = document.getElementById("clearDataBtn");
 
+// AI Settings elements
+const aiModelSize = document.getElementById("settingsAiModelSize");
+const aiSamModel = document.getElementById("settingsAiSamModel");
+const aiConf = document.getElementById("settingsAiConf");
+const aiConfVal = document.getElementById("settingsAiConfVal");
+const aiNms = document.getElementById("settingsAiNms");
+const aiNmsVal = document.getElementById("settingsAiNmsVal");
+const saveAiSettingsBtn = document.getElementById("saveAiSettingsBtn");
+
+if (aiConf) aiConf.addEventListener('input', e => { if (aiConfVal) aiConfVal.textContent = e.target.value; });
+if (aiNms) aiNms.addEventListener('input', e => { if (aiNmsVal) aiNmsVal.textContent = e.target.value; });
+
+if (aiModelSize) {
+  aiModelSize.value = localStorage.getItem("ai_model_size") || "n";
+  aiModelSize.addEventListener('change', e => {
+    localStorage.setItem("ai_model_size", e.target.value);
+    setStatus("Detection Model Size Changed");
+  });
+}
+
+if (aiSamModel) {
+  aiSamModel.value = localStorage.getItem("ai_sam_model") || "mobile_sam.pt";
+  aiSamModel.addEventListener('change', e => {
+    localStorage.setItem("ai_sam_model", e.target.value);
+    setStatus("Magic Wand Model Changed");
+  });
+}
+
 if (openSettingsBtn) {
   openSettingsBtn.addEventListener("click", () => {
     settingsUsernameInput.value = localStorage.getItem("dataset_username") || "";
+    
+    if (aiConf) {
+      aiConf.value = localStorage.getItem("ai_conf") || "0.35";
+      if (aiConfVal) aiConfVal.textContent = aiConf.value;
+    }
+    if (aiNms) {
+      aiNms.value = localStorage.getItem("ai_nms") || "0.45";
+      if (aiNmsVal) aiNmsVal.textContent = aiNms.value;
+    }
+
     settingsModal.classList.add("is-active");
+  });
+}
+
+if (saveAiSettingsBtn) {
+  saveAiSettingsBtn.addEventListener("click", () => {
+    localStorage.setItem("ai_model_size", aiModelSize.value);
+    localStorage.setItem("ai_sam_model", aiSamModel.value);
+    localStorage.setItem("ai_conf", aiConf.value);
+    localStorage.setItem("ai_nms", aiNms.value);
+    setStatus("AI Settings Applied");
+    setTimeout(() => settingsModal.classList.remove("is-active"), 500);
   });
 }
 
