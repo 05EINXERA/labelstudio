@@ -259,11 +259,7 @@
     <section class="workspace" aria-label="Image annotation canvas">
       <header class="toolbar">
 
-        <div class="tool-group">
-          <button class="primary" id="completeTaskBtn" type="button" title="Mark as Completed" style="padding: 8px 12px; border-radius: 6px; font-weight: 600;">
-            <span class="btn-icon">✅</span><span class="btn-label"> Mark as Completed</span>
-          </button>
-        </div>
+
         <div class="tool-group" role="group" aria-label="Annotation mode">
           <button class="tool-button is-active" id="drawMode" type="button" title="Draw"><span class="btn-icon">✏️</span><span class="btn-label">Draw</span></button>
           <button class="tool-button" id="selectMode" type="button" title="Select"><span class="btn-icon">👆</span><span class="btn-label">Select</span></button>
@@ -287,6 +283,13 @@
           <button class="tool-button" id="polygonMode" type="button" title="Polygon"><span class="btn-icon">⬡</span><span class="btn-label">Polygon</span></button>
           <button class="tool-button" id="commentMode" type="button" title="Leave a comment"><span class="btn-icon">💬</span><span class="btn-label">Comment</span></button>
           <button class="tool-button" id="magicWandMode" type="button" title="Magic Wand (SAM)"><span class="btn-icon">🪄</span><span class="btn-label">Wand</span></button>
+          <div style="display: flex; flex-direction: column; justify-content: center; margin-left: 8px;" title="Magic Wand Model">
+            <select id="settingsAiSamModel" style="height: 24px; padding: 0 4px; border: 1px solid var(--line); border-radius: 4px; background: #fff; font-size: 0.7rem; color: var(--ink);">
+              <option value="mobile_sam.pt">MobileSAM (Fast)</option>
+              <option value="sam_b.pt">SAM Base (Accurate)</option>
+              <option value="sam_l.pt">SAM Large (Best)</option>
+            </select>
+          </div>
           <div style="display: flex; flex-direction: column; justify-content: center; margin-left: 8px;" title="Magic Wand Precision (Left = Smooth, Right = High Detail)">
             <label for="magicWandPrecision" style="font-size: 0.65rem; font-weight: bold; color: var(--muted); margin-bottom: 2px; text-transform: uppercase;">Wand Detail</label>
             <input type="range" id="magicWandPrecision" min="0" max="100" value="70" style="width: 70px; height: 4px; accent-color: var(--accent); cursor: pointer;">
@@ -294,6 +297,15 @@
         </div>
         <div class="tool-group" role="group" aria-label="Canvas controls">
           <button class="tool-button primary" id="autoDetectButton" type="button" title="Detect objects with AI"><span class="btn-icon">🔍</span><span class="btn-label">Detect</span></button>
+          <div style="display: flex; flex-direction: column; justify-content: center; margin-right: 8px;" title="Detection Model Size">
+            <select id="settingsAiModelSize" style="height: 24px; padding: 0 4px; border: 1px solid var(--line); border-radius: 4px; background: #fff; font-size: 0.7rem; color: var(--ink);">
+              <option value="n">YOLO Nano (Fast)</option>
+              <option value="s">YOLO Small</option>
+              <option value="m">YOLO Medium</option>
+              <option value="l">YOLO Large</option>
+              <option value="x">YOLO XL (Best)</option>
+            </select>
+          </div>
           <button class="tool-button" id="autoTagButton" type="button" title="Auto-tag image with AI"><span class="btn-icon">🏷️</span><span class="btn-label">Auto-Tag</span></button>
           <button class="icon-button" id="undoButton" type="button" title="Undo"><span class="btn-icon">↩</span><span class="btn-label">Undo</span></button>
           <button class="icon-button" id="deleteButton" type="button" title="Delete selected"><span class="btn-icon">🗑</span><span class="btn-label">Delete</span></button>
@@ -372,6 +384,30 @@
             <input type="text" id="settingsUsernameInput" placeholder="New username"
               style="flex: 1; padding: 8px; border: 1px solid var(--line); border-radius: 6px;" autocomplete="off">
             <button id="saveUsernameBtn" class="primary" style="padding: 8px 16px;">Save</button>
+          </div>
+        </div>
+
+        <div style="background: var(--panel-2); padding: 16px; border-radius: 8px; border: 1px solid var(--line);">
+          <h3 style="margin: 0 0 12px 0; font-size: 0.9rem; color: var(--ink);">🧠 AI & Detection Settings</h3>
+          <div style="display: flex; flex-direction: column; gap: 16px;">
+
+            <div>
+              <label style="display: flex; justify-content: space-between; font-size: 0.85rem; font-weight: 500; margin-bottom: 6px;">
+                <span>Confidence Threshold</span>
+                <span id="settingsAiConfVal" style="color: var(--accent);">0.35</span>
+              </label>
+              <input type="range" id="settingsAiConf" min="0.05" max="0.95" step="0.05" value="0.35" style="width: 100%;">
+            </div>
+
+            <div>
+              <label style="display: flex; justify-content: space-between; font-size: 0.85rem; font-weight: 500; margin-bottom: 6px;">
+                <span>NMS Threshold</span>
+                <span id="settingsAiNmsVal" style="color: var(--accent);">0.45</span>
+              </label>
+              <input type="range" id="settingsAiNms" min="0.05" max="0.95" step="0.05" value="0.45" style="width: 100%;">
+            </div>
+            
+            <button id="saveAiSettingsBtn" class="primary" style="padding: 8px 16px; align-self: flex-start;">Apply AI Settings</button>
           </div>
         </div>
 

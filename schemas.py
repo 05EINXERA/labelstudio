@@ -45,6 +45,9 @@ class DetectPayload(BaseModel):
     image: str
     selection: Optional[List[dict]] = None
     prompts: Optional[List[str]] = None
+    model_size: Optional[str] = None
+    confidence: Optional[float] = None
+    nms_threshold: Optional[float] = None
 
 class ClassifyPayload(BaseModel):
     image: str
@@ -57,8 +60,9 @@ class SegmentPayload(BaseModel):
     image: str
     point: PointModel
     prompt: Optional[str] = None
-    precision: Optional[float] = 0.003
+    precision: Optional[float] = 0.001
     bbox: Optional[List[float]] = None
+    sam_model: Optional[str] = None
 
 class LabelStudioPayload(BaseModel):
     projectId: Optional[str] = None
