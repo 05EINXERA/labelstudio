@@ -40,6 +40,10 @@ _clip_model_lock = threading.RLock()
 _sam_model = None
 _sam_lock = threading.RLock()
 
+_hf_sam2_model = None
+_hf_sam2_processor = None
+_hf_sam2_lock = threading.RLock()
+
 _yolo_world_model = None
 _yolo_world_lock = threading.RLock()
 
@@ -584,9 +588,86 @@ def segment_point(image_data, x, y, prompt=None, precision=0.001, bbox=None, sam
                     "points": [{"x": float(pt["x"]), "y": float(pt["y"])} for pt in best_match["points"]]
                 }
     
-    global _sam_model
+    global _sam_model, _hf_sam2_model, _hf_sam2_processor
     sam_model_file = sam_model if sam_model else 'mobile_sam.pt'
     
+    if sam_model_file == "facebook/sam2-hiera-large":
+        from transformers import Sam2Model, Sam2Processor
+        with _hf_sam2_lock:
+            if _hf_sam2_model is None:
+                _hf_sam2_processor = Sam2Processor.from_pretrained(sam_model_file)
+                _hf_sam2_model = Sam2Model.from_pretrained(sam_model_file)
+        
+        image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+        image_pil = Image.fromarray(image_rgb)
+        
+        with _hf_sam2_lock:
+            inputs = _hf_sam2_processor(
+                images=image_pil, 
+                input_points=[[[[x, y]]]], 
+                input_labels=[[[1]]], 
+                return_tensors="pt"
+            )
+            
+            with torch.no_grad():
+                outputs = _hf_sam2_model(**inputs)
+            
+            # The model outputs 3 masks (for ambiguity) and IoU scores for each.
+            # We must select the mask with the highest IoU score for the most accurate result.
+            best_idx = torch.argmax(outputs.iou_scores[0, 0]).item()
+            mask_np = outputs.pred_masks[0, 0, best_idx].cpu().numpy()
+            orig_h, orig_w = image_bgr.shape[:2]
+            mask_np = cv2.resize(mask_np, (orig_w, orig_h), interpolation=cv2.INTER_LINEAR)
+            mask_np = (mask_np > 0.0).astype(np.uint8) * 255
+            
+        points_res = []
+        contours, _ = cv2.findContours(mask_np, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if contours:
+            best_contour = None
+            for c in contours:
+                dist = cv2.pointPolygonTest(c, (x, y), False)
+                if dist >= 0:
+                    best_contour = c
+                    break
+            
+            if best_contour is None:
+                best_contour = max(contours, key=cv2.contourArea)
+            
+            keep_fraction = 0.02 + ((0.01 - precision) / 0.0099) * 0.98
+            keep_fraction = max(0.01, min(1.0, keep_fraction))
+            
+            contour_to_approx = best_contour
+            if len(best_contour) > 10 and keep_fraction < 0.99:
+                cx = best_contour[:, 0, 0]
+                cy = best_contour[:, 0, 1]
+                z = cx + 1j * cy
+                Z = np.fft.fft(z)
+                
+                N = len(Z)
+                keep_n = max(1, int(N * keep_fraction / 2))
+                
+                Z_filtered = np.zeros_like(Z)
+                Z_filtered[:keep_n] = Z[:keep_n]
+                if keep_n > 1:
+                    Z_filtered[-keep_n+1:] = Z[-keep_n+1:]
+                    
+                z_smooth = np.fft.ifft(Z_filtered)
+                
+                smooth_contour = np.zeros_like(best_contour)
+                smooth_contour[:, 0, 0] = np.real(z_smooth)
+                smooth_contour[:, 0, 1] = np.imag(z_smooth)
+                contour_to_approx = smooth_contour.astype(np.int32)
+            
+            epsilon = precision * cv2.arcLength(contour_to_approx, True)
+            approx = cv2.approxPolyDP(contour_to_approx, epsilon, True)
+            
+            for pt in approx:
+                points_res.append({"x": float(pt[0][0]), "y": float(pt[0][1])})
+                
+        return {
+            "points": points_res
+        }
+
     if type(_sam_model) is dict:
         pass
     else:
