@@ -352,8 +352,8 @@ def run_inference(image_bgr, model_size, confidence, nms_threshold):
             mask_flat = np.dot(coeff, proto_reshaped)
             mask = 1 / (1 + np.exp(-mask_flat))
             mask = mask.reshape(proto.shape[1], proto.shape[2])
-            mask = (mask > 0.5).astype(np.uint8) * 255
             mask = cv2.resize(mask, (INPUT_SIZE, INPUT_SIZE), interpolation=cv2.INTER_LINEAR)
+            mask = (mask > 0.5).astype(np.uint8) * 255
             
             bx, by, bw, bh = [int(v) for v in box]
             bx = max(0, bx)
