@@ -983,6 +983,10 @@ function draw() {
   if (drag?.type === "draw-polygon") {
     const annotation = state.annotations.find((item) => item.id === drag.annotationId);
     const pts = annotation?.points || [];
+    const label = annotation ? labelById(annotation.labelId) : null;
+    const edgeColor = label ? label.color : "#0f8b8d";
+    const fillColor = label ? hexToRgba(label.color, 0.2) : "rgba(15, 139, 141, 0.35)";
+
     if (pts.length >= 3) {
       const first = pts[0];
       const screenX = imageBox.x + first.x * imageBox.scale;
@@ -990,8 +994,8 @@ function draw() {
       ctx.save();
       ctx.beginPath();
       ctx.arc(screenX, screenY, closeThreshold / 2, 0, Math.PI * 2);
-      ctx.fillStyle = "rgba(15, 139, 141, 0.35)";
-      ctx.strokeStyle = "#0f8b8d";
+      ctx.fillStyle = fillColor;
+      ctx.strokeStyle = edgeColor;
       ctx.lineWidth = 2;
       ctx.fill();
       ctx.stroke();
@@ -1004,9 +1008,26 @@ function draw() {
       const sy = imageBox.y + last.y * imageBox.scale;
       const ex = imageBox.x + drag.preview.x * imageBox.scale;
       const ey = imageBox.y + drag.preview.y * imageBox.scale;
+
+      if (pts.length >= 2) {
+        ctx.save();
+        ctx.fillStyle = fillColor;
+        ctx.beginPath();
+        pts.forEach((pt, i) => {
+          const px = imageBox.x + pt.x * imageBox.scale;
+          const py = imageBox.y + pt.y * imageBox.scale;
+          if (i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        });
+        ctx.lineTo(ex, ey);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+
       ctx.save();
       ctx.setLineDash([6, 4]);
-      ctx.strokeStyle = "#0f8b8d";
+      ctx.strokeStyle = edgeColor;
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(sx, sy);
@@ -1080,6 +1101,7 @@ function drawAnnotation(annotation, selected = false, targetCtx = ctx) {
 
   const label = labelById(annotation.labelId);
   const points = annotationPoints(annotation);
+  const isPolygon = annotation.type === "polygon" || (points && points.length !== 4);
   const screenPoints = points.map((point) => ({
     x: imageBox.x + point.x * imageBox.scale,
     y: imageBox.y + point.y * imageBox.scale
