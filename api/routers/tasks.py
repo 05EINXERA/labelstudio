@@ -12,12 +12,23 @@ from schemas import TaskUpdate, BulkDelete, BulkUpdate
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
 @router.get("")
-def get_tasks(projectId: Optional[int] = Query(None), db: Session = Depends(get_db)):
+def get_tasks(projectId: Optional[int] = Query(None), include_annotations: bool = Query(True), db: Session = Depends(get_db)):
     if projectId:
-        tasks = db.query(models.Task).filter(models.Task.project_id == projectId).all()
+        query = db.query(models.Task).filter(models.Task.project_id == projectId)
     else:
-        tasks = db.query(models.Task).all()
-    
+        query = db.query(models.Task)
+        
+    if not include_annotations:
+        query = query.with_entities(
+            models.Task.id, models.Task.description, models.Task.assignee,
+            models.Task.image_path, models.Task.status, models.Task.time_spent, models.Task.updated_at
+        )
+        tasks = query.all()
+        return [{"id": t.id, "description": t.description, "assignee": t.assignee, 
+                 "image_path": t.image_path, "status": t.status, "time_spent": t.time_spent, 
+                 "updated_at": t.updated_at, "annotations": []} for t in tasks]
+
+    tasks = query.all()
     result = []
     for t in tasks:
         annotations_data = []

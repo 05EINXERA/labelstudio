@@ -23,14 +23,14 @@ def get_projects(creator: Optional[str] = Query(None), db: Session = Depends(get
 
 @router.get("/{project_id}/metrics")
 def get_project_metrics(project_id: int, db: Session = Depends(get_db)):
-    tasks = db.query(models.Task).filter(models.Task.project_id == project_id).all()
+    tasks = db.query(models.Task.project_id, models.Task.status, models.Task.annotations).filter(models.Task.project_id == project_id).all()
     total = len(tasks)
     completed = sum(1 for t in tasks if t.status == 'Completed')
     
     comments_count = 0
     import json
     for t in tasks:
-        if t.annotations:
+        if t.annotations and '"comment"' in t.annotations:
             try:
                 annots = json.loads(t.annotations)
                 comments_count += sum(1 for a in annots if a.get('type') == 'comment')
@@ -61,7 +61,7 @@ def get_projects_metrics_batch(creator: Optional[str] = Query(None), db: Session
     if not project_ids:
         return {}
         
-    tasks = db.query(models.Task).filter(models.Task.project_id.in_(project_ids)).all()
+    tasks = db.query(models.Task.project_id, models.Task.status, models.Task.annotations).filter(models.Task.project_id.in_(project_ids)).all()
     
     metrics = {pid: {"total": 0, "completed": 0, "comments": 0, "progress": 0} for pid in project_ids}
     import json
@@ -70,7 +70,7 @@ def get_projects_metrics_batch(creator: Optional[str] = Query(None), db: Session
         if t.status == 'Completed':
             metrics[t.project_id]["completed"] += 1
             
-        if t.annotations:
+        if t.annotations and '"comment"' in t.annotations:
             try:
                 annots = json.loads(t.annotations)
                 metrics[t.project_id]["comments"] += sum(1 for a in annots if a.get('type') == 'comment')
