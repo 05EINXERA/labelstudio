@@ -744,6 +744,7 @@ function predictionsToAnnotations(predictions) {
       height: box.height,
       score: round(prediction.score),
       source: "auto-detect",
+      type: prediction.points ? "polygon" : "box",
       detectedClass: prediction.class
     };
   });
@@ -1184,11 +1185,13 @@ function hitTest(point) {
     const ay = Number(annotation.y) || 0;
     const aw = Number(annotation.width) || 0;
     const ah = Number(annotation.height) || 0;
-    if (img.x >= ax && img.x <= ax + aw && img.y >= ay && img.y <= ay + ah) return annotation.id;
-
-    // Fallback to polygon hit test for complex shapes
-    const polygon = annotationPoints(annotation);
-    if (pointInPolygon(img, polygon)) return annotation.id;
+    const isPolygon = annotation.type === "polygon" || (annotation.points && annotation.points.length !== 4);
+    if (!isPolygon) {
+      if (img.x >= ax && img.x <= ax + aw && img.y >= ay && img.y <= ay + ah) return annotation.id;
+    } else {
+      const polygon = annotationPoints(annotation);
+      if (pointInPolygon(img, polygon)) return annotation.id;
+    }
   }
   return null;
 }
@@ -1486,24 +1489,32 @@ function renderAnnotations() {
           <datalist id="classNamesDatalist_${annotation.id}">
             ${options}
           </datalist>
+          <input type="color" class="edit-ann-color" value="${label.color}" style="width: 24px; height: 24px; padding: 0; border: none; flex-shrink: 0;" onclick="event.stopPropagation()">
           <button type="submit" class="primary save-edit-btn" style="padding: 2px 6px; font-size: 0.75rem; border: none; border-radius: 4px; flex-shrink: 0;" onclick="event.stopPropagation()">Save</button>
           <button type="button" class="cancel-edit-btn" style="padding: 2px 6px; font-size: 0.75rem; background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; flex-shrink: 0;" onclick="event.stopPropagation()">Cancel</button>
         </form>
       `;
       const form = item.querySelector(".edit-ann-form");
       const input = item.querySelector(".edit-ann-input");
+      const colorInput = item.querySelector(".edit-ann-color");
       
       const finishEdit = (saveChanges) => {
         if (saveChanges) {
           const newName = input.value.trim();
+          const newColor = colorInput.value;
           if (newName) {
-            const newLabel = ensureLabel(newName);
-            if (newLabel.id !== annotation.labelId) {
+            const newLabel = ensureLabel(newName, newColor);
+            if (newLabel.id !== annotation.labelId || newLabel.color !== newColor) {
               snapshot();
-              if (isGroup) {
-                groupAnns.forEach(a => a.labelId = newLabel.id);
-              } else {
-                annotation.labelId = newLabel.id;
+              if (newLabel.color !== newColor) {
+                newLabel.color = newColor;
+              }
+              if (newLabel.id !== annotation.labelId) {
+                if (isGroup) {
+                  groupAnns.forEach(a => a.labelId = newLabel.id);
+                } else {
+                  annotation.labelId = newLabel.id;
+                }
               }
               save();
             }
@@ -2967,7 +2978,7 @@ function finalizePolygon() {
 function setZoom(newZoom, mouseX, mouseY) {
   if (!imageLoaded) return;
   const oldZoom = viewZoom;
-  viewZoom = Math.max(0.1, Math.min(10, newZoom));
+  viewZoom = Math.max(0.01, Math.min(100, newZoom));
   
   const rect = canvas.getBoundingClientRect();
   const cx = mouseX !== undefined ? mouseX : rect.width / 2;
