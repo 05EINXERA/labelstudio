@@ -25,7 +25,7 @@ MAX_DETECTIONS = int(os.environ.get("DETECT_MAX", "100"))
 MAX_IMAGE_BYTES = int(os.environ.get("MAX_IMAGE_BYTES", str(50 * 1024 * 1024)))
 MAX_IMAGE_PIXELS = int(os.environ.get("MAX_IMAGE_PIXELS", str(50_000_000)))
 
-CLIP_MODEL_NAME = "laion/CLIP-ViT-H-14-laion2B-s32B-b79K"
+CLIP_MODEL_NAME = "openai/clip-vit-base-patch32"
 YOLO_WORLD_MODEL = os.environ.get("YOLO_WORLD_MODEL", "yolov8s-worldv2.pt")
 
 Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
