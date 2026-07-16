@@ -448,12 +448,30 @@ async function autoDetectObjects({ replace = true } = {}) {
 async function autoTagObjects() {
   if (!imageLoaded || detectionBusy) return;
 
+  const selected = selectedAnnotation();
+  const selection = selected
+    ? (Array.isArray(selected.points) && selected.points.length >= 3
+      ? {
+          points: selected.points.map((point) => ({
+            x: round(point.x),
+            y: round(point.y)
+          }))
+        }
+      : {
+          x: round(selected.x),
+          y: round(selected.y),
+          width: round(selected.width),
+          height: round(selected.height)
+        })
+    : null;
+
   setDetectionBusy(true);
-  setStatus("Auto-tagging image...");
+  setStatus(selection ? "Auto-tagging selection..." : "Auto-tagging image...");
 
   try {
     const payload = {
-      image: await getImageSrcForAPI()
+      image: await getImageSrcForAPI(),
+      selection
     };
 
     const response = await apiFetch(`${window.location.origin}/api/detect/classify`, {

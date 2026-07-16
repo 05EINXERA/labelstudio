@@ -28,7 +28,7 @@ def run_detect_job(job_id: str, payload: DetectPayload):
 
 def run_classify_job(job_id: str, payload: ClassifyPayload):
     try:
-        response = classify_image(payload.image)
+        response = classify_image(payload.image, selection=payload.selection)
         JOBS[job_id] = {"status": "completed", "result": response}
     except DetectionClientError as error:
         JOBS[job_id] = {"status": "failed", "error": str(error)}

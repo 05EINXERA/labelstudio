@@ -52,6 +52,7 @@ class DetectPayload(BaseModel):
 
 class ClassifyPayload(BaseModel):
     image: str
+    selection: Optional[dict] = None
 
 class PointModel(BaseModel):
     x: float

@@ -532,9 +532,36 @@ def detect_objects(image_data, selection=None, prompts=None, model_size=None, co
     }
 
 
-def classify_image(image_data, top_k=5):
+def classify_image(image_data, top_k=5, selection=None):
     import torch  # lazy import: torch is heavy and only needed for CLIP
     image = decode_image(image_data)
+    
+    if selection:
+        original_width, original_height = image.size
+        points = _normalize_selection_points(selection)
+        if points is not None:
+            xs = [point[0] for point in points]
+            ys = [point[1] for point in points]
+            left = max(0.0, min(xs))
+            top = max(0.0, min(ys))
+            right = min(float(original_width), max(xs))
+            bottom = min(float(original_height), max(ys))
+            if right > left + 1 and bottom > top + 1:
+                image = image.crop((left, top, right, bottom))
+        else:
+            try:
+                left = float(selection.get("x", 0))
+                top = float(selection.get("y", 0))
+                box_width = float(selection.get("width", 0))
+                box_height = float(selection.get("height", 0))
+                if box_width > 0 and box_height > 0:
+                    x1 = max(0.0, min(left, original_width))
+                    y1 = max(0.0, min(top, original_height))
+                    x2 = max(x1 + 1.0, min(original_width, x1 + box_width))
+                    y2 = max(y1 + 1.0, min(original_height, y1 + box_height))
+                    image = image.crop((x1, y1, x2, y2))
+            except (TypeError, ValueError):
+                pass
     
     model, processor = get_clip_model()
     
