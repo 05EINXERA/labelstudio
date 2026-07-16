@@ -161,21 +161,27 @@
         }
       }
 
-      // Load Team Data
+      // Load Team Data, Tasks, Projects & Metrics in Parallel
       let team = [];
       let tasks = [];
+      let projects = [];
+      let batchMetrics = {};
+      const username = localStorage.getItem('dataset_username') || '';
+
       try {
-        const teamRes = await apiFetch('/api/team');
+        const [teamRes, tasksRes, projectsRes, metricsRes] = await Promise.all([
+          apiFetch('/api/team'),
+          apiFetch('/api/tasks?include_annotations=false'),
+          apiFetch(`/api/projects?creator=${encodeURIComponent(username)}`),
+          apiFetch(`/api/projects/metrics/batch?creator=${encodeURIComponent(username)}`)
+        ]);
 
-        if (teamRes.ok) {
-          team = await teamRes.json();
-        }
-
-        const tasksRes = await apiFetch('/api/tasks');
-
+        if (teamRes.ok) team = await teamRes.json();
         if (tasksRes.ok) tasks = await tasksRes.json();
+        if (projectsRes.ok) projects = await projectsRes.json();
+        if (metricsRes.ok) batchMetrics = await metricsRes.json();
       } catch (e) {
-        console.error("Failed to fetch team data", e);
+        console.error("Failed to fetch dashboard data", e);
       }
 
       // Update DOM
@@ -208,18 +214,8 @@
 
       // Load Project Matrices
       try {
-        const username = localStorage.getItem('dataset_username') || '';
-        const projectsRes = await apiFetch(`/api/projects?creator=${encodeURIComponent(username)}`);
-        
-        if (projectsRes.ok) {
-          let projects = await projectsRes.json();
+        if (projects) {
           const tbody = document.getElementById('projectsMatrixBody');
-          
-          let batchMetrics = {};
-          const metricsRes = await apiFetch(`/api/projects/metrics/batch?creator=${encodeURIComponent(username)}`);
-          if (metricsRes.ok) {
-            batchMetrics = await metricsRes.json();
-          }
 
           const renderTable = () => {
             tbody.innerHTML = '';
