@@ -29,6 +29,10 @@ async function apiFetch(url, options = {}) {
 
 const canvas = document.querySelector("#annotationCanvas");
 const ctx = canvas.getContext("2d");
+const imageCanvas = document.querySelector("#imageCanvas");
+const imageCtx = imageCanvas.getContext("2d");
+const staticCanvas = document.querySelector("#staticCanvas");
+const staticCtx = staticCanvas.getContext("2d");
 
 const imageInput = document.querySelector("#imageInput");
 const imageName = document.querySelector("#imageName");
@@ -871,14 +875,26 @@ function loadSaved() {
 function resizeCanvas() {
   const rect = stageWrap.getBoundingClientRect();
   const ratio = window.devicePixelRatio || 1;
-  canvas.width = Math.floor(rect.width * ratio);
-  canvas.height = Math.floor(rect.height * ratio);
+  const w = Math.floor(rect.width * ratio);
+  const h = Math.floor(rect.height * ratio);
+  
+  imageCanvas.width = w;
+  imageCanvas.height = h;
+  imageCtx.setTransform(ratio, 0, 0, ratio, 0, 0);
+
+  staticCanvas.width = w;
+  staticCanvas.height = h;
+  staticCtx.setTransform(ratio, 0, 0, ratio, 0, 0);
+
+  canvas.width = w;
+  canvas.height = h;
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  
   if (pendingCommentPoint) {
     pendingCommentPoint = null;
     commentOverlay.classList.add("is-hidden");
   }
-  draw();
+  drawAllLayers();
 }
 
 function computeImageBox() {
@@ -902,6 +918,34 @@ function computeImageBox() {
   };
 }
 
+function drawImageLayer() {
+  const rect = imageCanvas.getBoundingClientRect();
+  imageCtx.clearRect(0, 0, rect.width, rect.height);
+  if (!imageLoaded) return;
+  imageCtx.drawImage(imageElement, imageBox.x, imageBox.y, imageBox.width, imageBox.height);
+}
+
+function drawStaticLayer() {
+  const rect = staticCanvas.getBoundingClientRect();
+  staticCtx.clearRect(0, 0, rect.width, rect.height);
+  if (!imageLoaded) return;
+  
+  state.annotations.forEach((annotation) => {
+    const isSelected = state.selectedIds.has(annotation.id);
+    const isDragging = drag?.annotationId === annotation.id || drag?.originals?.find(a => a.id === annotation.id);
+    if (!isSelected && !isDragging) {
+      drawAnnotation(annotation, false, staticCtx);
+    }
+  });
+}
+
+function drawAllLayers() {
+  computeImageBox();
+  drawImageLayer();
+  drawStaticLayer();
+  draw();
+}
+
 function draw() {
   const rect = canvas.getBoundingClientRect();
   ctx.clearRect(0, 0, rect.width, rect.height);
@@ -909,12 +953,16 @@ function draw() {
 
   if (!imageLoaded) return;
 
-  ctx.drawImage(imageElement, imageBox.x, imageBox.y, imageBox.width, imageBox.height);
-
-  state.annotations.forEach((annotation) => drawAnnotation(annotation, state.selectedIds.has(annotation.id)));
+  state.annotations.forEach((annotation) => {
+    const isSelected = state.selectedIds.has(annotation.id);
+    const isDragging = drag?.annotationId === annotation.id || drag?.originals?.find(a => a.id === annotation.id);
+    if (isSelected || isDragging) {
+      drawAnnotation(annotation, isSelected, ctx);
+    }
+  });
 
   if (drag?.draft) {
-    drawAnnotation(drag.draft, true);
+    drawAnnotation(drag.draft, true, ctx);
   }
 
   if (pendingCommentPoint) {
@@ -1002,31 +1050,31 @@ function updateAnnotationBounds(annotation) {
   annotation.points = points.map((point) => ({ x: round(point.x), y: round(point.y) }));
 }
 
-function drawAnnotation(annotation, selected = false) {
+function drawAnnotation(annotation, selected = false, targetCtx = ctx) {
   if (annotation.type === "comment") {
     const screenPoint = {
       x: imageBox.x + annotation.x * imageBox.scale,
       y: imageBox.y + annotation.y * imageBox.scale
     };
-    ctx.save();
-    ctx.fillStyle = selected ? "#f4a261" : "#e85d75";
-    ctx.beginPath();
-    ctx.arc(screenPoint.x, screenPoint.y, 8, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = "#ffffff";
-    ctx.lineWidth = 2;
-    ctx.stroke();
+    targetCtx.save();
+    targetCtx.fillStyle = selected ? "#f4a261" : "#e85d75";
+    targetCtx.beginPath();
+    targetCtx.arc(screenPoint.x, screenPoint.y, 8, 0, Math.PI * 2);
+    targetCtx.fill();
+    targetCtx.strokeStyle = "#ffffff";
+    targetCtx.lineWidth = 2;
+    targetCtx.stroke();
 
     const text = `${annotation.author || 'User'}: ${annotation.text}`;
-    ctx.font = "600 12px Inter, system-ui, sans-serif";
-    const tw = ctx.measureText(text).width + 12;
-    ctx.fillStyle = "rgba(0,0,0,0.75)";
-    ctx.beginPath();
-    ctx.roundRect(screenPoint.x + 12, screenPoint.y - 12, tw, 24, 4);
-    ctx.fill();
-    ctx.fillStyle = "#ffffff";
-    ctx.fillText(text, screenPoint.x + 18, screenPoint.y + 4);
-    ctx.restore();
+    targetCtx.font = "600 12px Inter, system-ui, sans-serif";
+    const tw = targetCtx.measureText(text).width + 12;
+    targetCtx.fillStyle = "rgba(0,0,0,0.75)";
+    targetCtx.beginPath();
+    targetCtx.roundRect(screenPoint.x + 12, screenPoint.y - 12, tw, 24, 4);
+    targetCtx.fill();
+    targetCtx.fillStyle = "#ffffff";
+    targetCtx.fillText(text, screenPoint.x + 18, screenPoint.y + 4);
+    targetCtx.restore();
     return;
   }
 
@@ -1037,29 +1085,29 @@ function drawAnnotation(annotation, selected = false) {
     y: imageBox.y + point.y * imageBox.scale
   }));
 
-  ctx.save();
-  ctx.lineWidth = selected ? 3 : 2;
-  ctx.strokeStyle = label.color;
-  ctx.fillStyle = hexToRgba(label.color, selected ? 0.2 : 0.12);
+  targetCtx.save();
+  targetCtx.lineWidth = selected ? 3 : 2;
+  targetCtx.strokeStyle = label.color;
+  targetCtx.fillStyle = hexToRgba(label.color, selected ? 0.2 : 0.12);
 
   if (!screenPoints.length) {
-    ctx.restore();
+    targetCtx.restore();
     return;
   }
 
-  ctx.beginPath();
+  targetCtx.beginPath();
   screenPoints.forEach((point, index) => {
     if (index === 0) {
-      ctx.moveTo(point.x, point.y);
+      targetCtx.moveTo(point.x, point.y);
     } else {
-      ctx.lineTo(point.x, point.y);
+      targetCtx.lineTo(point.x, point.y);
     }
   });
   if (screenPoints.length >= 3) {
-    ctx.closePath();
-    ctx.fill();
+    targetCtx.closePath();
+    targetCtx.fill();
   }
-  ctx.stroke();
+  targetCtx.stroke();
 
   const firstPoint = screenPoints[0];
   const tag = labelDisplayName(label);
@@ -1069,13 +1117,13 @@ function drawAnnotation(annotation, selected = false) {
     maxX: Math.max(accumulator.maxX, point.x),
     maxY: Math.max(accumulator.maxY, point.y)
   }), { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity });
-  const tagWidth = Math.min(ctx.measureText(tag).width + 18, Math.max(bounds.maxX - bounds.minX, 54));
+  const tagWidth = Math.min(targetCtx.measureText(tag).width + 18, Math.max(bounds.maxX - bounds.minX, 54));
   const tagY = Math.max(4, bounds.minY - 24);
-  ctx.font = "700 12px Inter, system-ui, sans-serif";
-  ctx.fillStyle = label.color;
-  ctx.fillRect(bounds.minX, tagY, tagWidth, 22);
-  ctx.fillStyle = "#ffffff";
-  ctx.fillText(tag, bounds.minX + 8, tagY + 15, tagWidth - 14);
+  targetCtx.font = "700 12px Inter, system-ui, sans-serif";
+  targetCtx.fillStyle = label.color;
+  targetCtx.fillRect(bounds.minX, tagY, tagWidth, 22);
+  targetCtx.fillStyle = "#ffffff";
+  targetCtx.fillText(tag, bounds.minX + 8, tagY + 15, tagWidth - 14);
 
   // Draw highlighted/selected line segments on the selected annotation
   if (selected && annotation.id === state.selectedId && screenPoints.length >= 3) {
@@ -1083,58 +1131,58 @@ function drawAnnotation(annotation, selected = false) {
     if (hoveredLineIndex !== -1 && hoveredLineIndex !== selectedLineIndex) {
       const p1 = screenPoints[hoveredLineIndex];
       const p2 = screenPoints[(hoveredLineIndex + 1) % screenPoints.length];
-      ctx.save();
-      ctx.beginPath();
-      ctx.moveTo(p1.x, p1.y);
-      ctx.lineTo(p2.x, p2.y);
-      ctx.strokeStyle = "rgba(255, 107, 107, 0.6)";
-      ctx.lineWidth = 5;
-      ctx.stroke();
-      ctx.restore();
+      targetCtx.save();
+      targetCtx.beginPath();
+      targetCtx.moveTo(p1.x, p1.y);
+      targetCtx.lineTo(p2.x, p2.y);
+      targetCtx.strokeStyle = "rgba(255, 107, 107, 0.6)";
+      targetCtx.lineWidth = 5;
+      targetCtx.stroke();
+      targetCtx.restore();
     }
     // Draw selected line highlight
     if (selectedLineIndex !== -1 && selectedLineIndex < screenPoints.length) {
       const p1 = screenPoints[selectedLineIndex];
       const p2 = screenPoints[(selectedLineIndex + 1) % screenPoints.length];
-      ctx.save();
-      ctx.beginPath();
-      ctx.moveTo(p1.x, p1.y);
-      ctx.lineTo(p2.x, p2.y);
-      ctx.strokeStyle = "#ff4444";
-      ctx.lineWidth = 5;
-      ctx.stroke();
+      targetCtx.save();
+      targetCtx.beginPath();
+      targetCtx.moveTo(p1.x, p1.y);
+      targetCtx.lineTo(p2.x, p2.y);
+      targetCtx.strokeStyle = "#ff4444";
+      targetCtx.lineWidth = 5;
+      targetCtx.stroke();
       // Draw small "×" delete hint at the midpoint
       const mx = (p1.x + p2.x) / 2;
       const my = (p1.y + p2.y) / 2;
-      ctx.beginPath();
-      ctx.arc(mx, my, 10, 0, Math.PI * 2);
-      ctx.fillStyle = "rgba(255, 68, 68, 0.9)";
-      ctx.fill();
-      ctx.font = "bold 14px Inter, system-ui, sans-serif";
-      ctx.fillStyle = "#ffffff";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("×", mx, my);
-      ctx.restore();
+      targetCtx.beginPath();
+      targetCtx.arc(mx, my, 10, 0, Math.PI * 2);
+      targetCtx.fillStyle = "rgba(255, 68, 68, 0.9)";
+      targetCtx.fill();
+      targetCtx.font = "bold 14px Inter, system-ui, sans-serif";
+      targetCtx.fillStyle = "#ffffff";
+      targetCtx.textAlign = "center";
+      targetCtx.textBaseline = "middle";
+      targetCtx.fillText("×", mx, my);
+      targetCtx.restore();
     }
   }
 
   if (selected) {
-    drawVertexHandles(screenPoints, label.color);
+    drawVertexHandles(screenPoints, label.color, targetCtx);
   }
-  ctx.restore();
+  targetCtx.restore();
 }
 
-function drawVertexHandles(points, color) {
+function drawVertexHandles(points, color, targetCtx = ctx) {
   const half = handleSize / 2;
-  ctx.fillStyle = "#ffffff";
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 2;
+  targetCtx.fillStyle = "#ffffff";
+  targetCtx.strokeStyle = color;
+  targetCtx.lineWidth = 2;
   points.forEach((point) => {
-    ctx.beginPath();
-    ctx.arc(point.x, point.y, half, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
+    targetCtx.beginPath();
+    targetCtx.arc(point.x, point.y, half, 0, Math.PI * 2);
+    targetCtx.fill();
+    targetCtx.stroke();
   });
 }
 
@@ -1660,7 +1708,7 @@ function render() {
   renderImageClasses();
   renderAnnotations();
   renderControls();
-  draw();
+  drawAllLayers();
 }
 
 function renderImageClasses() {
@@ -3002,7 +3050,7 @@ function setZoom(newZoom, mouseX, mouseY) {
   viewPan.x = cx - (rect.width - newWidth) / 2 - imgX * newScale;
   viewPan.y = cy - (rect.height - newHeight) / 2 - imgY * newScale;
   
-  draw();
+  drawAllLayers();
 }
 
 canvas.addEventListener("wheel", (event) => {
@@ -3259,7 +3307,7 @@ canvas.addEventListener("pointermove", (event) => {
     const dy = event.clientY - panStart.y;
     viewPan.x = panStart.panX + dx;
     viewPan.y = panStart.panY + dy;
-    draw();
+    drawAllLayers();
     return;
   }
   const point = canvasPoint(event);
