@@ -128,8 +128,16 @@ def get_model(model_size='n'):
         if model_size not in _models:
             path = ensure_model_file(model_size)
             net = cv2.dnn.readNetFromONNX(path)
-            net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
-            net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
+            try:
+                if hasattr(cv2, 'cuda') and cv2.cuda.getCudaEnabledDeviceCount() > 0:
+                    net.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
+                    net.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
+                else:
+                    net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
+                    net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
+            except Exception:
+                net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
+                net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
             _models[model_size] = net
     return _models[model_size]
 
@@ -141,11 +149,13 @@ def get_clip_model():
             if _clip_model is None:
                 try:
                     from transformers import CLIPProcessor, CLIPModel
+                    import torch
                 except ImportError:
                     raise RuntimeError("Please install torch and transformers to use CLIP classification.")
                 
                 print(f"Loading CLIP model {CLIP_MODEL_NAME}...")
-                _clip_model = CLIPModel.from_pretrained(CLIP_MODEL_NAME)
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+                _clip_model = CLIPModel.from_pretrained(CLIP_MODEL_NAME).to(device)
                 _clip_processor = CLIPProcessor.from_pretrained(CLIP_MODEL_NAME)
     return _clip_model, _clip_processor
 
@@ -157,10 +167,13 @@ def get_yolo_world_model():
             if _yolo_world_model is None:
                 try:
                     from ultralytics import YOLOWorld
+                    import torch
                 except ImportError:
                     raise RuntimeError("Please install ultralytics and torch to use YOLO-World.")
                 print(f"Loading YOLO-World model {YOLO_WORLD_MODEL}...")
                 _yolo_world_model = YOLOWorld(YOLO_WORLD_MODEL)
+                if torch.cuda.is_available():
+                    _yolo_world_model.to('cuda')
     return _yolo_world_model
 
 
@@ -528,6 +541,8 @@ def classify_image(image_data, top_k=5):
     prompts = [f"a photo of a {c}" for c in CLIP_CANDIDATE_TAGS]
     
     inputs = processor(text=prompts, images=image, return_tensors="pt", padding=True)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    inputs = {k: v.to(device) for k, v in inputs.items() if hasattr(v, 'to')}
     
     with torch.no_grad(), _clip_model_lock:
         outputs = model(**inputs)
@@ -605,19 +620,22 @@ def segment_point(image_data, points=None, labels=None, prompt=None, precision=0
         from transformers import Sam2Model, Sam2Processor
         with _hf_sam2_lock:
             if _hf_sam2_model is None:
+                device = "cuda" if torch.cuda.is_available() else "cpu"
                 _hf_sam2_processor = Sam2Processor.from_pretrained(sam_model_file)
-                _hf_sam2_model = Sam2Model.from_pretrained(sam_model_file)
+                _hf_sam2_model = Sam2Model.from_pretrained(sam_model_file).to(device)
         
         image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
         image_pil = Image.fromarray(image_rgb)
         
         with _hf_sam2_lock:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
             inputs = _hf_sam2_processor(
                 images=image_pil, 
                 input_points=[[pts_array]], 
                 input_labels=[[lbls_array]], 
                 return_tensors="pt"
             )
+            inputs = {k: v.to(device) for k, v in inputs.items() if hasattr(v, 'to')}
             
             with torch.no_grad():
                 outputs = _hf_sam2_model(**inputs)
@@ -664,6 +682,8 @@ def segment_point(image_data, points=None, labels=None, prompt=None, precision=0
         with _sam_lock:
             if sam_model_file not in _sam_model:
                 _sam_model[sam_model_file] = SAM(sam_model_file)
+                if torch.cuda.is_available():
+                    _sam_model[sam_model_file].to('cuda')
     
     active_sam = _sam_model[sam_model_file]
                 
