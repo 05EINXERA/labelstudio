@@ -189,12 +189,13 @@ let imageLoaded = false;
 let viewZoom = 1;
 let viewPan = { x: 0, y: 0 };
 let isPanning = false;
-let panStart = null;
+let panStart = { x: 0, y: 0, panX: 0, panY: 0 };
 let imageBox = { x: 0, y: 0, width: 0, height: 0, scale: 1 };
 let drag = null;
 let hoverHandle = null;
 let hoveredLineIndex = -1;
 let selectedLineIndex = -1;
+let hoveredPointIndex = -1;
 let labelStudioBusy = false;
 let detectionBusy = false;
 
@@ -215,12 +216,15 @@ function exportLabelName(annotation, label) {
   return annotation.detectedClass || label?.name || "object";
 }
 
+let nextColorIndex = -1;
+
 function colorForName(name) {
-  let hash = 0;
-  for (let index = 0; index < name.length; index += 1) {
-    hash = (hash * 31 + name.charCodeAt(index)) | 0;
+  if (nextColorIndex === -1) {
+    nextColorIndex = state.labels.length;
   }
-  return labelPalette[Math.abs(hash) % labelPalette.length];
+  const color = labelPalette[nextColorIndex % labelPalette.length];
+  nextColorIndex++;
+  return color;
 }
 
 function labelByName(name) {
@@ -2487,6 +2491,7 @@ function deleteSelected() {
   state.selectedId = null;
   selectedLineIndex = -1;
   hoveredLineIndex = -1;
+  hoveredPointIndex = -1;
   render();
   save();
 }
@@ -3270,8 +3275,16 @@ canvas.addEventListener("pointermove", (event) => {
           hoveredLineIndex = -1;
           draw();
         }
+        if (hoveredPointIndex !== ptIndex) {
+          hoveredPointIndex = ptIndex;
+          draw();
+        }
         canvas.style.cursor = "crosshair";
       } else {
+        if (hoveredPointIndex !== -1) {
+          hoveredPointIndex = -1;
+          draw();
+        }
         const lnIndex = hitTestLine(point, selected);
         if (lnIndex !== hoveredLineIndex) {
           hoveredLineIndex = lnIndex;
@@ -3492,22 +3505,38 @@ window.addEventListener("keydown", (event) => {
 
   if (event.key === "Delete" || event.key === "Backspace") {
     event.preventDefault();
-    // If a line segment is selected on a polygon, delete just that segment
-    if (selectedLineIndex !== -1 && state.selectedId) {
-      const selected = state.annotations.find(a => a.id === state.selectedId);
-      if (selected && selected.points && selected.points.length > 3) {
-        snapshot();
-        const nextIndex = (selectedLineIndex + 1) % selected.points.length;
-        const toRemove = [selectedLineIndex, nextIndex].sort((a,b)=>b-a);
-        selected.points.splice(toRemove[0], 1);
-        selected.points.splice(toRemove[1], 1);
-        selectedLineIndex = -1;
-        hoveredLineIndex = -1;
-        updateAnnotationBounds(selected);
-        render();
-        save();
-        setStatus("Line segment deleted");
-        return;
+    if (state.selectedId) {
+      // If hovering over a vertex, delete just that vertex
+      if (hoveredPointIndex !== -1) {
+        const selected = state.annotations.find(a => a.id === state.selectedId);
+        if (selected && selected.points && selected.points.length > 3) {
+          snapshot();
+          selected.points.splice(hoveredPointIndex, 1);
+          hoveredPointIndex = -1;
+          updateAnnotationBounds(selected);
+          render();
+          save();
+          setStatus("Vertex deleted");
+          return;
+        }
+      }
+      // If a line segment is selected on a polygon, delete just that segment
+      if (selectedLineIndex !== -1) {
+        const selected = state.annotations.find(a => a.id === state.selectedId);
+        if (selected && selected.points && selected.points.length > 3) {
+          snapshot();
+          const nextIndex = (selectedLineIndex + 1) % selected.points.length;
+          const toRemove = [selectedLineIndex, nextIndex].sort((a,b)=>b-a);
+          selected.points.splice(toRemove[0], 1);
+          selected.points.splice(toRemove[1], 1);
+          selectedLineIndex = -1;
+          hoveredLineIndex = -1;
+          updateAnnotationBounds(selected);
+          render();
+          save();
+          setStatus("Line segment deleted");
+          return;
+        }
       }
     }
     deleteSelected();
