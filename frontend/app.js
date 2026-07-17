@@ -5,7 +5,7 @@ function generateUUID() {
   if (typeof crypto !== 'undefined' && crypto['randomUUID']) {
     return crypto['randomUUID']();
   }
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
     var r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
     return v.toString(16);
   });
@@ -127,7 +127,7 @@ if (!commentOverlay) {
     </style>
   `;
   document.head.insertAdjacentHTML('beforeend', styleHtml);
-  
+
   const overlayHtml = `
     <div id="commentOverlay" class="comment-overlay is-hidden">
       <textarea id="commentOverlayInput" placeholder="Enter comment and press Enter..." rows="3"></textarea>
@@ -143,7 +143,7 @@ let pendingCommentEditId = null;
 const storageKey = "image-annotation-mvp-v1";
 const labelStudioStorageKey = "image-annotation-label-studio-settings";
 const handleSize = 9;
-const closeThreshold = 8;
+const closeThreshold = 1;
 const labelPalette = [
   "#0f8b8d", "#e85d75", "#f4a261", "#2a9d8f", "#7b2cbf",
   "#3f88c5", "#d95d39", "#65727f", "#8d6e63", "#4dabf7",
@@ -247,7 +247,7 @@ function ensureLabel(className, customColor = null) {
     color: customColor || colorForName(name)
   };
   state.labels.push(label);
-  
+
   // Persist to backend asynchronously
   apiFetch('/api/labels', {
     method: 'POST',
@@ -340,11 +340,11 @@ async function pollJob(jobId, controller) {
     const res = await apiFetch(`${window.location.origin}/api/detect/status/${jobId}`);
     if (res.status === 404) throw new Error("Job not found or expired");
     if (!res.ok) throw new Error(`Polling failed (${res.status})`);
-    
+
     const data = await res.json();
     if (data.status === "completed") return data.result;
     if (data.status === "failed") throw new Error(data.error);
-    
+
     await new Promise(r => setTimeout(r, 1000));
   }
 }
@@ -356,17 +356,17 @@ async function autoDetectObjects({ replace = true } = {}) {
   const selection = selected
     ? (Array.isArray(selected.points) && selected.points.length >= 3
       ? {
-          points: selected.points.map((point) => ({
-            x: round(point.x),
-            y: round(point.y)
-          }))
-        }
+        points: selected.points.map((point) => ({
+          x: round(point.x),
+          y: round(point.y)
+        }))
+      }
       : {
-          x: round(selected.x),
-          y: round(selected.y),
-          width: round(selected.width),
-          height: round(selected.height)
-        })
+        x: round(selected.x),
+        y: round(selected.y),
+        width: round(selected.width),
+        height: round(selected.height)
+      })
     : null;
 
   setDetectionBusy(true);
@@ -460,17 +460,17 @@ async function autoTagObjects() {
   const selection = selected
     ? (Array.isArray(selected.points) && selected.points.length >= 3
       ? {
-          points: selected.points.map((point) => ({
-            x: round(point.x),
-            y: round(point.y)
-          }))
-        }
+        points: selected.points.map((point) => ({
+          x: round(point.x),
+          y: round(point.y)
+        }))
+      }
       : {
-          x: round(selected.x),
-          y: round(selected.y),
-          width: round(selected.width),
-          height: round(selected.height)
-        })
+        x: round(selected.x),
+        y: round(selected.y),
+        width: round(selected.width),
+        height: round(selected.height)
+      })
     : null;
 
   setDetectionBusy(true);
@@ -547,12 +547,12 @@ function showAutoTagModal(tags) {
         colorsContainer.style.display = 'flex';
         selected.forEach(tag => {
           if (!tagColors[tag]) tagColors[tag] = labelByName(tag)?.color || colorForName(tag);
-          
+
           const row = document.createElement("div");
           row.style.display = "flex";
           row.style.alignItems = "center";
           row.style.gap = "8px";
-          
+
           const colorPicker = document.createElement("input");
           colorPicker.type = "color";
           colorPicker.value = tagColors[tag];
@@ -562,15 +562,15 @@ function showAutoTagModal(tags) {
           colorPicker.style.border = "none";
           colorPicker.style.borderRadius = "4px";
           colorPicker.style.cursor = "pointer";
-          
+
           colorPicker.addEventListener("input", (e) => {
             tagColors[tag] = e.target.value;
           });
-          
+
           const label = document.createElement("span");
           label.textContent = tag;
           label.style.fontSize = "0.9rem";
-          
+
           row.appendChild(colorPicker);
           row.appendChild(label);
           colorsContainer.appendChild(row);
@@ -590,7 +590,7 @@ function showAutoTagModal(tags) {
     btn.style.transition = "all 0.2s ease";
     btn.dataset.tagClass = tag.class;
     btn.textContent = `${tag.class} (${(tag.score * 100).toFixed(1)}%)`;
-    
+
     btn.onclick = () => {
       let selected = getSelectedTags();
       if (selected.includes(tag.class)) {
@@ -643,7 +643,7 @@ async function performMagicWandSegmentation(point, bbox = null, isShift = false,
     const activeLabelId = state.activeLabelId;
     const label = state.labels.find(l => l.id === activeLabelId);
     const labelName = label ? label.name : null;
-    
+
     let existingAnnotation = null;
     if ((isShift || isAlt) && state.selectedId) {
       existingAnnotation = state.annotations.find(a => a.id === state.selectedId && a.source === "magic-wand");
@@ -659,7 +659,7 @@ async function performMagicWandSegmentation(point, bbox = null, isShift = false,
 
     promptPoints.push({ x: Math.round(point.x), y: Math.round(point.y) });
     promptLabels.push(isAlt ? 0 : 1);
-    
+
     const precisionSlider = document.getElementById("magicWandPrecision");
     const precisionVal = precisionSlider ? parseInt(precisionSlider.value) : 70;
     const epsilonMult = 0.01 - (precisionVal / 100) * 0.0099;
@@ -678,7 +678,7 @@ async function performMagicWandSegmentation(point, bbox = null, isShift = false,
         sam_model: localStorage.getItem("ai_sam_model") || "mobile_sam.pt"
       })
     });
-    
+
     const payload = await response.json();
     if (!response.ok) {
       throw new Error(payload.detail || `Segmentation failed (${response.status})`);
@@ -710,11 +710,11 @@ async function performMagicWandSegmentation(point, bbox = null, isShift = false,
         source: "magic-wand"
       };
       updateAnnotationBounds(annotation);
-      
+
       state.annotations.push(annotation);
       state.selectedId = annotation.id;
     }
-    
+
     render();
     save();
     setStatus("Segmented object");
@@ -775,7 +775,7 @@ function syncToBackend() {
   if (typeof state === 'undefined' || state.galleryIndex < 0 || !state.gallery || !state.gallery[state.galleryIndex]) return;
   const currentTask = state.gallery[state.galleryIndex];
   if (!currentTask.id) return;
-  
+
   const timeDelta = taskSessionSeconds;
   taskSessionSeconds = 0;
   const username = localStorage.getItem('dataset_username') || 'Unknown';
@@ -783,10 +783,10 @@ function syncToBackend() {
   if (taskStatus === 'New') taskStatus = 'In Progress';
   currentTask.status = taskStatus;
   currentTask.annotations = [...state.annotations];
-  
+
   apiFetch('/api/tasks', {
     method: 'POST',
-    headers: {'Content-Type': 'application/json'},
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       id: currentTask.id,
       status: taskStatus,
@@ -797,21 +797,21 @@ function syncToBackend() {
     }),
     keepalive: true
   })
-  .then(async res => {
-    if (res.status === 409) {
-      const errorMsg = await res.json();
-      alert(`Conflict: ${errorMsg.detail}`);
-      currentTask.id = null; // Prevent further autosaves for this task
-      return;
-    }
-    if (res.ok) {
-      const data = await res.json();
-      if (data && data.updated_at) {
-        currentTask.updated_at = data.updated_at;
+    .then(async res => {
+      if (res.status === 409) {
+        const errorMsg = await res.json();
+        alert(`Conflict: ${errorMsg.detail}`);
+        currentTask.id = null; // Prevent further autosaves for this task
+        return;
       }
-    }
-  })
-  .catch(e => console.error("Auto-save failed", e));
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.updated_at) {
+          currentTask.updated_at = data.updated_at;
+        }
+      }
+    })
+    .catch(e => console.error("Auto-save failed", e));
 }
 
 function save() {
@@ -822,7 +822,7 @@ function save() {
   };
   localStorage.setItem(storageKey, JSON.stringify(payload));
   setStatus("Saved");
-  
+
   if (window.backendSyncTimeout) {
     clearTimeout(window.backendSyncTimeout);
   }
@@ -877,7 +877,7 @@ function resizeCanvas() {
   const ratio = window.devicePixelRatio || 1;
   const w = Math.floor(rect.width * ratio);
   const h = Math.floor(rect.height * ratio);
-  
+
   imageCanvas.width = w;
   imageCanvas.height = h;
   imageCtx.setTransform(ratio, 0, 0, ratio, 0, 0);
@@ -889,7 +889,7 @@ function resizeCanvas() {
   canvas.width = w;
   canvas.height = h;
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-  
+
   if (pendingCommentPoint) {
     pendingCommentPoint = null;
     commentOverlay.classList.add("is-hidden");
@@ -908,7 +908,7 @@ function computeImageBox() {
   const scale = baseScale * viewZoom;
   const width = imageElement.naturalWidth * scale;
   const height = imageElement.naturalHeight * scale;
-  
+
   imageBox = {
     x: (rect.width - width) / 2 + viewPan.x,
     y: (rect.height - height) / 2 + viewPan.y,
@@ -929,7 +929,7 @@ function drawStaticLayer() {
   const rect = staticCanvas.getBoundingClientRect();
   staticCtx.clearRect(0, 0, rect.width, rect.height);
   if (!imageLoaded) return;
-  
+
   state.annotations.forEach((annotation) => {
     const isSelected = state.selectedIds.has(annotation.id);
     const isDragging = drag?.annotationId === annotation.id || drag?.originals?.find(a => a.id === annotation.id);
@@ -997,7 +997,7 @@ function draw() {
       const ey = imageBox.y + drag.preview.y * imageBox.scale;
       const mouseX = drag.previewCanvas ? drag.previewCanvas.x : ex;
       const mouseY = drag.previewCanvas ? drag.previewCanvas.y : ey;
- 
+
       ctx.save();
       ctx.setLineDash([6, 4]);
       ctx.strokeStyle = edgeColor;
@@ -1269,16 +1269,16 @@ function hitTestLine(point, annotation) {
   for (let i = 0; i < pts.length; i++) {
     const p1 = pts[i];
     const p2 = pts[(i + 1) % pts.length];
-    
+
     const l2 = (p1.x - p2.x) ** 2 + (p1.y - p2.y) ** 2;
     if (l2 === 0) continue;
-    
+
     let t = ((img.x - p1.x) * (p2.x - p1.x) + (img.y - p1.y) * (p2.y - p1.y)) / l2;
     t = Math.max(0, Math.min(1, t));
-    
+
     const projX = p1.x + t * (p2.x - p1.x);
     const projY = p1.y + t * (p2.y - p1.y);
-    
+
     if (Math.hypot(img.x - projX, img.y - projY) < threshold) {
       return i;
     }
@@ -1399,7 +1399,7 @@ function renderClasses() {
     item.addEventListener("click", (e) => {
       if (e.target.closest('.class-actions') || e.target.closest('.edit-class-form')) return;
       state.activeLabelId = label.id;
-      
+
       // Reassign class to selected annotations
       if (state.selectedIds.size > 0) {
         snapshot();
@@ -1416,7 +1416,7 @@ function renderClasses() {
           state.history.pop();
         }
       }
-      
+
       render();
     });
 
@@ -1491,7 +1491,7 @@ function renderAnnotations() {
       if (processedGroups.has(annotation.groupId)) return;
       processedGroups.add(annotation.groupId);
     }
-    
+
     displayCount++;
     const isGroup = !!annotation.groupId;
     const groupAnns = isGroup ? state.annotations.filter(a => a.groupId === annotation.groupId) : [annotation];
@@ -1521,14 +1521,14 @@ function renderAnnotations() {
         </span>
       </div>
     `;
-    
+
     let text = annotation.type === "comment" ? `💬 ${annotation.text || "Comment"}` : `${displayCount}. ${labelDisplayName(label)}`;
     if (isGroup) {
       text = `${displayCount}. ${labelDisplayName(label)} (Group of ${groupAnns.length})`;
     }
     item.querySelector(".ann-name").textContent = text;
     item.querySelector(".ann-pts").textContent = annotation.type === "comment" ? "" : `${totalPoints} pts`;
-    
+
     const escapeHTML = (str) => String(str).replace(/[&<>'"]/g, match => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[match]));
 
     item.querySelector(".edit-ann-btn").addEventListener("click", (e) => {
@@ -1549,7 +1549,7 @@ function renderAnnotations() {
       const form = item.querySelector(".edit-ann-form");
       const input = item.querySelector(".edit-ann-input");
       const colorInput = item.querySelector(".edit-ann-color");
-      
+
       const finishEdit = (saveChanges) => {
         if (saveChanges) {
           const newName = input.value.trim();
@@ -1574,7 +1574,7 @@ function renderAnnotations() {
         }
         render(); // re-render
       };
-      
+
       form.addEventListener("submit", (ev) => {
         ev.preventDefault();
         finishEdit(true);
@@ -1627,7 +1627,7 @@ function renderAnnotations() {
     });
     annotationList.appendChild(item);
   });
-  
+
   annotationCount.textContent = String(displayCount);
 
   const selected = state.annotations.find((item) => item.id === state.selectedId);
@@ -1695,7 +1695,7 @@ if (logoutBtnApp) {
   logoutBtnApp.addEventListener("click", async () => {
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
-    } catch(e) {}
+    } catch (e) { }
     localStorage.removeItem("dataset_username");
     localStorage.removeItem("image-annotation-mvp-v1");
     localStorage.removeItem("logged_in");
@@ -1723,7 +1723,7 @@ function renderImageClasses() {
   });
 
   imageClassesList.innerHTML = '';
-  
+
   if (presentLabels.size === 0) {
     imageClassesList.innerHTML = '<p class="hint">No classes in current image.</p>';
     return;
@@ -1732,25 +1732,25 @@ function renderImageClasses() {
   Array.from(presentLabels).forEach(labelId => {
     const classDef = labelById(labelId);
     if (!classDef) return;
-    
+
     const div = document.createElement("div");
     div.className = "class-item";
     div.style.gridTemplateColumns = "auto 1fr auto";
-    
+
     const colorIndicator = document.createElement("div");
     colorIndicator.style.width = "12px";
     colorIndicator.style.height = "12px";
     colorIndicator.style.borderRadius = "50%";
     colorIndicator.style.background = classDef.color;
-    
+
     const nameSpan = document.createElement("div");
     nameSpan.className = "chip-name";
     nameSpan.textContent = classDef.name;
-    
+
     const countSpan = document.createElement("span");
     countSpan.style.fontSize = "0.75rem";
     countSpan.style.color = "var(--muted)";
-    
+
     const classAnns = (state.annotations || []).filter(a => a.labelId === labelId && a.type !== "comment");
     const uniqueGroups = new Set();
     let count = 0;
@@ -1764,7 +1764,7 @@ function renderImageClasses() {
         count++;
       }
     });
-    
+
     countSpan.textContent = `(${count})`;
 
     div.appendChild(colorIndicator);
@@ -1860,10 +1860,10 @@ function buildCocoExport() {
       const baseAnn = group[0];
       const label = labelById(baseAnn.labelId);
       const category_id = labelToCategoryId[label.name] || 1;
-      
+
       const segmentation = [];
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      
+
       group.forEach(ann => {
         const points = annotationPoints(ann);
         segmentation.push(points.flatMap(p => [round(p.x), round(p.y)]));
@@ -1874,7 +1874,7 @@ function buildCocoExport() {
           maxY = Math.max(maxY, p.y);
         });
       });
-      
+
       const bbox = [round(minX), round(minY), round(maxX - minX), round(maxY - minY)];
       const area = bbox[2] * bbox[3];
 
@@ -1920,7 +1920,7 @@ async function sendToEndpoint() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     });
-    
+
     if (!response.ok) {
       throw new Error(`Endpoint returned ${response.status}`);
     }
@@ -1988,7 +1988,7 @@ function buildExportTasks() {
   }];
 
   const createdAt = new Date().toISOString();
-  
+
   return items.map(item => ({
     name: item.name,
     status: "completed",
@@ -2048,13 +2048,13 @@ function exportCsvData() {
 
     const header = ["image", "label", "type", "x", "y", "width", "height", "imgWidth", "imgHeight", "points"];
     const allRows = [];
-    
+
     items.forEach(item => {
       const rows = item.annotations.filter(a => a.type !== "comment").map(annotation => {
         const label = labelById(annotation.labelId);
         const labelName = exportLabelName(annotation, label);
         const pts = annotationPoints(annotation);
-        const isPolygon = annotation.points && annotation.points.length !== 4; 
+        const isPolygon = annotation.points && annotation.points.length !== 4;
         const type = isPolygon ? "polygon" : "box";
         const x = annotation.x;
         const y = annotation.y;
@@ -2095,10 +2095,10 @@ function importData(file) {
     try {
       const payload = JSON.parse(reader.result);
       snapshot();
-      
+
       let importedLabels = [];
       let importedAnnotations = [];
-      
+
       if (Array.isArray(payload)) {
         payload.forEach(task => {
           if (Array.isArray(task.annotations)) {
@@ -2119,27 +2119,27 @@ function importData(file) {
           color: label.color || colorForName(label.name || label.label || "object")
         }));
       }
-      
+
       if (importedAnnotations.length) {
         const currentImageWidth = imageLoaded ? (imageElement.naturalWidth || 1) : 1;
         const currentImageHeight = imageLoaded ? (imageElement.naturalHeight || 1) : 1;
-        
+
         state.annotations = importedAnnotations.map((item) => {
           const labelName = item.title || item.label || item.detectedClass || labelById(item.labelId)?.name || "object";
           const label = ensureLabel(labelName);
-          
+
           let parsedPoints = null;
           if (Array.isArray(item.points) && item.points.length >= 3) {
             if (typeof item.points[0] === 'number') {
               parsedPoints = [];
               for (let i = 0; i < item.points.length; i += 2) {
-                parsedPoints.push({ x: Number(item.points[i]) || 0, y: Number(item.points[i+1]) || 0 });
+                parsedPoints.push({ x: Number(item.points[i]) || 0, y: Number(item.points[i + 1]) || 0 });
               }
             } else {
               parsedPoints = item.points.map((point) => ({ x: Number(point.x) || 0, y: Number(point.y) || 0 }));
             }
           }
-          
+
           let scaleX = 1;
           let scaleY = 1;
           if (item._imgWidth && item._imgHeight && imageLoaded) {
@@ -2148,7 +2148,7 @@ function importData(file) {
               scaleY = currentImageHeight / item._imgHeight;
             }
           }
-          
+
           if (parsedPoints) {
             if (scaleX !== 1 || scaleY !== 1) {
               parsedPoints = parsedPoints.map(p => ({ x: p.x * scaleX, y: p.y * scaleY }));
@@ -2212,23 +2212,23 @@ function importCsvData(file) {
       const csv = reader.result;
       const lines = csv.split("\n");
       if (lines.length <= 1) return;
-      
+
       const headerLine = lines[0].toLowerCase();
       const hasImgDims = headerLine.includes("imgwidth") && headerLine.includes("imgheight");
-      
+
       snapshot();
       const newAnnotations = [];
       const currentImageWidth = imageLoaded ? (imageElement.naturalWidth || 1) : 1;
       const currentImageHeight = imageLoaded ? (imageElement.naturalHeight || 1) : 1;
-      
+
       for (let i = 1; i < lines.length; i++) {
         const line = lines[i].trim();
         if (!line) continue;
-        
+
         const firstQuoteIdx = line.indexOf('"[{"');
         let cols = [];
         let pointsStr = null;
-        
+
         if (firstQuoteIdx !== -1) {
           const before = line.substring(0, firstQuoteIdx);
           cols = before.split(",").map(c => c.trim()).filter(c => c !== "");
@@ -2239,22 +2239,22 @@ function importCsvData(file) {
         } else {
           cols = line.split(",");
         }
-        
+
         if (cols.length >= 7) {
           const labelName = cols[1];
           let x = Number(cols[3]);
           let y = Number(cols[4]);
           let width = Number(cols[5]);
           let height = Number(cols[6]);
-          
+
           let imgW = 0, imgH = 0;
           if (hasImgDims && cols.length >= 9) {
             imgW = Number(cols[7]);
             imgH = Number(cols[8]);
           }
-          
+
           const label = ensureLabel(labelName);
-          
+
           let points = [];
           if (pointsStr) {
             try {
@@ -2263,7 +2263,7 @@ function importCsvData(file) {
               console.error("Failed to parse points", pointsStr);
             }
           }
-          
+
           let scaleX = 1;
           let scaleY = 1;
           if (imgW && imgH && imageLoaded) {
@@ -2272,7 +2272,7 @@ function importCsvData(file) {
               scaleY = currentImageHeight / imgH;
             }
           }
-          
+
           if (points && points.length > 0) {
             if (scaleX !== 1 || scaleY !== 1) {
               points = points.map(p => ({ x: p.x * scaleX, y: p.y * scaleY }));
@@ -2289,7 +2289,7 @@ function importCsvData(file) {
               { x, y: y + height }
             ];
           }
-          
+
           const annotation = {
             id: generateUUID(),
             labelId: label.id,
@@ -2299,7 +2299,7 @@ function importCsvData(file) {
           newAnnotations.push(annotation);
         }
       }
-      
+
       state.annotations = newAnnotations;
       repairLabelsFromAnnotations();
       state.selectedId = null;
@@ -2328,7 +2328,7 @@ function loadGallery(fileList) {
     width: 0,
     height: 0
   }));
-  
+
   if (state.gallery.length > 0) {
     switchImage(0);
     // Show validation modal after importing
@@ -2353,12 +2353,12 @@ function switchImage(index) {
   }
   state.galleryIndex = index;
   const item = state.gallery[index];
-  
+
   snapshot();
   resetWorkspaceForNewImage();
   state.annotations = [...item.annotations];
   loadImageFromSource(item.url, item.name);
-  
+
   updateGalleryUI();
 }
 
@@ -2384,13 +2384,13 @@ if (clearGalleryButton) {
     imageLoaded = false;
     imageElement = new Image();
     state.image = null;
-    
+
     resetWorkspaceForNewImage();
-    
+
     imageName.textContent = "None loaded";
     imageSize.textContent = "-";
     emptyState.classList.remove("is-hidden");
-    
+
     updateGalleryUI();
     render();
     save();
@@ -2553,25 +2553,25 @@ if (groupButton) {
 
 function groupSelectedAnnotations() {
   if (state.selectedIds.size <= 1) return;
-  
+
   snapshot();
-  
+
   const selectedList = state.annotations.filter(a => state.selectedIds.has(a.id) && a.type !== "comment");
   if (selectedList.length <= 1) {
     state.history.pop();
     return;
   }
-  
+
   const baseAnnotation = selectedList[0];
   const groupId = generateUUID();
-  
+
   state.annotations.forEach(a => {
     if (state.selectedIds.has(a.id) && a.type !== "comment") {
       a.groupId = groupId;
       a.labelId = baseAnnotation.labelId;
     }
   });
-  
+
   render();
   save();
   setStatus("Grouped annotations");
@@ -2812,7 +2812,7 @@ if (importObjectsBtn && importObjectsInput) {
       try {
         const importedData = JSON.parse(e.target.result);
         let importedAnnotations = [];
-        
+
         // Detect COCO Format
         if (importedData.images && importedData.annotations && importedData.categories) {
           // Map COCO category id (int) to our labelId (uuid)
@@ -2821,30 +2821,30 @@ if (importObjectsBtn && importObjectsInput) {
             const existing = ensureLabel(cat.title || cat.name, cat.color);
             catIdToLabelId[cat.id] = existing.id;
           }
-          
+
           for (const ann of importedData.annotations) {
             const labelId = catIdToLabelId[ann.category_id];
             if (!labelId) continue;
-            
+
             let points = [];
             if (ann.segmentation && ann.segmentation.length > 0 && ann.segmentation[0].length > 0) {
               const seg = ann.segmentation[0];
               for (let i = 0; i < seg.length; i += 2) {
-                points.push({ x: seg[i], y: seg[i+1] });
+                points.push({ x: seg[i], y: seg[i + 1] });
               }
             } else if (ann.bbox && ann.bbox.length === 4) {
               // Convert bbox to polygon
               const [x, y, w, h] = ann.bbox;
               points = [
-                {x: x, y: y}, {x: x + w, y: y}, {x: x + w, y: y + h}, {x: x, y: y + h}
+                { x: x, y: y }, { x: x + w, y: y }, { x: x + w, y: y + h }, { x: x, y: y + h }
               ];
             }
-            
+
             if (points.length > 0) {
-              const bounds = { x: Math.min(...points.map(p=>p.x)), y: Math.min(...points.map(p=>p.y)) };
-              bounds.width = Math.max(...points.map(p=>p.x)) - bounds.x;
-              bounds.height = Math.max(...points.map(p=>p.y)) - bounds.y;
-              
+              const bounds = { x: Math.min(...points.map(p => p.x)), y: Math.min(...points.map(p => p.y)) };
+              bounds.width = Math.max(...points.map(p => p.x)) - bounds.x;
+              bounds.height = Math.max(...points.map(p => p.y)) - bounds.y;
+
               importedAnnotations.push({
                 id: generateUUID(),
                 labelId: labelId,
@@ -2878,7 +2878,7 @@ if (importObjectsBtn && importObjectsInput) {
           alert("Invalid objects file format. Expected COCO JSON or a JSON array.");
           return;
         }
-        
+
         state.annotations = [...state.annotations, ...importedAnnotations];
         render();
         save();
@@ -2900,7 +2900,7 @@ if (exportObjectsBtn) {
       alert("No objects to export.");
       return;
     }
-    
+
     // Generate COCO format
     const coco = {
       images: [
@@ -2945,19 +2945,19 @@ if (exportObjectsBtn) {
       })),
       annotations: []
     };
-    
+
     // Map our labelId (uuid) to COCO category id (int)
     const labelIdToCatId = {};
     state.labels.forEach((l, index) => { labelIdToCatId[l.id] = index + 1; });
-    
+
     state.annotations.forEach((ann, index) => {
       const catId = labelIdToCatId[ann.labelId] || 1;
       let segmentation = [];
       let bbox = [ann.x, ann.y, ann.width, ann.height];
       let area = ann.width * ann.height; // Rough estimate
-      
+
       if (ann.points && ann.points.length > 0) {
-        segmentation = [ ann.points.flatMap(p => [p.x, p.y]) ];
+        segmentation = [ann.points.flatMap(p => [p.x, p.y])];
         // Calculate precise area of polygon using shoelace formula
         let polyArea = 0;
         for (let i = 0; i < ann.points.length; i++) {
@@ -2967,7 +2967,7 @@ if (exportObjectsBtn) {
         }
         area = Math.abs(polyArea / 2);
       }
-      
+
       coco.annotations.push({
         id: index + 1,
         image_id: 1,
@@ -3032,24 +3032,24 @@ function setZoom(newZoom, mouseX, mouseY) {
   if (!imageLoaded) return;
   const oldZoom = viewZoom;
   viewZoom = Math.max(0.01, Math.min(100, newZoom));
-  
+
   const rect = canvas.getBoundingClientRect();
   const cx = mouseX !== undefined ? mouseX : rect.width / 2;
   const cy = mouseY !== undefined ? mouseY : rect.height / 2;
-  
+
   const baseScale = Math.min(rect.width / imageElement.naturalWidth, rect.height / imageElement.naturalHeight);
   const oldScale = baseScale * oldZoom;
   const newScale = baseScale * viewZoom;
-  
+
   const imgX = (cx - imageBox.x) / oldScale;
   const imgY = (cy - imageBox.y) / oldScale;
-  
+
   const newWidth = imageElement.naturalWidth * newScale;
   const newHeight = imageElement.naturalHeight * newScale;
-  
+
   viewPan.x = cx - (rect.width - newWidth) / 2 - imgX * newScale;
   viewPan.y = cy - (rect.height - newHeight) / 2 - imgY * newScale;
-  
+
   drawAllLayers();
 }
 
@@ -3072,7 +3072,7 @@ canvas.addEventListener("contextmenu", (event) => {
 canvas.addEventListener("pointerdown", (event) => {
   if (!imageLoaded) return;
   canvas.setPointerCapture(event.pointerId);
-  
+
   if (event.button === 1 || (event.button === 0 && event.shiftKey && event.altKey)) {
     event.preventDefault();
     isPanning = true;
@@ -3080,7 +3080,7 @@ canvas.addEventListener("pointerdown", (event) => {
     canvas.style.cursor = "grabbing";
     return;
   }
-  
+
   const point = canvasPoint(event);
 
   // Left-click on a polygon edge to add a vertex
@@ -3098,7 +3098,7 @@ canvas.addEventListener("pointerdown", (event) => {
           const newPoint = { x: round(img.x), y: round(img.y) };
           selected.points.splice(lnIndex + 1, 0, newPoint);
           updateAnnotationBounds(selected);
-          
+
           drag = {
             type: "move-point",
             annotationId: selected.id,
@@ -3128,7 +3128,7 @@ canvas.addEventListener("pointerdown", (event) => {
       if (lnIndex !== -1) {
         snapshot();
         const nextIndex = (lnIndex + 1) % selected.points.length;
-        const toRemove = [lnIndex, nextIndex].sort((a,b)=>b-a);
+        const toRemove = [lnIndex, nextIndex].sort((a, b) => b - a);
         selected.points.splice(toRemove[0], 1);
         selected.points.splice(toRemove[1], 1);
         selectedLineIndex = -1;
@@ -3208,16 +3208,16 @@ canvas.addEventListener("pointerdown", (event) => {
 
   if (state.mode === "draw") {
     const pointInImage = imagePoint(point);
-    
+
     if (state.shape === "comment") {
       pendingCommentPoint = pointInImage;
       render();
-      
+
       const screenPoint = {
         x: imageBox.x + pendingCommentPoint.x * imageBox.scale,
         y: imageBox.y + pendingCommentPoint.y * imageBox.scale
       };
-      
+
       commentOverlay.style.left = `${screenPoint.x + 15}px`;
       commentOverlay.style.top = `${screenPoint.y - 15}px`;
       commentOverlay.classList.remove("is-hidden");
@@ -3400,7 +3400,7 @@ canvas.addEventListener("pointermove", (event) => {
 
 canvas.addEventListener("dblclick", (event) => {
   // Polygon finalizing via double-click has been removed as per user request
-  
+
   if (state.selectedId) {
     const point = canvasPoint(event);
     const selected = state.annotations.find(a => a.id === state.selectedId);
@@ -3489,13 +3489,13 @@ canvas.addEventListener("pointerup", (e) => {
       const y1 = Math.min(start.y, end.y);
       const x2 = Math.max(start.x, end.x);
       const y2 = Math.max(start.y, end.y);
-      
+
       drag = null;
       render();
-      
+
       const isShift = e.shiftKey;
       const isAlt = e.altKey;
-      
+
       if (Math.abs(x2 - x1) < 3 && Math.abs(y2 - y1) < 3) {
         performMagicWandSegmentation({ x: start.x, y: start.y }, null, isShift, isAlt);
       } else {
@@ -3568,7 +3568,7 @@ window.addEventListener("keydown", (event) => {
         if (selected && selected.points && selected.points.length > 3) {
           snapshot();
           const nextIndex = (selectedLineIndex + 1) % selected.points.length;
-          const toRemove = [selectedLineIndex, nextIndex].sort((a,b)=>b-a);
+          const toRemove = [selectedLineIndex, nextIndex].sort((a, b) => b - a);
           selected.points.splice(toRemove[0], 1);
           selected.points.splice(toRemove[1], 1);
           selectedLineIndex = -1;
@@ -3694,7 +3694,7 @@ if (aiSamModel) {
 if (openSettingsBtn) {
   openSettingsBtn.addEventListener("click", () => {
     settingsUsernameInput.value = localStorage.getItem("dataset_username") || "";
-    
+
 
 
     settingsModal.classList.add("is-active");
@@ -3762,7 +3762,7 @@ if (importDataInput) {
   importDataInput.addEventListener("change", (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    
+
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
@@ -3771,7 +3771,7 @@ if (importDataInput) {
         if (backup.team) localStorage.setItem("dataset_team", backup.team);
         if (backup.tasks) localStorage.setItem("dataset_tasks", backup.tasks);
         if (backup.username) localStorage.setItem("dataset_username", backup.username);
-        
+
         alert("Workspace imported successfully! The page will now reload.");
         window.location.reload();
       } catch (err) {
@@ -3813,7 +3813,7 @@ async function syncTaskTime(task) {
     taskSessionSeconds = 0;
     apiFetch('/api/tasks', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         id: task.id,
         time_spent_delta: timeDelta,
@@ -3823,21 +3823,21 @@ async function syncTaskTime(task) {
         updated_at: task.updated_at
       })
     })
-    .then(async res => {
-      if (res.status === 409) {
-        const errorMsg = await res.json();
-        alert(`Conflict: ${errorMsg.detail}`);
-        task.id = null; // Prevent further autosaves for this task
-        return;
-      }
-      if (res.ok) {
-        const data = await res.json();
-        if (data && data.updated_at) {
-          task.updated_at = data.updated_at;
+      .then(async res => {
+        if (res.status === 409) {
+          const errorMsg = await res.json();
+          alert(`Conflict: ${errorMsg.detail}`);
+          task.id = null; // Prevent further autosaves for this task
+          return;
         }
-      }
-    })
-    .catch(() => {});
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.updated_at) {
+            task.updated_at = data.updated_at;
+          }
+        }
+      })
+      .catch(() => { });
   }
 }
 
@@ -3855,7 +3855,7 @@ async function syncTaskTime(task) {
           updateTimerDisplays();
         }
       }
-    } catch (e) {}
+    } catch (e) { }
   }
 })();
 
@@ -3880,9 +3880,9 @@ function syncTimeToServer() {
     if (delta > 0) {
       apiFetch('/api/team/time', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: currentUserForTimer, time_logged: delta })
-      }).catch(()=>{});
+      }).catch(() => { });
       lastSyncedTotalSeconds = totalSeconds;
     }
   }
@@ -3895,7 +3895,7 @@ function startTimer() {
     timerToggleBtn.innerHTML = pauseSvg;
     timerToggleBtn.title = "Pause Timer";
   }
-  
+
   // Re-fetch username in case it changed
   currentUserForTimer = localStorage.getItem('dataset_username') || 'Unknown';
 
@@ -3903,11 +3903,11 @@ function startTimer() {
     sessionSeconds++;
     totalSeconds++;
     taskSessionSeconds++;
-    
+
     if (sessionSeconds % 30 === 0) {
       syncTimeToServer();
     }
-    
+
     updateTimerDisplays();
   }, 1000);
 }
@@ -3983,7 +3983,7 @@ if (teamValidationForm) {
     e.preventDefault();
     const nameInput = document.getElementById("teamValidationName").value.trim();
     const errorDiv = document.getElementById("teamValidationError");
-    
+
     let team = [];
     try {
       const res = await apiFetch('/api/team');
@@ -3994,15 +3994,15 @@ if (teamValidationForm) {
     } catch (err) {
       console.error(err);
     }
-    
+
     if (team.includes(nameInput)) {
       errorDiv.style.display = "none";
       localStorage.setItem('dataset_username', nameInput);
       currentUserForTimer = nameInput;
-      
+
       const displayUser = document.getElementById("displayUsername");
       if (displayUser) displayUser.textContent = nameInput;
-      
+
       document.getElementById("teamValidationModal").classList.remove("is-active");
       const userPanel = document.getElementById("userPanel");
       if (userPanel) userPanel.style.display = "block";
@@ -4027,7 +4027,7 @@ async function fetchSidebarProjects() {
       const projects = await res.json();
       renderSidebarProjects(projects);
     }
-  } catch(e) {
+  } catch (e) {
     console.error("Failed to fetch projects", e);
   }
 }
@@ -4039,10 +4039,10 @@ function renderSidebarProjects(projects) {
     projectsSidebarList.innerHTML = '<span style="color: var(--muted);">No projects yet.</span>';
     return;
   }
-  
+
   // Show only up to 3 projects in the sidebar
   const visibleProjects = projects.slice(0, 3);
-  
+
   visibleProjects.forEach(p => {
     const a = document.createElement('a');
     a.href = `project_details.html?id=${p.id}`;
@@ -4053,7 +4053,7 @@ function renderSidebarProjects(projects) {
     a.style.justifyContent = 'space-between';
     a.style.alignItems = 'center';
     a.style.textDecoration = 'underline';
-    
+
     const escapeHTML = (str) => String(str).replace(/[&<>'"]/g, match => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[match]));
     if (activeProjectId === p.id) {
       a.style.background = 'var(--accent)';
@@ -4063,10 +4063,10 @@ function renderSidebarProjects(projects) {
       a.style.background = 'var(--panel-2)';
       a.innerHTML = `<strong style="color: #3b82f6; text-decoration: underline;">${escapeHTML(p.name)}</strong> <span style="font-size: 0.75rem;">${escapeHTML(p.status)}</span>`;
     }
-    
+
     projectsSidebarList.appendChild(a);
   });
-  
+
   // Add "Show All" button if there are more than 3 projects
   if (projects.length > 3) {
     const showAllBtn = document.createElement('a');
@@ -4078,11 +4078,11 @@ function renderSidebarProjects(projects) {
     showAllBtn.style.display = 'block';
     showAllBtn.style.marginTop = '4px';
     showAllBtn.style.textDecoration = 'underline';
-    
+
     showAllBtn.addEventListener('click', () => {
       openAllProjectsModal(projects);
     });
-    
+
     projectsSidebarList.appendChild(showAllBtn);
   }
 }
@@ -4091,7 +4091,7 @@ async function openAllProjectsModal(projects) {
   const modal = document.getElementById('allProjectsModal');
   const list = document.getElementById('allProjectsListModal');
   if (!modal || !list) return;
-  
+
   let team = [];
   try {
     const teamRes = await apiFetch('/api/team');
@@ -4099,8 +4099,8 @@ async function openAllProjectsModal(projects) {
       const data = await teamRes.json();
       team = data.map(t => t.name);
     }
-  } catch(e) {}
-  
+  } catch (e) { }
+
   const renderList = () => {
     list.innerHTML = '';
     projects.forEach(p => {
@@ -4113,10 +4113,10 @@ async function openAllProjectsModal(projects) {
       item.style.alignItems = 'center';
       item.style.border = '1px solid var(--line)';
       item.style.gap = '8px';
-      
+
       const renderView = () => {
         const escapeHTML = (str) => String(str).replace(/[&<>'"]/g, match => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[match]));
-        
+
         item.innerHTML = `
           <a href="project_details.html?id=${p.id}" style="text-decoration: none; display: flex; flex: 1; align-items: center; justify-content: space-between; min-width: 0; color: inherit; gap: 8px;">
             <strong style="color: #3b82f6; text-decoration: underline; font-size: 1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 8px;">${escapeHTML(p.name)}</strong> 
@@ -4134,7 +4134,7 @@ async function openAllProjectsModal(projects) {
             </button>
           </div>
         `;
-        
+
         item.querySelector('.edit-project-btn').addEventListener('click', () => {
           const assigneeOptions = team.map(m => `<option value="${escapeHTML(m)}" ${p.assignee === m ? 'selected' : ''}>${escapeHTML(m)}</option>`).join('');
           item.innerHTML = `
@@ -4153,13 +4153,13 @@ async function openAllProjectsModal(projects) {
               <button type="button" class="cancel-edit-btn" style="padding: 4px 8px; font-size: 0.75rem; background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; cursor: pointer;">Cancel</button>
             </form>
           `;
-          
+
           const form = item.querySelector('.edit-project-form');
           const nameInput = item.querySelector('.edit-project-name');
           const statusInput = item.querySelector('.edit-project-status');
           const assigneeInput = item.querySelector('.edit-project-assignee');
           nameInput.focus();
-          
+
           const finishEdit = async (save) => {
             if (save) {
               const newName = nameInput.value.trim();
@@ -4169,7 +4169,7 @@ async function openAllProjectsModal(projects) {
                 try {
                   const res = await apiFetch('/api/projects/update', {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ id: p.id, name: newName, status: newStatus, assignee: newAssignee })
                   });
                   if (res.ok) {
@@ -4180,18 +4180,18 @@ async function openAllProjectsModal(projects) {
                   } else {
                     alert('Failed to update project.');
                   }
-                } catch(e) {
+                } catch (e) {
                   alert('Failed to update project.');
                 }
               }
             }
             renderView();
           };
-          
+
           form.addEventListener('submit', () => finishEdit(true));
           item.querySelector('.cancel-edit-btn').addEventListener('click', () => finishEdit(false));
         });
-        
+
         item.querySelector('.delete-project-btn').addEventListener('click', async () => {
           if (confirm(`Delete project "${p.name}"? This action cannot be undone.`)) {
             try {
@@ -4203,18 +4203,18 @@ async function openAllProjectsModal(projects) {
               } else {
                 alert('Failed to delete project.');
               }
-            } catch(e) {
+            } catch (e) {
               alert('Failed to delete project.');
             }
           }
         });
       };
-      
+
       renderView();
       list.appendChild(item);
     });
   };
-  
+
   renderList();
   modal.classList.add('is-active');
 }
@@ -4232,21 +4232,21 @@ createProjectSidebarForm.addEventListener('submit', async (e) => {
   const name = newProjectName.value.trim();
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
   const username = localStorage.getItem('dataset_username') || 'Unknown';
-  
+
   try {
     const res = await apiFetch('/api/projects', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, slug, creator: username })
     });
-    
+
     if (res.ok) {
       newProjectName.value = '';
       fetchSidebarProjects();
     } else {
       alert("Failed to create project");
     }
-  } catch(e) {
+  } catch (e) {
     console.error(e);
   }
 });
@@ -4284,14 +4284,14 @@ async function loadWorkspaceTasks() {
         status: t.status,
         assignee: t.assignee
       }));
-      
+
       if (state.gallery.length > 0) {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         let initialIndex = 0;
         const targetTaskId = urlParams.get('taskId');
         if (targetTaskId) {
-            const foundIndex = state.gallery.findIndex(t => t.id == targetTaskId);
-            if (foundIndex !== -1) initialIndex = foundIndex;
+          const foundIndex = state.gallery.findIndex(t => t.id == targetTaskId);
+          if (foundIndex !== -1) initialIndex = foundIndex;
         }
         switchImage(initialIndex);
       } else {
@@ -4299,7 +4299,7 @@ async function loadWorkspaceTasks() {
         updateGalleryUI();
       }
     }
-  } catch(e) {
+  } catch (e) {
     console.error(e);
   }
 }
@@ -4317,7 +4317,7 @@ function initPanelDragAndDrop() {
         const panel = document.getElementById(id);
         if (panel) container.appendChild(panel);
       });
-    } catch(e) {}
+    } catch (e) { }
   }
 
   // 2. Setup dragging
@@ -4402,7 +4402,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
       const currentTask = state.gallery[state.galleryIndex];
-      
+
       // Only update if it has an id
       if (currentTask.id) {
         try {
@@ -4411,7 +4411,7 @@ document.addEventListener('DOMContentLoaded', () => {
           const username = localStorage.getItem('dataset_username') || 'Unknown';
           const res = await apiFetch('/api/tasks', {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               id: currentTask.id,
               status: 'Completed',
@@ -4420,24 +4420,24 @@ document.addEventListener('DOMContentLoaded', () => {
               annotations: JSON.stringify(state.annotations)
             })
           });
-        
-        if (res.ok) {
-          const tcModal = document.getElementById('taskCompletedModal');
-          if (tcModal) tcModal.classList.add('is-active');
-        } else {
+
+          if (res.ok) {
+            const tcModal = document.getElementById('taskCompletedModal');
+            if (tcModal) tcModal.classList.add('is-active');
+          } else {
+            alert('Failed to mark task as completed.');
+          }
+        } catch (e) {
+          console.error(e);
           alert('Failed to mark task as completed.');
         }
-      } catch (e) {
-        console.error(e);
-        alert('Failed to mark task as completed.');
+      } else {
+        // For local tasks, simply show the completion modal so they can continue
+        const tcModal = document.getElementById('taskCompletedModal');
+        if (tcModal) tcModal.classList.add('is-active');
       }
-    } else {
-      // For local tasks, simply show the completion modal so they can continue
-      const tcModal = document.getElementById('taskCompletedModal');
-      if (tcModal) tcModal.classList.add('is-active');
-    }
-  });
-}
+    });
+  }
 });
 
 
