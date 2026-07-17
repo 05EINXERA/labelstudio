@@ -987,20 +987,7 @@ function draw() {
     const edgeColor = label ? label.color : "#0f8b8d";
     const fillColor = label ? hexToRgba(label.color, 0.2) : "rgba(15, 139, 141, 0.35)";
 
-    if (pts.length >= 3) {
-      const first = pts[0];
-      const screenX = imageBox.x + first.x * imageBox.scale;
-      const screenY = imageBox.y + first.y * imageBox.scale;
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(screenX, screenY, closeThreshold / 2, 0, Math.PI * 2);
-      ctx.fillStyle = fillColor;
-      ctx.strokeStyle = edgeColor;
-      ctx.lineWidth = 2;
-      ctx.fill();
-      ctx.stroke();
-      ctx.restore();
-    }
+    // The starting point is now distinguished by filling it with the class color via drawVertexHandles
     // Draw preview line from last point to cursor
     if (pts.length >= 1 && drag.preview) {
       const last = pts[pts.length - 1];
@@ -1008,9 +995,32 @@ function draw() {
       const sy = imageBox.y + last.y * imageBox.scale;
       const ex = imageBox.x + drag.preview.x * imageBox.scale;
       const ey = imageBox.y + drag.preview.y * imageBox.scale;
+      const mouseX = drag.previewCanvas ? drag.previewCanvas.x : ex;
+      const mouseY = drag.previewCanvas ? drag.previewCanvas.y : ey;
+ 
+      let isHoveringStart = false;
+      let startX, startY;
+      if (pts.length >= 3) {
+        startX = imageBox.x + pts[0].x * imageBox.scale;
+        startY = imageBox.y + pts[0].y * imageBox.scale;
+        if (Math.hypot(startX - mouseX, startY - mouseY) < closeThreshold) {
+          isHoveringStart = true;
+        }
+      }
 
-      if (pts.length >= 2) {
-        // Do not fill the polygon while drawing so the user can clearly see the outline
+      if (isHoveringStart) {
+        ctx.save();
+        ctx.fillStyle = fillColor;
+        ctx.beginPath();
+        pts.forEach((pt, i) => {
+          const px = imageBox.x + pt.x * imageBox.scale;
+          const py = imageBox.y + pt.y * imageBox.scale;
+          if (i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        });
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
       }
 
       ctx.save();
@@ -1019,7 +1029,7 @@ function draw() {
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(sx, sy);
-      ctx.lineTo(ex, ey);
+      ctx.lineTo(isHoveringStart ? startX : ex, isHoveringStart ? startY : ey);
       ctx.stroke();
       ctx.restore();
     }
@@ -1179,19 +1189,23 @@ function drawAnnotation(annotation, selected = false, targetCtx = ctx) {
   }
 
   if (selected) {
-    drawVertexHandles(screenPoints, label.color, targetCtx);
+    drawVertexHandles(screenPoints, label.color, targetCtx, isBeingDrawn);
   }
   targetCtx.restore();
 }
 
-function drawVertexHandles(points, color, targetCtx = ctx) {
+function drawVertexHandles(points, color, targetCtx = ctx, isBeingDrawn = false) {
   const half = handleSize / 2;
-  targetCtx.fillStyle = "#ffffff";
   targetCtx.strokeStyle = color;
   targetCtx.lineWidth = 2;
-  points.forEach((point) => {
+  points.forEach((point, i) => {
     targetCtx.beginPath();
     targetCtx.arc(point.x, point.y, half, 0, Math.PI * 2);
+    if (i === 0 && isBeingDrawn) {
+      targetCtx.fillStyle = color;
+    } else {
+      targetCtx.fillStyle = "#ffffff";
+    }
     targetCtx.fill();
     targetCtx.stroke();
   });
@@ -3266,11 +3280,7 @@ canvas.addEventListener("pointerdown", (event) => {
             x: imageBox.x + firstPoint.x * imageBox.scale,
             y: imageBox.y + firstPoint.y * imageBox.scale
           };
-          const screenClick = {
-            x: imageBox.x + pointInImage.x * imageBox.scale,
-            y: imageBox.y + pointInImage.y * imageBox.scale
-          };
-          if (Math.hypot(screenFirst.x - screenClick.x, screenFirst.y - screenClick.y) < closeThreshold) {
+          if (Math.hypot(screenFirst.x - point.x, screenFirst.y - point.y) < closeThreshold) {
             finalizePolygon();
             return;
           }
@@ -3364,6 +3374,7 @@ canvas.addEventListener("pointermove", (event) => {
   const end = imagePoint(point);
   if (drag.type === "draw-polygon") {
     drag.preview = end;
+    drag.previewCanvas = point;
     draw();
   } else if (drag.type === "draw" && state.mode === "draw") {
     const start = drag.draft.points?.[0] || { x: end.x, y: end.y };
@@ -3413,10 +3424,7 @@ canvas.addEventListener("pointermove", (event) => {
 });
 
 canvas.addEventListener("dblclick", (event) => {
-  if (state.mode === "draw" && state.shape === "polygon") {
-    finalizePolygon();
-    return;
-  }
+  // Polygon finalizing via double-click has been removed as per user request
   
   if (state.selectedId) {
     const point = canvasPoint(event);
@@ -3617,14 +3625,6 @@ window.addEventListener("keydown", (event) => {
     drag = null;
     render();
     return;
-  }
-
-  if (event.key === "Enter") {
-    if (drag?.type === "draw-polygon") {
-      event.preventDefault();
-      finalizePolygon();
-      return;
-    }
   }
 
   if (event.key.toLowerCase() === "g") {

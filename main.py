@@ -16,6 +16,22 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
+@app.middleware("http")
+async def add_no_cache_headers(request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if (
+        path.endswith(".js") or 
+        path.endswith(".html") or 
+        path.endswith(".css") or 
+        path == "/" or 
+        path.startswith("/frontend")
+    ):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
 _cors_origins = os.environ.get("CORS_ORIGINS", "*")
 app.add_middleware(
     CORSMiddleware,
