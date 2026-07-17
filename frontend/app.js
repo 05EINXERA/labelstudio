@@ -143,7 +143,7 @@ let pendingCommentEditId = null;
 const storageKey = "image-annotation-mvp-v1";
 const labelStudioStorageKey = "image-annotation-label-studio-settings";
 const handleSize = 9;
-const closeThreshold = 15;
+const closeThreshold = 8;
 const labelPalette = [
   "#0f8b8d", "#e85d75", "#f4a261", "#2a9d8f", "#7b2cbf",
   "#3f88c5", "#d95d39", "#65727f", "#8d6e63", "#4dabf7",
@@ -1010,19 +1010,7 @@ function draw() {
       const ey = imageBox.y + drag.preview.y * imageBox.scale;
 
       if (pts.length >= 2) {
-        ctx.save();
-        ctx.fillStyle = fillColor;
-        ctx.beginPath();
-        pts.forEach((pt, i) => {
-          const px = imageBox.x + pt.x * imageBox.scale;
-          const py = imageBox.y + pt.y * imageBox.scale;
-          if (i === 0) ctx.moveTo(px, py);
-          else ctx.lineTo(px, py);
-        });
-        ctx.lineTo(ex, ey);
-        ctx.closePath();
-        ctx.fill();
-        ctx.restore();
+        // Do not fill the polygon while drawing so the user can clearly see the outline
       }
 
       ctx.save();
@@ -1125,7 +1113,8 @@ function drawAnnotation(annotation, selected = false, targetCtx = ctx) {
       targetCtx.lineTo(point.x, point.y);
     }
   });
-  if (screenPoints.length >= 3) {
+  const isBeingDrawn = drag?.type === "draw-polygon" && drag?.annotationId === annotation.id;
+  if (screenPoints.length >= 3 && !isBeingDrawn) {
     targetCtx.closePath();
     targetCtx.fill();
   }
@@ -3628,6 +3617,14 @@ window.addEventListener("keydown", (event) => {
     drag = null;
     render();
     return;
+  }
+
+  if (event.key === "Enter") {
+    if (drag?.type === "draw-polygon") {
+      event.preventDefault();
+      finalizePolygon();
+      return;
+    }
   }
 
   if (event.key.toLowerCase() === "g") {
