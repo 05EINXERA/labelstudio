@@ -998,38 +998,13 @@ function draw() {
       const mouseX = drag.previewCanvas ? drag.previewCanvas.x : ex;
       const mouseY = drag.previewCanvas ? drag.previewCanvas.y : ey;
  
-      let isHoveringStart = false;
-      let startX, startY;
-      if (pts.length >= 3) {
-        startX = imageBox.x + pts[0].x * imageBox.scale;
-        startY = imageBox.y + pts[0].y * imageBox.scale;
-        if (Math.hypot(startX - mouseX, startY - mouseY) < closeThreshold) {
-          isHoveringStart = true;
-        }
-      }
-
-      if (isHoveringStart) {
-        ctx.save();
-        ctx.fillStyle = fillColor;
-        ctx.beginPath();
-        pts.forEach((pt, i) => {
-          const px = imageBox.x + pt.x * imageBox.scale;
-          const py = imageBox.y + pt.y * imageBox.scale;
-          if (i === 0) ctx.moveTo(px, py);
-          else ctx.lineTo(px, py);
-        });
-        ctx.closePath();
-        ctx.fill();
-        ctx.restore();
-      }
-
       ctx.save();
       ctx.setLineDash([6, 4]);
       ctx.strokeStyle = edgeColor;
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(sx, sy);
-      ctx.lineTo(isHoveringStart ? startX : ex, isHoveringStart ? startY : ey);
+      ctx.lineTo(ex, ey);
       ctx.stroke();
       ctx.restore();
     }
