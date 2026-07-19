@@ -17,10 +17,12 @@ Base.metadata.create_all(bind=engine)
 app = FastAPI()
 
 @app.middleware("http")
-async def add_no_cache_headers(request, call_next):
+async def add_cache_headers(request, call_next):
     response = await call_next(request)
     path = request.url.path
-    if (
+    if path.endswith("app.js"):
+        response.headers["Cache-Control"] = "public, max-age=31536000"
+    elif (
         path.endswith(".js") or 
         path.endswith(".html") or 
         path.endswith(".css") or 
