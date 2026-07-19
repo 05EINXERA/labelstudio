@@ -2,10 +2,10 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import Depends, HTTPException, status, Request
+import bcrypt
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
-import bcrypt
 from sqlalchemy.orm import Session
 
 import models
@@ -19,15 +19,19 @@ if not _env_secret:
             _env_secret = f.read().strip()
     else:
         import secrets
+
         _env_secret = secrets.token_hex(32)
         try:
             with open(secret_file, "w") as f:
                 f.write(_env_secret)
         except Exception:
-            print("WARNING: Could not save JWT_SECRET. Sessions will not survive restarts.")
+            print(
+                "WARNING: Could not save JWT_SECRET. Sessions will not survive restarts."
+            )
 SECRET_KEY = _env_secret
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7 # 7 days
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
+
 
 def get_token(request: Request):
     token = request.cookies.get("access_token")
@@ -35,20 +39,26 @@ def get_token(request: Request):
         if token.startswith("Bearer "):
             return token[7:]
         return token
-    
+
     auth = request.headers.get("Authorization")
     if auth and auth.startswith("Bearer "):
         return auth[7:]
-    
+
     return None
+
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token", auto_error=False)
 
+
 def verify_password(plain_password, hashed_password):
-    return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
+    return bcrypt.checkpw(
+        plain_password.encode("utf-8"), hashed_password.encode("utf-8")
+    )
+
 
 def get_password_hash(password):
-    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
@@ -60,7 +70,10 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-def get_current_user(token: Optional[str] = Depends(get_token), db: Session = Depends(get_db)):
+
+def get_current_user(
+    token: Optional[str] = Depends(get_token), db: Session = Depends(get_db)
+):
     if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

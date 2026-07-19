@@ -1,127 +1,156 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Login - Dataset Workspace</title>
+    <link rel="icon" type="image/png" href="logo.png" />
+    <link rel="stylesheet" href="login.css" />
+    <script src="sync.js"></script>
+  </head>
 
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Login - Dataset Workspace</title>
-  <link rel="icon" type="image/png" href="logo.png">
-  <link rel="stylesheet" href="login.css">
-  <script src="sync.js"></script>
-</head>
+  <body>
+    <div class="login-container">
+      <div class="brand-header">
+        <img src="logo.png" alt="Dataset Workspace Logo" />
+        <h1>Image Annotation</h1>
+        <p>Sign in to access your annotation tools</p>
+      </div>
 
-<body>
-  <div class="login-container">
-    <div class="brand-header">
-      <img src="logo.png" alt="Dataset Workspace Logo">
-      <h1>Image Annotation</h1>
-      <p>Sign in to access your annotation tools</p>
+      <form class="login-form" id="loginForm">
+        <div
+          id="error-message"
+          style="
+            color: var(--danger);
+            text-align: center;
+            margin-bottom: 1rem;
+            display: none;
+          "
+        ></div>
+        <div class="input-group">
+          <label for="username">Username</label>
+          <input
+            type="text"
+            id="username"
+            name="username"
+            placeholder="Enter your username"
+            required
+            autocomplete="username"
+          />
+        </div>
+
+        <div class="input-group">
+          <label for="password">Password</label>
+          <input
+            type="password"
+            id="password"
+            name="password"
+            placeholder="Enter your password"
+            required
+            autocomplete="current-password"
+          />
+        </div>
+
+        <button type="submit" class="submit-btn" id="submitBtn">
+          <span class="btn-text" id="btnText">Sign In</span>
+          <div class="spinner"></div>
+        </button>
+
+        <div style="text-align: center; margin-top: 1rem">
+          <a
+            href="#"
+            id="toggleMode"
+            style="
+              color: var(--accent);
+              text-decoration: none;
+              font-size: 0.9rem;
+            "
+            >Need an account? Register</a
+          >
+        </div>
+      </form>
     </div>
 
-    <form class="login-form" id="loginForm">
-      <div id="error-message" style="color: var(--danger); text-align: center; margin-bottom: 1rem; display: none;"></div>
-      <div class="input-group">
-        <label for="username">Username</label>
-        <input type="text" id="username" name="username" placeholder="Enter your username" required
-          autocomplete="username">
-      </div>
+    <script>
+      let isLoginMode = true;
+      const toggleModeBtn = document.getElementById("toggleMode");
+      const btnText = document.getElementById("btnText");
+      const headerText = document.querySelector(".brand-header p");
 
-      <div class="input-group">
-        <label for="password">Password</label>
-        <input type="password" id="password" name="password" placeholder="Enter your password" required
-          autocomplete="current-password">
-      </div>
+      toggleModeBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        isLoginMode = !isLoginMode;
+        if (isLoginMode) {
+          btnText.textContent = "Sign In";
+          headerText.textContent = "Sign in to access your annotation tools";
+          toggleModeBtn.textContent = "Need an account? Register";
+        } else {
+          btnText.textContent = "Register";
+          headerText.textContent = "Create an account to start annotating";
+          toggleModeBtn.textContent = "Already have an account? Sign In";
+        }
+      });
 
-      <button type="submit" class="submit-btn" id="submitBtn">
-        <span class="btn-text" id="btnText">Sign In</span>
-        <div class="spinner"></div>
-      </button>
+      document
+        .getElementById("loginForm")
+        .addEventListener("submit", async function (e) {
+          e.preventDefault();
 
-      <div style="text-align: center; margin-top: 1rem;">
-        <a href="#" id="toggleMode" style="color: var(--accent); text-decoration: none; font-size: 0.9rem;">Need an account? Register</a>
-      </div>
-    </form>
-  </div>
+          const btn = document.getElementById("submitBtn");
+          const errorMsg = document.getElementById("error-message");
+          btn.classList.add("is-loading");
+          btn.disabled = true;
+          errorMsg.style.display = "none";
 
-  <script>
-    let isLoginMode = true;
-    const toggleModeBtn = document.getElementById('toggleMode');
-    const btnText = document.getElementById('btnText');
-    const headerText = document.querySelector('.brand-header p');
+          const username = document.getElementById("username").value;
+          const password = document.getElementById("password").value;
 
-    toggleModeBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-      isLoginMode = !isLoginMode;
-      if (isLoginMode) {
-        btnText.textContent = 'Sign In';
-        headerText.textContent = 'Sign in to access your annotation tools';
-        toggleModeBtn.textContent = 'Need an account? Register';
-      } else {
-        btnText.textContent = 'Register';
-        headerText.textContent = 'Create an account to start annotating';
-        toggleModeBtn.textContent = 'Already have an account? Sign In';
-      }
-    });
+          try {
+            if (!isLoginMode) {
+              // Register
+              const regRes = await fetch("/api/auth/register", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ username, password }),
+              });
+              if (!regRes.ok) {
+                const data = await regRes.json();
+                throw new Error(data.detail || "Registration failed");
+              }
+              // Fall through to auto-login (or could use the returned token directly)
+            }
 
-    document.getElementById('loginForm').addEventListener('submit', async function (e) {
-      e.preventDefault();
+            // Login
+            const formData = new URLSearchParams();
+            formData.append("username", username);
+            formData.append("password", password);
 
-      const btn = document.getElementById('submitBtn');
-      const errorMsg = document.getElementById('error-message');
-      btn.classList.add('is-loading');
-      btn.disabled = true;
-      errorMsg.style.display = 'none';
+            const loginRes = await fetch("/api/auth/token", {
+              method: "POST",
+              headers: { "Content-Type": "application/x-www-form-urlencoded" },
+              body: formData,
+            });
 
-      const username = document.getElementById('username').value;
-      const password = document.getElementById('password').value;
+            if (!loginRes.ok) {
+              const data = await loginRes.json();
+              throw new Error(data.detail || "Login failed");
+            }
 
-      try {
-        if (!isLoginMode) {
-          // Register
-          const regRes = await fetch('/api/auth/register', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password })
-          });
-          if (!regRes.ok) {
-            const data = await regRes.json();
-            throw new Error(data.detail || 'Registration failed');
+            const data = await loginRes.json();
+
+            // We no longer store access_token in localStorage because it's now an HttpOnly cookie!
+            localStorage.setItem("dataset_username", username);
+            localStorage.setItem("logged_in", "true");
+            localStorage.removeItem("image-annotation-mvp-v1");
+
+            window.location.href = "app.html";
+          } catch (err) {
+            errorMsg.textContent = err.message;
+            errorMsg.style.display = "block";
+            btn.classList.remove("is-loading");
+            btn.disabled = false;
           }
-          // Fall through to auto-login (or could use the returned token directly)
-        }
-
-        // Login
-        const formData = new URLSearchParams();
-        formData.append('username', username);
-        formData.append('password', password);
-
-        const loginRes = await fetch('/api/auth/token', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: formData
         });
-
-        if (!loginRes.ok) {
-           const data = await loginRes.json();
-           throw new Error(data.detail || 'Login failed');
-        }
-
-        const data = await loginRes.json();
-        
-        // We no longer store access_token in localStorage because it's now an HttpOnly cookie!
-        localStorage.setItem('dataset_username', username);
-        localStorage.setItem('logged_in', 'true');
-        localStorage.removeItem('image-annotation-mvp-v1');
-        
-        window.location.href = 'app.html';
-      } catch (err) {
-        errorMsg.textContent = err.message;
-        errorMsg.style.display = 'block';
-        btn.classList.remove('is-loading');
-        btn.disabled = false;
-      }
-    });
-  </script>
-</body>
-
+    </script>
+  </body>
 </html>
