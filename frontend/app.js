@@ -704,6 +704,7 @@ async function performMagicWandSegmentation(point, bbox = null, isShift = false,
       const annotation = {
         id: generateUUID(),
         labelId: labelId,
+        type: "polygon",
         points: points,
         promptPoints: promptPoints,
         promptLabels: promptLabels,
@@ -740,7 +741,8 @@ function predictionsToAnnotations(predictions) {
     return {
       id: generateUUID(),
       labelId: label.id,
-      points: prediction.points || [
+      type: prediction.points ? "polygon" : "bbox",
+        points: prediction.points || [
         { x: box.x, y: box.y },
         { x: box.x + box.width, y: box.y },
         { x: box.x + box.width, y: box.y + box.height },
@@ -2856,7 +2858,30 @@ if (importObjectsBtn && importObjectsInput) {
             }
           }
 
+          // Match current image ID
+          let currentImageId = null;
+          if (importedData.images.length === 1) {
+            // If JSON contains exactly one image, assume they want to import it to the current image
+            currentImageId = importedData.images[0].id;
+          } else if (state.image && state.image.name) {
+            const currentImg = importedData.images.find(img => img.file_name === state.image.name);
+            if (currentImg) {
+              currentImageId = currentImg.id;
+            }
+          }
+
+          if (currentImageId === null) {
+            alert("The current image was not found in the imported dataset JSON.");
+            importObjectsInput.value = "";
+            return;
+          }
+
           for (const ann of importedData.annotations) {
+            // Only import annotations that belong to the matched image
+            if (ann.image_id !== undefined && ann.image_id !== currentImageId) {
+              continue;
+            }
+
             const labelId = catIdToLabelId[ann.category_id];
             if (!labelId) continue;
 
@@ -2961,7 +2986,7 @@ if (exportObjectsBtn) {
     // Generate COCO format
     const coco = {
       images: [
-        { id: 1, width: imageElement?.naturalWidth || 800, height: imageElement?.naturalHeight || 600, file_name: state.imageName || "image.jpg" }
+        { id: 1, width: imageElement?.naturalWidth || 800, height: imageElement?.naturalHeight || 600, file_name: state.image?.name || "image.jpg" }
       ],
       categories: state.labels.map((l, index) => ({
         id: index + 1,
@@ -3346,6 +3371,7 @@ canvas.addEventListener("pointerdown", (event) => {
         const annotation = {
           id: generateUUID(),
           labelId: state.activeLabelId,
+          type: "polygon",
           points: [{ x: round(pointInImage.x), y: round(pointInImage.y) }]
         };
         updateAnnotationBounds(annotation);
