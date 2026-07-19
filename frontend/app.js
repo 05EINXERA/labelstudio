@@ -1099,7 +1099,9 @@ function drawAnnotation(annotation, selected = false, targetCtx = ctx) {
   targetCtx.save();
   targetCtx.lineWidth = selected ? 3 : 2;
   targetCtx.strokeStyle = label.color;
-  targetCtx.fillStyle = hexToRgba(label.color, selected ? 0.2 : 0.12);
+  const baseOpacity = isPolygon ? 0.35 : 0.12;
+  const selectedOpacity = isPolygon ? 0.5 : 0.2;
+  targetCtx.fillStyle = hexToRgba(label.color, selected ? selectedOpacity : baseOpacity);
 
   if (!screenPoints.length) {
     targetCtx.restore();
