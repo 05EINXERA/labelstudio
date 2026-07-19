@@ -158,7 +158,7 @@ const urlParams = new URLSearchParams(window.location.search);
         const displayId = allTasks.findIndex(t => t.id === task.id) + 1;
 
         const tr = document.createElement('tr');
-        const badgeClass = task.status.toLowerCase() === 'completed' ? 'completed' : 'new';
+        const badgeClass = (task.status || 'new').toLowerCase().replace(/\s+/g, '-');
         const imgUrl = '/' + task.image_path.replace(/\\\\/g, '/');
         
         // Time Formatting
