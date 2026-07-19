@@ -30,12 +30,16 @@ Then open `http://127.0.0.1:8000/` (or whatever port Uvicorn specifies in the te
 
 ## Core Features
 
+- **Project Dashboard**: A comprehensive interface to manage tasks, datasets, and your project's taxonomy (classes). Includes full CRUD operations and JSON import/export functionality.
+- **Precision Annotation Engine**: A custom-built HTML5 Canvas engine supporting precise bounding boxes and robust polygon drawing (with accurate starting-point closure and vertex manipulation).
 - **Auto-Detect**: Detect all objects in an image instantly using YOLOv8 or YOLO-World.
 - **Magic Wand**: Click any object to automatically generate precise polygon masks using Meta's Segment Anything Model (SAM).
 - **Auto-Tag**: Automatically assign scene and object tags to your images using CLIP zero-shot classification.
 - **Concurrent Workspace**: Safely work across multiple browser tabs with real-time SQLite database synchronization and conflict resolution (Optimistic Locking).
 - **Time Tracking**: Accurately tracks active session time spent annotating per user and task.
 - **AI Job Queue**: AI inference runs in a decoupled background queue, allowing multiple users to trigger heavy ML models simultaneously without locking up the server or timing out HTTP requests.
+- **Production Ready**: Configured with caching middleware and robust API endpoints for deploying into production environments.
+
 
 ## Troubleshooting
 
