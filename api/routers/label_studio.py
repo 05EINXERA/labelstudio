@@ -1,7 +1,8 @@
 import os
-from fastapi import APIRouter, HTTPException
 
+from fastapi import APIRouter, HTTPException
 from label_studio_sdk import LabelStudio
+
 from schemas import LabelStudioPayload
 
 router = APIRouter(prefix="/api/label-studio", tags=["label-studio"])
@@ -9,12 +10,18 @@ router = APIRouter(prefix="/api/label-studio", tags=["label-studio"])
 LABEL_STUDIO_URL = os.environ.get("LABEL_STUDIO_URL", "http://localhost:8000/")
 LABEL_STUDIO_API_KEY = os.environ.get("LABEL_STUDIO_API_KEY", "")
 
+
 @router.post("/send")
 def send_to_ls(payload: LabelStudioPayload):
     if not LABEL_STUDIO_API_KEY:
-        raise HTTPException(status_code=400, detail="Set LABEL_STUDIO_API_KEY before starting main.py.")
+        raise HTTPException(
+            status_code=400, detail="Set LABEL_STUDIO_API_KEY before starting main.py."
+        )
     if not payload.taskId and not payload.projectId:
-        raise HTTPException(status_code=400, detail="Send projectId to create a task, or taskId to annotate an existing task.")
+        raise HTTPException(
+            status_code=400,
+            detail="Send projectId to create a task, or taskId to annotate an existing task.",
+        )
     if not payload.taskData:
         raise HTTPException(status_code=400, detail="Missing taskData.")
     if not payload.result:
@@ -28,7 +35,9 @@ def send_to_ls(payload: LabelStudioPayload):
 
         task_id = payload.taskId
         if not task_id:
-            task = client.tasks.create(data=payload.taskData, project=int(payload.projectId))
+            task = client.tasks.create(
+                data=payload.taskData, project=int(payload.projectId)
+            )
             task_id = str(task.id)
 
         annotation = client.annotations.create(

@@ -4,19 +4,21 @@ import os
 import shutil
 import threading
 import urllib.request
-from config import DATA_DIR
 
 import cv2
 import numpy as np
 from PIL import Image
 
+from config import DATA_DIR
 
 MODEL_DIR = os.path.join(DATA_DIR, "models")
 MODEL_FILE = os.environ.get("YOLO_MODEL", "yolov8n-seg.onnx")
-model_path = MODEL_FILE if os.path.isabs(MODEL_FILE) else os.path.join(MODEL_DIR, MODEL_FILE)
+model_path = (
+    MODEL_FILE if os.path.isabs(MODEL_FILE) else os.path.join(MODEL_DIR, MODEL_FILE)
+)
 download_url = os.environ.get(
     "YOLO_download_url",
-    "https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8n-seg.pt", 
+    "https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8n-seg.pt",
 )
 INPUT_SIZE = int(os.environ.get("YOLO_INPUT_SIZE", "640"))
 CONFIDENCE = float(os.environ.get("DETECT_CONFIDENCE", "0.35"))
@@ -48,28 +50,107 @@ _yolo_world_model = None
 _yolo_world_lock = threading.RLock()
 
 COCO_CLASSES = [
-    "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat",
-    "traffic light", "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat",
-    "dog", "horse", "sheep", "cow", "elephant", "bear", "zebra", "giraffe", "backpack",
-    "umbrella", "handbag", "tie", "suitcase", "frisbee", "skis", "snowboard", "sports ball",
-    "kite", "baseball bat", "baseball glove", "skateboard", "surfboard", "tennis racket",
-    "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
-    "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair",
-    "couch", "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse",
-    "remote", "keyboard", "cell phone", "microwave", "oven", "toaster", "sink", "refrigerator",
-    "book", "clock", "vase", "scissors", "teddy bear", "hair drier", "toothbrush",
+    "person",
+    "bicycle",
+    "car",
+    "motorcycle",
+    "airplane",
+    "bus",
+    "train",
+    "truck",
+    "boat",
+    "traffic light",
+    "fire hydrant",
+    "stop sign",
+    "parking meter",
+    "bench",
+    "bird",
+    "cat",
+    "dog",
+    "horse",
+    "sheep",
+    "cow",
+    "elephant",
+    "bear",
+    "zebra",
+    "giraffe",
+    "backpack",
+    "umbrella",
+    "handbag",
+    "tie",
+    "suitcase",
+    "frisbee",
+    "skis",
+    "snowboard",
+    "sports ball",
+    "kite",
+    "baseball bat",
+    "baseball glove",
+    "skateboard",
+    "surfboard",
+    "tennis racket",
+    "bottle",
+    "wine glass",
+    "cup",
+    "fork",
+    "knife",
+    "spoon",
+    "bowl",
+    "banana",
+    "apple",
+    "sandwich",
+    "orange",
+    "broccoli",
+    "carrot",
+    "hot dog",
+    "pizza",
+    "donut",
+    "cake",
+    "chair",
+    "couch",
+    "potted plant",
+    "bed",
+    "dining table",
+    "toilet",
+    "tv",
+    "laptop",
+    "mouse",
+    "remote",
+    "keyboard",
+    "cell phone",
+    "microwave",
+    "oven",
+    "toaster",
+    "sink",
+    "refrigerator",
+    "book",
+    "clock",
+    "vase",
+    "scissors",
+    "teddy bear",
+    "hair drier",
+    "toothbrush",
 ]
 
-CLIP_CANDIDATE_TAGS = COCO_CLASSES + ["daytime", "nighttime", "indoor", "outdoor", "screenshot", "document", "selfie", "landscape"]
+CLIP_CANDIDATE_TAGS = COCO_CLASSES + [
+    "daytime",
+    "nighttime",
+    "indoor",
+    "outdoor",
+    "screenshot",
+    "document",
+    "selfie",
+    "landscape",
+]
 
 
 class DetectionClientError(ValueError):
     """Invalid or unsupported client input."""
 
 
-def ensure_model_file(model_size='n'):
-    file_name = f'yolov8{model_size}-seg.onnx'
-    download_url = f'https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8{model_size}-seg.pt'
+def ensure_model_file(model_size="n"):
+    file_name = f"yolov8{model_size}-seg.onnx"
+    download_url = f"https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8{model_size}-seg.pt"
     model_path = os.path.join(MODEL_DIR, file_name)
 
     if os.path.isfile(model_path):
@@ -77,7 +158,7 @@ def ensure_model_file(model_size='n'):
 
     model_dir = os.path.dirname(model_path) or "."
     os.makedirs(model_dir, exist_ok=True)
-    
+
     is_pt_url = download_url.endswith(".pt")
     download_path = model_path.replace(".onnx", ".pt") if is_pt_url else model_path
 
@@ -99,10 +180,11 @@ def ensure_model_file(model_size='n'):
     if is_pt_url:
         try:
             from ultralytics import YOLO
+
             print(f"Exporting {download_path} to ONNX format...")
             model = YOLO(download_path)
             model.export(format="onnx")
-            
+
             # Ultralytics saves the exported model in the same directory as the .pt file
             exported_path = download_path.replace(".pt", ".onnx")
             if exported_path != model_path and os.path.isfile(exported_path):
@@ -122,14 +204,15 @@ def ensure_model_file(model_size='n'):
 
 _models = {}
 
-def get_model(model_size='n'):
+
+def get_model(model_size="n"):
     global _models
     with _model_lock:
         if model_size not in _models:
             path = ensure_model_file(model_size)
             net = cv2.dnn.readNetFromONNX(path)
             try:
-                if hasattr(cv2, 'cuda') and cv2.cuda.getCudaEnabledDeviceCount() > 0:
+                if hasattr(cv2, "cuda") and cv2.cuda.getCudaEnabledDeviceCount() > 0:
                     net.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
                     net.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
                 else:
@@ -148,11 +231,13 @@ def get_clip_model():
         with _clip_model_lock:
             if _clip_model is None:
                 try:
-                    from transformers import CLIPProcessor, CLIPModel
                     import torch
+                    from transformers import CLIPModel, CLIPProcessor
                 except ImportError:
-                    raise RuntimeError("Please install torch and transformers to use CLIP classification.")
-                
+                    raise RuntimeError(
+                        "Please install torch and transformers to use CLIP classification."
+                    )
+
                 print(f"Loading CLIP model {CLIP_MODEL_NAME}...")
                 device = "cuda" if torch.cuda.is_available() else "cpu"
                 _clip_model = CLIPModel.from_pretrained(CLIP_MODEL_NAME).to(device)
@@ -166,14 +251,16 @@ def get_yolo_world_model():
         with _yolo_world_lock:
             if _yolo_world_model is None:
                 try:
-                    from ultralytics import YOLOWorld
                     import torch
+                    from ultralytics import YOLOWorld
                 except ImportError:
-                    raise RuntimeError("Please install ultralytics and torch to use YOLO-World.")
+                    raise RuntimeError(
+                        "Please install ultralytics and torch to use YOLO-World."
+                    )
                 print(f"Loading YOLO-World model {YOLO_WORLD_MODEL}...")
                 _yolo_world_model = YOLOWorld(YOLO_WORLD_MODEL)
                 if torch.cuda.is_available():
-                    _yolo_world_model.to('cuda')
+                    _yolo_world_model.to("cuda")
     return _yolo_world_model
 
 
@@ -184,7 +271,9 @@ def decode_image(image_data):
     if isinstance(image_data, str):
         if image_data.startswith("http://") or image_data.startswith("https://"):
             try:
-                request = urllib.request.Request(image_data, headers={"User-Agent": "labelstudio"})
+                request = urllib.request.Request(
+                    image_data, headers={"User-Agent": "labelstudio"}
+                )
                 with urllib.request.urlopen(request, timeout=10) as response:
                     raw = response.read()
             except Exception as error:
@@ -220,7 +309,9 @@ def decode_image(image_data):
         raise DetectionClientError("Unsupported image data type.")
 
     if len(raw) > MAX_IMAGE_BYTES:
-        raise DetectionClientError(f"Image exceeds {MAX_IMAGE_BYTES // (1024 * 1024)} MB limit.")
+        raise DetectionClientError(
+            f"Image exceeds {MAX_IMAGE_BYTES // (1024 * 1024)} MB limit."
+        )
 
     try:
         image = Image.open(io.BytesIO(raw)).convert("RGB")
@@ -307,27 +398,31 @@ def run_inference(image_bgr, model_size, confidence, nms_threshold):
     mask_coeffs = []
 
     for row in out0[0]:
-        class_scores = row[4:4+len(COCO_CLASSES)]
+        class_scores = row[4 : 4 + len(COCO_CLASSES)]
         _min_score, max_score, _min_loc, (_x, class_id) = cv2.minMaxLoc(class_scores)
         if float(max_score) < confidence:
             continue
 
-        boxes.append([
-            float(row[0] - (0.5 * row[2])),
-            float(row[1] - (0.5 * row[3])),
-            float(row[2]),
-            float(row[3]),
-        ])
+        boxes.append(
+            [
+                float(row[0] - (0.5 * row[2])),
+                float(row[1] - (0.5 * row[3])),
+                float(row[2]),
+                float(row[3]),
+            ]
+        )
         scores.append(float(max_score))
         class_ids.append(int(class_id))
-        
+
         if proto is not None:
-            mask_coeffs.append(row[4+len(COCO_CLASSES):])
+            mask_coeffs.append(row[4 + len(COCO_CLASSES) :])
 
     if not boxes:
         return []
 
-    indices = flatten_nms_indices(cv2.dnn.NMSBoxes(boxes, scores, confidence, nms_threshold))
+    indices = flatten_nms_indices(
+        cv2.dnn.NMSBoxes(boxes, scores, confidence, nms_threshold)
+    )
 
     predictions = []
     for index in indices[:MAX_DETECTIONS]:
@@ -337,14 +432,18 @@ def run_inference(image_bgr, model_size, confidence, nms_threshold):
         box_width = box[2] * scale
         box_height = box[3] * scale
         class_id = class_ids[index]
-        class_name = COCO_CLASSES[class_id] if class_id < len(COCO_CLASSES) else f"class_{class_id}"
-        
+        class_name = (
+            COCO_CLASSES[class_id]
+            if class_id < len(COCO_CLASSES)
+            else f"class_{class_id}"
+        )
+
         pred = {
             "class": class_name,
             "score": round(scores[index], 4),
             "bbox": [left, top, box_width, box_height],
         }
-        
+
         if proto is not None:
             coeff = mask_coeffs[index]
             coeff = np.array(coeff).reshape(1, -1)
@@ -352,29 +451,35 @@ def run_inference(image_bgr, model_size, confidence, nms_threshold):
             mask_flat = np.dot(coeff, proto_reshaped)
             mask = 1 / (1 + np.exp(-mask_flat))
             mask = mask.reshape(proto.shape[1], proto.shape[2])
-            mask = cv2.resize(mask, (INPUT_SIZE, INPUT_SIZE), interpolation=cv2.INTER_LINEAR)
+            mask = cv2.resize(
+                mask, (INPUT_SIZE, INPUT_SIZE), interpolation=cv2.INTER_LINEAR
+            )
             mask = (mask > 0.5).astype(np.uint8) * 255
-            
+
             bx, by, bw, bh = [int(v) for v in box]
             bx = max(0, bx)
             by = max(0, by)
             bw = max(1, bw)
             bh = max(1, bh)
-            
+
             cropped_mask = np.zeros_like(mask)
-            cropped_mask[by:by+bh, bx:bx+bw] = mask[by:by+bh, bx:bx+bw]
-            
-            contours, _ = cv2.findContours(cropped_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            cropped_mask[by : by + bh, bx : bx + bw] = mask[by : by + bh, bx : bx + bw]
+
+            contours, _ = cv2.findContours(
+                cropped_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            )
             if contours:
                 contour = max(contours, key=cv2.contourArea)
                 epsilon = 0.001 * cv2.arcLength(contour, True)
                 approx = cv2.approxPolyDP(contour, epsilon, True)
-                
+
                 points = []
                 for pt in approx:
-                    points.append({"x": float(pt[0][0]) * scale, "y": float(pt[0][1]) * scale})
+                    points.append(
+                        {"x": float(pt[0][0]) * scale, "y": float(pt[0][1]) * scale}
+                    )
                 pred["points"] = points
-                
+
         predictions.append(pred)
 
     return predictions
@@ -406,7 +511,14 @@ def _normalize_selection_points(selection):
     return normalized
 
 
-def detect_objects(image_data, selection=None, prompts=None, model_size=None, confidence=None, nms_threshold=None):
+def detect_objects(
+    image_data,
+    selection=None,
+    prompts=None,
+    model_size=None,
+    confidence=None,
+    nms_threshold=None,
+):
     model_size = model_size or "n"
     confidence = confidence or CONFIDENCE
     nms_threshold = nms_threshold or NMS_THRESHOLD
@@ -454,7 +566,9 @@ def detect_objects(image_data, selection=None, prompts=None, model_size=None, co
                 raise DetectionClientError("Invalid selection values.") from error
 
             if box_width <= 0 or box_height <= 0:
-                raise DetectionClientError("Selection must have a positive width and height.")
+                raise DetectionClientError(
+                    "Selection must have a positive width and height."
+                )
 
             x1 = max(0.0, min(left, original_width))
             y1 = max(0.0, min(top, original_height))
@@ -468,13 +582,13 @@ def detect_objects(image_data, selection=None, prompts=None, model_size=None, co
     image_bgr = pil_to_bgr(working_image)
 
     predictions = []
-    
+
     if prompts and len(prompts) > 0:
         world_model = get_yolo_world_model()
         with _yolo_world_lock:
             world_model.set_classes(prompts)
             results = world_model.predict(image_bgr, conf=confidence, verbose=False)
-            
+
             if results and len(results) > 0:
                 result = results[0]
                 boxes = result.boxes
@@ -484,28 +598,40 @@ def detect_objects(image_data, selection=None, prompts=None, model_size=None, co
                         x1, y1, x2, y2 = box.xyxy[0].tolist()
                         score = float(box.conf[0])
                         class_id = int(box.cls[0])
-                        class_name = prompts[class_id] if class_id < len(prompts) else f"class_{class_id}"
-                        
-                        left, top, clamped_width, clamped_height = clamp_box(x1, y1, x2, y2, width, height)
-                        predictions.append({
-                            "class": class_name,
-                            "score": round(score, 4),
-                            "bbox": [
-                                round(left + origin_x, 2),
-                                round(top + origin_y, 2),
-                                round(clamped_width, 2),
-                                round(clamped_height, 2),
-                            ],
-                        })
+                        class_name = (
+                            prompts[class_id]
+                            if class_id < len(prompts)
+                            else f"class_{class_id}"
+                        )
+
+                        left, top, clamped_width, clamped_height = clamp_box(
+                            x1, y1, x2, y2, width, height
+                        )
+                        predictions.append(
+                            {
+                                "class": class_name,
+                                "score": round(score, 4),
+                                "bbox": [
+                                    round(left + origin_x, 2),
+                                    round(top + origin_y, 2),
+                                    round(clamped_width, 2),
+                                    round(clamped_height, 2),
+                                ],
+                            }
+                        )
     else:
         with _model_lock:
-            raw_predictions = run_inference(image_bgr, model_size, confidence, nms_threshold)
+            raw_predictions = run_inference(
+                image_bgr, model_size, confidence, nms_threshold
+            )
 
         for item in raw_predictions:
             x, y, box_width, box_height = item["bbox"]
             x2 = x + box_width
             y2 = y + box_height
-            left, top, clamped_width, clamped_height = clamp_box(x, y, x2, y2, width, height)
+            left, top, clamped_width, clamped_height = clamp_box(
+                x, y, x2, y2, width, height
+            )
             pred_dict = {
                 "class": item["class"],
                 "score": item["score"],
@@ -516,13 +642,16 @@ def detect_objects(image_data, selection=None, prompts=None, model_size=None, co
                     round(clamped_height, 2),
                 ],
             }
-            
+
             if "points" in item:
                 pred_dict["points"] = [
-                    {"x": round(pt["x"] + origin_x, 2), "y": round(pt["y"] + origin_y, 2)}
+                    {
+                        "x": round(pt["x"] + origin_x, 2),
+                        "y": round(pt["y"] + origin_y, 2),
+                    }
                     for pt in item["points"]
                 ]
-                
+
             predictions.append(pred_dict)
 
     return {
@@ -534,8 +663,9 @@ def detect_objects(image_data, selection=None, prompts=None, model_size=None, co
 
 def classify_image(image_data, top_k=5, selection=None):
     import torch  # lazy import: torch is heavy and only needed for CLIP
+
     image = decode_image(image_data)
-    
+
     if selection:
         original_width, original_height = image.size
         points = _normalize_selection_points(selection)
@@ -562,121 +692,140 @@ def classify_image(image_data, top_k=5, selection=None):
                     image = image.crop((x1, y1, x2, y2))
             except (TypeError, ValueError):
                 pass
-    
+
     model, processor = get_clip_model()
-    
+
     prompts = [f"a photo of a {c}" for c in CLIP_CANDIDATE_TAGS]
-    
+
     inputs = processor(text=prompts, images=image, return_tensors="pt", padding=True)
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    inputs = {k: v.to(device) for k, v in inputs.items() if hasattr(v, 'to')}
-    
+    inputs = {k: v.to(device) for k, v in inputs.items() if hasattr(v, "to")}
+
     with torch.no_grad(), _clip_model_lock:
         outputs = model(**inputs)
-        
+
     logits_per_image = outputs.logits_per_image
     probs = logits_per_image.softmax(dim=1)
-    
+
     probs_list = probs.squeeze().tolist()
     if not isinstance(probs_list, list):
         probs_list = [probs_list]
-        
+
     results_with_scores = []
     for idx, prob in enumerate(probs_list):
         if idx < len(CLIP_CANDIDATE_TAGS):
-            results_with_scores.append({
-                "class": CLIP_CANDIDATE_TAGS[idx],
-                "score": round(prob, 4)
-            })
-            
+            results_with_scores.append(
+                {"class": CLIP_CANDIDATE_TAGS[idx], "score": round(prob, 4)}
+            )
+
     results_with_scores.sort(key=lambda x: x["score"], reverse=True)
     results = results_with_scores[:top_k]
-    
-    return {
-        "tags": results
-    }
 
-def segment_point(image_data, points=None, labels=None, prompt=None, precision=0.001, bbox=None, sam_model=None):
+    return {"tags": results}
+
+
+def segment_point(
+    image_data,
+    points=None,
+    labels=None,
+    prompt=None,
+    precision=0.001,
+    bbox=None,
+    sam_model=None,
+):
     model_size = "n"
     confidence = CONFIDENCE
     nms_threshold = NMS_THRESHOLD
     import torch  # lazy import: torch is heavy and only needed for SAM
+
     try:
         from ultralytics import SAM
     except ImportError:
         raise RuntimeError("Please install ultralytics and torch to use SAM.")
-    
+
     if not points or len(points) == 0:
         return {"points": []}
-        
+
     # Use the first point as the reference point for pointPolygonTest fallback logic
     x = points[0]["x"]
     y = points[0]["y"]
-    
+
     pts_array = [[p["x"], p["y"]] for p in points]
     lbls_array = labels if labels else [1 for _ in points]
-    
+
     image = decode_image(image_data)
     image_bgr = pil_to_bgr(image)
-    
+
     if prompt:
         prompt_lower = prompt.lower()
         if prompt_lower in COCO_CLASSES:
             with _model_lock:
-                raw_predictions = run_inference(image_bgr, model_size, confidence, nms_threshold)
-            
+                raw_predictions = run_inference(
+                    image_bgr, model_size, confidence, nms_threshold
+                )
+
             best_match = None
-            
+
             for item in raw_predictions:
                 if item.get("points") and item["class"].lower() == prompt_lower:
-                    pts = np.array([[pt["x"], pt["y"]] for pt in item["points"]], np.float32)
+                    pts = np.array(
+                        [[pt["x"], pt["y"]] for pt in item["points"]], np.float32
+                    )
                     dist = cv2.pointPolygonTest(pts, (x, y), measureDist=False)
                     if dist >= 0:
                         best_match = item
                         break
-            
+
             if best_match:
                 return {
-                    "points": [{"x": float(pt["x"]), "y": float(pt["y"])} for pt in best_match["points"]]
+                    "points": [
+                        {"x": float(pt["x"]), "y": float(pt["y"])}
+                        for pt in best_match["points"]
+                    ]
                 }
-    
+
     global _sam_model, _hf_sam2_model, _hf_sam2_processor
-    sam_model_file = sam_model if sam_model else 'mobile_sam.pt'
-    
+    sam_model_file = sam_model if sam_model else "mobile_sam.pt"
+
     if sam_model_file == "facebook/sam2-hiera-large":
         from transformers import Sam2Model, Sam2Processor
+
         with _hf_sam2_lock:
             if _hf_sam2_model is None:
                 device = "cuda" if torch.cuda.is_available() else "cpu"
                 _hf_sam2_processor = Sam2Processor.from_pretrained(sam_model_file)
                 _hf_sam2_model = Sam2Model.from_pretrained(sam_model_file).to(device)
-        
+
         image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
         image_pil = Image.fromarray(image_rgb)
-        
+
         with _hf_sam2_lock:
             device = "cuda" if torch.cuda.is_available() else "cpu"
             inputs = _hf_sam2_processor(
-                images=image_pil, 
-                input_points=[[pts_array]], 
-                input_labels=[[lbls_array]], 
-                return_tensors="pt"
+                images=image_pil,
+                input_points=[[pts_array]],
+                input_labels=[[lbls_array]],
+                return_tensors="pt",
             )
-            inputs = {k: v.to(device) for k, v in inputs.items() if hasattr(v, 'to')}
-            
+            inputs = {k: v.to(device) for k, v in inputs.items() if hasattr(v, "to")}
+
             with torch.no_grad():
                 outputs = _hf_sam2_model(**inputs)
-            
+
             # The model outputs 3 masks (for ambiguity) and IoU scores for each.
             # We must select the mask with the highest IoU score for the most accurate result.
             best_idx = torch.argmax(outputs.iou_scores[0, 0]).item()
             mask_np = outputs.pred_masks[0, 0, best_idx].cpu().numpy()
             orig_h, orig_w = image_bgr.shape[:2]
-            mask_np = cv2.resize(mask_np, (orig_w, orig_h), interpolation=cv2.INTER_LINEAR)
+            mask_np = cv2.resize(
+                mask_np, (orig_w, orig_h), interpolation=cv2.INTER_LINEAR
+            )
             mask_np = (mask_np > 0.0).astype(np.uint8) * 255
-            
+
         points_res = []
-        contours, _ = cv2.findContours(mask_np, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours, _ = cv2.findContours(
+            mask_np, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
         if contours:
             best_contour = None
             for c in contours:
@@ -684,51 +833,53 @@ def segment_point(image_data, points=None, labels=None, prompt=None, precision=0
                 if dist >= 0:
                     best_contour = c
                     break
-            
+
             if best_contour is None:
                 best_contour = max(contours, key=cv2.contourArea)
-            
+
             contour_to_approx = best_contour
-            
+
             epsilon = precision * cv2.arcLength(contour_to_approx, True)
             approx = cv2.approxPolyDP(contour_to_approx, epsilon, True)
-            
+
             for pt in approx:
                 points_res.append({"x": float(pt[0][0]), "y": float(pt[0][1])})
-                
-        return {
-            "points": points_res
-        }
+
+        return {"points": points_res}
 
     if type(_sam_model) is dict:
         pass
     else:
         _sam_model = {}
-        
+
     if sam_model_file not in _sam_model:
         with _sam_lock:
             if sam_model_file not in _sam_model:
                 _sam_model[sam_model_file] = SAM(sam_model_file)
                 if torch.cuda.is_available():
-                    _sam_model[sam_model_file].to('cuda')
-    
+                    _sam_model[sam_model_file].to("cuda")
+
     active_sam = _sam_model[sam_model_file]
-                
+
     with _sam_lock:
         if bbox:
             results = active_sam(image_bgr, bboxes=[bbox], verbose=False)
         else:
-            results = active_sam(image_bgr, points=[pts_array], labels=[lbls_array], verbose=False)
-    
+            results = active_sam(
+                image_bgr, points=[pts_array], labels=[lbls_array], verbose=False
+            )
+
     points_res = []
     if results and len(results) > 0 and results[0].masks:
         masks = results[0].masks
         if masks.data is not None and len(masks.data) > 0:
             # Convert binary mask tensor to numpy array
             mask_np = (masks.data[0].cpu().numpy() * 255).astype(np.uint8)
-            
+
             # Find external contours
-            contours, _ = cv2.findContours(mask_np, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            contours, _ = cv2.findContours(
+                mask_np, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            )
             if contours:
                 # Find the contour that contains the clicked point (x, y)
                 best_contour = None
@@ -737,26 +888,24 @@ def segment_point(image_data, points=None, labels=None, prompt=None, precision=0
                     if dist >= 0:
                         best_contour = c
                         break
-                
+
                 # Fallback to the largest contour if no contour contains the point directly
                 if best_contour is None:
                     best_contour = max(contours, key=cv2.contourArea)
-                
+
                 contour_to_approx = best_contour
-                
+
                 # Approximate the contour to simplify it and remove redundant points/crisscross lines
                 epsilon = precision * cv2.arcLength(contour_to_approx, True)
                 approx = cv2.approxPolyDP(contour_to_approx, epsilon, True)
-                
+
                 for pt in approx:
                     points_res.append({"x": float(pt[0][0]), "y": float(pt[0][1])})
-        
+
         # Fallback to masks.xy if masks.data is not accessible
         if not points_res and masks.xy and len(masks.xy) > 0:
             segment = masks.xy[0]
             for pt in segment:
                 points_res.append({"x": float(pt[0]), "y": float(pt[1])})
-                
-    return {
-        "points": points_res
-    }
+
+    return {"points": points_res}
