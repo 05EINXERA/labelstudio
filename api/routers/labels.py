@@ -25,3 +25,11 @@ def create_or_update_label(label: LabelModel, db: Session = Depends(get_db)):
         db.add(db_label)
     db.commit()
     return {"status": "ok", "id": db_label.id}
+
+@router.delete("/{label_id}")
+def delete_label(label_id: str, db: Session = Depends(get_db)):
+    db_label = db.query(models.Label).filter(models.Label.id == label_id).first()
+    if db_label:
+        db.delete(db_label)
+        db.commit()
+    return {"status": "ok"}
