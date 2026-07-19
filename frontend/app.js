@@ -3010,6 +3010,55 @@ if (exportObjectsBtn) {
   });
 }
 
+const exportImageBtn = document.getElementById("exportImageBtn");
+if (exportImageBtn) {
+  exportImageBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (!imageLoaded || !imageElement) {
+      alert("No image loaded to export.");
+      return;
+    }
+    
+    const exportCvs = document.createElement("canvas");
+    exportCvs.width = imageElement.naturalWidth;
+    exportCvs.height = imageElement.naturalHeight;
+    const exportCtx = exportCvs.getContext("2d");
+    
+    exportCtx.drawImage(imageElement, 0, 0);
+    
+    state.annotations.forEach(ann => {
+      const color = labelById(ann.labelId)?.color || "#0f8b8d";
+      exportCtx.strokeStyle = color;
+      exportCtx.lineWidth = Math.max(2, Math.floor(Math.min(exportCvs.width, exportCvs.height) * 0.002));
+      exportCtx.fillStyle = color + "40"; // ~25% opacity
+      
+      const isPolygon = ann.type === "polygon" || (ann.points && ann.points.length !== 4);
+      
+      exportCtx.beginPath();
+      if (isPolygon && ann.points && ann.points.length > 0) {
+        ann.points.forEach((pt, i) => {
+          if (i === 0) exportCtx.moveTo(pt.x, pt.y);
+          else exportCtx.lineTo(pt.x, pt.y);
+        });
+      } else {
+        exportCtx.rect(ann.x, ann.y, ann.width, ann.height);
+      }
+      exportCtx.closePath();
+      exportCtx.fill();
+      exportCtx.stroke();
+    });
+    
+    const dataUrl = exportCvs.toDataURL("image/jpeg", 0.95);
+    const a = document.createElement("a");
+    a.href = dataUrl;
+    const originalName = state.imageName || "export";
+    a.download = originalName.replace(/\.[^/.]+$/, "") + "_annotated.jpg";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  });
+}
+
 labelStudioButton.addEventListener("click", sendToEndpoint);
 
 labelStudioProxyInput.addEventListener("change", () => {
