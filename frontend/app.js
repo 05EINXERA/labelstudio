@@ -985,7 +985,7 @@ function draw() {
     const pts = annotation?.points || [];
     const label = annotation ? labelById(annotation.labelId) : null;
     const edgeColor = label ? label.color : "#0f8b8d";
-    const fillColor = label ? hexToRgba(label.color, 0.2) : "rgba(15, 139, 141, 0.35)";
+    const fillColor = label ? hexToRgba(label.color, 0.4) : "rgba(15, 139, 141, 0.4)"; // Increased opacity
 
     // The starting point is now distinguished by filling it with the class color via drawVertexHandles
     // Draw preview line from last point to cursor
@@ -999,6 +999,22 @@ function draw() {
       const mouseY = drag.previewCanvas ? drag.previewCanvas.y : ey;
 
       ctx.save();
+      
+      // Draw dynamic fill for the polygon being drawn
+      if (pts.length >= 2) {
+        ctx.beginPath();
+        pts.forEach((pt, i) => {
+          const px = imageBox.x + pt.x * imageBox.scale;
+          const py = imageBox.y + pt.y * imageBox.scale;
+          if (i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        });
+        ctx.lineTo(ex, ey);
+        ctx.closePath();
+        ctx.fillStyle = fillColor;
+        ctx.fill();
+      }
+
       ctx.setLineDash([6, 4]);
       ctx.strokeStyle = edgeColor;
       ctx.lineWidth = 2;
@@ -3134,16 +3150,14 @@ canvas.addEventListener("wheel", (event) => {
 }, { passive: false });
 
 canvas.addEventListener("contextmenu", (event) => {
-  if (state.selectedId) {
-    event.preventDefault();
-  }
+  event.preventDefault();
 });
 
 canvas.addEventListener("pointerdown", (event) => {
   if (!imageLoaded) return;
   canvas.setPointerCapture(event.pointerId);
 
-  if (event.button === 1 || (event.button === 0 && event.shiftKey && event.altKey)) {
+  if (event.button === 2 || (event.button === 0 && event.shiftKey && event.altKey)) {
     event.preventDefault();
     isPanning = true;
     panStart = { x: event.clientX, y: event.clientY, panX: viewPan.x, panY: viewPan.y };
