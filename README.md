@@ -54,3 +54,21 @@ git rm -r --cached models/
 git commit --amend -C HEAD
 git push origin main
 ```
+
+## Configuration & Environment Variables
+
+You can configure the application using the following environment variables:
+
+- `DATA_DIR`: Defines where the SQLite database and uploaded images are stored. Defaults to `.` (the current directory). Set this to a persistent volume path (e.g., `/data`) when deploying to production to ensure data isn't lost on restart.
+- `JWT_SECRET`: Used for securely signing tokens if you implement authentication. Ensure you change this to a strong, random string in production.
+
+## Deployment (Render.com)
+
+This project is fully configured for seamless deployment on **Render**. It includes a `render.yaml` Blueprint that automatically sets up the Python environment, dependencies, and a **Persistent Disk** to safely store your annotation database and images.
+
+To deploy:
+1. Push your repository to GitHub.
+2. Log in to [Render](https://render.com).
+3. Click **New** -> **Blueprint**.
+4. Connect your GitHub repository. Render will automatically read the `render.yaml` file, provision the persistent 5GB `/data` disk, and start the FastAPI server.
+5. *Important*: Go to the **Environment** tab of your new service in the Render dashboard and update the `JWT_SECRET` to a secure random string.
