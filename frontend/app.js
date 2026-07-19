@@ -1871,18 +1871,20 @@ function buildCocoExport() {
     });
 
     const exportGroups = [...Object.values(grouped), ...ungrouped];
-
     exportGroups.forEach(group => {
       const baseAnn = group[0];
       const label = labelById(baseAnn.labelId);
       const category_id = labelToCategoryId[label.name] || 1;
+      const isPolygon = baseAnn.type === "polygon" || (baseAnn.points && baseAnn.points.length !== 4);
 
       const segmentation = [];
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 
       group.forEach(ann => {
         const points = annotationPoints(ann);
-        segmentation.push(points.flatMap(p => [round(p.x), round(p.y)]));
+        if (isPolygon) {
+          segmentation.push(points.flatMap(p => [round(p.x), round(p.y)]));
+        }
         points.forEach(p => {
           minX = Math.min(minX, p.x);
           minY = Math.min(minY, p.y);
@@ -2145,7 +2147,15 @@ function importData(file) {
           const label = ensureLabel(labelName);
 
           let parsedPoints = null;
-          if (Array.isArray(item.points) && item.points.length >= 3) {
+          let parsedType = item.type || "bbox";
+          if (Array.isArray(item.segmentation) && item.segmentation.length > 0 && item.segmentation[0].length > 0) {
+            const seg = item.segmentation[0];
+            parsedPoints = [];
+            for (let i = 0; i < seg.length; i += 2) {
+              parsedPoints.push({ x: Number(seg[i]) || 0, y: Number(seg[i + 1]) || 0 });
+            }
+            parsedType = "polygon";
+          } else if (Array.isArray(item.points) && item.points.length >= 3) {
             if (typeof item.points[0] === 'number') {
               parsedPoints = [];
               for (let i = 0; i < item.points.length; i += 2) {
@@ -2153,6 +2163,9 @@ function importData(file) {
               }
             } else {
               parsedPoints = item.points.map((point) => ({ x: Number(point.x) || 0, y: Number(point.y) || 0 }));
+            }
+            if (!item.type && parsedPoints.length !== 4) {
+              parsedType = "polygon";
             }
           }
 
@@ -2183,6 +2196,7 @@ function importData(file) {
           const annotation = {
             id: item.id || generateUUID(),
             labelId: label.id,
+            type: parsedType,
             score: item.score,
             source: item.source,
             detectedClass: item.detectedClass,
@@ -2996,8 +3010,9 @@ if (exportObjectsBtn) {
       let segmentation = [];
       let bbox = [ann.x, ann.y, ann.width, ann.height];
       let area = ann.width * ann.height; // Rough estimate
+      const isPolygon = ann.type === "polygon" || (ann.points && ann.points.length !== 4);
 
-      if (ann.points && ann.points.length > 0) {
+      if (isPolygon && ann.points && ann.points.length > 0) {
         segmentation = [ann.points.flatMap(p => [p.x, p.y])];
         // Calculate precise area of polygon using shoelace formula
         let polyArea = 0;
