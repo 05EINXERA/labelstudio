@@ -2815,11 +2815,13 @@ if (importObjectsBtn && importObjectsInput) {
 
         // Detect COCO Format
         if (importedData.images && importedData.annotations && importedData.categories) {
-          // Map COCO category id (int) to our labelId (uuid)
           const catIdToLabelId = {};
           for (const cat of importedData.categories) {
-            const existing = ensureLabel(cat.title || cat.name, cat.color);
-            catIdToLabelId[cat.id] = existing.id;
+            const name = cat.title || cat.name;
+            if (name) {
+              const existing = ensureLabel(name, cat.color);
+              catIdToLabelId[cat.id] = existing.id;
+            }
           }
 
           for (const ann of importedData.annotations) {
@@ -2833,7 +2835,6 @@ if (importObjectsBtn && importObjectsInput) {
                 points.push({ x: seg[i], y: seg[i + 1] });
               }
             } else if (ann.bbox && ann.bbox.length === 4) {
-              // Convert bbox to polygon
               const [x, y, w, h] = ann.bbox;
               points = [
                 { x: x, y: y }, { x: x + w, y: y }, { x: x + w, y: y + h }, { x: x, y: y + h }
@@ -2872,24 +2873,44 @@ if (importObjectsBtn && importObjectsInput) {
             setStatus(`Imported ${count} classes.`);
             return;
           }
-          // Legacy format
-          importedAnnotations = importedData;
+          // Legacy format: Validate each annotation
+          for (const ann of importedData) {
+             if (ann.points && ann.labelId) {
+                // Ensure the label actually exists, otherwise assign a default or skip
+                let label = labelById(ann.labelId);
+                if (!label) {
+                   // Try to recover by creating a generic label or use active label
+                   if (state.activeLabelId && labelById(state.activeLabelId)) {
+                      ann.labelId = state.activeLabelId;
+                   } else {
+                      continue; // Skip invalid annotation
+                   }
+                }
+                if (!ann.id) ann.id = generateUUID();
+                importedAnnotations.push(ann);
+             }
+          }
         } else {
           alert("Invalid objects file format. Expected COCO JSON or a JSON array.");
           return;
         }
 
-        state.annotations = [...state.annotations, ...importedAnnotations];
-        render();
-        save();
-        setStatus(`Imported ${importedAnnotations.length} objects.`);
+        if (importedAnnotations.length > 0) {
+          state.annotations = [...state.annotations, ...importedAnnotations];
+          render();
+          save();
+          setStatus(`Imported ${importedAnnotations.length} objects.`);
+        } else {
+          alert("No valid objects found to import.");
+        }
       } catch (err) {
         console.error(err);
         alert("Failed to parse objects JSON.");
+      } finally {
+        importObjectsInput.value = ""; // reset
       }
     };
     reader.readAsText(file);
-    importObjectsInput.value = ""; // reset
   });
 }
 
@@ -3146,6 +3167,10 @@ canvas.addEventListener("pointerdown", (event) => {
     if (selected && selected.points && selected.points.length >= 3) {
       const ptIndex = hitTestPoint(point, selected);
       if (ptIndex !== -1) {
+        if (drag?.type === "draw-polygon" && ptIndex === 0) {
+          finalizePolygon();
+          return;
+        }
         snapshot();
         drag = {
           type: "move-point",
@@ -3248,18 +3273,9 @@ canvas.addEventListener("pointerdown", (event) => {
         const annotation = state.annotations.find((item) => item.id === drag.annotationId);
         if (!annotation) { drag = null; render(); return; }
         const pts = annotation.points || [];
-        const firstPoint = pts[0];
-        // Close polygon when clicking near the first point
-        if (firstPoint && pts.length >= 3) {
-          const screenFirst = {
-            x: imageBox.x + firstPoint.x * imageBox.scale,
-            y: imageBox.y + firstPoint.y * imageBox.scale
-          };
-          if (Math.hypot(screenFirst.x - point.x, screenFirst.y - point.y) < closeThreshold) {
-            finalizePolygon();
-            return;
-          }
-        }
+        
+        // Closure is now handled by the hitTestPoint logic above
+        
         const lastPoint = pts[pts.length - 1];
         if (!lastPoint || Math.hypot(lastPoint.x - pointInImage.x, lastPoint.y - pointInImage.y) > 1) {
           annotation.points.push({ x: round(pointInImage.x), y: round(pointInImage.y) });
