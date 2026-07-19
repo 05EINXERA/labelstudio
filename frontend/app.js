@@ -2845,16 +2845,19 @@ if (importObjectsBtn && importObjectsInput) {
             if (!labelId) continue;
 
             let points = [];
+            let type = "bbox";
             if (ann.segmentation && ann.segmentation.length > 0 && ann.segmentation[0].length > 0) {
               const seg = ann.segmentation[0];
               for (let i = 0; i < seg.length; i += 2) {
                 points.push({ x: seg[i], y: seg[i + 1] });
               }
+              type = "polygon";
             } else if (ann.bbox && ann.bbox.length === 4) {
               const [x, y, w, h] = ann.bbox;
               points = [
                 { x: x, y: y }, { x: x + w, y: y }, { x: x + w, y: y + h }, { x: x, y: y + h }
               ];
+              type = "bbox";
             }
 
             if (points.length > 0) {
@@ -2869,7 +2872,8 @@ if (importObjectsBtn && importObjectsInput) {
                 x: bounds.x,
                 y: bounds.y,
                 width: bounds.width,
-                height: bounds.height
+                height: bounds.height,
+                type: type
               });
             }
           }
