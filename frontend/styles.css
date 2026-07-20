@@ -354,6 +354,8 @@ h2 {
 }
 
 .workspace {
+  position: sticky;
+  top: 0;
   display: grid;
   grid-template-rows: auto 1fr auto;
   gap: 14px;
