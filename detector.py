@@ -39,6 +39,34 @@ _clip_model = None
 _clip_processor = None
 _clip_model_lock = threading.RLock()
 
+def fft_smooth_contour(contour, keep_fraction=0.1):
+    """
+    Smooth a contour using Fast Fourier Transform.
+    """
+    if len(contour) < 10:
+        return contour
+        
+    x = contour[:, 0, 0]
+    y = contour[:, 0, 1]
+    
+    x_fft = np.fft.fft(x)
+    y_fft = np.fft.fft(y)
+    
+    n = len(x)
+    cutoff = max(1, int(n * keep_fraction))
+    
+    if cutoff < n // 2:
+        x_fft[cutoff : n - cutoff] = 0
+        y_fft[cutoff : n - cutoff] = 0
+    
+    x_smooth = np.fft.ifft(x_fft).real
+    y_smooth = np.fft.ifft(y_fft).real
+    
+    smoothed_contour = np.zeros_like(contour, dtype=np.float32)
+    smoothed_contour[:, 0, 0] = x_smooth
+    smoothed_contour[:, 0, 1] = y_smooth
+    
+    return smoothed_contour.astype(np.int32)
 _sam_model = None
 _sam_lock = threading.RLock()
 
@@ -837,7 +865,7 @@ def segment_point(
             if best_contour is None:
                 best_contour = max(contours, key=cv2.contourArea)
 
-            contour_to_approx = best_contour
+            contour_to_approx = fft_smooth_contour(best_contour, keep_fraction=0.1)
 
             epsilon = precision * cv2.arcLength(contour_to_approx, True)
             approx = cv2.approxPolyDP(contour_to_approx, epsilon, True)
@@ -893,7 +921,7 @@ def segment_point(
                 if best_contour is None:
                     best_contour = max(contours, key=cv2.contourArea)
 
-                contour_to_approx = best_contour
+                contour_to_approx = fft_smooth_contour(best_contour, keep_fraction=0.1)
 
                 # Approximate the contour to simplify it and remove redundant points/crisscross lines
                 epsilon = precision * cv2.arcLength(contour_to_approx, True)
