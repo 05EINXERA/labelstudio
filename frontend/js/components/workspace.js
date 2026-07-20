@@ -88,8 +88,7 @@ export function syncToBackend() {
       assignee: username,
       annotations: JSON.stringify(currentTask.annotations),
       updated_at: currentTask.updated_at
-    }),
-    keepalive: true
+    })
   })
     .then(async res => {
       if (res.status === 409) {
