@@ -140,13 +140,17 @@ export function finalizePolygon() {
 export function setZoom(newZoom, mouseX, mouseY) {
   if (!view.imageLoaded) return;
   const oldZoom = view.viewZoom;
-  view.viewZoom = Math.max(0.01, Math.min(100, newZoom));
+  view.viewZoom = Math.max(0.25, Math.min(100, newZoom));
 
   const rect = canvas.getBoundingClientRect();
   const cx = mouseX !== undefined ? mouseX : rect.width / 2;
   const cy = mouseY !== undefined ? mouseY : rect.height / 2;
 
-  const baseScale = Math.min(rect.width / view.imageElement.naturalWidth, rect.height / view.imageElement.naturalHeight);
+  // Must match computeImageBox's contain-fit, or zoom-at-cursor drifts.
+  const baseScale = Math.min(
+    rect.width / view.imageElement.naturalWidth,
+    rect.height / view.imageElement.naturalHeight
+  );
   const oldScale = baseScale * oldZoom;
   const newScale = baseScale * view.viewZoom;
 
