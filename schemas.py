@@ -92,6 +92,7 @@ class LabelModel(BaseModel):
     id: str
     name: str
     color: str
+    project_id: Optional[int] = None
 
 
 class UserCreate(BaseModel):

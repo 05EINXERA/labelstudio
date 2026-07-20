@@ -46,6 +46,7 @@ class Label(Base):
     id = Column(String, primary_key=True, index=True)
     name = Column(String)
     color = Column(String)
+    project_id = Column(Integer, ForeignKey("projects.id"), index=True, nullable=True)
 
 
 class User(Base):

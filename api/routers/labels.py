@@ -1,7 +1,8 @@
-from typing import List
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 
 import models
 from api.auth import get_current_user
@@ -14,9 +15,14 @@ router = APIRouter(
 
 
 @router.get("", response_model=List[LabelModel])
-def get_labels(db: Session = Depends(get_db)):
-    labels = db.query(models.Label).all()
-    return [{"id": l.id, "name": l.name, "color": l.color} for l in labels]
+def get_labels(projectId: Optional[int] = Query(None), db: Session = Depends(get_db)):
+    if projectId:
+        labels = db.query(models.Label).filter(
+            or_(models.Label.project_id == projectId, models.Label.project_id.is_(None))
+        ).all()
+    else:
+        labels = db.query(models.Label).filter(models.Label.project_id.is_(None)).all()
+    return [{"id": l.id, "name": l.name, "color": l.color, "project_id": l.project_id} for l in labels]
 
 
 @router.post("")
@@ -25,8 +31,10 @@ def create_or_update_label(label: LabelModel, db: Session = Depends(get_db)):
     if db_label:
         db_label.name = label.name
         db_label.color = label.color
+        if label.project_id is not None:
+            db_label.project_id = label.project_id
     else:
-        db_label = models.Label(id=label.id, name=label.name, color=label.color)
+        db_label = models.Label(id=label.id, name=label.name, color=label.color, project_id=label.project_id)
         db.add(db_label)
     db.commit()
     return {"status": "ok", "id": db_label.id}

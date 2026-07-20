@@ -261,10 +261,12 @@ function ensureLabel(className, customColor = null) {
   const existing = labelByName(name);
   if (existing) return existing;
 
+  const pId = new URLSearchParams(window.location.search).get("projectId");
   const label = {
     id: generateUUID(),
     name,
     color: customColor || colorForName(name),
+    project_id: pId ? parseInt(pId, 10) : null
   };
   state.labels.push(label);
 
@@ -4942,7 +4944,9 @@ createProjectSidebarForm.addEventListener("submit", async (e) => {
 
 async function fetchLabels() {
   try {
-    const res = await apiFetch("/api/labels");
+    const pId = new URLSearchParams(window.location.search).get("projectId");
+    const url = pId ? `/api/labels?projectId=${pId}` : "/api/labels";
+    const res = await apiFetch(url);
     if (res.ok) {
       const labels = await res.json();
       state.labels = labels;
