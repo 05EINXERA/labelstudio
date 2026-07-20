@@ -2,12 +2,14 @@ import numpy as np
 from ultralytics import SAM
 import cv2
 
+from detector import WAND_MODEL_DIR, resolve_model_path
+
 # Create a dummy image: a black image with a white square in the middle
 image = np.zeros((100, 100, 3), dtype=np.uint8)
 cv2.rectangle(image, (30, 30), (70, 70), (255, 255, 255), -1)
 
 # Initialize Mobile SAM
-model = SAM('mobile_sam.pt')
+model = SAM(resolve_model_path('mobile_sam.pt', WAND_MODEL_DIR))
 
 try:
     x, y = 50, 50

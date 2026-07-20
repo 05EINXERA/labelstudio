@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
+import traceback
 import uuid
 
 from detector import DetectionClientError, detect_objects, classify_image
@@ -23,7 +24,7 @@ def run_detect_job(job_id: str, payload: DetectPayload):
     except DetectionClientError as error:
         JOBS[job_id] = {"status": "failed", "error": str(error)}
     except Exception as e:
-        print(f"Detection error: {e}")
+        traceback.print_exc()
         JOBS[job_id] = {"status": "failed", "error": "Object detection failed."}
 
 def run_classify_job(job_id: str, payload: ClassifyPayload):
@@ -33,7 +34,7 @@ def run_classify_job(job_id: str, payload: ClassifyPayload):
     except DetectionClientError as error:
         JOBS[job_id] = {"status": "failed", "error": str(error)}
     except Exception as e:
-        print(f"Classification error: {e}")
+        traceback.print_exc()
         JOBS[job_id] = {"status": "failed", "error": "Image classification failed."}
 
 def run_segment_job(job_id: str, payload: SegmentPayload):
@@ -52,7 +53,7 @@ def run_segment_job(job_id: str, payload: SegmentPayload):
     except DetectionClientError as error:
         JOBS[job_id] = {"status": "failed", "error": str(error)}
     except Exception as e:
-        print(f"Segmentation error: {e}")
+        traceback.print_exc()
         JOBS[job_id] = {"status": "failed", "error": "Image segmentation failed."}
 
 @router.get("/status/{job_id}")
