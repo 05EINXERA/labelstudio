@@ -77,6 +77,7 @@ class LabelModel(BaseModel):
     id: str
     name: str
     color: str
+    projectId: int
 
 class UserCreate(BaseModel):
     username: str
