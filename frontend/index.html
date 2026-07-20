@@ -143,7 +143,7 @@
             localStorage.setItem("logged_in", "true");
             localStorage.removeItem("image-annotation-mvp-v1");
 
-            window.location.href = "app.html";
+            window.location.replace("app.html");
           } catch (err) {
             errorMsg.textContent = err.message;
             errorMsg.style.display = "block";
