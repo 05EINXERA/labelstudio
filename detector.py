@@ -12,8 +12,10 @@ from PIL import Image
 
 
 MODEL_DIR = os.path.join(DATA_DIR, "models")
+DETECTOR_MODEL_DIR = os.path.join(MODEL_DIR, "detector")
+WAND_MODEL_DIR = os.path.join(MODEL_DIR, "wand")
 MODEL_FILE = os.environ.get("YOLO_MODEL", "yolov8n-seg.onnx")
-model_path = MODEL_FILE if os.path.isabs(MODEL_FILE) else os.path.join(MODEL_DIR, MODEL_FILE)
+model_path = MODEL_FILE if os.path.isabs(MODEL_FILE) else os.path.join(DETECTOR_MODEL_DIR, MODEL_FILE)
 download_url = os.environ.get(
     "YOLO_download_url",
     "https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8n-seg.pt", 
@@ -67,10 +69,29 @@ class DetectionClientError(ValueError):
     """Invalid or unsupported client input."""
 
 
+def resolve_model_path(name, model_dir):
+    """Resolve a model reference to a concrete path under model_dir.
+
+    Hugging Face repo ids ("facebook/sam2-hiera-large") are passed through
+    untouched so transformers can resolve them from the hub. Bare filenames are
+    anchored to model_dir, otherwise Ultralytics resolves them against the
+    current working directory and silently re-downloads into the repo root.
+    """
+    if not name:
+        return name
+    if os.path.isabs(name):
+        return name
+    if "/" in name or "\\" in name:
+        return name
+
+    os.makedirs(model_dir, exist_ok=True)
+    return os.path.join(model_dir, name)
+
+
 def ensure_model_file(model_size='n'):
     file_name = f'yolov8{model_size}-seg.onnx'
     download_url = f'https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8{model_size}-seg.pt'
-    model_path = os.path.join(MODEL_DIR, file_name)
+    model_path = os.path.join(DETECTOR_MODEL_DIR, file_name)
 
     if os.path.isfile(model_path):
         return model_path
@@ -170,8 +191,9 @@ def get_yolo_world_model():
                     import torch
                 except ImportError:
                     raise RuntimeError("Please install ultralytics and torch to use YOLO-World.")
-                print(f"Loading YOLO-World model {YOLO_WORLD_MODEL}...")
-                _yolo_world_model = YOLOWorld(YOLO_WORLD_MODEL)
+                world_path = resolve_model_path(YOLO_WORLD_MODEL, DETECTOR_MODEL_DIR)
+                print(f"Loading YOLO-World model {world_path}...")
+                _yolo_world_model = YOLOWorld(world_path)
                 if torch.cuda.is_available():
                     _yolo_world_model.to('cuda')
     return _yolo_world_model
@@ -641,8 +663,8 @@ def segment_point(image_data, points=None, labels=None, prompt=None, precision=0
                 }
     
     global _sam_model, _hf_sam2_model, _hf_sam2_processor
-    sam_model_file = sam_model if sam_model else 'mobile_sam.pt'
-    
+    sam_model_file = resolve_model_path(sam_model or 'mobile_sam.pt', WAND_MODEL_DIR)
+
     if sam_model_file == "facebook/sam2-hiera-large":
         from transformers import Sam2Model, Sam2Processor
         with _hf_sam2_lock:
