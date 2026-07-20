@@ -1784,8 +1784,8 @@ function renderAnnotations() {
       form.addEventListener("click", (ev) => ev.stopPropagation());
     });
 
-    item.querySelector(".delete-ann-btn").addEventListener("click", (e) => {
-      e.stopPropagation();
+    item.querySelector(".delete-ann-btn").addEventListener("click", (ev) => {
+      ev.stopPropagation();
       if (confirm(`Delete this object?`)) {
         snapshot();
         if (isGroup) {
@@ -1797,10 +1797,13 @@ function renderAnnotations() {
             (a) => a.id !== annotation.id,
           );
         }
-        state.selectedIds.clear();
-        state.selectedId = null;
-        save();
+        if (state.selectedId === annotation.id) {
+          state.selectedId = null;
+          state.selectedIds.clear();
+        }
         render();
+        save();
+        setStatus(isGroup ? "Group deleted" : "Annotation deleted");
       }
     });
 
