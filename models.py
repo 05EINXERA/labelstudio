@@ -37,6 +37,7 @@ class TeamMember(Base):
 class Label(Base):
     __tablename__ = "labels"
     id = Column(String, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), index=True)
     name = Column(String)
     color = Column(String)
 
