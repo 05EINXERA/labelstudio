@@ -2774,6 +2774,8 @@ boxMode.addEventListener("click", () => {
 polygonMode.addEventListener("click", () => {
   state.mode = "draw";
   state.shape = "polygon";
+  selectedLineIndex = -1;
+  hoveredLineIndex = -1;
   render();
 });
 
@@ -3667,8 +3669,17 @@ canvas.addEventListener("pointerdown", (event) => {
       const ptIndex = hitTestPoint(point, selected);
       if (ptIndex !== -1) {
         if (drag?.type === "draw-polygon") {
-          // Skip hit testing while drawing so we don't auto-snap or move points.
-          // The user must press Enter to explicitly close the polygon.
+          if (ptIndex === 0) {
+            // Only close if they ACTUALLY touch it (strict threshold, e.g. 2 pixels)
+            const img = imagePoint(point);
+            const startPt = selected.points[0];
+            const strictThreshold = 2 / imageBox.scale;
+            if (Math.hypot(startPt.x - img.x, startPt.y - img.y) <= strictThreshold) {
+              finalizePolygon();
+              return;
+            }
+          }
+          // Otherwise, skip hit testing (don't move points while drawing)
         } else {
           snapshot();
           drag = {
@@ -3776,9 +3787,12 @@ canvas.addEventListener("pointerdown", (event) => {
         updateAnnotationBounds(annotation);
         state.annotations.push(annotation);
         state.selectedId = annotation.id;
-        drag = { type: "draw-polygon", annotationId: annotation.id };
+        selectedLineIndex = -1;
+        hoveredLineIndex = -1;
+        drag = { type: "draw-polygon", annotationId: annotation.id, isDragging: true };
       } else {
         // Subsequent points – add to the live annotation
+        drag.isDragging = true;
         const annotation = state.annotations.find(
           (item) => item.id === drag.annotationId,
         );
@@ -3890,6 +3904,19 @@ canvas.addEventListener("pointermove", (event) => {
   if (drag.type === "draw-polygon") {
     drag.preview = end;
     drag.previewCanvas = point;
+    
+    // Auto-clicker (freehand drawing) support
+    if (drag.isDragging) {
+      const annotation = state.annotations.find((a) => a.id === drag.annotationId);
+      if (annotation && annotation.points && annotation.points.length > 0) {
+        const lastPoint = annotation.points[annotation.points.length - 1];
+        // Drop a new point every 10 image pixels while dragging
+        if (Math.hypot(lastPoint.x - end.x, lastPoint.y - end.y) > 10) {
+          annotation.points.push({ x: round(end.x), y: round(end.y) });
+          updateAnnotationBounds(annotation);
+        }
+      }
+    }
     draw();
   } else if (drag.type === "draw" && state.mode === "draw") {
     const start = drag.draft.points?.[0] || { x: end.x, y: end.y };
@@ -3978,6 +4005,9 @@ canvas.addEventListener("pointerup", (e) => {
     isPanning = false;
     canvas.style.cursor = "default";
     return;
+  }
+  if (drag?.type === "draw-polygon") {
+    drag.isDragging = false;
   }
   if (drag?.type === "move-point") {
     drag = null;
