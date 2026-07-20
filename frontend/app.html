@@ -304,8 +304,9 @@
                   <select id="settingsAiSamModel" style="width: 100%; height: 28px; padding: 0 4px; border: 1px solid var(--line); border-radius: 4px; background: #fff; font-size: 0.75rem; color: var(--ink);">
                     <option value="mobile_sam.pt">MobileSAM (Fast)</option>
                     <option value="sam_b.pt">SAM 1 Base (Accurate)</option>
-                    <option value="sam_l.pt">SAM 1 Large (Best)</option>
-                    <option value="facebook/sam2-hiera-large">SAM 2 Hiera Large (Hugging Face)</option>
+                    <option value="FastSAM-s.pt">FastSAM Small (Fastest)</option>
+                    <option value="sam_l.pt">SAM 1 Large (Best) — downloads ~1.2GB</option>
+                    <option value="facebook/sam2-hiera-large">SAM 2 Hiera Large — downloads ~900MB</option>
                   </select>
                 </div>
                 <div>
@@ -379,7 +380,7 @@
         <div class="empty-state" id="emptyState">
           <div>
             <p class="eyebrow">Start annotating</p>
-            <h2>Drop an image, draw a selection, then Annote </h2>
+            <h2>Drop an image, draw a selection, then Annotate </h2>
           </div>
         </div>
         <canvas id="imageCanvas" width="1280" height="800" aria-label="Image background canvas"></canvas>
@@ -730,7 +731,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=17"></script>
+  <script type="module" src="js/init.js?v=1"></script>
 
 </body>
 

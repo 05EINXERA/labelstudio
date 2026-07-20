@@ -20,13 +20,11 @@ app = FastAPI()
 async def add_cache_headers(request, call_next):
     response = await call_next(request)
     path = request.url.path
-    if path.endswith("app.js"):
-        response.headers["Cache-Control"] = "public, max-age=31536000"
-    elif (
-        path.endswith(".js") or 
-        path.endswith(".html") or 
-        path.endswith(".css") or 
-        path == "/" or 
+    if (
+        path.endswith(".js") or
+        path.endswith(".html") or
+        path.endswith(".css") or
+        path == "/" or
         path.startswith("/frontend")
     ):
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
