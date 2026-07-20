@@ -421,11 +421,6 @@
                     if (payload.annotations) {
                       payload.annotations = payload.annotations.filter(a => !selectedClassIds.has(a.labelId));
                     }
-                    
-                    // Also delete from backend /api/labels route
-                    selectedClassIds.forEach(id => {
-                      apiFetch('/api/labels/' + id, { method: 'DELETE' }).catch(e => console.error(e));
-                    });
 
                     selectedClassIds.clear();
                     savePayload();
@@ -518,9 +513,6 @@
                         if (payload.annotations) {
                           payload.annotations = payload.annotations.filter(a => a.labelId !== l.id);
                         }
-                        
-                        // Also delete from backend /api/labels route
-                        apiFetch('/api/labels/' + l.id, { method: 'DELETE' }).catch(e => console.error(e));
 
                         savePayload();
                         renderClassesModal();

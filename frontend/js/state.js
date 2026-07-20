@@ -21,7 +21,7 @@ export const state = {
   selectedIds: new Set(),
   activeLabelId: null,
   mode: "draw",
-  shape: "box",
+  shape: "polygon",
   history: []
 };
 

@@ -45,12 +45,15 @@ export function ensureLabel(className, customColor = null) {
   };
   state.labels.push(label);
 
-  // Persist to backend asynchronously
-  apiFetch('/api/labels', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(label)
-  }).catch(err => console.error("Failed to save label to backend:", err));
+  const projectId = new URLSearchParams(window.location.search).get('projectId');
+  if (projectId) {
+    // Persist to backend asynchronously
+    apiFetch('/api/labels', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...label, projectId: Number(projectId) })
+    }).catch(err => console.error("Failed to save label to backend:", err));
+  }
 
   return label;
 }
@@ -463,7 +466,7 @@ export function renderAnnotations() {
         commentOverlayRefs.commentOverlayInput.focus();
       });
     } else {
-      selectedInfo.textContent = `${labelDisplayName(labelById(selected.labelId))}, ${annotationPoints(selected).length} points`;
+      selectedInfo.textContent = labelDisplayName(labelById(selected.labelId));
     }
   } else {
     selectedInfo.textContent = "None";

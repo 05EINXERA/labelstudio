@@ -1294,8 +1294,14 @@ createProjectSidebarForm.addEventListener('submit', async (e) => {
 });
 
 async function fetchLabels() {
+  if (!projectId) {
+    // No project context: never show classes cached from a previous project/user.
+    state.labels = [];
+    render();
+    return;
+  }
   try {
-    const res = await apiFetch('/api/labels');
+    const res = await apiFetch(`/api/labels?projectId=${projectId}`);
     if (res.ok) {
       const labels = await res.json();
       state.labels = labels;

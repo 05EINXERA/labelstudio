@@ -1,5 +1,5 @@
 import { canvas, ctx, imageCanvas, imageCtx, staticCanvas, staticCtx } from "../dom.js?v=1";
-import { state, handleSize, labelById, labelDisplayName } from "../state.js?v=1";
+import { state, handleSize, labelById } from "../state.js?v=1";
 import { view } from "./view.js?v=1";
 import { annotationPoints, hexToRgba } from "./geometry.js?v=1";
 
@@ -10,7 +10,12 @@ export function computeImageBox() {
   }
 
   const rect = canvas.getBoundingClientRect();
-  const baseScale = Math.min(rect.width / view.imageElement.naturalWidth, rect.height / view.imageElement.naturalHeight);
+  // Contain-fit: at zoom 1 the whole image fits inside the canvas on both axes,
+  // so a tall image is never cut off at the top and bottom edges.
+  const baseScale = Math.min(
+    rect.width / view.imageElement.naturalWidth,
+    rect.height / view.imageElement.naturalHeight
+  );
   const scale = baseScale * view.viewZoom;
   const width = view.imageElement.naturalWidth * scale;
   const height = view.imageElement.naturalHeight * scale;
@@ -91,7 +96,9 @@ export function draw() {
     const pts = annotation?.points || [];
     const label = annotation ? labelById(annotation.labelId) : null;
     const edgeColor = label ? label.color : "#0f8b8d";
-    const fillColor = label ? hexToRgba(label.color, 0.4) : "rgba(15, 139, 141, 0.4)"; // Increased opacity
+    // Matches the committed-annotation fill so the shape does not visibly
+    // change shade the moment the polygon is closed.
+    const fillColor = label ? hexToRgba(label.color, 0.22) : "rgba(15, 139, 141, 0.22)";
 
     // The starting point is now distinguished by filling it with the class color via drawVertexHandles
     // Draw preview line from last point to cursor
@@ -170,7 +177,9 @@ export function drawAnnotation(annotation, selected = false, targetCtx = ctx) {
   targetCtx.save();
   targetCtx.lineWidth = selected ? 3 : 2;
   targetCtx.strokeStyle = label.color;
-  targetCtx.fillStyle = hexToRgba(label.color, selected ? 0.2 : 0.12);
+  // Fill matches the outline colour but stays well below it in opacity, so the
+  // class reads at a glance without obscuring the pixels being annotated.
+  targetCtx.fillStyle = hexToRgba(label.color, selected ? 0.32 : 0.22);
 
   if (!screenPoints.length) {
     targetCtx.restore();
@@ -192,21 +201,8 @@ export function drawAnnotation(annotation, selected = false, targetCtx = ctx) {
   }
   targetCtx.stroke();
 
-  const firstPoint = screenPoints[0];
-  const tag = labelDisplayName(label);
-  const bounds = screenPoints.reduce((accumulator, point) => ({
-    minX: Math.min(accumulator.minX, point.x),
-    minY: Math.min(accumulator.minY, point.y),
-    maxX: Math.max(accumulator.maxX, point.x),
-    maxY: Math.max(accumulator.maxY, point.y)
-  }), { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity });
-  const tagWidth = Math.min(targetCtx.measureText(tag).width + 18, Math.max(bounds.maxX - bounds.minX, 54));
-  const tagY = Math.max(4, bounds.minY - 24);
-  targetCtx.font = "700 12px Inter, system-ui, sans-serif";
-  targetCtx.fillStyle = label.color;
-  targetCtx.fillRect(bounds.minX, tagY, tagWidth, 22);
-  targetCtx.fillStyle = "#ffffff";
-  targetCtx.fillText(tag, bounds.minX + 8, tagY + 15, tagWidth - 14);
+  // No class-name tag is drawn on the canvas: the Objects panel lists every
+  // annotation, and on-image text obscures the pixels being annotated.
 
   // Draw highlighted/selected line segments on the selected annotation
   if (selected && annotation.id === state.selectedId && screenPoints.length >= 3) {
