@@ -17,9 +17,7 @@ router = APIRouter(
 @router.get("", response_model=List[LabelModel])
 def get_labels(projectId: Optional[int] = Query(None), db: Session = Depends(get_db)):
     if projectId:
-        labels = db.query(models.Label).filter(
-            or_(models.Label.project_id == projectId, models.Label.project_id.is_(None))
-        ).all()
+        labels = db.query(models.Label).filter(models.Label.project_id == projectId).all()
     else:
         labels = db.query(models.Label).filter(models.Label.project_id.is_(None)).all()
     return [{"id": l.id, "name": l.name, "color": l.color, "project_id": l.project_id} for l in labels]
