@@ -1509,7 +1509,7 @@ function renderClasses() {
     state.activeLabelId = state.labels[0].id;
   }
 
-  state.labels.forEach((label) => {
+  state.labels.forEach((label, index) => {
     const item = document.createElement("button");
     item.type = "button";
     item.className = `class-item${label.id === state.activeLabelId ? " is-active" : ""}`;
@@ -1535,6 +1535,7 @@ function renderClasses() {
     item.innerHTML = `
       <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;">
         <span class="swatch" style="background:${label.color || "#65727f"}; flex-shrink: 0;"></span>
+        <span style="color: var(--muted); font-size: 0.85rem; font-family: monospace; width: 12px; display: ${index < 9 ? 'inline-block' : 'none'};">${index + 1}</span>
         <strong class="class-name" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></strong>
         <span class="class-count" style="font-size: 0.75rem; color: var(--muted); margin-left: 4px; flex-shrink: 0;">(${count})</span>
       </div>
@@ -4142,6 +4143,16 @@ window.addEventListener("keydown", (event) => {
   const isTyping =
     target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
   if (isTyping) return;
+
+  const numKey = parseInt(event.key, 10);
+  if (!isNaN(numKey) && numKey >= 1 && numKey <= 9) {
+    const classIndex = numKey - 1;
+    if (classIndex < state.labels.length) {
+      state.activeLabelId = state.labels[classIndex].id;
+      renderClasses();
+      return;
+    }
+  }
 
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
     event.preventDefault();
