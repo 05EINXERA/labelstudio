@@ -1086,20 +1086,8 @@ function draw() {
 
       ctx.save();
 
-      // Draw dynamic fill for the polygon being drawn
-      if (pts.length >= 2) {
-        ctx.beginPath();
-        pts.forEach((pt, i) => {
-          const px = imageBox.x + pt.x * imageBox.scale;
-          const py = imageBox.y + pt.y * imageBox.scale;
-          if (i === 0) ctx.moveTo(px, py);
-          else ctx.lineTo(px, py);
-        });
-        ctx.lineTo(ex, ey);
-        ctx.closePath();
-        ctx.fillStyle = fillColor;
-        ctx.fill();
-      }
+      // Dynamic fill during drawing disabled to prevent visual snapping
+      // to the start point before the polygon is explicitly closed.
 
       ctx.setLineDash([6, 4]);
       ctx.strokeStyle = edgeColor;
@@ -3678,17 +3666,18 @@ canvas.addEventListener("pointerdown", (event) => {
     if (selected && selected.points && selected.points.length >= 3) {
       const ptIndex = hitTestPoint(point, selected);
       if (ptIndex !== -1) {
-        if (drag?.type === "draw-polygon" && ptIndex === 0) {
-          finalizePolygon();
+        if (drag?.type === "draw-polygon") {
+          // Skip hit testing while drawing so we don't auto-snap or move points.
+          // The user must press Enter to explicitly close the polygon.
+        } else {
+          snapshot();
+          drag = {
+            type: "move-point",
+            annotationId: selected.id,
+            pointIndex: ptIndex,
+          };
           return;
         }
-        snapshot();
-        drag = {
-          type: "move-point",
-          annotationId: selected.id,
-          pointIndex: ptIndex,
-        };
-        return;
       }
     }
   }
@@ -4191,6 +4180,13 @@ window.addEventListener("keydown", (event) => {
     drag = null;
     render();
     return;
+  }
+
+  if (event.key === "Enter") {
+    if (drag?.type === "draw-polygon") {
+      finalizePolygon();
+      return;
+    }
   }
 
   if (event.key.toLowerCase() === "g") {
