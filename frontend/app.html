@@ -267,31 +267,41 @@
 
 
         <div class="tool-group" role="group" aria-label="Annotation mode">
-          <button class="tool-button is-active" id="drawMode" type="button" title="Draw"><span class="btn-icon">✏️</span><span class="btn-label">Draw</span></button>
-          <button class="tool-button" id="selectMode" type="button" title="Select"><span class="btn-icon">👆</span><span class="btn-label">Select</span></button>
+          <span class="tool-group-label">Mode</span>
+          <div class="tool-group-buttons">
+            <button class="tool-button is-active" id="drawMode" type="button" title="Draw"><span class="btn-icon">✏️</span><span class="btn-label">Draw</span></button>
+            <button class="tool-button" id="selectMode" type="button" title="Select"><span class="btn-icon">👆</span><span class="btn-label">Select</span></button>
+          </div>
         </div>
-        <div class="tool-group" role="group" aria-label="Session Timer" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 4px 8px; border-radius: 12px; background: #fff; color: #333; border: none; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-          <span id="sessionTimerDisplay" style="font-family: 'Courier New', Courier, monospace; font-size: 1rem; font-weight: 800; color: #0f172a; text-align: center; letter-spacing: 1px; line-height: 1;">00:00:00</span>
-          <div style="display: flex; gap: 4px;">
-            <button class="icon-button" id="timerToggleBtn" type="button" title="Start Timer" onmouseover="this.style.background='rgba(0,0,0,0.08)'" onmouseout="this.style.background='rgba(0,0,0,0.04)'" style="min-height: 24px; width: 28px; padding: 0; display: grid; place-items: center; border: none; background: rgba(0,0,0,0.04); color: #475569; border-radius: 50%; box-shadow: none; cursor: pointer; transition: background 0.2s;">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        <div class="tool-group" role="group" aria-label="Session Timer">
+          <span class="tool-group-label">Time · session / total</span>
+          <div class="tool-group-buttons timer-row">
+            <span id="sessionTimerDisplay" class="timer-readout">00:00:00</span>
+            <button class="icon-button timer-btn" id="timerToggleBtn" type="button" title="Start Timer">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
             </button>
-            <button class="icon-button" id="timerStopBtn" type="button" title="Stop Timer" onmouseover="this.style.background='rgba(239,68,68,0.1)'" onmouseout="this.style.background='transparent'" style="min-height: 24px; width: 28px; padding: 0; display: grid; place-items: center; border: none; background: transparent; color: #ef4444; border-radius: 50%; box-shadow: none; cursor: pointer; transition: background 0.2s;">
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h12v12H6z"/></svg>
+            <button class="icon-button timer-btn timer-btn-stop" id="timerStopBtn" type="button" title="Stop Timer">
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h12v12H6z"/></svg>
             </button>
-            <button class="icon-button" id="timerResetBtn" type="button" title="Reset Timer" onmouseover="this.style.background='rgba(0,0,0,0.08)'" onmouseout="this.style.background='transparent'" style="min-height: 24px; width: 28px; padding: 0; display: grid; place-items: center; border: none; background: transparent; color: #475569; border-radius: 50%; box-shadow: none; cursor: pointer; transition: background 0.2s;">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+            <button class="icon-button timer-btn" id="timerResetBtn" type="button" title="Reset Timer">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
             </button>
+            <span class="timer-divider"></span>
+            <strong id="totalTimeLogged" class="timer-readout">00:00:00</strong>
           </div>
         </div>
         <div class="tool-group" role="group" aria-label="Shape mode">
-          <button class="tool-button" id="boxMode" type="button" title="Bounding box"><span class="btn-icon">▭</span><span class="btn-label">Bbox</span></button>
-          <button class="tool-button" id="polygonMode" type="button" title="Polygon"><span class="btn-icon">⬡</span><span class="btn-label">Polygon</span></button>
-          <button class="tool-button" id="commentMode" type="button" title="Leave a comment"><span class="btn-icon">💬</span><span class="btn-label">Comment</span></button>
-          <button class="tool-button" id="magicWandMode" type="button" title="Magic Wand (SAM). Shift+Click to add area, Alt+Click to remove area."><span class="btn-icon">🪄</span><span class="btn-label">Wand</span></button>
-
+          <span class="tool-group-label">Tools</span>
+          <div class="tool-group-buttons">
+            <button class="tool-button" id="boxMode" type="button" title="Bounding box"><span class="btn-icon">▭</span><span class="btn-label">Bbox</span></button>
+            <button class="tool-button" id="polygonMode" type="button" title="Polygon"><span class="btn-icon">⬡</span><span class="btn-label">Polygon</span></button>
+            <button class="tool-button" id="commentMode" type="button" title="Leave a comment"><span class="btn-icon">💬</span><span class="btn-label">Comment</span></button>
+            <button class="tool-button" id="magicWandMode" type="button" title="Magic Wand (SAM). Shift+Click to add area, Alt+Click to remove area."><span class="btn-icon">🪄</span><span class="btn-label">Wand</span></button>
+          </div>
         </div>
-        <div class="tool-group" role="group" aria-label="Canvas controls">
+        <div class="tool-group" role="group" aria-label="AI controls">
+          <span class="tool-group-label">AI</span>
+          <div class="tool-group-buttons">
           <div class="dropdown" id="aiSettingsDropdownContainer">
             <button class="icon-button" type="button" title="AI Settings" id="aiSettingsMenuButton"><span class="btn-icon">🤖</span><span class="btn-label">AI</span> ▾</button>
             <div class="dropdown-content" style="padding: 12px; min-width: 250px; z-index: 100; left: 0; right: auto;">
@@ -349,13 +359,11 @@
           </div>
           <button class="tool-button primary" id="autoDetectButton" type="button" title="Detect objects with AI"><span class="btn-icon">🔍</span><span class="btn-label">Detect</span></button>
           <button class="tool-button" id="autoTagButton" type="button" title="Auto-tag image with AI"><span class="btn-icon">🏷️</span><span class="btn-label">Auto-Tag</span></button>
-          <button class="icon-button" id="undoButton" type="button" title="Undo"><span class="btn-icon">↩</span><span class="btn-label">Undo</span></button>
-          <button class="icon-button" id="deleteButton" type="button" title="Delete selected"><span class="btn-icon">🗑</span><span class="btn-label">Delete</span></button>
-          <button class="icon-button" id="groupButton" type="button" title="Group selected (Shift+Click to select multiple)" disabled><span class="btn-icon">🔗</span><span class="btn-label">Group</span></button>
-          <button class="icon-button" id="ungroupButton" type="button" title="Ungroup selected" disabled><span class="btn-icon">💥</span><span class="btn-label">Ungroup</span></button>
-          <button class="icon-button" id="clearButton" type="button" title="Clear all annotations"><span class="btn-icon">✕</span><span class="btn-label">Clear</span></button>
+          </div>
         </div>
-        <div class="tool-group" role="group" aria-label="Data controls">
+        <div class="tool-group row-end" role="group" aria-label="Data controls">
+          <span class="tool-group-label">Data</span>
+          <div class="tool-group-buttons">
           <div class="dropdown">
             <button class="icon-button" id="importMenuButton" type="button" title="Import Data"><span class="btn-icon">📥</span><span class="btn-label">Import</span> ▾</button>
             <div class="dropdown-content" id="importDropdown">
@@ -370,6 +378,26 @@
               <button type="button" id="exportJsonButton">JSON</button>
               <button type="button" id="exportCsvButton">CSV</button>
             </div>
+          </div>
+          </div>
+        </div>
+
+        <span class="toolbar-row-break" aria-hidden="true"></span>
+
+        <div class="tool-group" role="group" aria-label="Edit controls">
+          <span class="tool-group-label">Edit</span>
+          <div class="tool-group-buttons">
+            <button class="icon-button" id="undoButton" type="button" title="Undo"><span class="btn-icon">↩</span><span class="btn-label">Undo</span></button>
+            <button class="icon-button" id="deleteButton" type="button" title="Delete selected"><span class="btn-icon">🗑</span><span class="btn-label">Delete</span></button>
+            <button class="icon-button" id="groupButton" type="button" title="Group selected (Shift+Click to select multiple)" disabled><span class="btn-icon">🔗</span><span class="btn-label">Group</span></button>
+            <button class="icon-button" id="ungroupButton" type="button" title="Ungroup selected" disabled><span class="btn-icon">💥</span><span class="btn-label">Ungroup</span></button>
+            <button class="icon-button" id="clearButton" type="button" title="Clear all annotations"><span class="btn-icon">✕</span><span class="btn-label">Clear</span></button>
+          </div>
+        </div>
+        <div class="tool-group" role="group" aria-label="Selection status">
+          <span class="tool-group-label">Selected</span>
+          <div class="tool-group-buttons">
+            <strong id="selectedInfo" class="selection-chip">None</strong>
           </div>
         </div>
         <input id="importJsonInput" class="sr-only" type="file" accept="application/json,.json">
@@ -391,24 +419,6 @@
         </div>
       </div>
 
-      <footer class="details-bar">
-        <div>
-          <span>Detection</span>
-          <strong>YOLOv8 + OpenCV</strong>
-        </div>
-        <div>
-          <span>Selected</span>
-          <strong id="selectedInfo">None</strong>
-        </div>
-        <div>
-          <span>Total Working Time</span>
-          <strong id="totalTimeLogged">00:00:00</strong>
-        </div>
-        <div>
-          <span>Format</span>
-          <strong>COCO-style JSON</strong>
-        </div>
-      </footer>
     </section>
   </main>
 

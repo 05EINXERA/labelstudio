@@ -1206,13 +1206,201 @@ canvas {
 }
 .stage-wrap {
   position: relative;
-  height: 75vh; /* Constrain height so internal scrolling works */
-  min-height: 400px;
-  resize: vertical; /* Allow user to resize the container */
-  overflow: auto; /* Allows canvas to scroll inside if it exceeds bounds */
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
   max-width: 100%;
   border-radius: 8px;
   background: #f7faf9;
   border: 1px solid var(--line);
+}
+
+/* --- Compact grouped toolbar --------------------------------------------- */
+
+.workspace {
+  padding: 10px 14px 14px;
+  gap: 10px;
+  height: 100vh;
+  max-height: 100vh;
+  overflow: hidden;
+}
+
+.toolbar {
+  top: 0;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 4px;
+  padding: 5px 8px;
+  row-gap: 6px;
+}
+
+.tool-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 0 8px;
+  border-right: 1px solid var(--line);
+  flex-wrap: nowrap;
+}
+
+/* Separator belongs between groups on the same row; the group that ends a row
+   and the final group both drop it (see .tool-group.row-end below). */
+.tool-group:last-of-type {
+  border-right: none;
+}
+
+.tool-group-label {
+  font-size: 0.58rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--muted);
+  line-height: 1;
+  text-align: center;
+}
+
+.tool-group-buttons {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+/* Divider between the toolbar's wrapped rows. It is a flex item forced to full
+   width, so it pushes everything after it onto a new row and draws the rule. */
+.toolbar-row-break {
+  flex: 0 0 100%;
+  width: 100%;
+  height: 1px;
+  min-height: 1px;
+  max-height: 1px;
+  align-self: center;
+  margin: 1px 0;
+  background: var(--line);
+}
+
+.tool-group.row-end {
+  border-right: none;
+}
+
+.toolbar .tool-button,
+.toolbar .icon-button {
+  min-height: 26px;
+  height: 26px;
+  padding: 0 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.toolbar .btn-icon {
+  display: inline;
+  margin-right: 3px;
+  font-size: 0.72rem;
+}
+
+/* Selected-annotation readout, inline in the toolbar. Width tracks the class
+   name: it shrink-wraps the text, with a floor so short names ("None") still
+   read as a chip and a cap so long ones cannot stretch the toolbar row. */
+.selection-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  width: max-content;
+  min-width: 56px;
+  max-width: 220px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 0 10px;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  background: #fbfdfd;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--ink);
+  justify-content: center;
+}
+
+/* The comment "Edit" button is injected into the chip by workspace.js */
+.selection-chip .icon-button {
+  height: 18px;
+  min-height: 18px;
+  padding: 0 6px;
+  font-size: 0.66rem !important;
+  margin-left: 0 !important;
+  border-radius: 4px;
+}
+
+/* Timer readouts sit inline with their transport buttons */
+.timer-row {
+  gap: 4px;
+}
+
+.timer-readout {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: 0.5px;
+  line-height: 1;
+}
+
+.toolbar .timer-btn {
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
+  min-height: 22px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.05);
+  color: #475569;
+  box-shadow: none;
+}
+
+.toolbar .timer-btn:hover {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.toolbar .timer-btn-stop {
+  background: transparent;
+  color: #ef4444;
+}
+
+.toolbar .timer-btn-stop:hover {
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.timer-divider {
+  width: 1px;
+  align-self: stretch;
+  min-height: 18px;
+  background: var(--line);
+  margin: 0 2px;
+}
+
+/* On narrow screens the groups wrap onto their own rows, so the vertical
+   separators between them stop reading as separators and just add noise. */
+@media (max-width: 900px) {
+  .tool-group {
+    border-right: none;
+    padding: 0 4px;
+  }
+
+  .workspace {
+    height: auto;
+    max-height: none;
+    min-height: 100vh;
+  }
+
+  .stage-wrap {
+    flex: none;
+    height: 60vh;
+  }
 }
 
