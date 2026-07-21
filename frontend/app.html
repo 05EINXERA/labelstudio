@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Image Annotation MVP</title>
   <link rel="icon" type="image/png" href="logo.png">
-  <link rel="stylesheet" href="styles.css?v=11">
+  <link rel="stylesheet" href="styles.css?v=14">
   <script src="sync.js"></script>
   <script>
     window.addEventListener('error', function(e) {
@@ -23,27 +23,46 @@
   <button class="sidebar-toggle" id="sidebarToggle" type="button" aria-label="Toggle sidebar">☰</button>
   <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
 
+  <nav class="top-nav" aria-label="Workspace context">
+    <div class="top-nav-left">
+      <a class="icon-button back-button" id="backToProject" href="index.html" title="Back to project">←</a>
+      <span class="breadcrumb" id="workspaceBreadcrumb">
+        <span class="breadcrumb-project" id="breadcrumbProject">—</span>
+        <span class="breadcrumb-sep">/</span>
+        <span class="breadcrumb-image" id="breadcrumbImage">No image</span>
+      </span>
+      <span class="status-pill" id="saveStatus">Ready</span>
+    </div>
+
+    <div class="top-nav-center timer-row">
+      <span class="timer-caption">Session Time:</span>
+      <span id="sessionTimerDisplay" class="timer-readout">00:00:00</span>
+      <button class="icon-button timer-btn" id="timerToggleBtn" type="button" title="Start Timer">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+      </button>
+      <button class="icon-button timer-btn timer-btn-stop" id="timerStopBtn" type="button" title="Stop Timer">
+        <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h12v12H6z"/></svg>
+      </button>
+      <button class="icon-button timer-btn" id="timerResetBtn" type="button" title="Reset Timer">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+      </button>
+      <span class="timer-divider"></span>
+      <strong id="totalTimeLogged" class="timer-readout">00:00:00</strong>
+      <span class="timer-caption">Total time</span>
+    </div>
+
+    <div class="top-nav-right">
+      <div class="image-nav">
+        <button class="icon-button" id="prevImageButton" type="button" disabled title="Previous image">&lt;</button>
+        <span id="galleryPosition" class="gallery-position">0 / 0</span>
+        <button class="icon-button" id="nextImageButton" type="button" disabled title="Next image">&gt;</button>
+      </div>
+      <button class="tool-button primary save-button" id="saveButton" type="button" title="Save annotations">Save</button>
+    </div>
+  </nav>
+
   <main class="app-shell">
     <aside class="sidebar" aria-label="Annotation workspace controls">
-      <section class="brand-block" style="flex-direction: column; align-items: stretch; gap: 16px;">
-        <div style="display: flex; align-items: flex-start; justify-content: space-between; width: 100%;">
-          <div style="display: flex; align-items: center; gap: 12px;">
-            <img src="logo.png" alt="Dataset Workspace Logo" style="width: 42px; height: 42px; border-radius: 8px;">
-            <div>
-              <p class="eyebrow">Image annotation</p>
-              <h1>Dataset Workspace</h1>
-            </div>
-          </div>
-          <span class="status-pill" id="saveStatus">Ready</span>
-        </div>
-        <a href="dashboard.html" style="text-decoration: none; display: block;">
-          <button type="button"
-            style="width: 100%; padding: 8px; border-radius: 6px; background: var(--panel-2); border: 1px solid var(--line); color: var(--ink); font-weight: 600; font-size: 0.85rem; cursor: pointer; transition: background 0.2s ease;">
-            📊 View Dashboard
-          </button>
-        </a>
-      </section>
-
       <div id="sidebarPanels" style="display:flex; flex-direction:column; gap:12px; min-height: 50px;">
         <section id="panel-projects" class="panel accordion-item is-active" draggable="true">
           <button class="accordion-header" type="button">
@@ -67,44 +86,6 @@
               <div id="projectsSidebarList" style="font-size: 0.85rem; display: flex; flex-direction: column; gap: 4px;">
                 <!-- Projects injected here -->
               </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-        <section id="panel-image" class="panel accordion-item is-active" draggable="true">
-          <button class="accordion-header" type="button">
-            <h2>Image</h2>
-            <div class="header-actions">
-              <span class="drag-handle" title="Drag to reorder">⋮⋮</span>
-              <span class="chevron">▾</span>
-            </div>
-          </button>
-        <div class="accordion-grid">
-          <div class="accordion-content">
-            <div class="accordion-content-inner">
-              <label class="file-drop" for="imageInput">
-                <span class="file-drop-icon" aria-hidden="true">+</span>
-                <span>
-                  <strong>Load image(s)</strong>
-                  <small>PNG, JPG, GIF, or WebP</small>
-                </span>
-              </label>
-              <input id="imageInput" class="sr-only" type="file" accept="image/*" multiple>
-              <div class="meta-grid">
-                <span>File</span>
-                <strong id="imageName">None loaded</strong>
-                <span>Size</span>
-                <strong id="imageSize">-</strong>
-              </div>
-              <div class="gallery-nav"
-                style="display: flex; align-items: center; justify-content: space-between; margin-top: 10px;">
-                <button class="icon-button" id="prevImageButton" type="button" disabled>&lt; Prev</button>
-                <span id="galleryPosition" style="font-size: 0.8rem;">0 / 0</span>
-                <button class="icon-button" id="nextImageButton" type="button" disabled>Next &gt;</button>
-              </div>
-              <button class="icon-button" id="clearGalleryButton" type="button" style="width: 100%; margin-top: 8px;"
-                disabled>Clear image(s)</button>
             </div>
           </div>
         </div>
@@ -262,32 +243,17 @@
       </section>
     </aside>
 
+    <div class="sidebar-resize-handle" id="sidebarResizeHandle" role="separator"
+      aria-orientation="vertical" aria-label="Resize sidebar"
+      title="Drag to resize · double-click to reset"></div>
+
     <section class="workspace" aria-label="Image annotation canvas">
       <header class="toolbar">
-
-
         <div class="tool-group" role="group" aria-label="Annotation mode">
           <span class="tool-group-label">Mode</span>
           <div class="tool-group-buttons">
             <button class="tool-button is-active" id="drawMode" type="button" title="Draw"><span class="btn-icon">✏️</span><span class="btn-label">Draw</span></button>
             <button class="tool-button" id="selectMode" type="button" title="Select"><span class="btn-icon">👆</span><span class="btn-label">Select</span></button>
-          </div>
-        </div>
-        <div class="tool-group" role="group" aria-label="Session Timer">
-          <span class="tool-group-label">Time · session / total</span>
-          <div class="tool-group-buttons timer-row">
-            <span id="sessionTimerDisplay" class="timer-readout">00:00:00</span>
-            <button class="icon-button timer-btn" id="timerToggleBtn" type="button" title="Start Timer">
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-            </button>
-            <button class="icon-button timer-btn timer-btn-stop" id="timerStopBtn" type="button" title="Stop Timer">
-              <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h12v12H6z"/></svg>
-            </button>
-            <button class="icon-button timer-btn" id="timerResetBtn" type="button" title="Reset Timer">
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
-            </button>
-            <span class="timer-divider"></span>
-            <strong id="totalTimeLogged" class="timer-readout">00:00:00</strong>
           </div>
         </div>
         <div class="tool-group" role="group" aria-label="Shape mode">
@@ -361,7 +327,7 @@
           <button class="tool-button" id="autoTagButton" type="button" title="Auto-tag image with AI"><span class="btn-icon">🏷️</span><span class="btn-label">Auto-Tag</span></button>
           </div>
         </div>
-        <div class="tool-group row-end" role="group" aria-label="Data controls">
+        <div class="tool-group" role="group" aria-label="Data controls">
           <span class="tool-group-label">Data</span>
           <div class="tool-group-buttons">
           <div class="dropdown">
@@ -381,8 +347,6 @@
           </div>
           </div>
         </div>
-
-        <span class="toolbar-row-break" aria-hidden="true"></span>
 
         <div class="tool-group" role="group" aria-label="Edit controls">
           <span class="tool-group-label">Edit</span>
