@@ -1,3 +1,6 @@
+import { apiFetch } from "./js/api.js?v=1";
+import { formatTime } from "./js/utils.js?v=1";
+
 const urlParams = new URLSearchParams(window.location.search);
     const projectId = urlParams.get('id');
 
@@ -23,7 +26,7 @@ const urlParams = new URLSearchParams(window.location.search);
 
     async function loadTeam() {
       try {
-        const res = await fetch('/api/team');
+        const res = await apiFetch('/api/team');
         if (res.ok) {
           const data = await res.json();
           teamMembers = data.map(t => t.name);
@@ -94,7 +97,7 @@ const urlParams = new URLSearchParams(window.location.search);
 
     async function loadProjectTasks() {
       try {
-        const res = await fetch(`/api/tasks?projectId=${projectId}`);
+        const res = await apiFetch(`/api/tasks?projectId=${projectId}`);
         if (res.ok) {
           allTasks = await res.json();
           renderTable();
@@ -161,12 +164,9 @@ const urlParams = new URLSearchParams(window.location.search);
         const badgeClass = task.status.toLowerCase() === 'completed' ? 'completed' : 'new';
         const imgUrl = '/' + task.image_path.replace(/\\\\/g, '/');
         
-        // Time Formatting
+        // Time Formatting (shared helper — see js/utils.js)
         const secs = task.time_spent || 0;
-        const h = Math.floor(secs / 3600).toString().padStart(2, '0');
-        const m = Math.floor((secs % 3600) / 60).toString().padStart(2, '0');
-        const s = (secs % 60).toString().padStart(2, '0');
-        const formattedTime = secs > 0 ? `${h}:${m}:${s}` : '-';
+        const formattedTime = secs > 0 ? formatTime(secs) : '-';
 
         // Date Formatting
         let formattedDate = '-';
@@ -260,7 +260,7 @@ const urlParams = new URLSearchParams(window.location.search);
           const taskId = e.currentTarget.dataset.id;
           if (confirm('Are you sure you want to delete this task? This action cannot be undone.')) {
             try {
-              const res = await fetch(`/api/tasks/${taskId}`, { method: 'DELETE' });
+              const res = await apiFetch(`/api/tasks/${taskId}`, { method: 'DELETE' });
               if (res.ok) {
                 selectedTaskIds.delete(parseInt(taskId, 10));
                 loadProjectTasks();
@@ -357,7 +357,7 @@ const urlParams = new URLSearchParams(window.location.search);
       if (selectedTaskIds.size === 0) return;
       if (confirm(`Are you sure you want to permanently delete ${selectedTaskIds.size} tasks?`)) {
         try {
-          const res = await fetch('/api/tasks/bulk-delete', {
+          const res = await apiFetch('/api/tasks/bulk-delete', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ ids: Array.from(selectedTaskIds) })
@@ -381,7 +381,7 @@ const urlParams = new URLSearchParams(window.location.search);
       if (newAssignee === null) return; // cancelled
       
       try {
-        const res = await fetch('/api/tasks/bulk-update', {
+        const res = await apiFetch('/api/tasks/bulk-update', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({ ids: Array.from(selectedTaskIds), assignee: newAssignee.trim() })
@@ -439,7 +439,7 @@ const urlParams = new URLSearchParams(window.location.search);
         const status = document.getElementById('editTaskStatus').value;
 
         try {
-          const res = await fetch('/api/tasks', {
+          const res = await apiFetch('/api/tasks', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ id, description, assignee, status })

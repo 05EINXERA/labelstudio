@@ -4,7 +4,6 @@ import {
   state, storageKey, snapshot, resetWorkspaceForNewImage
 } from "./state.js?v=1";
 import { view } from "./canvas/view.js?v=1";
-import { timerState } from "./timer-state.js?v=1";
 import { commentOverlayRefs } from "./comment-overlay.js?v=1";
 import {
   canvas, ctx, imageCanvas, imageCtx, staticCanvas, staticCtx, stageWrap,
@@ -19,7 +18,9 @@ import {
   render, importData, importCsvData
 } from "./components/workspace.js?v=1";
 import { autoDetectObjects, autoTagObjects } from "./ai/detect.js?v=1";
-import { syncTaskTime, syncTimeToServer } from "./components/timer.js?v=1";
+import {
+  syncTaskTime, syncTimeToServer, drainTaskTime, setActiveTaskResolver
+} from "./components/timer.js?v=1";
 import { finalizePolygon, deleteSelected, undoLastPoint } from "./canvas/interactions.js?v=1";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
 
@@ -47,25 +48,28 @@ const nextImageButton = document.querySelector("#nextImageButton");
 const galleryPosition = document.querySelector("#galleryPosition");
 const logoutBtnApp = document.querySelector("#logoutBtnApp");
 
-function flushPendingSaves() {
+// Flush both counters before the page can go away. The task delta must be
+// flushed unconditionally, not only when a debounced save happens to be
+// pending — otherwise time accrued after the last autosave was credited to the
+// user but never to the task (docs/TIMER_AUDIT.md F2).
+function flushPendingSaves({ useBeacon = false } = {}) {
   if (window.backendSyncTimeout) {
     clearTimeout(window.backendSyncTimeout);
     window.backendSyncTimeout = null;
-    syncToBackend();
   }
-  if (typeof syncTimeToServer === 'function') {
-    syncTimeToServer();
-  }
+  syncToBackend({ useBeacon });
+  syncTimeToServer({ useBeacon });
 }
 
 window.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') {
-    flushPendingSaves();
+    // The page may never come back, so this flush must survive unload too.
+    flushPendingSaves({ useBeacon: true });
   }
 });
 
-window.addEventListener('beforeunload', () => {
-  flushPendingSaves();
+window.addEventListener('pagehide', () => {
+  flushPendingSaves({ useBeacon: true });
 });
 
 function resizeCanvas() {
@@ -658,10 +662,12 @@ async function loadWorkspaceTasks() {
 
 document.addEventListener('DOMContentLoaded', () => {
   initSidebarResize();
-  window.addEventListener('beforeunload', () => {
-    if (typeof state !== 'undefined' && state && state.galleryIndex >= 0) {
-      syncToBackend();
-    }
+  // Resolves the open task, or null. Task time is only billed while a task is
+  // actually open (F8), and Stop uses this to flush the right task (F6).
+  setActiveTaskResolver(() => {
+    if (typeof state === 'undefined' || !state) return null;
+    if (state.galleryIndex < 0 || !state.gallery) return null;
+    return state.gallery[state.galleryIndex] || null;
   });
   initWorkspaceContext();
   fetchLabels();
@@ -682,27 +688,16 @@ document.addEventListener('DOMContentLoaded', () => {
       // Only update if it has an id
       if (currentTask.id) {
         try {
-          const timeDelta = timerState.taskSessionSeconds;
-          timerState.taskSessionSeconds = 0;
-          const username = localStorage.getItem('dataset_username') || 'Unknown';
-          const res = await apiFetch('/api/tasks', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              id: currentTask.id,
-              status: 'Completed',
-              time_spent_delta: timeDelta,
-              assignee: username,
-              annotations: JSON.stringify(state.annotations)
-            })
+          // Single drain point handles the time delta and retries it on
+          // failure (docs/TIMER_AUDIT.md F3/F4).
+          await drainTaskTime(currentTask, {
+            status: 'Completed',
+            annotations: state.annotations
           });
+          currentTask.status = 'Completed';
 
-          if (res.ok) {
-            const tcModal = document.getElementById('taskCompletedModal');
-            if (tcModal) tcModal.classList.add('is-active');
-          } else {
-            alert('Failed to mark task as completed.');
-          }
+          const tcModal = document.getElementById('taskCompletedModal');
+          if (tcModal) tcModal.classList.add('is-active');
         } catch (e) {
           console.error(e);
           alert('Failed to mark task as completed.');

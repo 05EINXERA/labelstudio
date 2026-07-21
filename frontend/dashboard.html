@@ -89,6 +89,7 @@
             <th style="padding: 10px; color: var(--muted);">Completed</th>
             <th style="padding: 10px; color: var(--muted);">Total Tasks</th>
             <th style="padding: 10px; color: var(--muted);">Comments</th>
+            <th style="padding: 10px; color: var(--muted);">Time Spent</th>
             <th style="padding: 10px; color: var(--muted);">Actions</th>
           </tr>
         </thead>
@@ -217,10 +218,22 @@
         if (projects) {
           const tbody = document.getElementById('projectsMatrixBody');
 
+          // Compact duration for the table: hours are dropped when zero so
+          // short tasks read as "12m 30s" rather than "00:12:30".
+          const fmtDuration = (secs) => {
+            const total = Math.max(0, Math.floor(secs || 0));
+            const h = Math.floor(total / 3600);
+            const m = Math.floor((total % 3600) / 60);
+            const s = total % 60;
+            if (h > 0) return `${h}h ${m}m`;
+            if (m > 0) return `${m}m ${s}s`;
+            return `${s}s`;
+          };
+
           const renderTable = () => {
             tbody.innerHTML = '';
             if (projects.length === 0) {
-              tbody.innerHTML = '<tr><td colspan="7" style="padding: 10px; text-align: center; color: var(--muted);">No projects found</td></tr>';
+              tbody.innerHTML = '<tr><td colspan="9" style="padding: 10px; text-align: center; color: var(--muted);">No projects found</td></tr>';
               return;
             }
             
@@ -230,7 +243,9 @@
               const completed = m.completed || 0;
               const total = m.total || 0;
               const comments = m.comments || 0;
-              
+              const totalTime = m.total_time || 0;
+              const avgTime = m.avg_time_per_task || 0;
+
               const tr = document.createElement('tr');
               tr.style.borderBottom = '1px solid var(--line)';
               
@@ -265,6 +280,11 @@
                       💬 ${comments}
                     </span>
                   </td>
+                  <td style="padding: 10px; white-space: nowrap;" title="${avgTime > 0 ? `Average ${fmtDuration(avgTime)} per task` : 'No time logged yet'}">
+                    ${totalTime > 0
+                      ? `<span style="font-family: 'Courier New', monospace; font-size: 0.85rem;">${fmtDuration(totalTime)}</span>`
+                      : '<span style="color: var(--muted);">-</span>'}
+                  </td>
                   <td style="padding: 10px;">
                     <div style="display: flex; gap: 8px;">
                       <button type="button" class="edit-project-btn" style="padding: 6px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; background: none; border: none; cursor: pointer; color: var(--ink);" title="Edit Project">
@@ -280,7 +300,7 @@
                 tr.querySelector('.edit-project-btn').addEventListener('click', () => {
                   const assigneeOptions = team.map(m => `<option value="${escapeHTML(m.name)}" ${project.assignee === m.name ? 'selected' : ''}>${escapeHTML(m.name)}</option>`).join('');
                   tr.innerHTML = `
-                    <td colspan="8" style="padding: 10px;">
+                    <td colspan="9" style="padding: 10px;">
                       <form class="edit-project-form" style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center;" onsubmit="event.preventDefault();">
                         <input type="text" class="edit-project-name" value="${escapeHTML(project.name)}" required style="flex: 1; min-width: 120px; padding: 6px; font-size: 0.85rem; border: 1px solid var(--line); border-radius: 4px; background: rgba(0,0,0,0.05); color: var(--ink);">
                         <select class="edit-project-assignee" style="width: 120px; padding: 6px; border: 1px solid var(--line); border-radius: 4px; font-size: 0.85rem; background: rgba(0,0,0,0.05); color: var(--ink);">
