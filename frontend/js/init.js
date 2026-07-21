@@ -25,14 +25,15 @@ import {
 import { autoDetectObjects, autoTagObjects } from "./ai/detect.js?v=1";
 import { syncTaskTime, syncTimeToServer } from "./components/timer.js?v=1";
 import { finalizePolygon, deleteSelected } from "./canvas/interactions.js?v=1";
+import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
 
 if (!localStorage.getItem('logged_in')) {
   window.location.href = '/';
 }
 
-const imageInput = document.querySelector("#imageInput");
-const imageName = document.querySelector("#imageName");
-const imageSize = document.querySelector("#imageSize");
+const breadcrumbProject = document.querySelector("#breadcrumbProject");
+const breadcrumbImage = document.querySelector("#breadcrumbImage");
+const backToProject = document.querySelector("#backToProject");
 const addClassButton = document.querySelector("#addClassButton");
 const newClassForm = document.querySelector("#newClassForm");
 const newClassName = document.querySelector("#newClassName");
@@ -56,7 +57,6 @@ const labelStudioToInput = document.querySelector("#labelStudioToInput");
 const prevImageButton = document.querySelector("#prevImageButton");
 const nextImageButton = document.querySelector("#nextImageButton");
 const galleryPosition = document.querySelector("#galleryPosition");
-const clearGalleryButton = document.querySelector("#clearGalleryButton");
 const logoutBtnApp = document.querySelector("#logoutBtnApp");
 
 function flushPendingSaves() {
@@ -122,8 +122,7 @@ function loadImageFromSource(src, name, { autoDetect = false } = {}) {
   view.imageElement.onload = async () => {
     view.imageLoaded = true;
     emptyState.classList.add("is-hidden");
-    imageName.textContent = name;
-    imageSize.textContent = `${view.imageElement.naturalWidth} x ${view.imageElement.naturalHeight}`;
+    if (breadcrumbImage) breadcrumbImage.textContent = name;
     state.image = { src, name, width: view.imageElement.naturalWidth, height: view.imageElement.naturalHeight };
     if (state.galleryIndex >= 0 && state.gallery[state.galleryIndex]) {
       state.gallery[state.galleryIndex].width = view.imageElement.naturalWidth;
@@ -151,36 +150,6 @@ function loadLabelStudioSettings() {
   }
 }
 
-function loadGallery(fileList) {
-  const imageFiles = Array.from(fileList).filter(f => f.type.startsWith("image/"));
-  if (!imageFiles.length) return;
-
-  state.gallery.forEach(item => URL.revokeObjectURL(item.url));
-
-  state.gallery = imageFiles.map(file => ({
-    file: file,
-    name: file.name,
-    url: URL.createObjectURL(file),
-    annotations: [],
-    width: 0,
-    height: 0
-  }));
-
-  if (state.gallery.length > 0) {
-    switchImage(0);
-    // Show validation modal after importing
-    const teamValidationModal = document.getElementById('teamValidationModal');
-    if (teamValidationModal) {
-      teamValidationModal.classList.add('is-active');
-      const nameInput = document.getElementById('teamValidationName');
-      if (nameInput) {
-        nameInput.value = localStorage.getItem('dataset_username') || '';
-        nameInput.focus();
-      }
-    }
-  }
-}
-
 function switchImage(index) {
   if (index < 0 || index >= state.gallery.length) return;
   if (state.galleryIndex >= 0 && state.gallery[state.galleryIndex]) {
@@ -202,43 +171,17 @@ function switchImage(index) {
 function updateGalleryUI() {
   const total = state.gallery.length;
   const current = state.galleryIndex + 1;
-  galleryPosition.textContent = total > 0 ? `${current} / ${total}` : "0 / 0";
-  prevImageButton.disabled = current <= 1;
-  nextImageButton.disabled = current >= total || total === 0;
-  if (clearGalleryButton) {
-    clearGalleryButton.disabled = total === 0 && !view.imageLoaded;
-  }
+  if (galleryPosition) galleryPosition.textContent = total > 0 ? `${current} / ${total}` : "0 / 0";
+  if (prevImageButton) prevImageButton.disabled = current <= 1;
+  if (nextImageButton) nextImageButton.disabled = current >= total || total === 0;
 }
 
-prevImageButton.addEventListener("click", () => switchImage(state.galleryIndex - 1));
-nextImageButton.addEventListener("click", () => switchImage(state.galleryIndex + 1));
-
-if (clearGalleryButton) {
-  clearGalleryButton.addEventListener("click", () => {
-    state.gallery.forEach(item => URL.revokeObjectURL(item.url));
-    state.gallery = [];
-    state.galleryIndex = -1;
-    view.imageLoaded = false;
-    view.imageElement = new Image();
-    state.image = null;
-
-    resetWorkspaceForNewImage();
-
-    imageName.textContent = "None loaded";
-    imageSize.textContent = "-";
-    emptyState.classList.remove("is-hidden");
-
-    updateGalleryUI();
-    render();
-    save();
-    setStatus("Images cleared");
-  });
+if (prevImageButton) {
+  prevImageButton.addEventListener("click", () => switchImage(state.galleryIndex - 1));
 }
-
-imageInput.addEventListener("change", (event) => {
-  loadGallery(event.target.files);
-  imageInput.value = "";
-});
+if (nextImageButton) {
+  nextImageButton.addEventListener("click", () => switchImage(state.galleryIndex + 1));
+}
 
 drawMode.addEventListener("click", () => {
   state.mode = "draw";
@@ -844,13 +787,14 @@ importCsvInput.addEventListener("change", (event) => {
   importCsvInput.value = "";
 });
 
+// Images are loaded from the project page, not dropped onto the canvas, so the
+// drop target only suppresses the browser's default navigate-to-file.
 stageWrap.addEventListener("dragover", (event) => {
   event.preventDefault();
 });
 
 stageWrap.addEventListener("drop", (event) => {
   event.preventDefault();
-  loadGallery(event.dataTransfer.files);
 });
 
 window.addEventListener("resize", resizeCanvas);
@@ -1316,6 +1260,30 @@ async function fetchLabels() {
 const urlParams = new URLSearchParams(window.location.search);
 const projectId = urlParams.get('projectId');
 
+// Points the back arrow at the project this workspace was opened from, and
+// fills the breadcrumb's project half. There is no GET /api/projects/{id}, so
+// the name comes from the list endpoint the sidebar already uses.
+async function initWorkspaceContext() {
+  if (!projectId) return;
+
+  if (backToProject) {
+    backToProject.href = `project_details.html?id=${projectId}`;
+  }
+
+  try {
+    const res = await apiFetch('/api/projects');
+    if (!res.ok) return;
+    const projects = await res.json();
+    const project = projects.find(p => String(p.id) === String(projectId));
+    if (project && breadcrumbProject) {
+      breadcrumbProject.textContent = project.name;
+      breadcrumbProject.title = project.name;
+    }
+  } catch (e) {
+    console.error("Failed to resolve project name for breadcrumb", e);
+  }
+}
+
 async function loadWorkspaceTasks() {
   if (!projectId) return;
   try {
@@ -1430,12 +1398,14 @@ function initPanelDragAndDrop() {
 
 document.addEventListener('DOMContentLoaded', () => {
   initPanelDragAndDrop();
+  initSidebarResize();
   window.addEventListener('beforeunload', () => {
     if (typeof state !== 'undefined' && state && state.galleryIndex >= 0) {
       syncToBackend();
     }
   });
   fetchSidebarProjects();
+  initWorkspaceContext();
   fetchLabels();
   if (projectId) {
     loadWorkspaceTasks();
