@@ -170,6 +170,13 @@ export function redoLastPoint() {
   return false;
 }
 
+// The zoom readout subscribes here rather than being imported directly: the
+// component already imports setZoom, so a direct import would be circular.
+let onZoomChange = null;
+export function setZoomChangeHandler(fn) {
+  onZoomChange = fn;
+}
+
 export function setZoom(newZoom, mouseX, mouseY) {
   if (!view.imageLoaded) return;
   const oldZoom = view.viewZoom;
@@ -197,6 +204,8 @@ export function setZoom(newZoom, mouseX, mouseY) {
   view.viewPan.y = cy - (rect.height - newHeight) / 2 - imgY * newScale;
 
   drawAllLayers();
+  // Notified here, not from the buttons, so wheel zoom updates the readout too.
+  if (onZoomChange) onZoomChange();
 }
 
 export function deleteSelected() {

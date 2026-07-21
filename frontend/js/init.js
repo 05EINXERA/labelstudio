@@ -21,8 +21,11 @@ import { autoDetectObjects, autoTagObjects } from "./ai/detect.js?v=1";
 import {
   syncTaskTime, syncTimeToServer, drainTaskTime, setActiveTaskResolver
 } from "./components/timer.js?v=1";
-import { finalizePolygon, deleteSelected, undoLastPoint } from "./canvas/interactions.js?v=1";
+import {
+  finalizePolygon, deleteSelected, undoLastPoint, setZoomChangeHandler
+} from "./canvas/interactions.js?v=1";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
+import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=1";
 
 if (!localStorage.getItem('logged_in')) {
   window.location.href = '/';
@@ -121,6 +124,7 @@ function loadImageFromSource(src, name, { autoDetect = false } = {}) {
       state.gallery[state.galleryIndex].height = view.imageElement.naturalHeight;
     }
     resizeCanvas();
+    updateZoomDisplay();
     render();
     if (autoDetect) {
       await autoDetectObjects({ replace: true });
@@ -662,6 +666,8 @@ async function loadWorkspaceTasks() {
 
 document.addEventListener('DOMContentLoaded', () => {
   initSidebarResize();
+  setZoomChangeHandler(updateZoomDisplay);
+  initZoomControl();
   // Resolves the open task, or null. Task time is only billed while a task is
   // actually open (F8), and Stop uses this to flush the right task (F6).
   setActiveTaskResolver(() => {
