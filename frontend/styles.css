@@ -45,20 +45,121 @@ button {
   clip: rect(0, 0, 0, 0);
 }
 
+/* Full-width bar above the shell. --top-nav-h is the single source of truth for
+   its height so the shell below can claim exactly the remaining viewport. */
+:root {
+  --top-nav-h: 46px;
+}
+
+.top-nav {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: var(--top-nav-h);
+  padding: 0 18px;
+  background: #dbeafe;
+  border-bottom: 1px solid #bfdbfe;
+}
+
+.top-nav-left,
+.top-nav-center,
+.top-nav-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.top-nav-left {
+  flex: 1 1 0;
+}
+
+/* Centred against the bar, not against its neighbours' widths. */
+.top-nav-center {
+  flex: 0 0 auto;
+}
+
+.top-nav-right {
+  flex: 1 1 0;
+  justify-content: flex-end;
+  /* Keeps Save off the right border. */
+  padding-right: 10px;
+  gap: 14px;
+}
+
+.image-nav {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.timer-caption {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: #475569;
+  white-space: nowrap;
+}
+
+.top-nav .save-button {
+  min-width: 74px;
+  height: 28px;
+  min-height: 28px;
+  font-size: 0.76rem;
+}
+
 .app-shell {
   display: grid;
-  grid-template-columns: minmax(260px, 320px) 1fr;
-  min-height: 100vh;
+  /* Width is driven by --sidebar-width so the resize handle can set it. */
+  grid-template-columns: var(--sidebar-width, 300px) 1fr;
+  grid-template-rows: calc(100vh - var(--top-nav-h));
+  height: calc(100vh - var(--top-nav-h));
+  overflow: hidden;
 }
 
 .sidebar {
+  /* Explicit placement: the resize handle is a third child pinned into this
+     same cell, and without explicit tracks it would displace the workspace
+     into a second row instead of sitting over the seam. */
+  grid-column: 1;
+  grid-row: 1;
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 14px;
   min-width: 0;
+  /* min-height:0 lets this grid child shrink below its content so it can
+     scroll itself, instead of stretching the page. */
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: 18px;
   background: #e8eeee;
   border-right: 1px solid var(--line);
+}
+
+/* Sits on the seam between sidebar and workspace. Positioned rather than a
+   grid column so it adds no width of its own; grid-area pins it to the
+   sidebar's column, then it is nudged over the border. */
+.sidebar-resize-handle {
+  grid-column: 1;
+  grid-row: 1;
+  justify-self: end;
+  align-self: stretch;
+  width: 7px;
+  margin-right: -4px;
+  z-index: 60;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.15s ease;
+  touch-action: none;
+}
+
+.sidebar-resize-handle:hover,
+.sidebar-resize-handle:active {
+  background: var(--accent);
+  opacity: 0.55;
 }
 
 .brand-block,
@@ -103,8 +204,10 @@ h2 {
 }
 
 .status-pill {
-  flex: 0 0 auto;
-  max-width: 140px;
+  /* Fixed width, not content width: status text changes length as messages
+     come and go, and an auto-sized pill reflows the header row each time. */
+  flex: 0 0 110px;
+  width: 110px;
   padding: 6px 8px;
   border-radius: 999px;
   background: var(--panel-2);
@@ -353,13 +456,13 @@ h2 {
   font-weight: 800;
 }
 
+/* Base layout; the consolidated block near the end of this file is the
+   authority on sizing. Kept a flex column here so the two agree. */
 .workspace {
-  display: grid;
-  grid-template-rows: auto 1fr auto;
+  display: flex;
+  flex-direction: column;
   gap: 14px;
   min-width: 0;
-  height: 100vh;
-  max-height: 100vh;
   padding: 18px;
   overflow: hidden;
 }
@@ -409,7 +512,6 @@ h2 {
 
 .stage-wrap {
   position: relative;
-  min-height: 320px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background:
@@ -428,7 +530,8 @@ canvas {
   display: block;
   width: 100%;
   height: 100%;
-  min-height: 320px;
+  /* No min-height: the canvas must be free to shrink with its container, or it
+     forces .stage-wrap past its flex cell and pushes the layout out. */
   touch-action: none;
 }
 
@@ -562,8 +665,9 @@ canvas {
 
 /* ─── >= 1024px tweaks ─── */
 @media (max-width: 1024px) {
+  /* Narrower default, but still honour a user-dragged width. */
   .app-shell {
-    grid-template-columns: minmax(240px, 280px) 1fr;
+    grid-template-columns: var(--sidebar-width, 260px) 1fr;
   }
 
   .sidebar {
@@ -591,8 +695,43 @@ canvas {
     display: flex;
   }
 
+  /* The mobile sidebar toggle is fixed at the top-left; give it room and let
+     the nav's three sections wrap instead of crushing together. */
+  .top-nav {
+    height: auto;
+    min-height: var(--top-nav-h);
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 12px 8px 56px;
+  }
+
+  .top-nav-left,
+  .top-nav-center,
+  .top-nav-right {
+    flex: 0 1 auto;
+  }
+
+  .top-nav-right {
+    padding-right: 0;
+    margin-left: auto;
+  }
+
   .app-shell {
     grid-template-columns: 1fr;
+    grid-template-rows: auto;
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+
+  /* The sidebar leaves the grid (fixed overlay), so the workspace takes the
+     single remaining column instead of the second track it uses on desktop. */
+  .workspace {
+    grid-column: 1;
+  }
+
+  .sidebar-resize-handle {
+    display: none;
   }
 
   .sidebar {
@@ -1190,48 +1329,44 @@ canvas {
 }
 
 
+/* --- Workspace column + compact grouped toolbar --------------------------- */
+
+/* The workspace fills its grid cell exactly and never scrolls itself: the
+   toolbar takes what it needs and .stage-wrap absorbs the remainder. */
 .workspace {
+  grid-column: 2;
+  grid-row: 1;
   display: flex;
   flex-direction: column;
-  padding: 18px;
-  gap: 14px;
+  padding: 10px 14px 14px;
+  gap: 10px;
   height: 100%;
-  max-height: none;
-  overflow: visible;
+  max-height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
+
 .toolbar {
   position: sticky;
-  top: 18px;
+  top: 0;
   z-index: 100;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 4px;
+  padding: 5px 8px;
+  row-gap: 6px;
+  flex: 0 0 auto;
 }
+
 .stage-wrap {
   position: relative;
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
   max-width: 100%;
   border-radius: 8px;
   background: #f7faf9;
   border: 1px solid var(--line);
-}
-
-/* --- Compact grouped toolbar --------------------------------------------- */
-
-.workspace {
-  padding: 10px 14px 14px;
-  gap: 10px;
-  height: 100vh;
-  max-height: 100vh;
-  overflow: hidden;
-}
-
-.toolbar {
-  top: 0;
-  align-items: stretch;
-  justify-content: flex-start;
-  gap: 4px;
-  padding: 5px 8px;
-  row-gap: 6px;
 }
 
 .tool-group {
@@ -1284,7 +1419,9 @@ canvas {
 }
 
 .toolbar .tool-button,
-.toolbar .icon-button {
+.toolbar .icon-button,
+.top-nav .tool-button,
+.top-nav .icon-button {
   min-height: 26px;
   height: 26px;
   padding: 0 8px;
@@ -1298,6 +1435,62 @@ canvas {
   display: inline;
   margin-right: 3px;
   font-size: 0.72rem;
+}
+
+/* Back arrow + "<project> / <image>" breadcrumb, replacing the old sidebar
+   brand block. */
+.toolbar .back-button,
+.top-nav .back-button {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  min-width: 26px;
+  padding: 0;
+  font-size: 0.95rem;
+  text-decoration: none;
+  color: var(--ink);
+}
+
+.breadcrumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 320px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.breadcrumb-project,
+.breadcrumb-image {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The project name yields first when space is tight; the image name is what
+   the annotator is actively working on. */
+.breadcrumb-project {
+  max-width: 130px;
+  color: var(--muted);
+}
+
+.breadcrumb-image {
+  max-width: 180px;
+}
+
+.breadcrumb-sep {
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+
+.gallery-position {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--muted);
+  min-width: 38px;
+  text-align: center;
 }
 
 /* Selected-annotation readout, inline in the toolbar. Width tracks the class
@@ -1348,7 +1541,8 @@ canvas {
   line-height: 1;
 }
 
-.toolbar .timer-btn {
+.toolbar .timer-btn,
+.top-nav .timer-btn {
   width: 22px;
   min-width: 22px;
   height: 22px;
@@ -1363,16 +1557,19 @@ canvas {
   box-shadow: none;
 }
 
-.toolbar .timer-btn:hover {
+.toolbar .timer-btn:hover,
+.top-nav .timer-btn:hover {
   background: rgba(0, 0, 0, 0.1);
 }
 
-.toolbar .timer-btn-stop {
+.toolbar .timer-btn-stop,
+.top-nav .timer-btn-stop {
   background: transparent;
   color: #ef4444;
 }
 
-.toolbar .timer-btn-stop:hover {
+.toolbar .timer-btn-stop:hover,
+.top-nav .timer-btn-stop:hover {
   background: rgba(239, 68, 68, 0.12);
 }
 
