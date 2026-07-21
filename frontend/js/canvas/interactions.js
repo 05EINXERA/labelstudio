@@ -545,6 +545,21 @@ canvas.addEventListener("pointermove", (event) => {
   if (view.drag.type === "draw-polygon") {
     view.drag.preview = end;
     view.drag.previewCanvas = point;
+    
+    if (event.buttons === 1) {
+      const annotation = state.annotations.find((item) => item.id === view.drag.annotationId);
+      if (annotation) {
+        const pts = annotation.points || [];
+        const lastPoint = pts[pts.length - 1];
+        const threshold = 10 / view.imageBox.scale;
+        if (lastPoint && Math.hypot(lastPoint.x - end.x, lastPoint.y - end.y) > threshold) {
+          annotation.points.push({ x: round(end.x), y: round(end.y) });
+          updateAnnotationBounds(annotation);
+          view.drag.needsSave = true;
+        }
+      }
+    }
+    
     draw();
   } else if (view.drag.type === "draw" && state.mode === "draw") {
     const start = view.drag.draft.points?.[0] || { x: end.x, y: end.y };
@@ -624,6 +639,11 @@ canvas.addEventListener("pointerup", (e) => {
     view.drag = null;
     save();
     return;
+  }
+
+  if (view.drag?.type === "draw-polygon" && view.drag.needsSave) {
+    view.drag.needsSave = false;
+    save();
   }
 
   if (view.drag?.type === "move") {
