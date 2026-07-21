@@ -6,7 +6,7 @@ import {
 } from "../state.js?v=1";
 import { annotationPoints, updateAnnotationBounds } from "../canvas/geometry.js?v=1";
 import { view } from "../canvas/view.js?v=1";
-import { timerState } from "../timer-state.js?v=1";
+import { drainTaskTime } from "./timer.js?v=1";
 import { detectState } from "../ai/detect-state.js?v=1";
 import { draw, drawAllLayers } from "../canvas/draw.js?v=1";
 import {
@@ -61,46 +61,24 @@ export function repairLabelsFromAnnotations() {
   });
 }
 
-export function syncToBackend() {
+export function syncToBackend({ useBeacon = false } = {}) {
   if (typeof state === 'undefined' || state.galleryIndex < 0 || !state.gallery || !state.gallery[state.galleryIndex]) return;
   const currentTask = state.gallery[state.galleryIndex];
   if (!currentTask.id) return;
 
-  const timeDelta = timerState.taskSessionSeconds;
-  timerState.taskSessionSeconds = 0;
-  const username = localStorage.getItem('dataset_username') || 'Unknown';
   let taskStatus = currentTask.status;
   if (taskStatus === 'New') taskStatus = 'In Progress';
   currentTask.status = taskStatus;
   currentTask.annotations = [...state.annotations];
 
-  apiFetch('/api/tasks', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      id: currentTask.id,
-      status: taskStatus,
-      time_spent_delta: timeDelta,
-      assignee: username,
-      annotations: JSON.stringify(currentTask.annotations),
-      updated_at: currentTask.updated_at
-    })
-  })
-    .then(async res => {
-      if (res.status === 409) {
-        const errorMsg = await res.json();
-        alert(`Conflict: ${errorMsg.detail}`);
-        currentTask.id = null; // Prevent further autosaves for this task
-        return;
-      }
-      if (res.ok) {
-        const data = await res.json();
-        if (data && data.updated_at) {
-          currentTask.updated_at = data.updated_at;
-        }
-      }
-    })
-    .catch(e => console.error("Auto-save failed", e));
+  // Time accounting (drain, retry-on-failure, task binding) lives in timer.js
+  // so there is exactly one drain point for taskSessionSeconds. See
+  // docs/TIMER_AUDIT.md F3/F4.
+  return drainTaskTime(currentTask, {
+    status: taskStatus,
+    annotations: currentTask.annotations,
+    useBeacon
+  });
 }
 
 export function save() {
