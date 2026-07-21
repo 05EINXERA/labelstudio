@@ -661,7 +661,7 @@ export function importData(file) {
 
         state.annotations = importedAnnotations.map((item) => {
           const labelName = item.title || item.label || item.detectedClass || labelById(item.labelId)?.name || "object";
-          const label = ensureLabel(labelName);
+          const label = ensureLabel(labelName, item.color || null);
 
           let parsedPoints = null;
           if (Array.isArray(item.points) && item.points.length >= 3) {
