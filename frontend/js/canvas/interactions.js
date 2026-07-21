@@ -136,6 +136,37 @@ export function finalizePolygon() {
   save();
 }
 
+export function undoLastPoint() {
+  if (view.drag?.type === "draw-polygon") {
+    const annotation = state.annotations.find((item) => item.id === view.drag.annotationId);
+    if (annotation && annotation.points && annotation.points.length > 1) {
+      if (!view.drag.undonePoints) view.drag.undonePoints = [];
+      const popped = annotation.points.pop();
+      view.drag.undonePoints.push(popped);
+      updateAnnotationBounds(annotation);
+      render();
+      save();
+      return true;
+    }
+  }
+  return false;
+}
+
+export function redoLastPoint() {
+  if (view.drag?.type === "draw-polygon" && view.drag.undonePoints?.length > 0) {
+    const annotation = state.annotations.find((item) => item.id === view.drag.annotationId);
+    if (annotation && annotation.points) {
+      const restored = view.drag.undonePoints.pop();
+      annotation.points.push(restored);
+      updateAnnotationBounds(annotation);
+      render();
+      save();
+      return true;
+    }
+  }
+  return false;
+}
+
 export function setZoom(newZoom, mouseX, mouseY) {
   if (!view.imageLoaded) return;
   const oldZoom = view.viewZoom;
@@ -458,6 +489,7 @@ canvas.addEventListener("pointerdown", (event) => {
         if (!lastPoint || Math.hypot(lastPoint.x - pointInImage.x, lastPoint.y - pointInImage.y) > 1) {
           annotation.points.push({ x: round(pointInImage.x), y: round(pointInImage.y) });
           updateAnnotationBounds(annotation);
+          if (view.drag.undonePoints) view.drag.undonePoints = [];
         }
       }
       render();
@@ -555,6 +587,7 @@ canvas.addEventListener("pointermove", (event) => {
           annotation.points.push({ x: round(end.x), y: round(end.y) });
           updateAnnotationBounds(annotation);
           view.drag.needsSave = true;
+          if (view.drag.undonePoints) view.drag.undonePoints = [];
         }
       }
     }
@@ -754,7 +787,11 @@ window.addEventListener("keydown", (event) => {
 
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
     event.preventDefault();
-    undoButton.click();
+    if (event.shiftKey) {
+      redoLastPoint();
+    } else {
+      undoButton.click();
+    }
     return;
   }
 
@@ -795,6 +832,13 @@ window.addEventListener("keydown", (event) => {
       }
     }
     deleteSelected();
+    return;
+  }
+  if (event.key === "Enter") {
+    if (view.drag?.type === "draw-polygon") {
+      event.preventDefault();
+      finalizePolygon();
+    }
     return;
   }
 
