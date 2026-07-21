@@ -13,11 +13,10 @@ import {
   emptyState, classesList, annotationList, annotationCount, selectedInfo,
   drawMode, selectMode, boxMode, polygonMode, commentMode, magicWandMode,
   autoDetectButton, undoButton, deleteButton, clearButton, exportMenuButton,
-  labelStudioButton, shapeHint, saveStatus
+  shapeHint, saveStatus
 } from "../dom.js?v=1";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
 
-let labelStudioBusy = false;
 
 export function setStatus(text) {
   saveStatus.textContent = text;
@@ -25,12 +24,6 @@ export function setStatus(text) {
   setStatus.timer = window.setTimeout(() => {
     saveStatus.textContent = "Saved";
   }, 1200);
-}
-
-export function setLabelStudioBusy(isBusy) {
-  labelStudioBusy = isBusy;
-  labelStudioButton.disabled = isBusy || !view.imageLoaded || state.annotations.length === 0;
-  labelStudioButton.textContent = isBusy ? "Sending..." : "Send annotations";
 }
 
 export function ensureLabel(className, customColor = null) {
@@ -147,22 +140,6 @@ export function loadSaved() {
   }
 }
 
-export function deleteClass(classId) {
-  snapshot();
-  state.labels = state.labels.filter(l => l.id !== classId);
-  // Also delete associated annotations
-  state.annotations = state.annotations.filter(a => a.labelId !== classId);
-  if (state.activeLabelId === classId) {
-    state.activeLabelId = state.labels.length > 0 ? state.labels[0].id : null;
-  }
-  if (state.selectedId && !state.annotations.find(a => a.id === state.selectedId)) {
-    state.selectedId = null;
-    view.drag = null;
-  }
-  render();
-  save();
-}
-
 export function renderClasses() {
   classesList.innerHTML = "";
 
@@ -178,7 +155,7 @@ export function renderClasses() {
     state.activeLabelId = state.labels[0].id;
   }
 
-  state.labels.forEach((label) => {
+  state.labels.forEach((label, index) => {
     const item = document.createElement("button");
     item.type = "button";
     item.className = `class-item${label.id === state.activeLabelId ? " is-active" : ""}`;
@@ -199,26 +176,19 @@ export function renderClasses() {
       }
     });
 
+    // Classes are fixed per project and managed from the dashboard, so the list
+    // is read-only here: no edit or delete affordances.
     item.innerHTML = `
       <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;">
         <span class="swatch" style="background:${label.color || '#65727f'}; flex-shrink: 0;"></span>
         <strong class="class-name" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></strong>
         <span class="class-count" style="font-size: 0.75rem; color: var(--muted); margin-left: 4px; flex-shrink: 0;">(${count})</span>
       </div>
-      <div class="class-actions" style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
-        <span class="edit-class-btn" title="Edit class" style="cursor: pointer; color: var(--muted); display: grid; place-items: center; width: 20px; height: 20px;">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-        </span>
-        <span class="delete-class-btn" title="Delete class" style="cursor: pointer; color: #ff6b6b; display: grid; place-items: center; width: 20px; height: 20px;">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
-        </span>
-      </div>
     `;
-    item.querySelector(".class-name").textContent = labelDisplayName(label);
+    item.querySelector(".class-name").textContent = `${index + 1}. ${labelDisplayName(label)}`;
 
     // Click on the item itself sets it as active
     item.addEventListener("click", (e) => {
-      if (e.target.closest('.class-actions') || e.target.closest('.edit-class-form')) return;
       state.activeLabelId = label.id;
 
       // Reassign class to selected annotations
@@ -239,55 +209,6 @@ export function renderClasses() {
       }
 
       render();
-    });
-
-    // Click on delete button
-    item.querySelector(".delete-class-btn").addEventListener("click", (e) => {
-      e.stopPropagation();
-      if (confirm(`Delete class "${labelDisplayName(label)}" and all its annotations?`)) {
-        deleteClass(label.id);
-      }
-    });
-
-    // Click on edit button
-    item.querySelector(".edit-class-btn").addEventListener("click", (e) => {
-      e.stopPropagation();
-      item.innerHTML = `
-        <form class="edit-class-form" style="display: flex; gap: 4px; width: 100%; align-items: center;" onsubmit="event.preventDefault();">
-          <input type="text" class="edit-class-name" value="${label.name}" required style="flex: 1; min-width: 0; padding: 2px 4px; font-size: 0.85rem;" onclick="event.stopPropagation()">
-          <input type="color" class="edit-class-color" value="${label.color}" style="width: 24px; height: 24px; padding: 0; border: none; flex-shrink: 0;" onclick="event.stopPropagation()">
-          <button type="submit" class="primary save-edit-btn" style="padding: 2px 6px; font-size: 0.75rem; border: none; border-radius: 4px; flex-shrink: 0;" onclick="event.stopPropagation()">Save</button>
-          <button type="button" class="cancel-edit-btn" style="padding: 2px 6px; font-size: 0.75rem; background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px; flex-shrink: 0;" onclick="event.stopPropagation()">Cancel</button>
-        </form>
-      `;
-      const form = item.querySelector(".edit-class-form");
-      const nameInput = item.querySelector(".edit-class-name");
-      const colorInput = item.querySelector(".edit-class-color");
-      nameInput.focus();
-
-      const finishEdit = (saveChanges) => {
-        if (saveChanges) {
-          const newName = nameInput.value.trim();
-          if (newName && (newName !== label.name || colorInput.value !== label.color)) {
-            snapshot();
-            label.name = newName;
-            label.color = colorInput.value;
-            save();
-            setStatus(`Updated class: ${label.name}`);
-          }
-        }
-        render(); // This will re-render classes list with original structure or new values
-      };
-
-      form.addEventListener("submit", (ev) => {
-        ev.preventDefault();
-        finishEdit(true);
-      });
-      item.querySelector(".cancel-edit-btn").addEventListener("click", (ev) => {
-        ev.stopPropagation();
-        finishEdit(false);
-      });
-      form.addEventListener("click", (ev) => ev.stopPropagation());
     });
 
     classesList.appendChild(item);
@@ -508,7 +429,6 @@ export function renderControls() {
   clearButton.disabled = state.annotations.length === 0;
   const noData = !view.imageLoaded && state.annotations.length === 0;
   exportMenuButton.disabled = noData;
-  labelStudioButton.disabled = labelStudioBusy || noData;
   emptyState.classList.toggle("is-hidden", view.imageLoaded);
 }
 
@@ -581,47 +501,6 @@ export function renderImageClasses() {
     div.appendChild(countSpan);
     imageClassesList.appendChild(div);
   });
-}
-
-export async function sendToEndpoint() {
-  const url = labelStudioProxyInput.value.trim();
-  if (!url) {
-    setStatus("URL required");
-    return;
-  }
-  if (!view.imageLoaded) {
-    setStatus("Load image first");
-    return;
-  }
-  if (!state.annotations.length) {
-    setStatus("No annotations");
-    return;
-  }
-
-  localStorage.setItem(labelStudioStorageKey, url);
-  setLabelStudioBusy(true);
-  setStatus("Sending");
-
-  try {
-    const payload = buildCocoExport();
-    const response = await apiFetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-
-    if (!response.ok) {
-      throw new Error(`Endpoint returned ${response.status}`);
-    }
-
-    setStatus(`Sent successfully`);
-  } catch (error) {
-    console.error(error);
-    setStatus("Sync failed");
-    window.alert(error.message || "Sync failed.");
-  } finally {
-    setLabelStudioBusy(false);
-  }
 }
 
 export function importData(file) {
