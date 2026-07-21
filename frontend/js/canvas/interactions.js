@@ -136,6 +136,20 @@ export function finalizePolygon() {
   save();
 }
 
+export function undoLastPoint() {
+  if (view.drag?.type === "draw-polygon") {
+    const annotation = state.annotations.find((item) => item.id === view.drag.annotationId);
+    if (annotation && annotation.points && annotation.points.length > 1) {
+      annotation.points.pop();
+      updateAnnotationBounds(annotation);
+      render();
+      save();
+      return true;
+    }
+  }
+  return false;
+}
+
 export function setZoom(newZoom, mouseX, mouseY) {
   if (!view.imageLoaded) return;
   const oldZoom = view.viewZoom;
