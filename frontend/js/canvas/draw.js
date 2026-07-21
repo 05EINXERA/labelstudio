@@ -1,5 +1,5 @@
 import { canvas, ctx, imageCanvas, imageCtx, staticCanvas, staticCtx } from "../dom.js?v=1";
-import { state, handleSize, labelById } from "../state.js?v=1";
+import { state, handleSize, labelById, isAnnotationHidden } from "../state.js?v=1";
 import { view } from "./view.js?v=1";
 import { annotationPoints, hexToRgba } from "./geometry.js?v=1";
 
@@ -42,6 +42,7 @@ export function drawStaticLayer() {
   if (!view.imageLoaded) return;
 
   state.annotations.forEach((annotation) => {
+    if (isAnnotationHidden(annotation)) return;
     const isSelected = state.selectedIds.has(annotation.id);
     const isDragging = view.drag?.annotationId === annotation.id || view.drag?.originals?.find(a => a.id === annotation.id);
     if (!isSelected && !isDragging) {
@@ -65,6 +66,9 @@ export function draw() {
   if (!view.imageLoaded) return;
 
   state.annotations.forEach((annotation) => {
+    // Filtered here as well as in drawStaticLayer: without this a hidden
+    // annotation would reappear the moment it became selected.
+    if (isAnnotationHidden(annotation)) return;
     const isSelected = state.selectedIds.has(annotation.id);
     const isDragging = view.drag?.annotationId === annotation.id || view.drag?.originals?.find(a => a.id === annotation.id);
     if (isSelected || isDragging) {

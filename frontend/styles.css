@@ -576,6 +576,38 @@ h2 {
   font-weight: 700;
 }
 
+/* Visibility toggle. Matches the 20x20 footprint of the Objects edit button so
+   the two sit on a common baseline. */
+.eye-btn {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.eye-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--ink);
+}
+
+/* Struck-through eye: keep it full-strength so the hidden state stays legible
+   even though the row itself is dimmed. */
+.eye-btn.is-hidden-state {
+  color: var(--accent-dark);
+  opacity: 1;
+}
+
+/* Dims the row's content, not its controls — the eye must stay readable so the
+   row can be un-hidden. */
+.class-item.is-row-hidden > div:first-child,
+.annotation-item.is-row-hidden > div:first-child {
+  opacity: 0.45;
+}
+
 /* Bare point count: right-aligned and narrow so it reads as a column rather
    than pushing the name's ellipsis in. */
 .ann-pts {

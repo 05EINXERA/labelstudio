@@ -1,4 +1,5 @@
 import { normalizeClassName, formatClassName } from "./utils.js?v=1";
+import { view } from "./canvas/view.js?v=1";
 
 export const storageKey = "image-annotation-mvp-v1";
 export const labelStudioStorageKey = "image-annotation-label-studio-settings";
@@ -19,6 +20,11 @@ export const state = {
   galleryIndex: -1,
   _selectedId: null,
   selectedIds: new Set(),
+  // Visibility toggles from the sidebar's eye buttons. Session-only: never
+  // written to localStorage and never sent to the backend, so the persisted
+  // annotation shape is unaffected. Cleared naturally on reload.
+  hiddenLabelIds: new Set(),
+  hiddenAnnotationIds: new Set(),
   activeLabelId: null,
   mode: "draw",
   shape: "polygon",
@@ -65,6 +71,24 @@ export function colorForName(name) {
 export function labelByName(name) {
   const normalized = normalizeClassName(name);
   return state.labels.find((label) => label.name === normalized) || null;
+}
+
+// Single source of truth for visibility, shared by the draw loops and the
+// canvas hit-test so the two can never disagree about what is on screen.
+// A hidden class wins over an annotation's own toggle; revealing the class
+// returns each annotation to its individual state, which falls out of checking
+// both sets rather than mutating one from the other.
+export function isAnnotationHidden(annotation) {
+  if (!annotation) return false;
+  // The shape being drawn right now is always visible, even if its class is
+  // hidden: the annotator needs to see the vertices they are placing. A polygon
+  // is pushed into state.annotations on its first click, so without this it
+  // would disappear mid-draw. It becomes subject to the class toggle as soon as
+  // the shape is closed and view.drag is cleared.
+  if (view.drag?.annotationId && view.drag.annotationId === annotation.id) return false;
+  if (state.hiddenAnnotationIds.has(annotation.id)) return true;
+  if (annotation.labelId && state.hiddenLabelIds.has(annotation.labelId)) return true;
+  return false;
 }
 
 export function labelById(id) {

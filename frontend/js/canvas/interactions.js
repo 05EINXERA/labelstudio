@@ -1,5 +1,5 @@
 import { generateUUID, clamp, round } from "../utils.js?v=1";
-import { state, snapshot } from "../state.js?v=1";
+import { state, snapshot, isAnnotationHidden } from "../state.js?v=1";
 import { annotationPoints, updateAnnotationBounds, pointInPolygon } from "./geometry.js?v=1";
 import { view } from "./view.js?v=1";
 import { draw, drawAllLayers } from "./draw.js?v=1";
@@ -27,6 +27,9 @@ export function hitTest(point) {
   const img = imagePoint(point);
   for (let index = state.annotations.length - 1; index >= 0; index -= 1) {
     const annotation = state.annotations[index];
+    // Hidden annotations are not on screen, so they must not be selectable:
+    // clicking empty space should not pick up something invisible.
+    if (isAnnotationHidden(annotation)) continue;
     // Fast bbox check (handles simple boxes and any annotations with x/y/width/height)
     const ax = Number(annotation.x) || 0;
     const ay = Number(annotation.y) || 0;
@@ -203,6 +206,9 @@ export function deleteSelected() {
   if (view.drag?.type === "draw-polygon" && state.selectedIds.has(view.drag.annotationId)) {
     view.drag = null;
   }
+  // Drop visibility state for the ids going away, so the set does not grow
+  // unboundedly across a session.
+  state.selectedIds.forEach((id) => state.hiddenAnnotationIds.delete(id));
   state.annotations = state.annotations.filter((item) => !state.selectedIds.has(item.id));
   state.selectedIds.clear();
   state.selectedId = null;
