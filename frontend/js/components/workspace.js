@@ -252,7 +252,7 @@ export function renderAnnotations() {
       <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;">
         <span class="swatch" style="background:${label.color || '#65727f'}; flex-shrink: 0;"></span>
         <strong class="ann-name" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></strong>
-        <span class="ann-pts" style="font-size: 0.75rem; color: var(--muted); margin-left: 4px; flex-shrink: 0;"></span>
+        <span class="ann-pts"></span>
       </div>
       <div class="annotation-actions" style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
         <span class="edit-ann-btn" title="Edit object class" style="cursor: pointer; color: var(--muted); display: grid; place-items: center; width: 20px; height: 20px;">
@@ -269,7 +269,11 @@ export function renderAnnotations() {
       text = `${displayCount}. ${labelDisplayName(label)} (Group of ${groupAnns.length})`;
     }
     item.querySelector(".ann-name").textContent = text;
-    item.querySelector(".ann-pts").textContent = annotation.type === "comment" ? "" : `${totalPoints} pts`;
+    // Bare count, no " pts" suffix — the unit costs sidebar width and the
+    // number alone is what matters (e.g. spotting a malformed polygon).
+    const ptsEl = item.querySelector(".ann-pts");
+    ptsEl.textContent = annotation.type === "comment" ? "" : String(totalPoints);
+    if (annotation.type !== "comment") ptsEl.title = `${totalPoints} points`;
 
     const escapeHTML = (str) => String(str).replace(/[&<>'"]/g, match => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[match]));
 
