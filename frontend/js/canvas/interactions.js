@@ -799,6 +799,13 @@ window.addEventListener("keydown", (event) => {
     deleteSelected();
     return;
   }
+  if (event.key === "Enter") {
+    if (view.drag?.type === "draw-polygon") {
+      event.preventDefault();
+      finalizePolygon();
+    }
+    return;
+  }
 
   if (event.key === "Escape") {
     // If drawing a polygon, cancel and remove the incomplete annotation
