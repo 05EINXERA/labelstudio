@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Image Annotation MVP</title>
   <link rel="icon" type="image/png" href="logo.png">
-  <link rel="stylesheet" href="styles.css?v=14">
+  <link rel="stylesheet" href="styles.css?v=16">
   <script src="sync.js"></script>
   <script>
     window.addEventListener('error', function(e) {
@@ -63,159 +63,32 @@
 
   <main class="app-shell">
     <aside class="sidebar" aria-label="Annotation workspace controls">
-      <div id="sidebarPanels" style="display:flex; flex-direction:column; gap:12px; min-height: 50px;">
-        <section id="panel-projects" class="panel accordion-item is-active" draggable="true">
-          <button class="accordion-header" type="button">
-            <h2>Projects</h2>
-            <div class="header-actions">
-              <span class="drag-handle" title="Drag to reorder">⋮⋮</span>
-              <span class="chevron">▾</span>
-            </div>
-          </button>
-        <div class="accordion-grid">
-          <div class="accordion-content">
-            <div class="accordion-content-inner" style="display: flex; flex-direction: column; gap: 8px;">
-              <form id="createProjectSidebarForm" style="display: flex; flex-direction: column; gap: 4px;">
-                <label for="newProjectName" style="font-size: 0.85rem; font-weight: 500;">Create Project</label>
-                <div style="display: flex; gap: 4px;">
-                  <input type="text" id="newProjectName" placeholder="Project name" style="flex: 1; padding: 4px; border-radius: 4px; border: 1px solid var(--line); font-size: 0.85rem;" required>
-                  <button type="submit" class="primary" style="padding: 4px 8px; border-radius: 4px; font-size: 0.85rem; border: none; cursor: pointer;">Add</button>
-                </div>
-              </form>
-              <hr style="border: none; border-top: 1px solid var(--line); margin: 4px 0;">
-              <div id="projectsSidebarList" style="font-size: 0.85rem; display: flex; flex-direction: column; gap: 4px;">
-                <!-- Projects injected here -->
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-        <section id="panel-api-sync" class="panel accordion-item" draggable="true">
-          <button class="accordion-header" type="button">
-            <h2>API Sync (COCO)</h2>
-            <div class="header-actions">
-              <span class="drag-handle" title="Drag to reorder">⋮⋮</span>
-              <span class="chevron">▾</span>
-            </div>
-          </button>
-        <div class="accordion-grid">
-          <div class="accordion-content">
-            <div class="accordion-content-inner">
-              <div class="api-form">
-                <input id="labelStudioProxyInput" type="url" placeholder="Endpoint URL (e.g. https://...)"
-                  autocomplete="off">
-                <button class="primary" id="labelStudioButton" type="button">Send annotations</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-        <section id="panel-team-tasks" class="panel accordion-item" draggable="true">
-          <button class="accordion-header" type="button">
-            <h2>Team & Tasks</h2>
-            <div class="header-actions">
-              <span class="icon-button" id="addPersonButton" title="Add Person"
-                style="min-height: 24px; padding: 2px 8px; font-size: 0.8rem;" onclick="event.stopPropagation()">+
-                Person</span>
-              <span class="drag-handle" title="Drag to reorder">⋮⋮</span>
-              <span class="chevron">▾</span>
-            </div>
-        </button>
-        <div class="accordion-grid">
-          <div class="accordion-content">
-            <div class="accordion-content-inner">
-
-              <form class="label-form is-hidden" id="newPersonForm"
-                style="margin-bottom: 12px; grid-template-columns: 1fr auto;">
-                <input id="newPersonName" type="text" placeholder="Person's name" required autocomplete="off">
-                <button type="submit">Add</button>
-              </form>
-
-              <form class="api-form" id="newTaskForm" style="margin-bottom: 12px;">
-                <div class="split-fields">
-                  <select id="taskAssignee"
-                    style="padding: 10px; border-radius: 8px; border: 1px solid var(--line); font-family: inherit; width: 100%;"
-                    required>
-                    <option value="" disabled selected>Assign to...</option>
-                  </select>
-                  <input id="taskDescription" type="text" placeholder="Task description..." required autocomplete="off"
-                    style="padding: 10px; border-radius: 8px; border: 1px solid var(--line); width: 100%;">
-                </div>
-                <button type="submit" style="min-height: 32px; font-size: 0.85rem;">Assign Task</button>
-              </form>
-
-              <div class="classes-list" id="tasksList">
-                <!-- Tasks will appear here -->
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-        <section id="panel-classes" class="panel accordion-item" draggable="true">
-          <button class="accordion-header" type="button">
+      <div class="sidebar-panes">
+        <section id="panel-classes" class="panel sidebar-pane sidebar-pane-classes">
+          <div class="pane-header">
             <h2>Classes</h2>
-            <div class="header-actions">
-              <span class="icon-button" id="addClassButton" title="New Class"
-                style="min-height: 24px; padding: 2px 8px; font-size: 0.8rem;" onclick="event.stopPropagation()">+
-                New</span>
-              <span class="drag-handle" title="Drag to reorder">⋮⋮</span>
-              <span class="chevron">▾</span>
-            </div>
-        </button>
-        <div class="accordion-grid">
-          <div class="accordion-content">
-            <div class="accordion-content-inner">
-              <div style="display: flex; gap: 8px; margin-bottom: 8px;">
-                <button type="button" class="secondary" id="importClassesBtn" style="flex: 1; padding: 4px; font-size: 0.8rem;">Import JSON</button>
-                <button type="button" class="secondary" id="exportClassesBtn" style="flex: 1; padding: 4px; font-size: 0.8rem;">Export JSON</button>
-              </div>
-              <input type="file" id="importClassesInput" accept=".json" style="display: none;">
-              <div class="classes-list" id="classesList"></div>
-              <form class="label-form is-hidden" id="newClassForm" style="margin-top: 8px;">
-                <input id="newClassName" type="text" placeholder="Class name" required autocomplete="off">
-                <input id="newClassColor" type="color" value="#0f8b8d" title="Class Color">
-                <button id="saveClassButton" type="submit">Add</button>
-              </form>
-              <p class="hint" id="shapeHint" style="margin-top: 8px;">Select a class, then draw a shape.</p>
-            </div>
           </div>
-        </div>
-      </section>
+          <div class="pane-body">
+            <div class="classes-list" id="classesList"></div>
+            <p class="hint" id="shapeHint" style="margin-top: 8px;">Select a class, then draw a shape.</p>
+          </div>
+        </section>
 
-        <section id="panel-objects" class="panel accordion-item" draggable="true">
-          <button class="accordion-header" type="button">
+        <section id="panel-objects" class="panel sidebar-pane sidebar-pane-objects">
+          <div class="pane-header">
             <h2>Objects</h2>
             <div class="header-actions">
               <strong id="annotationCount">0</strong>
-              <span class="drag-handle" title="Drag to reorder">⋮⋮</span>
-              <span class="chevron">▾</span>
-            </div>
-        </button>
-        <div class="accordion-grid">
-          <div class="accordion-content">
-            <div class="accordion-content-inner">
-              <div style="display: flex; gap: 8px; margin-bottom: 8px;">
-                <button type="button" class="secondary" id="importObjectsBtn" style="flex: 1; padding: 4px; font-size: 0.8rem;">Import JSON</button>
-                <button type="button" class="secondary" id="exportObjectsBtn" style="flex: 1; padding: 4px; font-size: 0.8rem;">Export JSON</button>
-                <button type="button" class="secondary" id="exportImageBtn" style="flex: 1; padding: 4px; font-size: 0.8rem;">Export Image</button>
-              </div>
-              <form class="label-form" id="newClassObjectsForm" style="margin-bottom: 8px;">
-                <input id="newClassNameObj" type="text" placeholder="New class name" required autocomplete="off">
-                <input id="newClassColorObj" type="color" value="#0f8b8d" title="Class Color">
-                <button id="saveClassObjButton" type="submit">Add</button>
-              </form>
-              <input type="file" id="importObjectsInput" accept=".json" style="display: none;">
-              <div class="annotation-list" id="annotationList"></div>
             </div>
           </div>
-        </div>
-      </section>
+          <div class="pane-body">
+            <div class="annotation-list" id="annotationList"></div>
+          </div>
+        </section>
+      </div>
 
       <section class="panel" id="userPanel"
-        style="display: none; margin-top: auto; background: var(--panel-2); border-color: var(--line);">
+        style="display: none; background: var(--panel-2); border-color: var(--line);">
         <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
           <div style="display: flex; align-items: center; gap: 10px; min-width: 0;">
             <div
@@ -501,147 +374,7 @@
       document.getElementById('userPanel').style.display = 'block';
     }
 
-    // Team & Tasks Management
-    (async function () {
-      const addPersonBtn = document.getElementById('addPersonButton');
-      const newPersonForm = document.getElementById('newPersonForm');
-      const newPersonName = document.getElementById('newPersonName');
-      const taskAssignee = document.getElementById('taskAssignee');
-      const newTaskForm = document.getElementById('newTaskForm');
-      const taskDescription = document.getElementById('taskDescription');
-      const tasksList = document.getElementById('tasksList');
-      const currentUser = storedUsername || '';
 
-      let team = [];
-      let tasks = [];
-
-      async function fetchTeam() {
-        try {
-          const res = await fetch('/api/team');
-          if (res.ok) {
-            const data = await res.json();
-            team = data.map(t => t.name);
-            renderTeam();
-          }
-        } catch (e) { console.error(e); }
-      }
-
-      async function fetchTasks() {
-        try {
-          const res = await fetch('/api/tasks');
-          if (res.ok) {
-            tasks = await res.json();
-            renderTasks();
-          }
-        } catch (e) { console.error(e); }
-      }
-
-      function renderTeam() {
-        taskAssignee.innerHTML = '<option value="" disabled selected>Assign to...</option>';
-        team.forEach(person => {
-          const opt = document.createElement('option');
-          opt.value = person;
-          opt.textContent = person;
-          taskAssignee.appendChild(opt);
-        });
-      }
-
-      function renderTasks() {
-        tasksList.innerHTML = '';
-        if (tasks.length === 0) {
-          tasksList.innerHTML = '<p class="hint">No tasks assigned yet.</p>';
-          return;
-        }
-        tasks.forEach((task) => {
-          const isMine = task.assignee === currentUser;
-          const div = document.createElement('div');
-          div.className = 'class-item';
-          div.style.gridTemplateColumns = 'auto 1fr auto';
-          div.style.background = isMine ? '#d9efee' : '#fff';
-          div.style.borderColor = isMine ? 'var(--accent)' : 'var(--line)';
-
-          const badge = document.createElement('div');
-          badge.style.fontSize = '0.7rem';
-          badge.style.fontWeight = 'bold';
-          badge.style.background = isMine ? 'var(--accent)' : 'var(--panel-2)';
-          badge.style.color = isMine ? '#fff' : 'inherit';
-          badge.style.padding = '2px 6px';
-          badge.style.borderRadius = '4px';
-          badge.textContent = task.assignee;
-
-          const desc = document.createElement('div');
-          desc.className = 'chip-name';
-          desc.style.fontSize = '0.85rem';
-          desc.textContent = task.description;
-
-          const delBtn = document.createElement('button');
-          delBtn.textContent = '×';
-          delBtn.style.border = 'none';
-          delBtn.style.background = 'transparent';
-          delBtn.style.color = 'var(--danger)';
-          delBtn.style.cursor = 'pointer';
-          delBtn.style.fontWeight = 'bold';
-          delBtn.style.padding = '0 4px';
-          delBtn.onclick = async () => {
-            await fetch(`/api/tasks/${task.id}`, { method: 'DELETE' });
-            await fetchTasks();
-          };
-
-          div.appendChild(badge);
-          div.appendChild(desc);
-          div.appendChild(delBtn);
-          tasksList.appendChild(div);
-        });
-      }
-
-      addPersonBtn.addEventListener('click', () => {
-        newPersonForm.classList.toggle('is-hidden');
-        if (!newPersonForm.classList.contains('is-hidden')) {
-          newPersonName.focus();
-        }
-      });
-
-      newPersonForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const name = newPersonName.value.trim();
-        if (name) {
-          await fetch('/api/team', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ name })
-          });
-          await fetchTeam();
-          newPersonName.value = '';
-          newPersonForm.classList.add('is-hidden');
-        }
-      });
-
-      newTaskForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const assignee = taskAssignee.value;
-        const desc = taskDescription.value.trim();
-        if (assignee && desc) {
-          await fetch('/api/tasks', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ assignee, description: desc })
-          });
-          await fetchTasks();
-          taskDescription.value = '';
-        }
-      });
-
-      await fetchTeam();
-      await fetchTasks();
-    })();
-
-    // Accordion Logic
-    document.querySelectorAll('.accordion-header').forEach(header => {
-      header.addEventListener('click', () => {
-        const item = header.closest('.accordion-item');
-        item.classList.toggle('is-active');
-      });
-    });
 
     // Mobile sidebar toggle
     (function() {
@@ -674,19 +407,6 @@
   </script>
   
   <!-- All Projects Modal -->
-  <div id="allProjectsModal" class="modal-overlay">
-    <div class="modal-content" style="max-width: 500px;">
-      <div class="modal-header">
-        <h2>All Projects</h2>
-        <button class="modal-close" id="allProjectsClose">&times;</button>
-      </div>
-      <div class="modal-body">
-        <div id="allProjectsListModal" style="display: flex; flex-direction: column; gap: 8px;">
-          <!-- Injected via JS -->
-        </div>
-      </div>
-    </div>
-  </div>
 
   
   <!-- Task Completed Modal -->
