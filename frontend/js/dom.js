@@ -26,6 +26,4 @@ export const undoButton = document.querySelector("#undoButton");
 export const deleteButton = document.querySelector("#deleteButton");
 export const clearButton = document.querySelector("#clearButton");
 export const exportMenuButton = document.querySelector("#exportMenuButton");
-export const labelStudioButton = document.querySelector("#labelStudioButton");
 export const shapeHint = document.querySelector("#shapeHint");
-export const labelStudioProxyInput = document.querySelector("#labelStudioProxyInput");

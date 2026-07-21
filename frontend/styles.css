@@ -132,8 +132,8 @@ button {
   /* min-height:0 lets this grid child shrink below its content so it can
      scroll itself, instead of stretching the page. */
   min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
+  /* Does not scroll: each pane scrolls internally so #userPanel stays pinned. */
+  overflow: hidden;
   padding: 18px;
   background: #e8eeee;
   border-right: 1px solid var(--line);
@@ -152,6 +152,106 @@ button {
 }
 .sidebar::-webkit-scrollbar-thumb:hover {
   background: rgba(0, 0, 0, 0.25);
+}
+
+/* --- Sidebar panes: Classes 30 / Objects 70, user panel pinned ------------ */
+
+.sidebar-panes {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  /* Takes all height above #userPanel... */
+  flex: 1 1 auto;
+  /* ...and min-height:0 lets it actually shrink so the panes can scroll
+     instead of growing the column past the viewport. */
+  min-height: 0;
+}
+
+.sidebar-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* 30:70 of the available height, held regardless of content volume.
+   flex-basis 0 makes the ratio depend on the shares alone, not on content. */
+.sidebar-pane-classes {
+  flex: 3 1 0;
+}
+
+.sidebar-pane-objects {
+  flex: 7 1 0;
+}
+
+.pane-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex: 0 0 auto;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-2);
+  border-radius: 8px 8px 0 0;
+}
+
+.pane-header h2 {
+  font-size: 0.9rem;
+}
+
+/* The only scrolling region in each pane. */
+.pane-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 12px;
+}
+
+.pane-body::-webkit-scrollbar {
+  width: 8px;
+}
+
+.pane-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.pane-body::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
+}
+
+.pane-body::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+/* Never shrinks, never moves as the panes above scroll. */
+#userPanel {
+  flex: 0 0 auto;
+}
+
+/* Below the desktop breakpoint the sidebar is a fixed-position drawer, so a
+   fixed ratio would strand content; let the panes size to content and scroll
+   the drawer as a whole instead. */
+@media (max-width: 860px) {
+  .sidebar {
+    overflow-y: auto;
+  }
+
+  .sidebar-panes {
+    flex: 0 0 auto;
+  }
+
+  .sidebar-pane-classes,
+  .sidebar-pane-objects {
+    flex: 0 0 auto;
+  }
+
+  .pane-body {
+    max-height: 46vh;
+  }
 }
 
 /* Sits on the seam between sidebar and workspace. Positioned rather than a
@@ -448,10 +548,13 @@ h2 {
   box-shadow: 0 0 0 2px rgba(15, 139, 141, 0.14);
 }
 
+/* Pentagon rather than a circle: the swatch stands for a polygon annotation,
+   so its shape should read as one. Shared by the Classes and Objects lists. */
 .swatch {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
+  width: 15px;
+  height: 15px;
+  border-radius: 0;
+  clip-path: polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%);
 }
 
 .chip-name,
