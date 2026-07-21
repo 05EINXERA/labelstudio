@@ -139,6 +139,21 @@ button {
   border-right: 1px solid var(--line);
 }
 
+/* Custom scrollbar for overall sidebar */
+.sidebar::-webkit-scrollbar {
+  width: 8px;
+}
+.sidebar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sidebar::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
+}
+.sidebar::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.25);
+}
+
 /* Sits on the seam between sidebar and workspace. Positioned rather than a
    grid column so it adds no width of its own; grid-area pins it to the
    sidebar's column, then it is nudged over the border. */
@@ -404,8 +419,6 @@ h2 {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 220px;
-  overflow: auto;
 }
 
 .label-chip,
