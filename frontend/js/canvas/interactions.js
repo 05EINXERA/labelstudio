@@ -134,7 +134,6 @@ export function finalizePolygon() {
   updateAnnotationBounds(annotation);
   render();
   save();
-  setStatus("Annotation created");
 }
 
 export function setZoom(newZoom, mouseX, mouseY) {
@@ -675,7 +674,6 @@ canvas.addEventListener("pointerup", (e) => {
       view.drag = null;
       render();
       save();
-      setStatus("Annotation created");
       return;
     } else if (state.shape === "magicWand") {
       const start = view.drag.draft.points?.[0] || { x: 0, y: 0 };
