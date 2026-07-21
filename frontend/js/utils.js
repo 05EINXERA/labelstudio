@@ -25,9 +25,12 @@ export function formatClassName(className) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+// HH:MM:SS. Hours are not capped at two digits — a long-running task renders
+// as e.g. 145:02:00 rather than silently wrapping (docs/TIMER_AUDIT.md F11).
 export function formatTime(secondsToFormat) {
-  const h = Math.floor(secondsToFormat / 3600).toString().padStart(2, '0');
-  const m = Math.floor((secondsToFormat % 3600) / 60).toString().padStart(2, '0');
-  const s = (secondsToFormat % 60).toString().padStart(2, '0');
+  const total = Math.max(0, Math.floor(secondsToFormat || 0));
+  const h = Math.floor(total / 3600).toString().padStart(2, '0');
+  const m = Math.floor((total % 3600) / 60).toString().padStart(2, '0');
+  const s = (total % 60).toString().padStart(2, '0');
   return `${h}:${m}:${s}`;
 }

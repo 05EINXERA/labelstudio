@@ -1,5 +1,10 @@
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+# Upper bound on a single reported time delta. Clients sync far more often than
+# once a day; anything larger is a bug or a forged payload. See
+# docs/TIMER_AUDIT.md F9.
+MAX_TIME_DELTA_SECONDS = 86400
 
 class WorkspaceData(BaseModel):
     key: str
@@ -23,9 +28,19 @@ class TaskUpdate(BaseModel):
     assignee: Optional[str] = None
     status: Optional[str] = "New"
     description: Optional[str] = None
-    time_spent_delta: Optional[int] = 0
+    time_spent_delta: Optional[int] = Field(0, ge=0, le=MAX_TIME_DELTA_SECONDS)
     annotations: Optional[str] = None
     updated_at: Optional[str] = None
+
+class ProjectMetrics(BaseModel):
+    total: int
+    completed: int
+    progress: int
+    comments: int
+    # Seconds aggregated from Task.time_spent. See docs/TIMER_AUDIT.md F12.
+    total_time: int = 0
+    avg_time_per_task: int = 0
+    status: Optional[str] = None
 
 class BulkDelete(BaseModel):
     ids: List[int]
@@ -40,7 +55,7 @@ class TeamMemberModel(BaseModel):
 
 class TeamTime(BaseModel):
     name: str
-    time_logged: int
+    time_logged: int = Field(..., ge=0, le=MAX_TIME_DELTA_SECONDS)
 
 class DetectPayload(BaseModel):
     image: str

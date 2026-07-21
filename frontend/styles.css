@@ -127,14 +127,14 @@ button {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
   min-width: 0;
   /* min-height:0 lets this grid child shrink below its content so it can
      scroll itself, instead of stretching the page. */
   min-height: 0;
   /* Does not scroll: each pane scrolls internally so #userPanel stays pinned. */
   overflow: hidden;
-  padding: 18px;
+  padding: 10px;
   background: #e8eeee;
   border-right: 1px solid var(--line);
 }
@@ -159,7 +159,7 @@ button {
 .sidebar-panes {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   /* Takes all height above #userPanel... */
   flex: 1 1 auto;
   /* ...and min-height:0 lets it actually shrink so the panes can scroll
@@ -189,16 +189,16 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
   flex: 0 0 auto;
-  padding: 10px 12px;
+  padding: 6px 10px;
   border-bottom: 1px solid var(--line);
   background: var(--panel-2);
   border-radius: 8px 8px 0 0;
 }
 
 .pane-header h2 {
-  font-size: 0.9rem;
+  font-size: 0.82rem;
 }
 
 /* The only scrolling region in each pane. */
@@ -207,7 +207,7 @@ button {
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 12px;
+  padding: 8px;
 }
 
 .pane-body::-webkit-scrollbar {
@@ -230,6 +230,7 @@ button {
 /* Never shrinks, never moves as the panes above scroll. */
 #userPanel {
   flex: 0 0 auto;
+  padding: 8px 10px;
 }
 
 /* Below the desktop breakpoint the sidebar is a fixed-position drawer, so a
@@ -518,27 +519,30 @@ h2 {
 .annotation-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
 }
 
+/* Density-tuned for the sidebar: these lists are the main content, so the row
+   box is kept tight while leaving a comfortable click target. */
 .label-chip,
 .class-item,
 .annotation-item {
   display: grid;
-  grid-template-columns: 18px 1fr auto;
+  grid-template-columns: 16px 1fr auto;
   align-items: center;
-  gap: 9px;
+  gap: 6px;
   width: 100%;
-  min-height: 42px;
-  padding: 9px;
+  min-height: 28px;
+  padding: 4px 7px;
+  font-size: 0.82rem;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 6px;
   background: #fff;
   text-align: left;
 }
 
 .class-item {
-  grid-template-columns: 18px 1fr 24px;
+  grid-template-columns: 16px 1fr auto;
 }
 
 .class-item.is-active,
@@ -568,8 +572,18 @@ h2 {
 .chip-count,
 .annotation-item span {
   color: var(--muted);
-  font-size: 0.74rem;
-  font-weight: 800;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+/* Bare point count: right-aligned and narrow so it reads as a column rather
+   than pushing the name's ellipsis in. */
+.ann-pts {
+  flex-shrink: 0;
+  min-width: 16px;
+  margin-left: 2px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Base layout; the consolidated block near the end of this file is the
