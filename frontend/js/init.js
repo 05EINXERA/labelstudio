@@ -24,7 +24,7 @@ import {
 } from "./components/workspace.js?v=1";
 import { autoDetectObjects, autoTagObjects } from "./ai/detect.js?v=1";
 import { syncTaskTime, syncTimeToServer } from "./components/timer.js?v=1";
-import { finalizePolygon, deleteSelected } from "./canvas/interactions.js?v=1";
+import { finalizePolygon, deleteSelected, undoLastPoint } from "./canvas/interactions.js?v=1";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
 
 if (!localStorage.getItem('logged_in')) {
@@ -288,6 +288,9 @@ commentOverlayRefs.commentOverlayInput.addEventListener("keydown", (e) => {
 });
 
 undoButton.addEventListener("click", () => {
+  if (undoLastPoint()) {
+    return;
+  }
   const previous = state.history.pop();
   if (!previous) return;
   const restored = JSON.parse(previous);
