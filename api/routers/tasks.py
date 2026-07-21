@@ -3,13 +3,19 @@ import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, HTTPException
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 import models
 from database import get_db
 from schemas import TaskUpdate, BulkDelete, BulkUpdate
+from api.auth import get_current_user
 
-router = APIRouter(prefix="/api/tasks", tags=["tasks"])
+router = APIRouter(
+    prefix="/api/tasks",
+    tags=["tasks"],
+    dependencies=[Depends(get_current_user)],
+)
 
 @router.get("")
 def get_tasks(projectId: Optional[int] = Query(None), include_annotations: bool = Query(True), db: Session = Depends(get_db)):
@@ -51,11 +57,22 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
         if db_task:
             if task.updated_at and db_task.updated_at:
                 try:
-                    client_updated = datetime.datetime.fromisoformat(task.updated_at.replace('Z', '+00:00')).replace(tzinfo=None)
-                    if (db_task.updated_at - client_updated).total_seconds() > 1.0:
-                        raise HTTPException(status_code=409, detail="Task was updated by another user. Please refresh to see latest annotations.")
+                    client_updated = datetime.datetime.fromisoformat(task.updated_at.replace('Z', '+00:00'))
                 except ValueError:
-                    pass
+                    # Silently skipping the check here disabled conflict
+                    # detection entirely on a malformed timestamp, which then
+                    # caused clients to drop time deltas. See TIMER_AUDIT.md F10.
+                    raise HTTPException(status_code=422, detail="Invalid 'updated_at' timestamp format.")
+
+                # Rows written before the tz-aware migration are naive UTC.
+                stored = db_task.updated_at
+                if stored.tzinfo is None:
+                    stored = stored.replace(tzinfo=datetime.timezone.utc)
+                if client_updated.tzinfo is None:
+                    client_updated = client_updated.replace(tzinfo=datetime.timezone.utc)
+
+                if (stored - client_updated).total_seconds() > 1.0:
+                    raise HTTPException(status_code=409, detail="Task was updated by another user. Please refresh to see latest annotations.")
             if task.assignee is not None:
                 db_task.assignee = task.assignee
             if task.status is not None:
@@ -66,7 +83,7 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
                 db_task.time_spent = (db_task.time_spent or 0) + task.time_spent_delta
             if task.annotations is not None:
                 db_task.annotations = task.annotations
-            db_task.updated_at = datetime.datetime.utcnow()
+            db_task.updated_at = datetime.datetime.now(datetime.timezone.utc)
             task_id = db_task.id
             new_updated_at = db_task.updated_at
         else:
@@ -79,7 +96,7 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
             status=task.status or "New", 
             time_spent=task.time_spent_delta or 0, 
             annotations=task.annotations,
-            updated_at=datetime.datetime.utcnow()
+            updated_at=datetime.datetime.now(datetime.timezone.utc)
         )
         db.add(db_task)
         db.commit()
@@ -87,6 +104,32 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
         task_id = db_task.id
         new_updated_at = db_task.updated_at
         
+    # Project status is derived from its tasks. It used to be written by the
+    # GET /metrics endpoint; deriving it here keeps that read side-effect free
+    # (CLAUDE.md rule 4 / docs/TIMER_AUDIT.md F13).
+    project_id = db_task.project_id
+    if project_id is not None:
+        # Push the pending task change to the DB so the aggregate below counts
+        # it; without this the project never reaches 'Completed' on the update
+        # that completes its last task.
+        db.flush()
+        counts = db.query(
+            func.count(models.Task.id),
+            func.sum(case((models.Task.status == 'Completed', 1), else_=0)),
+        ).filter(models.Task.project_id == project_id).one()
+        total, completed = counts[0] or 0, counts[1] or 0
+
+        new_status = None
+        if total > 0 and completed == total:
+            new_status = 'Completed'
+        elif completed > 0:
+            new_status = 'In Progress'
+
+        if new_status:
+            project = db.query(models.Project).filter(models.Project.id == project_id).first()
+            if project and project.status != new_status:
+                project.status = new_status
+
     db.commit()
     return {"id": task_id, "status": "ok", "updated_at": new_updated_at.isoformat()}
 
@@ -116,7 +159,7 @@ def bulk_update_tasks(payload: BulkUpdate, db: Session = Depends(get_db)):
         update_data[models.Task.status] = payload.status
         
     if update_data:
-        update_data[models.Task.updated_at] = datetime.datetime.utcnow()
+        update_data[models.Task.updated_at] = datetime.datetime.now(datetime.timezone.utc)
         db.query(models.Task).filter(models.Task.id.in_(payload.ids)).update(update_data, synchronize_session=False)
         db.commit()
         
