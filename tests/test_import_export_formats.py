@@ -314,3 +314,46 @@ def test_import_annotation_matches_by_value_then_title(client, alice):
     labels = client.get(f"/api/labels?projectId={pid}", headers=alice).json()
     assert len(labels) == 1
     assert labels[0]["name"] == "ExactMatch"
+
+
+
+def test_import_single_pertask_object(client, alice):
+    """Import a single per-task JSON object (FastLabel format) not wrapped in array."""
+    pid = _new_project(client, alice)
+    lid = _new_label(client, alice, pid, "Cat", "#ef4444")
+    tid = _new_task(client, alice, pid, "P1000066.JPG", annotations=[])
+
+    # Single task object (not in array or "tasks" key) - FastLabel per-task format
+    payload = {
+        "name": "P1000066.JPG",
+        "annotations": [
+            {
+                "points": [100, 100, 200, 100, 200, 200, 100, 200],
+                "title": "Cat",
+                "value": "Cat",
+            }
+        ],
+    }
+
+    # Preview first
+    response = client.post(
+        f"/api/imports/annotations/preview?projectId={pid}",
+        files={"file": ("P1000066.json", json.dumps(payload).encode(), "application/json")},
+        headers=alice,
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["matched"]) == 1
+    assert body["matched"][0]["filename"] == "P1000066.JPG"
+    assert body["matched"][0]["annotation_count"] == 1
+    
+    # Then import
+    response = client.post(
+        f"/api/imports/annotations?projectId={pid}&mode=replace",
+        files={"file": ("P1000066.json", json.dumps(payload).encode(), "application/json")},
+        headers=alice,
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["tasks_updated"] == 1
+    assert body["annotations_imported"] == 1

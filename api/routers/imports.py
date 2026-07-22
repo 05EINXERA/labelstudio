@@ -100,7 +100,20 @@ def _parse_native(data) -> Dict[str, List[dict]]:
     label ids will not match the source project's, only `title`/`value` (the
     label's display name at export time) survive the round trip.
     """
-    items = data if isinstance(data, list) else data.get("tasks", [])
+    # Handle three cases:
+    # 1. A list of task objects: [{name, annotations}, ...]
+    # 2. A dict with "tasks" key: {tasks: [{name, annotations}, ...]}
+    # 3. A single task object (FastLabel per-task format): {name, annotations: [...]}
+    if isinstance(data, list):
+        items = data
+    elif isinstance(data, dict) and "tasks" in data:
+        items = data["tasks"]
+    elif isinstance(data, dict) and "name" in data and "annotations" in data:
+        # Single per-task object - wrap in a list
+        items = [data]
+    else:
+        items = []
+    
     out = {}
     for item in items:
         name = item.get("name")
