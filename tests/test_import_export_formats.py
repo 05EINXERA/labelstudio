@@ -244,11 +244,11 @@ def test_export_pertask_multiple_annotations_ordered(client, alice):
 # ============================================================================
 
 def test_import_pertask_with_title_and_value(client, alice):
-    """T4.2: Import per-task format with title and value fields."""
+    """T4.2: Import per-task format uses 'title' (display name) for label matching."""
     pid = _new_project(client, alice)
     _new_task(client, alice, pid, "test.jpg")
     
-    # Import will create the label automatically
+    # Import will create the label automatically using title (not value)
     pertask_data = json.dumps([
         {
             "name": "test.jpg",
@@ -275,26 +275,30 @@ def test_import_pertask_with_title_and_value(client, alice):
     assert body["tasks_updated"] == 1
     assert body["annotations_imported"] == 1
     
-    # Verify label was created with the title
+    # Verify label was created with the title (not value)
     labels = client.get(f"/api/labels?projectId={pid}", headers=alice).json()
-    assert any(l["name"] == "ACPaintExposedSteel" for l in labels)  # matched by value
+    assert any(l["name"] == "AC Paint / Exposed Steel" for l in labels)  # matched by title
+    
+    # Verify color was preserved from annotation
+    ac_label = next(l for l in labels if l["name"] == "AC Paint / Exposed Steel")
+    assert ac_label["color"] == "#0FFFFF"
 
 
-def test_import_annotation_matches_by_value_then_title(client, alice):
-    """T4.3: Label matching prioritizes 'value' over 'title'."""
+def test_import_annotation_matches_by_title_then_value(client, alice):
+    """T4.3: Label matching prioritizes 'title' (display name) over 'value' (identifier)."""
     pid = _new_project(client, alice)
-    # Create label with a specific name
-    _new_label(client, alice, pid, "ExactMatch", "#111")
+    # Create label with a specific display name
+    _new_label(client, alice, pid, "Display Name", "#111")
     _new_task(client, alice, pid, "test.jpg")
     
-    # Import annotation where value matches existing label name
+    # Import annotation where title matches existing label name
     pertask_data = json.dumps([
         {
             "name": "test.jpg",
             "annotations": [
                 {
-                    "title": "Different Title",
-                    "value": "ExactMatch",  # This should match
+                    "title": "Display Name",  # This should match
+                    "value": "identifier_value",  # This is ignored for matching
                     "points": [10, 10, 20, 20]
                 }
             ]
@@ -310,10 +314,10 @@ def test_import_annotation_matches_by_value_then_title(client, alice):
     body = res.json()
     assert body["tasks_updated"] == 1
     
-    # Should have matched existing label, not created a new one
+    # Should have matched existing label by title, not created a new one
     labels = client.get(f"/api/labels?projectId={pid}", headers=alice).json()
     assert len(labels) == 1
-    assert labels[0]["name"] == "ExactMatch"
+    assert labels[0]["name"] == "Display Name"
 
 
 

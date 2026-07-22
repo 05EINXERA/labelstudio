@@ -133,9 +133,12 @@ def _parse_native(data) -> Dict[str, List[dict]]:
             if len(points) < 2:
                 continue
             x, y, w, h = _bbox_of(points)
-            label_name = a.get("value") or a.get("title") or a.get("labelName") or "object"
+            # Use title (display name) first, fallback to value/labelName
+            label_name = a.get("title") or a.get("value") or a.get("labelName") or "object"
             anns.append({
-                "id": uuid.uuid4().hex, "labelName": label_name,
+                "id": uuid.uuid4().hex, 
+                "labelName": label_name,
+                "labelColor": a.get("color"),  # Preserve color for label creation
                 "points": points, "x": _round(x), "y": _round(y),
                 "width": _round(w), "height": _round(h),
             })
@@ -181,18 +184,39 @@ def _resolve_label_ids(by_filename: Dict[str, List[dict]], project_id: int, db: 
     Import must not silently drop annotations because their class doesn't
     exist yet in the target project; it creates the label instead, consistent
     with the Classes import behaviour in labels.py.
+    
+    Uses the color from the annotation if provided, otherwise falls back to palette.
     """
     existing = {l.name.lower(): l.id for l in db.query(models.Label).filter(models.Label.project_id == project_id).all()}
     palette = ["#ef4444", "#f97316", "#eab308", "#22c55e", "#0f8b8d", "#3b82f6", "#8b5cf6", "#ec4899"]
     i = len(existing)
+    
+    # Track which labels we've seen (first occurrence wins for color)
+    labels_to_create = {}
+    
     for anns in by_filename.values():
         for a in anns:
             key = a["labelName"].lower()
-            if key not in existing:
-                new_label = models.Label(id=uuid.uuid4().hex, name=a["labelName"], color=palette[i % len(palette)], project_id=project_id)
-                db.add(new_label)
-                existing[key] = new_label.id
+            if key not in existing and key not in labels_to_create:
+                # Use annotation color if provided, otherwise use palette
+                color = a.get("labelColor") or palette[i % len(palette)]
+                labels_to_create[key] = {
+                    "name": a["labelName"],
+                    "color": color
+                }
                 i += 1
+    
+    # Create all new labels
+    for key, label_data in labels_to_create.items():
+        new_label = models.Label(
+            id=uuid.uuid4().hex, 
+            name=label_data["name"], 
+            color=label_data["color"], 
+            project_id=project_id
+        )
+        db.add(new_label)
+        existing[key] = new_label.id
+    
     return existing
 
 
@@ -257,7 +281,7 @@ async def import_annotations(
         task = tasks_by_id[m["task_id"]]
         anns = by_filename[m["filename"]]
         resolved = [
-            {**{k: v for k, v in a.items() if k != "labelName"}, "labelId": label_ids[a["labelName"].lower()]}
+            {**{k: v for k, v in a.items() if k not in ("labelName", "labelColor")}, "labelId": label_ids[a["labelName"].lower()]}
             for a in anns
         ]
 
