@@ -118,6 +118,14 @@ export function loadSaved() {
   }
 }
 
+// Eye / eye-off pair, sized to match the existing 20x20 row action buttons.
+const EYE_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>';
+const EYE_OFF_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>';
+
+function visibilityButtonHTML(isHidden, title) {
+  return `<span class="eye-btn${isHidden ? " is-hidden-state" : ""}" title="${title}">${isHidden ? EYE_OFF_SVG : EYE_SVG}</span>`;
+}
+
 export function renderClasses() {
   classesList.innerHTML = "";
 
@@ -136,7 +144,8 @@ export function renderClasses() {
   state.labels.forEach((label, index) => {
     const item = document.createElement("button");
     item.type = "button";
-    item.className = `class-item${label.id === state.activeLabelId ? " is-active" : ""}`;
+    const labelHidden = state.hiddenLabelIds.has(label.id);
+    item.className = `class-item${label.id === state.activeLabelId ? " is-active" : ""}${labelHidden ? " is-row-hidden" : ""}`;
     item.style.display = "flex";
     item.style.alignItems = "center";
     item.style.justifyContent = "space-between";
@@ -162,8 +171,21 @@ export function renderClasses() {
         <strong class="class-name" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></strong>
         <span class="class-count" style="font-size: 0.75rem; color: var(--muted); margin-left: 4px; flex-shrink: 0;">(${count})</span>
       </div>
+      <div class="class-actions" style="display: flex; align-items: center; flex-shrink: 0;">
+        ${visibilityButtonHTML(labelHidden, labelHidden ? "Show class annotations" : "Hide class annotations")}
+      </div>
     `;
     item.querySelector(".class-name").textContent = `${index + 1}. ${labelDisplayName(label)}`;
+
+    item.querySelector(".eye-btn").addEventListener("click", (e) => {
+      // Without this the row's own handler would also fire and make a class
+      // active merely because its visibility was toggled.
+      e.stopPropagation();
+      if (labelHidden) state.hiddenLabelIds.delete(label.id);
+      else state.hiddenLabelIds.add(label.id);
+      // View-only: not undoable, nothing persisted changed.
+      render();
+    });
 
     // Click on the item itself sets it as active
     item.addEventListener("click", (e) => {
@@ -222,7 +244,11 @@ export function renderAnnotations() {
     const item = document.createElement("button");
     item.type = "button";
     const isActive = state.selectedIds.has(annotation.id);
-    item.className = `annotation-item${isActive ? " is-active" : ""}`;
+    // Own toggle only — a class-level hide is reflected separately so the row
+    // still shows this annotation's individual state underneath it.
+    const annHidden = state.hiddenAnnotationIds.has(annotation.id);
+    const classHidden = !!annotation.labelId && state.hiddenLabelIds.has(annotation.labelId);
+    item.className = `annotation-item${isActive ? " is-active" : ""}${annHidden || classHidden ? " is-row-hidden" : ""}`;
     item.style.display = "flex";
     item.style.alignItems = "center";
     item.style.justifyContent = "space-between";
@@ -236,9 +262,7 @@ export function renderAnnotations() {
         <span class="edit-ann-btn" title="Edit object class" style="cursor: pointer; color: var(--muted); display: grid; place-items: center; width: 20px; height: 20px;">
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
         </span>
-        <span class="delete-ann-btn" title="Delete object" style="cursor: pointer; color: #ff6b6b; display: grid; place-items: center; width: 20px; height: 20px;">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
-        </span>
+        ${visibilityButtonHTML(annHidden, annHidden ? "Show object" : "Hide object")}
       </div>
     `;
 
@@ -310,20 +334,19 @@ export function renderAnnotations() {
       form.addEventListener("click", (ev) => ev.stopPropagation());
     });
 
-    item.querySelector(".delete-ann-btn").addEventListener("click", (e) => {
+    item.querySelector(".eye-btn").addEventListener("click", (e) => {
       e.stopPropagation();
-      if (confirm(`Delete this object?`)) {
-        snapshot();
-        if (isGroup) {
-          state.annotations = state.annotations.filter(a => a.groupId !== annotation.groupId);
-        } else {
-          state.annotations = state.annotations.filter(a => a.id !== annotation.id);
-        }
-        state.selectedIds.clear();
-        state.selectedId = null;
-        save();
-        render();
-      }
+      // A grouped row stands for every member, so it toggles them together —
+      // matching how the row is drawn and selected as a unit.
+      const ids = isGroup ? groupAnns.map(a => a.id) : [annotation.id];
+      const nowHidden = !state.hiddenAnnotationIds.has(annotation.id);
+      ids.forEach((id) => {
+        if (nowHidden) state.hiddenAnnotationIds.add(id);
+        else state.hiddenAnnotationIds.delete(id);
+      });
+      // Visibility is a view concern: no snapshot() (not undoable) and no
+      // save() (nothing persisted changed).
+      render();
     });
 
     item.addEventListener("click", (event) => {

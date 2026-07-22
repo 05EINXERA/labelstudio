@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Image Annotation MVP</title>
   <link rel="icon" type="image/png" href="logo.png">
-  <link rel="stylesheet" href="styles.css?v=17">
+  <link rel="stylesheet" href="styles.css?v=19">
   <script src="sync.js"></script>
   <script>
     window.addEventListener('error', function(e) {
@@ -32,6 +32,12 @@
         <span class="breadcrumb-image" id="breadcrumbImage">No image</span>
       </span>
       <span class="status-pill" id="saveStatus">Ready</span>
+
+      <div class="zoom-control" role="group" aria-label="Canvas zoom">
+        <button class="icon-button zoom-btn" id="zoomOutButton" type="button" title="Zoom out">&minus;</button>
+        <button class="zoom-readout" id="zoomLevel" type="button" title="Reset zoom to fit">100%</button>
+        <button class="icon-button zoom-btn" id="zoomInButton" type="button" title="Zoom in">+</button>
+      </div>
     </div>
 
     <div class="top-nav-center timer-row">
