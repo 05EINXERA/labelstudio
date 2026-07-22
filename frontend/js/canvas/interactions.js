@@ -170,6 +170,58 @@ export function redoLastPoint() {
   return false;
 }
 
+export function undoAction() {
+  if (undoLastPoint()) {
+    return;
+  }
+  const previous = state.history.pop();
+  if (!previous) return;
+  
+  state.redoHistory.push(JSON.stringify({
+    labels: state.labels,
+    annotations: state.annotations,
+    selectedId: state.selectedId
+  }));
+
+  const restored = JSON.parse(previous);
+  state.labels = restored.labels;
+  state.annotations = restored.annotations;
+  state.selectedId = restored.selectedId;
+  
+  if (view.drag?.type === "draw-polygon") {
+    const exists = state.annotations.some((item) => item.id === view.drag.annotationId);
+    if (!exists) view.drag = null;
+  }
+  render();
+  save();
+}
+
+export function redoAction() {
+  if (redoLastPoint()) {
+    return;
+  }
+  const next = state.redoHistory.pop();
+  if (!next) return;
+
+  state.history.push(JSON.stringify({
+    labels: state.labels,
+    annotations: state.annotations,
+    selectedId: state.selectedId
+  }));
+
+  const restored = JSON.parse(next);
+  state.labels = restored.labels;
+  state.annotations = restored.annotations;
+  state.selectedId = restored.selectedId;
+
+  if (view.drag?.type === "draw-polygon") {
+    const exists = state.annotations.some((item) => item.id === view.drag.annotationId);
+    if (!exists) view.drag = null;
+  }
+  render();
+  save();
+}
+
 // The zoom readout subscribes here rather than being imported directly: the
 // component already imports setZoom, so a direct import would be circular.
 let onZoomChange = null;
@@ -803,9 +855,9 @@ window.addEventListener("keydown", (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
     event.preventDefault();
     if (event.shiftKey) {
-      redoLastPoint();
+      redoAction();
     } else {
-      undoButton.click();
+      undoAction();
     }
     return;
   }

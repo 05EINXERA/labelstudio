@@ -22,7 +22,7 @@ import {
   syncTaskTime, syncTimeToServer, drainTaskTime, setActiveTaskResolver
 } from "./components/timer.js?v=1";
 import {
-  finalizePolygon, deleteSelected, undoLastPoint, setZoomChangeHandler
+  finalizePolygon, deleteSelected, undoAction, setZoomChangeHandler
 } from "./canvas/interactions.js?v=1";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
 import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=1";
@@ -274,22 +274,7 @@ commentOverlayRefs.commentOverlayInput.addEventListener("keydown", (e) => {
 });
 
 undoButton.addEventListener("click", () => {
-  if (undoLastPoint()) {
-    return;
-  }
-  const previous = state.history.pop();
-  if (!previous) return;
-  const restored = JSON.parse(previous);
-  state.labels = restored.labels;
-  state.annotations = restored.annotations;
-  state.selectedId = restored.selectedId;
-  // Clear polygon draw state if the annotation was undone
-  if (view.drag?.type === "draw-polygon") {
-    const exists = state.annotations.some((item) => item.id === view.drag.annotationId);
-    if (!exists) view.drag = null;
-  }
-  render();
-  save();
+  undoAction();
 });
 
 deleteButton.addEventListener("click", () => {

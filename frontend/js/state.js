@@ -28,7 +28,8 @@ export const state = {
   activeLabelId: null,
   mode: "draw",
   shape: "polygon",
-  history: []
+  history: [],
+  redoHistory: []
 };
 
 // Setting selectedId cascades to selectedIds: selecting a grouped annotation
@@ -102,6 +103,7 @@ export function labelDisplayName(label) {
 }
 
 export function snapshot() {
+  state.redoHistory = [];
   state.history.push(JSON.stringify({
     labels: state.labels,
     annotations: state.annotations,
