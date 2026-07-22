@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from database import engine, Base
-from api.routers import projects, tasks, team, data, detect, label_studio, labels, auth
+from api.routers import projects, tasks, team, data, detect, label_studio, labels, auth, imports, exports
 from config import DATA_DIR
 
 HOST = "127.0.0.1"
@@ -49,6 +49,8 @@ app.include_router(detect.router)
 app.include_router(label_studio.router)
 app.include_router(labels.router)
 app.include_router(auth.router)
+app.include_router(imports.router)
+app.include_router(exports.router)
 
 # Ensure uploads directory exists
 uploads_dir = os.path.join(DATA_DIR, "uploads")
