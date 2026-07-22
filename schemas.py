@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 
@@ -18,7 +19,9 @@ class ProjectModel(BaseModel):
     assignee: Optional[str] = None
 
 class ProjectUpdate(BaseModel):
-    id: int
+    # Optional: PATCH /api/projects/{id} takes the id from the path. The legacy
+    # POST /api/projects/update requires it in the body.
+    id: Optional[int] = None
     name: Optional[str] = None
     status: Optional[str] = None
     assignee: Optional[str] = None
@@ -32,6 +35,29 @@ class TaskUpdate(BaseModel):
     annotations: Optional[str] = None
     updated_at: Optional[str] = None
 
+class ProjectSummary(BaseModel):
+    """A project plus its task metrics — one row of the projects list.
+
+    Metrics are merged in so the list page needs a single request instead of
+    pairing /api/projects with /api/projects/metrics/batch.
+    """
+    id: int
+    name: Optional[str] = None
+    slug: Optional[str] = None
+    type: Optional[str] = None
+    status: Optional[str] = None
+    creator: Optional[str] = None
+    assignee: Optional[str] = None
+    created_at: Optional[datetime] = None
+    total: int = 0
+    completed: int = 0
+    in_progress: int = 0
+    progress: int = 0
+    comments: int = 0
+    classes: int = 0
+    total_time: int = 0
+    avg_time_per_task: int = 0
+
 class ProjectMetrics(BaseModel):
     total: int
     completed: int
@@ -41,6 +67,8 @@ class ProjectMetrics(BaseModel):
     total_time: int = 0
     avg_time_per_task: int = 0
     status: Optional[str] = None
+    in_progress: int = 0
+    classes: int = 0
 
 class BulkDelete(BaseModel):
     ids: List[int]
@@ -93,6 +121,52 @@ class LabelModel(BaseModel):
     name: str
     color: str
     projectId: int
+
+class LabelBulkUpsert(BaseModel):
+    projectId: int
+    labels: List[LabelModel]
+
+class LabelBulkDelete(BaseModel):
+    projectId: int
+    ids: List[str]
+
+class LabelBulkResult(BaseModel):
+    status: str = "ok"
+    created: int = 0
+    updated: int = 0
+
+class LabelImportResult(BaseModel):
+    status: str = "ok"
+    created: int = 0
+    updated: int = 0
+    skipped: int = 0
+    labels: List[LabelModel] = Field(default_factory=list)
+
+# Fixed task-status vocabulary shared by the export filter and the Tasks view.
+# 'Approved' added in Phase 3 (tracker P3.2): owner-only, enforced by
+# _get_owned_task rather than a separate check (single-owner projects).
+TASK_STATUSES = ["New", "In Progress", "Completed", "Approved"]
+
+# Export "include" options actually implemented. Mask rendering and image
+# bundling are explicit TODOs (see REFACTOR_MANAGEMENT.md §3 Phase 4) — the
+# API rejects them rather than silently ignoring the request.
+EXPORT_INCLUDE_OPTIONS = ["annotations_only"]
+EXPORT_FORMATS = ["json", "csv"]
+
+
+class ExportRequest(BaseModel):
+    projectId: int
+    format: str = "json"
+    # None/omitted means "all statuses".
+    statusFilter: Optional[List[str]] = None
+    include: str = "annotations_only"
+
+
+class ExportJobStatus(BaseModel):
+    status: str  # pending | completed | failed
+    error: Optional[str] = None
+    task_count: Optional[int] = None
+
 
 class UserCreate(BaseModel):
     username: str

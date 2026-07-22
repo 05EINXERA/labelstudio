@@ -12,3 +12,6 @@ python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 python-multipart==0.0.9
 torch>=2.0.0
+# Tests
+pytest>=9.0.0
+httpx>=0.28.0

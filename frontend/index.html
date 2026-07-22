@@ -113,7 +113,9 @@
         localStorage.setItem('logged_in', 'true');
         localStorage.removeItem('image-annotation-mvp-v1');
         
-        window.location.href = 'app.html';
+        // Land on the projects list, not the canvas: a user picks a project
+        // before annotating. See .devnotes/ui/dashboard/REFACTOR_MANAGEMENT.md
+        window.location.href = 'projects.html';
       } catch (err) {
         errorMsg.textContent = err.message;
         errorMsg.style.display = 'block';
