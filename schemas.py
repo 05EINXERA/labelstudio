@@ -151,7 +151,7 @@ TASK_STATUSES = ["New", "In Progress", "Completed", "Approved"]
 # bundling are explicit TODOs (see REFACTOR_MANAGEMENT.md §3 Phase 4) — the
 # API rejects them rather than silently ignoring the request.
 EXPORT_INCLUDE_OPTIONS = ["annotations_only"]
-EXPORT_FORMATS = ["json", "csv"]
+EXPORT_FORMATS = ["json", "csv", "pertask"]
 
 
 class ExportRequest(BaseModel):

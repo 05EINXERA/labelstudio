@@ -56,7 +56,20 @@ def _points_of(ann: dict) -> List[dict]:
 
 
 def _build_coco(tasks: List[models.Task], labels: List[models.Label]) -> dict:
-    categories = [{"id": i + 1, "name": l.name, "supercategory": "none"} for i, l in enumerate(labels)]
+    # Enhanced T1: Add color, skeleton, keypoints, keypoint_colors to categories
+    # Use label name for supercategory instead of "none"
+    categories = [
+        {
+            "id": i + 1,
+            "name": l.name,
+            "supercategory": l.name,  # T1.3: use label name instead of "none"
+            "color": l.color,  # T1.1: add color from Label
+            "skeleton": [],  # T1.2: add empty arrays (FastLabel compatibility)
+            "keypoints": [],
+            "keypoint_colors": [],
+        }
+        for i, l in enumerate(labels)
+    ]
     label_to_cat = {l.id: i + 1 for i, l in enumerate(labels)}
 
     images, annotations = [], []
@@ -86,6 +99,62 @@ def _build_coco(tasks: List[models.Task], labels: List[models.Label]) -> dict:
             ann_id += 1
 
     return {"images": images, "categories": categories, "annotations": annotations}
+
+
+def _build_pertask(tasks: List[models.Task], labels_by_id: dict) -> List[dict]:
+    """Build per-task JSON export (FastLabel format, T3.2).
+
+    One object per task with all its annotations. Annotation points are
+    flattened to [x1,y1,x2,y2,...] per FastLabel convention. Label info
+    (title, value, color) is embedded in each annotation.
+    """
+    result = []
+    for task in tasks:
+        try:
+            anns = json.loads(task.annotations) if task.annotations else []
+        except (ValueError, TypeError) as exc:
+            logger.warning("Task %s has unparseable annotations, skipping in export: %s", task.id, exc)
+            anns = []
+
+        fastlabel_anns = []
+        for i, ann in enumerate(anns, start=1):
+            if not isinstance(ann, dict) or ann.get("type") == "comment":
+                continue
+            label = labels_by_id.get(ann.get("labelId"))
+            if not label:
+                continue  # annotation references a deleted label
+
+            points = _points_of(ann)
+            flat_points = [_round(coord) for p in points for coord in (p["x"], p["y"])]
+
+            # Generate value from label name (strip spaces/special chars)
+            value = label.name.replace(" ", "").replace("/", "").replace("(", "").replace(")", "").replace(",", "")
+
+            fastlabel_anns.append({
+                "id": ann.get("id") or uuid.uuid4().hex,
+                "type": "polygon",
+                "title": label.name,
+                "value": value,
+                "color": label.color,
+                "order": i,
+                "attributes": [],
+                "points": flat_points,
+                "rotation": 0,
+                "keypoints": [],
+                "confidenceScore": -1,
+            })
+
+        result.append({
+            "id": str(task.id),
+            "name": task.description or f"task-{task.id}",
+            "status": task.status or "New",
+            "width": 0,  # not stored in our Task model
+            "height": 0,
+            "secondsToAnnotate": task.time_spent or 0,
+            "annotations": fastlabel_anns,
+        })
+
+    return result
 
 
 def _build_csv(tasks: List[models.Task], labels_by_id: dict) -> str:
@@ -127,12 +196,15 @@ def _run_export_job(job_id: str, req: ExportRequest, project_id: int):
             query = query.filter(models.Task.status.in_(req.statusFilter))
         tasks = query.all()
         labels = db.query(models.Label).filter(models.Label.project_id == project_id).all()
+        labels_by_id = {l.id: l for l in labels}
 
         if req.format == "csv":
-            labels_by_id = {l.id: l for l in labels}
             body = _build_csv(tasks, labels_by_id)
             media_type = "text/csv"
-        else:
+        elif req.format == "pertask":
+            body = json.dumps(_build_pertask(tasks, labels_by_id), indent=2)
+            media_type = "application/json"
+        else:  # json (COCO)
             body = json.dumps(_build_coco(tasks, labels), indent=2)
             media_type = "application/json"
 

@@ -89,17 +89,71 @@ def bulk_delete_labels(payload: LabelBulkDelete, db: Session = Depends(get_db), 
     return {"status": "ok", "deleted": deleted}
 
 
+def _label_to_fastlabel(label: models.Label, order: int) -> dict:
+    """Serialize a Label to the FastLabel class-set format.
+
+    The FastLabel schema carries ~25 configuration fields that this app does
+    not store (min/max dimensions, rotation locks, vertex count, etc.). They
+    are emitted with their documented defaults so the file can be round-tripped
+    into FastLabel without errors.
+
+    `title` is the human-readable display name; `value` is the identifier used
+    inside annotations. We derive `value` from `name` by stripping spaces —
+    that matches the FastLabel convention closely enough for our use case.
+    """
+    value = label.name.replace(" ", "").replace("/", "").replace("(", "").replace(")", "").replace(",", "")
+    return {
+        "type": "polygon",
+        "title": label.name,
+        "value": value,
+        "color": label.color,
+        "order": order,
+        "useBBox": False,
+        "useRotation": False,
+        "defaultWidth": 0,
+        "defaultHeight": 0,
+        "defaultLength": 0,
+        "minWidth": 0,
+        "minHeight": 0,
+        "isAllowMinAtLeastOne": False,
+        "minLength": 0,
+        "maxWidth": 0,
+        "maxHeight": 0,
+        "isAllowMaxAtLeastOne": False,
+        "maxLength": 0,
+        "verticalRatio": None,
+        "horizontalRatio": None,
+        "maxAreaCount": None,
+        "minArea": None,
+        "maxInstanceCount": 0,
+        "vertex": 0,
+        "isOverlapFrameSelect": False,
+        "isOutsideAnnotationFrameSelect": False,
+        "isUniformSizeAcrossFrames": False,
+        "isFrameGapRestricted": False,
+        "lockRotationX": False,
+        "lockRotationY": False,
+        "lockRotationZ": False,
+        "attributes": [],
+        "keypoints": [],
+    }
+
+
 @router.get("/export")
 def export_labels(
     projectId: int = Query(...),
-    format: str = Query("json", pattern="^(json|csv|txt)$"),
+    format: str = Query("json", pattern="^(json|csv|txt|fastlabel)$"),
     db: Session = Depends(get_db),
     user: models.User = Depends(get_current_user),
 ):
-    """Export this project's class set (tracker P3.3 / G4).
+    """Export this project's class set (tracker P3.3 / G4, enhanced T2.1).
 
-    Not the annotation exporter (that's Phase 4 / P4.4-5) — this is just the
-    label definitions, for re-importing into another project or backing up.
+    Formats:
+      json       — simple [{id, name, color}] (our internal format)
+      fastlabel  — full FastLabel class-set JSON (for import into FastLabel or
+                   other tools; matches the structure of classes.json examples)
+      csv        — id, name, color rows
+      txt        — one name per line
     """
     get_owned_project(projectId, user, db)
     labels = db.query(models.Label).filter(models.Label.project_id == projectId).order_by(models.Label.name).all()
@@ -116,11 +170,22 @@ def export_labels(
             writer.writerow([l.id, l.name, l.color])
         return PlainTextResponse(buf.getvalue(), media_type="text/csv")
 
+    if format == "fastlabel":
+        body = json.dumps([_label_to_fastlabel(l, i + 1) for i, l in enumerate(labels)], indent=2)
+        return PlainTextResponse(body, media_type="application/json",
+                                 headers={"Content-Disposition": "attachment; filename=\"classes.json\""})
+
     return [{"id": l.id, "name": l.name, "color": l.color} for l in labels]
 
 
 def _parse_import_file(filename: str, raw: bytes) -> List[dict]:
     """Best-effort parse of a class-set file into {name, color?} dicts.
+
+    Supports:
+      - FastLabel format (array of {type, title, value, color, ...})
+      - Simple JSON ({id, name, color} or string array or {labels: [...]})
+      - CSV (with header or bare list)
+      - .txt (one name per line)
 
     Raises ValueError with a message safe to show the user on anything
     unparseable, rather than leaking a stack trace.
@@ -141,8 +206,14 @@ def _parse_import_file(filename: str, raw: bytes) -> List[dict]:
         for item in data:
             if isinstance(item, str):
                 out.append({"name": item})
-            elif isinstance(item, dict) and item.get("name"):
-                out.append({"name": item["name"], "color": item.get("color")})
+            elif isinstance(item, dict):
+                # FastLabel format: has "title" + "value" + "type" + many config fields
+                # Our simple format: has "name" + "color"
+                # Detect by presence of "title" field (FastLabel-specific)
+                if item.get("title"):
+                    out.append({"name": item["title"], "color": item.get("color")})
+                elif item.get("name"):
+                    out.append({"name": item["name"], "color": item.get("color")})
         return out
 
     if ext == "csv":
