@@ -29,7 +29,8 @@ export const state = {
   mode: "draw",
   shape: "polygon",
   history: [],
-  redoHistory: []
+  redoHistory: [],
+  needsLabelSelection: false
 };
 
 // Setting selectedId cascades to selectedIds: selecting a grouped annotation
