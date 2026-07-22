@@ -120,6 +120,18 @@ export function updateCanvasCursor(point) {
   canvas.style.cursor = state.mode === "draw" ? "crosshair" : "default";
 }
 
+// Drop the selection left over from a completed shape. Called on the first canvas
+// click after finalizing, so the vertex handles disappear and a subsequent class
+// click applies to the next annotation instead of re-labelling the finished one.
+function clearSelectionAfterFinalize() {
+  if (!state.selectedId && state.selectedIds.size === 0) return;
+  state.selectedId = null;
+  state.selectedIds.clear();
+  view.selectedLineIndex = -1;
+  view.hoveredLineIndex = -1;
+  render();
+}
+
 export function finalizePolygon() {
   if (view.drag?.type !== "draw-polygon") return;
   const annotation = state.annotations.find((item) => item.id === view.drag.annotationId);
@@ -136,6 +148,7 @@ export function finalizePolygon() {
   }
   updateAnnotationBounds(annotation);
   state.needsLabelSelection = true;
+  state.justFinalized = true;
   render();
   save();
   setStatus("Please select a class name for the next polygon");
@@ -275,6 +288,10 @@ export function deleteSelected() {
   state.annotations = state.annotations.filter((item) => !state.selectedIds.has(item.id));
   state.selectedIds.clear();
   state.selectedId = null;
+  // The pending shape may be the one just deleted; there is nothing left to
+  // release or to label.
+  state.justFinalized = false;
+  state.needsLabelSelection = false;
   view.selectedLineIndex = -1;
   view.hoveredLineIndex = -1;
   view.hoveredPointIndex = -1;
@@ -363,6 +380,22 @@ canvas.addEventListener("pointerdown", (event) => {
   }
 
   const point = canvasPoint(event);
+
+  // First click after finalizing a shape. The shape is still selected so a class
+  // click can label it; this click releases that selection, so picking a class for
+  // the next shape cannot re-label the finished one. Consumed immediately — every
+  // later click must fall through to the normal editing blocks below.
+  if (state.justFinalized) {
+    state.justFinalized = false;
+    const hitId = hitTest(point);
+    // Clicking the finished shape itself keeps it selected; anything else releases
+    // it. Either way we fall through, so this click behaves like a Select-mode
+    // click: vertex add/delete, point drag and move all work from here on.
+    if (!hitId || !state.selectedIds.has(hitId)) {
+      clearSelectionAfterFinalize();
+      if (!hitId) return;
+    }
+  }
 
   // Left-click on a polygon edge to add a vertex.
   // Skipped while drawing: hitTestLine treats the shape as already closed, so it
@@ -457,7 +490,10 @@ canvas.addEventListener("pointerdown", (event) => {
   // Also skipped while a polygon is in progress: the polygon being drawn is itself a hit
   // target, so selecting it would replace view.drag with a "move" and end the shape. state.mode
   // is not sufficient here — line 3286 can leave it as "select" before drawing ever starts.
-  if (state.mode !== "draw" && view.drag?.type !== "draw-polygon") {
+  // The inert post-finalize state is included even though state.mode is still
+  // "draw": no new shape can be started until a class is picked, so a click on an
+  // existing annotation should select it rather than do nothing.
+  if ((state.mode !== "draw" || state.needsLabelSelection) && view.drag?.type !== "draw-polygon") {
     const hitId = hitTest(point);
     if (hitId) {
       if (event.shiftKey) {
@@ -500,6 +536,7 @@ canvas.addEventListener("pointerdown", (event) => {
   if (state.mode === "select" && view.drag?.type !== "draw-polygon") {
     state.selectedId = null;
     state.selectedIds.clear();
+    state.justFinalized = false;
     view.selectedLineIndex = -1;
     view.hoveredLineIndex = -1;
     view.drag = null;
@@ -929,6 +966,7 @@ window.addEventListener("keydown", (event) => {
     }
     state.selectedId = null;
     state.selectedIds.clear();
+    state.justFinalized = false;
     view.selectedLineIndex = -1;
     view.hoveredLineIndex = -1;
     view.drag = null;
