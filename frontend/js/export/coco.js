@@ -34,7 +34,8 @@ export function buildCocoExport() {
       id: image_id,
       width: item.width || 0,
       height: item.height || 0,
-      file_name: item.name
+      file_name: item.name,
+      name: item.name
     });
 
     const grouped = {};
@@ -137,11 +138,20 @@ export function exportJsonData() {
   try {
     const payload = buildCocoExport();
 
+    let baseName = "dataset_annotations";
+    if (state.image?.name) {
+      const name = state.image.name;
+      baseName = name.substring(0, name.lastIndexOf('.')) || name;
+    } else if (state.gallery && state.gallery.length > 0) {
+      const name = state.gallery[0].name;
+      baseName = name.substring(0, name.lastIndexOf('.')) || name;
+    }
+
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `dataset_annotations.json`;
+    link.download = `${baseName}.json`;
     link.style.display = "none";
     document.body.appendChild(link);
     link.click();
