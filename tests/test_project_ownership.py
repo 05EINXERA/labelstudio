@@ -56,9 +56,9 @@ def test_patch_project_404_for_non_owner(client, alice, bob):
     assert client.get(f"/api/projects/{pid}", headers=alice).json()["name"] != "hijacked"
 
 
-def test_legacy_update_route_404_for_non_owner(client, alice, bob):
+def test_patch_project_404_for_non_owner(client, alice, bob):
     pid = _new_project(client, alice)
-    res = client.post("/api/projects/update", json={"id": pid, "name": "hijacked"}, headers=bob)
+    res = client.patch(f"/api/projects/{pid}", json={"name": "hijacked"}, headers=bob)
     assert res.status_code == 404
 
 
@@ -169,10 +169,21 @@ def test_bulk_routes_skip_unowned_ids(client, alice, bob):
 
 # --- Metrics --------------------------------------------------------------
 
-def test_metrics_batch_is_scoped(client, alice, bob):
+def test_projects_list_scopes_to_owner(client, alice, bob):
+    """GET /api/projects embeds metrics and scopes to owner (replaced /metrics/batch)."""
     a_pid = _new_project(client, alice, "a")
-    assert str(a_pid) not in client.get("/api/projects/metrics/batch", headers=bob).json()
-    assert str(a_pid) in client.get("/api/projects/metrics/batch", headers=alice).json()
+    b_pid = _new_project(client, bob, "b")
+    
+    alice_projects = client.get("/api/projects", headers=alice).json()
+    bob_projects = client.get("/api/projects", headers=bob).json()
+    
+    alice_ids = {p["id"] for p in alice_projects}
+    bob_ids = {p["id"] for p in bob_projects}
+    
+    assert a_pid in alice_ids
+    assert a_pid not in bob_ids
+    assert b_pid in bob_ids
+    assert b_pid not in alice_ids
 
 
 def test_project_list_embeds_metrics(client, alice):

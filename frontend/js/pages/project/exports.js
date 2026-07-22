@@ -79,6 +79,10 @@ function template() {
             JSON (COCO)
           </label>
           <label style="display:flex; align-items:center; gap:8px; font-size:.9rem;">
+            <input type="radio" name="format" value="pertask">
+            Per-Task JSON
+          </label>
+          <label style="display:flex; align-items:center; gap:8px; font-size:.9rem;">
             <input type="radio" name="format" value="csv">
             CSV
           </label>
@@ -334,7 +338,19 @@ async function downloadExport() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `export-${ctx.projectId}.${currentJob.format === "csv" ? "csv" : "json"}`;
+    
+    // T5.2: Set download filename based on format
+    let filename;
+    if (currentJob.format === "csv") {
+      filename = `export-${ctx.projectId}.csv`;
+    } else if (currentJob.format === "pertask") {
+      filename = `export-pertask-${ctx.projectId}.json`;
+    } else {
+      // default: json (COCO)
+      filename = `export-${ctx.projectId}.json`;
+    }
+    a.download = filename;
+    
     document.body.appendChild(a);
     a.click();
     a.remove();
