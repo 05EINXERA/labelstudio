@@ -28,7 +28,16 @@ function template() {
         <p class="mgmt-eyebrow">Project</p>
         <h2>Classes</h2>
       </div>
-      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+      <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <label for="exportFormat" style="font-size:.88rem; color:var(--muted);">Export format:</label>
+          <select id="exportFormat" style="padding:6px 10px; border-radius:6px; border:1px solid var(--line); background:var(--panel); color:var(--ink); font-size:.88rem;">
+            <option value="fastlabel" selected>FastLabel</option>
+            <option value="json">JSON</option>
+            <option value="csv">CSV</option>
+            <option value="txt">TXT</option>
+          </select>
+        </div>
         <button type="button" class="tool-button" id="exportBtn">Export set</button>
         <button type="button" class="tool-button" id="importBtn">Import set</button>
         <input type="file" id="importInput" accept=".json,.csv,.txt" style="display:none;">
@@ -272,7 +281,9 @@ function bindBulkActions() {
 function bindImportExport() {
   el("exportBtn").addEventListener("click", async () => {
     try {
-      const res = await apiFetch(`/api/labels/export?projectId=${encodeURIComponent(ctx.projectId)}&format=json`);
+      // T5.3-5.4: Get selected format and pass to API
+      const format = el("exportFormat").value || "fastlabel";
+      const res = await apiFetch(`/api/labels/export?projectId=${encodeURIComponent(ctx.projectId)}&format=${encodeURIComponent(format)}`);
       if (!res) return;
       if (!res.ok) {
         showError(`Could not export classes (${res.status}).`);
@@ -282,7 +293,14 @@ function bindImportExport() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `classes-${ctx.projectId}.json`;
+      
+      // Set appropriate file extension based on format
+      let extension;
+      if (format === "csv") extension = "csv";
+      else if (format === "txt") extension = "txt";
+      else extension = "json"; // fastlabel and json both use .json
+      
+      a.download = `classes-${ctx.projectId}.${extension}`;
       document.body.appendChild(a);
       a.click();
       a.remove();
