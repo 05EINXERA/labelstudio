@@ -30,7 +30,13 @@ export const state = {
   shape: "polygon",
   history: [],
   redoHistory: [],
-  needsLabelSelection: false
+  needsLabelSelection: false,
+  // True only between finalizing a shape and the next canvas click. It exists so
+  // that first click can release the finished shape's selection (otherwise picking
+  // a class for the *next* shape would re-label the finished one). It must be
+  // one-shot: needsLabelSelection stays true until a class is picked, so reusing
+  // that flag here would swallow every later click and break vertex editing.
+  justFinalized: false
 };
 
 // Setting selectedId cascades to selectedIds: selecting a grouped annotation

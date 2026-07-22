@@ -191,6 +191,16 @@ export function renderClasses() {
     item.addEventListener("click", (e) => {
       state.activeLabelId = label.id;
       state.needsLabelSelection = false;
+      // The pending shape has been dealt with by this click, so the next canvas
+      // click is an ordinary one — leaving this set would deselect spuriously.
+      state.justFinalized = false;
+
+      // Picking a class with nothing selected means "start the next annotation",
+      // so drop back into draw mode instead of making the user press Draw. With a
+      // selection the click means "relabel that", which must not change the mode.
+      if (state.selectedIds.size === 0) {
+        state.mode = "draw";
+      }
 
       // Reassign class to selected annotations
       if (state.selectedIds.size > 0) {
