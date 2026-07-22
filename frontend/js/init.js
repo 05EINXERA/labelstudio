@@ -589,13 +589,12 @@ const urlParams = new URLSearchParams(window.location.search);
 const projectId = urlParams.get('projectId');
 
 // Points the back arrow at the project this workspace was opened from, and
-// fills the breadcrumb's project half. There is no GET /api/projects/{id}, so
-// the name comes from the list endpoint the sidebar already uses.
+// fills the breadcrumb's project half.
 async function initWorkspaceContext() {
   if (!projectId) return;
 
   if (backToProject) {
-    backToProject.href = `project_details.html?id=${projectId}`;
+    backToProject.href = `project.html?id=${projectId}#/tasks`;
   }
 
   try {
