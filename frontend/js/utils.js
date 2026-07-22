@@ -8,6 +8,14 @@ export function generateUUID() {
   });
 }
 
+// Escape before interpolating user-controlled text into innerHTML. Project and
+// task names come from the database and are rendered as HTML in several tables.
+export function escapeHTML(value) {
+  return String(value ?? "").replace(/[&<>'"]/g, (ch) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;"
+  }[ch]));
+}
+
 export function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }

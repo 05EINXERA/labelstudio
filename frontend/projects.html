@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Projects - Dataset Workspace</title>
+  <link rel="icon" type="image/png" href="logo.png">
+  <link rel="stylesheet" href="styles.css?v=3">
+</head>
+
+<body style="background: var(--bg);">
+
+  <header class="mgmt-header">
+    <div class="brand">
+      <img src="logo.png" alt="Logo">
+      <h1>Projects</h1>
+    </div>
+    <div class="spacer"></div>
+    <span class="mgmt-user" id="currentUser"></span>
+    <button class="tool-button" id="logoutBtn" type="button">Log out</button>
+  </header>
+
+  <main class="mgmt-main">
+    <div class="mgmt-title-row">
+      <div>
+        <p class="mgmt-eyebrow">Workspace</p>
+        <h2>Your projects</h2>
+      </div>
+      <button class="primary" id="newProjectBtn" type="button"
+        style="padding: 10px 18px; border-radius: 8px; font-weight: 600;">+ New project</button>
+    </div>
+
+    <div id="errorBanner" class="mgmt-error" style="display: none;"></div>
+
+    <div class="mgmt-toolbar">
+      <input type="search" id="searchInput" placeholder="Search projects…" aria-label="Search projects">
+      <select id="statusFilter" aria-label="Filter by status">
+        <option value="All">All statuses</option>
+        <option value="Preparing">Preparing</option>
+        <option value="In Progress">In Progress</option>
+        <option value="Completed">Completed</option>
+      </select>
+      <select id="pageSizeSelect" aria-label="Rows per page">
+        <option value="10">10 per page</option>
+        <option value="25">25 per page</option>
+        <option value="50">50 per page</option>
+      </select>
+    </div>
+
+    <div id="tableMount"></div>
+  </main>
+
+  <!-- New / edit project modal -->
+  <div class="modal-overlay" id="projectModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="projectModalTitle">New project</h2>
+        <button class="modal-close" id="projectModalClose" type="button">&times;</button>
+      </div>
+      <form id="projectForm">
+        <input type="hidden" id="projectFormId">
+        <div class="modal-body" style="display: grid; gap: 14px;">
+          <label style="display: grid; gap: 6px;">
+            <span style="font-size: .85rem; color: var(--muted);">Project name</span>
+            <input type="text" id="projectFormName" required
+              style="padding: 9px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--ink);">
+          </label>
+          <label style="display: grid; gap: 6px;">
+            <span style="font-size: .85rem; color: var(--muted);">Type</span>
+            <select id="projectFormType"
+              style="padding: 9px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--ink);">
+              <option value="Image - Polygon">Image - Polygon</option>
+              <option value="Image - Bounding Box">Image - Bounding Box</option>
+            </select>
+          </label>
+          <label style="display: grid; gap: 6px;">
+            <span style="font-size: .85rem; color: var(--muted);">Assignee</span>
+            <select id="projectFormAssignee"
+              style="padding: 9px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--ink);">
+              <option value="">Unassigned</option>
+            </select>
+          </label>
+          <label style="display: grid; gap: 6px;" id="projectStatusField">
+            <span style="font-size: .85rem; color: var(--muted);">Status</span>
+            <select id="projectFormStatus"
+              style="padding: 9px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--ink);">
+              <option value="Preparing">Preparing</option>
+              <option value="In Progress">In Progress</option>
+              <option value="Completed">Completed</option>
+            </select>
+          </label>
+        </div>
+        <div style="display: flex; gap: 10px; justify-content: flex-end; padding: 16px;">
+          <button type="button" class="tool-button" id="projectFormCancel">Cancel</button>
+          <button type="submit" class="primary" style="padding: 9px 18px; border-radius: 6px;">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script type="module" src="js/pages/projects-list.js?v=1"></script>
+</body>
+
+</html>

@@ -4,8 +4,9 @@ from sqlalchemy.orm import Session
 import models
 from database import get_db
 from schemas import WorkspaceData
+from api.auth import get_current_user
 
-router = APIRouter(prefix="/api/data", tags=["data"])
+router = APIRouter(prefix="/api/data", tags=["data"], dependencies=[Depends(get_current_user)])
 
 @router.get("")
 def get_data(db: Session = Depends(get_db)):

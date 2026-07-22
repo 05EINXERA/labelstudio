@@ -13,7 +13,10 @@ class Project(Base):
     slug = Column(String)
     type = Column(String)
     status = Column(String)
+    # Display name of the creator. Retained for existing UI; authorization is
+    # keyed on owner_id, never on this string.
     creator = Column(String)
+    owner_id = Column(Integer, ForeignKey("users.id"), index=True)
     created_at = Column(DateTime, server_default=func.now())
     assignee = Column(String)
 

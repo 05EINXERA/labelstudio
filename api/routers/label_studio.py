@@ -1,10 +1,11 @@
 import os
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from label_studio_sdk import LabelStudio
 from schemas import LabelStudioPayload
+from api.auth import get_current_user
 
-router = APIRouter(prefix="/api/label-studio", tags=["label-studio"])
+router = APIRouter(prefix="/api/label-studio", tags=["label-studio"], dependencies=[Depends(get_current_user)])
 
 LABEL_STUDIO_URL = os.environ.get("LABEL_STUDIO_URL", "http://localhost:8000/")
 LABEL_STUDIO_API_KEY = os.environ.get("LABEL_STUDIO_API_KEY", "")
