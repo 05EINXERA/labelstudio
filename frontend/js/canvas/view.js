@@ -1,4 +1,5 @@
-// Mutable canvas view-state, shared by the draw layer and (once extracted)
+
+/// Mutable canvas view-state, shared by the draw layer and (once extracted)
 // the interaction handlers. Grouped into one object rather than loose `let`
 // bindings because ES module imports are read-only: a module that exports
 // these must own them as properties so importers can mutate without

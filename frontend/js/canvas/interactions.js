@@ -135,8 +135,10 @@ export function finalizePolygon() {
     return;
   }
   updateAnnotationBounds(annotation);
+  state.needsLabelSelection = true;
   render();
   save();
+  setStatus("Please select a class name for the next polygon");
 }
 
 export function undoLastPoint() {
@@ -529,6 +531,10 @@ canvas.addEventListener("pointerdown", (event) => {
 
     if (state.shape === "polygon") {
       if (view.drag?.type !== "draw-polygon") {
+        if (state.needsLabelSelection) {
+          setStatus("Please select a class name first");
+          return;
+        }
         // First point – create annotation immediately so it appears in the Objects panel
         snapshot();
         if (!state.activeLabelId) {
@@ -563,6 +569,10 @@ canvas.addEventListener("pointerdown", (event) => {
       save();
       return;
     } else {
+      if (state.needsLabelSelection) {
+        setStatus("Please select a class name first");
+        return;
+      }
       if (!state.activeLabelId) {
         const defaultLabel = ensureLabel("object");
         state.activeLabelId = defaultLabel.id;
