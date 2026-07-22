@@ -120,7 +120,7 @@ def _parse_native(data) -> Dict[str, List[dict]]:
             if len(points) < 2:
                 continue
             x, y, w, h = _bbox_of(points)
-            label_name = a.get("title") or a.get("value") or a.get("labelName") or "object"
+            label_name = a.get("value") or a.get("title") or a.get("labelName") or "object"
             anns.append({
                 "id": uuid.uuid4().hex, "labelName": label_name,
                 "points": points, "x": _round(x), "y": _round(y),
