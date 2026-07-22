@@ -118,9 +118,19 @@
 
   <script>
     async function apiFetch(url, options = {}) {
-      const token = localStorage.getItem('dataset_token');
-      options.headers = { ...options.headers, 'Authorization': `Bearer ${token}` };
-      return fetch(url, options);
+      const logged_in = localStorage.getItem('logged_in');
+      if (!logged_in) {
+        window.location.href = '/';
+        return;
+      }
+      options.headers = { ...options.headers };
+      const res = await fetch(url, options);
+      if (res.status === 401) {
+        localStorage.removeItem('logged_in');
+        localStorage.removeItem('dataset_username');
+        window.location.href = '/';
+      }
+      return res;
     }
 
     document.addEventListener("DOMContentLoaded", async () => {
