@@ -190,6 +190,7 @@ export function renderClasses() {
     // Click on the item itself sets it as active
     item.addEventListener("click", (e) => {
       state.activeLabelId = label.id;
+      state.needsLabelSelection = false;
 
       // Reassign class to selected annotations
       if (state.selectedIds.size > 0) {
