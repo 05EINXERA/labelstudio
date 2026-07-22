@@ -569,7 +569,7 @@ canvas.addEventListener("pointerdown", (event) => {
       save();
       return;
     } else {
-      if (state.needsLabelSelection) {
+      if (state.needsLabelSelection && state.shape !== "magicWand") {
         setStatus("Please select a class name first");
         return;
       }
