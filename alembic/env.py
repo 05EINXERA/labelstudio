@@ -25,6 +25,9 @@ import models
 # target_metadata = mymodel.Base.metadata
 target_metadata = models.Base.metadata
 
+from database import SQLALCHEMY_DATABASE_URL
+config.set_main_option("sqlalchemy.url", SQLALCHEMY_DATABASE_URL)
+
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
 # my_important_option = config.get_main_option("my_important_option")
