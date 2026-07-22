@@ -93,6 +93,71 @@ button {
   gap: 3px;
 }
 
+/* Zoom stepper: sits between the save-status pill and the centred timer. */
+.zoom-control {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  padding: 2px;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.65);
+}
+
+.top-nav .zoom-btn {
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+  min-height: 20px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #334155;
+  font-size: 0.9rem;
+  font-weight: 800;
+  line-height: 1;
+  box-shadow: none;
+}
+
+.top-nav .zoom-btn:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.top-nav .zoom-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* Fixed width and tabular figures: the label changes on every wheel notch, and
+   an auto-width readout would shift the whole nav row as the digits change. */
+.zoom-readout {
+  min-width: 46px;
+  height: 20px;
+  padding: 0 2px;
+  border: none;
+  background: transparent;
+  color: #0f172a;
+  font-size: 0.72rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.zoom-readout:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.zoom-readout:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .timer-caption {
   font-size: 0.68rem;
   font-weight: 700;
@@ -574,6 +639,38 @@ h2 {
   color: var(--muted);
   font-size: 0.68rem;
   font-weight: 700;
+}
+
+/* Visibility toggle. Matches the 20x20 footprint of the Objects edit button so
+   the two sit on a common baseline. */
+.eye-btn {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.eye-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--ink);
+}
+
+/* Struck-through eye: keep it full-strength so the hidden state stays legible
+   even though the row itself is dimmed. */
+.eye-btn.is-hidden-state {
+  color: var(--accent-dark);
+  opacity: 1;
+}
+
+/* Dims the row's content, not its controls — the eye must stay readable so the
+   row can be un-hidden. */
+.class-item.is-row-hidden > div:first-child,
+.annotation-item.is-row-hidden > div:first-child {
+  opacity: 0.45;
 }
 
 /* Bare point count: right-aligned and narrow so it reads as a column rather

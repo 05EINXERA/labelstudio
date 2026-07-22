@@ -1,5 +1,5 @@
 import { generateUUID, clamp, round } from "../utils.js?v=1";
-import { state, snapshot } from "../state.js?v=1";
+import { state, snapshot, isAnnotationHidden } from "../state.js?v=1";
 import { annotationPoints, updateAnnotationBounds, pointInPolygon } from "./geometry.js?v=1";
 import { view } from "./view.js?v=1";
 import { draw, drawAllLayers } from "./draw.js?v=1";
@@ -27,6 +27,9 @@ export function hitTest(point) {
   const img = imagePoint(point);
   for (let index = state.annotations.length - 1; index >= 0; index -= 1) {
     const annotation = state.annotations[index];
+    // Hidden annotations are not on screen, so they must not be selectable:
+    // clicking empty space should not pick up something invisible.
+    if (isAnnotationHidden(annotation)) continue;
     // Fast bbox check (handles simple boxes and any annotations with x/y/width/height)
     const ax = Number(annotation.x) || 0;
     const ay = Number(annotation.y) || 0;
@@ -167,6 +170,65 @@ export function redoLastPoint() {
   return false;
 }
 
+export function undoAction() {
+  if (undoLastPoint()) {
+    return;
+  }
+  const previous = state.history.pop();
+  if (!previous) return;
+  
+  state.redoHistory.push(JSON.stringify({
+    labels: state.labels,
+    annotations: state.annotations,
+    selectedId: state.selectedId
+  }));
+
+  const restored = JSON.parse(previous);
+  state.labels = restored.labels;
+  state.annotations = restored.annotations;
+  state.selectedId = restored.selectedId;
+  
+  if (view.drag?.type === "draw-polygon") {
+    const exists = state.annotations.some((item) => item.id === view.drag.annotationId);
+    if (!exists) view.drag = null;
+  }
+  render();
+  save();
+}
+
+export function redoAction() {
+  if (redoLastPoint()) {
+    return;
+  }
+  const next = state.redoHistory.pop();
+  if (!next) return;
+
+  state.history.push(JSON.stringify({
+    labels: state.labels,
+    annotations: state.annotations,
+    selectedId: state.selectedId
+  }));
+
+  const restored = JSON.parse(next);
+  state.labels = restored.labels;
+  state.annotations = restored.annotations;
+  state.selectedId = restored.selectedId;
+
+  if (view.drag?.type === "draw-polygon") {
+    const exists = state.annotations.some((item) => item.id === view.drag.annotationId);
+    if (!exists) view.drag = null;
+  }
+  render();
+  save();
+}
+
+// The zoom readout subscribes here rather than being imported directly: the
+// component already imports setZoom, so a direct import would be circular.
+let onZoomChange = null;
+export function setZoomChangeHandler(fn) {
+  onZoomChange = fn;
+}
+
 export function setZoom(newZoom, mouseX, mouseY) {
   if (!view.imageLoaded) return;
   const oldZoom = view.viewZoom;
@@ -194,6 +256,8 @@ export function setZoom(newZoom, mouseX, mouseY) {
   view.viewPan.y = cy - (rect.height - newHeight) / 2 - imgY * newScale;
 
   drawAllLayers();
+  // Notified here, not from the buttons, so wheel zoom updates the readout too.
+  if (onZoomChange) onZoomChange();
 }
 
 export function deleteSelected() {
@@ -203,6 +267,9 @@ export function deleteSelected() {
   if (view.drag?.type === "draw-polygon" && state.selectedIds.has(view.drag.annotationId)) {
     view.drag = null;
   }
+  // Drop visibility state for the ids going away, so the set does not grow
+  // unboundedly across a session.
+  state.selectedIds.forEach((id) => state.hiddenAnnotationIds.delete(id));
   state.annotations = state.annotations.filter((item) => !state.selectedIds.has(item.id));
   state.selectedIds.clear();
   state.selectedId = null;
@@ -788,9 +855,9 @@ window.addEventListener("keydown", (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
     event.preventDefault();
     if (event.shiftKey) {
-      redoLastPoint();
+      redoAction();
     } else {
-      undoButton.click();
+      undoAction();
     }
     return;
   }
