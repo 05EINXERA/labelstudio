@@ -3,7 +3,7 @@
  *
  * Builder UI for creating an annotation export job with:
  *   - Status filter: all | New | In Progress | Completed | Approved
- *   - Format: JSON (COCO) | CSV
+ *   - Format: JSON (COCO) | Per-Task JSON (ZIP) | CSV
  *   - Include: annotations_only (implemented) | with_mask_* (TODO, disabled)
  *
  * The TODO-marked options (mask rendering, YOLO/Pascal VOC formats, image
@@ -78,9 +78,9 @@ function template() {
             <input type="radio" name="format" value="json" checked>
             JSON (COCO)
           </label>
-          <label style="display:flex; align-items:center; gap:8px; font-size:.9rem;">
+          <label style="display:flex; align-items:center; gap:8px; font-size:.9rem;" title="A ZIP containing one JSON file per task, under jsons/, named after each image">
             <input type="radio" name="format" value="pertask">
-            Per-Task JSON
+            Per-Task JSON (ZIP)
           </label>
           <label style="display:flex; align-items:center; gap:8px; font-size:.9rem;">
             <input type="radio" name="format" value="csv">
@@ -158,6 +158,14 @@ function template() {
 // ---------------------------------------------------------------------------
 
 function el(id) { return root.querySelector(`#${id}`); }
+
+// Human-readable name for the completed-job line; format codes like "PERTASK"
+// are internal and shouldn't leak into the UI.
+const FORMAT_LABELS = {
+  json: "JSON (COCO)",
+  pertask: "Per-Task JSON (ZIP)",
+  csv: "CSV",
+};
 
 function showError(message) {
   const banner = el("errorBanner");
@@ -271,7 +279,7 @@ function renderJobStatus() {
       <p style="font-size:.9rem; color:var(--accent-dark);">
         ✓ <strong>Export ready</strong> —
         ${currentJob.task_count} task${currentJob.task_count === 1 ? "" : "s"},
-        ${currentJob.format.toUpperCase()} format.
+        ${escapeHTML(FORMAT_LABELS[currentJob.format] || currentJob.format)} format.
       </p>`;
     downloadBtn.disabled = false;
   } else if (currentJob.status === "failed") {
@@ -324,6 +332,21 @@ function startPolling() {
   pollJobStatus(); // immediate first call
 }
 
+/** The server names the file; prefer that over guessing so the two can't drift. */
+function filenameFromResponse(res) {
+  const header = res.headers.get("Content-Disposition");
+  if (!header) return null;
+  const match = /filename="?([^";]+)"?/i.exec(header);
+  return match ? match[1].trim() : null;
+}
+
+/** Fallback only — used if the response carries no Content-Disposition. */
+function localFilename() {
+  if (currentJob.format === "csv") return `export-${ctx.projectId}.csv`;
+  if (currentJob.format === "pertask") return `export-pertask-${ctx.projectId}.zip`;
+  return `export-${ctx.projectId}.json`; // json (COCO)
+}
+
 async function downloadExport() {
   if (!currentJob || currentJob.status !== "completed") return;
 
@@ -338,19 +361,8 @@ async function downloadExport() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    
-    // T5.2: Set download filename based on format
-    let filename;
-    if (currentJob.format === "csv") {
-      filename = `export-${ctx.projectId}.csv`;
-    } else if (currentJob.format === "pertask") {
-      filename = `export-pertask-${ctx.projectId}.json`;
-    } else {
-      // default: json (COCO)
-      filename = `export-${ctx.projectId}.json`;
-    }
-    a.download = filename;
-    
+    a.download = filenameFromResponse(res) || localFilename();
+
     document.body.appendChild(a);
     a.click();
     a.remove();
