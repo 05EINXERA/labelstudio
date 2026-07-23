@@ -5,7 +5,7 @@ import { view } from "./view.js?v=1";
 import { draw, drawAllLayers } from "./draw.js?v=1";
 import { canvas, undoButton } from "../dom.js?v=1";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
-import { setStatus, save, render, ensureLabel } from "../components/workspace.js?v=1";
+import { setStatus, save, render } from "../components/workspace.js?v=1";
 import { performMagicWandSegmentation } from "../ai/detect.js?v=1";
 
 export function canvasPoint(event) {
@@ -572,12 +572,12 @@ canvas.addEventListener("pointerdown", (event) => {
           setStatus("Please select a class name first");
           return;
         }
+        if (!state.activeLabelId) {
+          setStatus("Select a class first");
+          return;
+        }
         // First point – create annotation immediately so it appears in the Objects panel
         snapshot();
-        if (!state.activeLabelId) {
-          const defaultLabel = ensureLabel("object");
-          state.activeLabelId = defaultLabel.id;
-        }
         const annotation = {
           id: generateUUID(),
           labelId: state.activeLabelId,
@@ -611,8 +611,8 @@ canvas.addEventListener("pointerdown", (event) => {
         return;
       }
       if (!state.activeLabelId) {
-        const defaultLabel = ensureLabel("object");
-        state.activeLabelId = defaultLabel.id;
+        setStatus("Select a class first");
+        return;
       }
       view.drag = {
         type: "draw",
@@ -980,8 +980,13 @@ window.addEventListener("keydown", (event) => {
   }
 
   if (event.key.toLowerCase() === "d") {
-    state.mode = "draw";
-    render();
+    if (!state.activeLabelId) {
+      setStatus("Pick a class first, then draw");
+      render();
+    } else {
+      state.mode = "draw";
+      render();
+    }
   }
 
   if (event.key.toLowerCase() === "s") {

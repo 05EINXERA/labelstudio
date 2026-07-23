@@ -19,6 +19,43 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/labels", tags=["labels"], dependencies=[Depends(get_current_user)])
 
+def purge_annotations_for_labels(project_id: int, label_ids: set, db: Session) -> int:
+    """Delete every annotation in `project_id` that references a deleted label.
+
+    Annotations live as a JSON array in `Task.annotations`, so there is no
+    foreign key to cascade on: without this, deleting a class leaves orphaned
+    annotations behind that the canvas renders as an unnamed "Object" in the
+    default color. Comments carry no labelId and are always kept.
+
+    Returns the number of annotations removed. The caller commits.
+    """
+    if not label_ids:
+        return 0
+
+    removed = 0
+    tasks = db.query(models.Task).filter(models.Task.project_id == project_id).all()
+    for task in tasks:
+        if not task.annotations:
+            continue
+        try:
+            anns = json.loads(task.annotations)
+        except json.JSONDecodeError:
+            logger.warning("Task %s has unparseable annotations; skipping label purge", task.id)
+            continue
+        if not isinstance(anns, list):
+            continue
+
+        kept = [
+            a for a in anns
+            if not (isinstance(a, dict) and a.get("type") != "comment" and a.get("labelId") in label_ids)
+        ]
+        if len(kept) != len(anns):
+            removed += len(anns) - len(kept)
+            task.annotations = json.dumps(kept)
+
+    return removed
+
+
 @router.get("", response_model=List[LabelModel])
 def get_labels(projectId: int = Query(...), db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     get_owned_project(projectId, user, db)
@@ -80,13 +117,19 @@ def bulk_delete_labels(payload: LabelBulkDelete, db: Session = Depends(get_db), 
     get_owned_project(payload.projectId, user, db)
     if not payload.ids:
         raise HTTPException(status_code=400, detail="No ids provided")
+    existing_ids = {
+        row.id for row in db.query(models.Label.id).filter(
+            models.Label.project_id == payload.projectId, models.Label.id.in_(payload.ids)
+        ).all()
+    }
+    annotations_deleted = purge_annotations_for_labels(payload.projectId, existing_ids, db)
     deleted = (
         db.query(models.Label)
         .filter(models.Label.project_id == payload.projectId, models.Label.id.in_(payload.ids))
         .delete(synchronize_session=False)
     )
     db.commit()
-    return {"status": "ok", "deleted": deleted}
+    return {"status": "ok", "deleted": deleted, "annotationsDeleted": annotations_deleted}
 
 
 def _label_to_fastlabel(label: models.Label, order: int) -> dict:
@@ -262,6 +305,10 @@ async def import_labels(
         raise HTTPException(status_code=422, detail="No classes found in the uploaded file.")
 
     if mode == "replace":
+        # Replacing the class set orphans every annotation in the project, so
+        # purge them too rather than leaving unnamed "Object" shapes behind.
+        old_ids = {row.id for row in db.query(models.Label.id).filter(models.Label.project_id == projectId).all()}
+        purge_annotations_for_labels(projectId, old_ids, db)
         db.query(models.Label).filter(models.Label.project_id == projectId).delete()
         by_name = {}
     else:
@@ -303,7 +350,9 @@ def delete_label(label_id: str, projectId: int = Query(...), db: Session = Depen
     db_label = db.query(models.Label).filter(
         models.Label.id == label_id, models.Label.project_id == projectId
     ).first()
+    annotations_deleted = 0
     if db_label:
+        annotations_deleted = purge_annotations_for_labels(projectId, {db_label.id}, db)
         db.delete(db_label)
         db.commit()
-    return {"status": "ok"}
+    return {"status": "ok", "annotationsDeleted": annotations_deleted}
