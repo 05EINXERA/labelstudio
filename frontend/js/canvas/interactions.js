@@ -247,17 +247,15 @@ export function setZoomChangeHandler(fn) {
 export function setZoom(newZoom, mouseX, mouseY) {
   if (!view.imageLoaded) return;
   const oldZoom = view.viewZoom;
-  view.viewZoom = Math.max(0.25, Math.min(100, newZoom));
+  view.viewZoom = Math.max(0.1, Math.min(500, newZoom));
 
   const rect = canvas.getBoundingClientRect();
   const cx = mouseX !== undefined ? mouseX : rect.width / 2;
   const cy = mouseY !== undefined ? mouseY : rect.height / 2;
 
-  // Must match computeImageBox's contain-fit, or zoom-at-cursor drifts.
-  const baseScale = Math.min(
-    rect.width / view.imageElement.naturalWidth,
-    rect.height / view.imageElement.naturalHeight
-  );
+  // view.baseScale is written by computeImageBox on every draw. It matches
+  // the contain-fit formula exactly so zoom-at-cursor never drifts.
+  const baseScale = view.baseScale;
   const oldScale = baseScale * oldZoom;
   const newScale = baseScale * view.viewZoom;
 
