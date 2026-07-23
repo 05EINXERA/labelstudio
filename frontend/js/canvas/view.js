@@ -8,6 +8,11 @@ export const view = {
   imageElement: new Image(),
   imageLoaded: false,
   viewZoom: 1,
+  // Contain-fit scale at viewZoom === 1: pixels-per-image-pixel when the whole
+  // image fills the canvas. Written by computeImageBox on every draw, read by
+  // the zoom display to convert viewZoom into a pixel-accurate percentage and
+  // by setZoom so the two derivations can never drift apart.
+  baseScale: 1,
   viewPan: { x: 0, y: 0 },
   isPanning: false,
   panStart: { x: 0, y: 0, panX: 0, panY: 0 },
