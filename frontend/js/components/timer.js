@@ -16,6 +16,10 @@ const timerLocalState = {
   timerInterval: null,
   sessionSeconds: 0,
   currentUserForTimer: localStorage.getItem('dataset_username') || 'Unknown',
+  // Running count of this page's contribution to the *user's* lifetime total
+  // (TeamMember.time_logged). This does NOT drive the "Total" readout, which is
+  // per-task — see currentTaskTotalSeconds(). It exists only so the delta sent
+  // to /api/team/time can be computed against lastSyncedTotalSeconds.
   totalSeconds: 0,
   lastSyncedTotalSeconds: 0,
   isTimerRunning: false,
@@ -83,7 +87,12 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
       '/api/tasks',
       new Blob([JSON.stringify(payload)], { type: 'application/json' })
     );
-    if (!ok) timerState.taskSessionSeconds += timeDelta;
+    if (ok) {
+      task.time_spent = (task.time_spent || 0) + timeDelta;
+    } else {
+      timerState.taskSessionSeconds += timeDelta;
+    }
+    updateTimerDisplays();
     return;
   }
 
@@ -101,12 +110,19 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
       task.id = null; // Prevent further autosaves for this task
       // The task is abandoned, so the delta has nowhere to go. Drop it rather
       // than letting it leak into the next task the user opens.
+      updateTimerDisplays();
       return;
     }
     if (!res.ok) {
       timerState.taskSessionSeconds += timeDelta;
+      updateTimerDisplays();
       return;
     }
+    // The server has banked the delta, so move it from the pending accumulator
+    // into the task's stored total. Without this the "Total" readout would drop
+    // back by the delta on every sync.
+    task.time_spent = (task.time_spent || 0) + timeDelta;
+
     const data = await res.json();
     if (data && data.updated_at) {
       task.updated_at = data.updated_at;
@@ -114,40 +130,50 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
   } catch (e) {
     timerState.taskSessionSeconds += timeDelta;
   }
+  updateTimerDisplays();
 }
 
 // Back-compat name used by init.js's gallery switch.
 export const syncTaskTime = drainTaskTime;
 
-// Fetch the user's lifetime total as the base for the local counter. The timer
-// may already be running by the time this resolves, so the seed is *added* to
-// whatever has accrued instead of overwriting it — overwriting discarded those
-// seconds and desynced lastSyncedTotalSeconds (F7).
-const seedPromise = (async () => {
-  if (timerLocalState.currentUserForTimer === 'Unknown') return;
-  try {
-    const res = await apiFetch('/api/team');
-    if (!res.ok) return;
-    const team = await res.json();
-    const member = team.find(m => m.name === timerLocalState.currentUserForTimer);
-    if (!member) return;
-
-    const base = member.time_logged || 0;
-    const accruedSinceLoad = timerLocalState.totalSeconds - timerLocalState.lastSyncedTotalSeconds;
-    timerLocalState.totalSeconds = base + accruedSinceLoad;
-    timerLocalState.lastSyncedTotalSeconds = base;
-    updateTimerDisplays();
-  } catch (e) {
-    console.error('Failed to seed logged time', e);
-  }
-})();
-
 const playSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
 const pauseSvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>';
 
+/**
+ * Total time for the task currently open: what the server has already stored
+ * for it, plus the seconds accrued this session that have not been synced yet.
+ *
+ * This readout used to show the user's lifetime total across every task, which
+ * is not what "Total" means in a per-task workspace.
+ */
+function currentTaskTotalSeconds() {
+  const task = currentTaskResolver();
+  if (!task) return 0;
+  return (task.time_spent || 0) + timerState.taskSessionSeconds;
+}
+
 function updateTimerDisplays() {
   if (sessionTimerDisplay) sessionTimerDisplay.textContent = formatTime(timerLocalState.sessionSeconds);
-  if (totalTimeLoggedDisplay) totalTimeLoggedDisplay.textContent = formatTime(timerLocalState.totalSeconds);
+  if (totalTimeLoggedDisplay) totalTimeLoggedDisplay.textContent = formatTime(currentTaskTotalSeconds());
+}
+
+// Re-render the readouts after the open task changes (switching images, or a
+// sync that folded the pending delta into task.time_spent).
+export function refreshTimerDisplays() {
+  updateTimerDisplays();
+}
+
+/**
+ * Begin a fresh session for a newly opened task. Session time is per-task, so
+ * it starts at zero; the "Total" readout picks up the new task's stored total
+ * via currentTaskResolver().
+ */
+export function resetSessionForTask() {
+  timerLocalState.sessionSeconds = 0;
+  timerLocalState.accumulatedMs = 0;
+  timerLocalState.totalMsCarry = 0;
+  timerLocalState.lastTickAt = Date.now();
+  updateTimerDisplays();
 }
 
 export function syncTimeToServer({ useBeacon = false } = {}) {
@@ -277,10 +303,11 @@ if (timerToggleBtn) {
  */
 if (timerResetBtn) {
   timerResetBtn.addEventListener("click", () => {
-    const unsynced = timerLocalState.totalSeconds - timerLocalState.lastSyncedTotalSeconds;
+    // What is at risk is the time not yet banked against the task.
+    const unsynced = timerState.taskSessionSeconds;
     const message = unsynced > 0
-      ? `Discard ${formatTime(unsynced)} of unsaved time? Time already saved to your total will be kept.`
-      : "Reset the session timer? Time already saved to your total will be kept.";
+      ? `Discard ${formatTime(unsynced)} of unsaved time? Time already saved to this task will be kept.`
+      : "Reset the session timer? Time already saved to this task will be kept.";
     if (!confirm(message)) return;
 
     pauseTimer();

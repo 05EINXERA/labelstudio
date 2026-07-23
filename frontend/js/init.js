@@ -17,7 +17,8 @@ import {
 } from "./components/workspace.js?v=1";
 import { autoDetectObjects, autoTagObjects } from "./ai/detect.js?v=1";
 import {
-  syncTaskTime, syncTimeToServer, drainTaskTime, setActiveTaskResolver
+  syncTaskTime, syncTimeToServer, drainTaskTime, setActiveTaskResolver,
+  resetSessionForTask, refreshTimerDisplays
 } from "./components/timer.js?v=1";
 import {
   finalizePolygon, deleteSelected, undoAction, setZoomChangeHandler
@@ -130,9 +131,14 @@ function switchImage(index) {
   if (state.galleryIndex >= 0 && state.gallery[state.galleryIndex]) {
     const prevTask = state.gallery[state.galleryIndex];
     prevTask.annotations = [...state.annotations];
+    // Drains the accumulator against the outgoing task. Bound to prevTask, so
+    // it stays correct even though galleryIndex moves before it resolves.
     syncTaskTime(prevTask);
   }
   state.galleryIndex = index;
+  // Session time is per-task: the new task starts a fresh session, and the
+  // Total readout switches to that task's stored total.
+  resetSessionForTask();
   const item = state.gallery[index];
 
   snapshot();
@@ -572,7 +578,10 @@ async function loadWorkspaceTasks() {
         width: 0,
         height: 0,
         status: t.status,
-        assignee: t.assignee
+        assignee: t.assignee,
+        // Persisted per-task total; the workspace "Total" readout is scoped to
+        // the open task, so it needs this as its base.
+        time_spent: t.time_spent || 0
       }));
 
       if (state.gallery.length > 0) {
@@ -587,6 +596,8 @@ async function loadWorkspaceTasks() {
       } else {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         updateGalleryUI();
+        // No task open: the Total readout has nothing to show.
+        refreshTimerDisplays();
       }
     }
   } catch (e) {
