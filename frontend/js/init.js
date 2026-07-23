@@ -8,14 +8,12 @@ import { commentOverlayRefs } from "./comment-overlay.js?v=1";
 import {
   canvas, ctx, imageCanvas, imageCtx, staticCanvas, staticCtx, stageWrap,
   emptyState, drawMode, selectMode, boxMode, polygonMode, commentMode, magicWandMode,
-  autoDetectButton, undoButton, deleteButton, clearButton, exportMenuButton
+  autoDetectButton, undoButton, deleteButton, clearButton, exportLink
 } from "./dom.js?v=1";
 import { drawAllLayers } from "./canvas/draw.js?v=1";
-import { exportJsonData } from "./export/coco.js?v=1";
-import { exportCsvData } from "./export/csv.js?v=1";
 import {
   setStatus, syncToBackend, save, loadSaved,
-  render, importData, importCsvData
+  render
 } from "./components/workspace.js?v=1";
 import { autoDetectObjects, autoTagObjects } from "./ai/detect.js?v=1";
 import {
@@ -37,15 +35,6 @@ const backToProject = document.querySelector("#backToProject");
 const autoTagButton = document.querySelector("#autoTagButton");
 const aiSettingsMenuButton = document.querySelector("#aiSettingsMenuButton");
 const aiSettingsDropdownContainer = document.querySelector("#aiSettingsDropdownContainer");
-const importMenuButton = document.querySelector("#importMenuButton");
-const importDropdown = document.querySelector("#importDropdown").parentElement;
-const importJsonButton = document.querySelector("#importJsonButton");
-const importCsvButton = document.querySelector("#importCsvButton");
-const importJsonInput = document.querySelector("#importJsonInput");
-const importCsvInput = document.querySelector("#importCsvInput");
-const exportDropdown = document.querySelector("#exportDropdown").parentElement;
-const exportJsonButton = document.querySelector("#exportJsonButton");
-const exportCsvButton = document.querySelector("#exportCsvButton");
 const prevImageButton = document.querySelector("#prevImageButton");
 const nextImageButton = document.querySelector("#nextImageButton");
 const galleryPosition = document.querySelector("#galleryPosition");
@@ -292,22 +281,6 @@ clearButton.addEventListener("click", () => {
   setStatus("All annotations cleared");
 });
 
-importMenuButton.addEventListener("click", (e) => {
-  e.stopPropagation();
-  importDropdown.classList.toggle("show");
-});
-importJsonButton.addEventListener("click", () => {
-  importDropdown.classList.remove("show");
-  importJsonInput.click();
-});
-importCsvButton.addEventListener("click", () => {
-  importDropdown.classList.remove("show");
-  importCsvInput.click();
-});
-exportMenuButton.addEventListener("click", (e) => {
-  e.stopPropagation();
-  exportDropdown.classList.toggle("show");
-});
 if (aiSettingsMenuButton) {
   aiSettingsMenuButton.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -315,44 +288,15 @@ if (aiSettingsMenuButton) {
   });
 }
 document.addEventListener("click", (e) => {
-  if (!exportDropdown.contains(e.target)) {
-    exportDropdown.classList.remove("show");
-  }
-  if (!importDropdown.contains(e.target)) {
-    importDropdown.classList.remove("show");
-  }
   if (aiSettingsDropdownContainer && !aiSettingsDropdownContainer.contains(e.target)) {
     aiSettingsDropdownContainer.classList.remove("show");
   }
 });
 
-exportJsonButton.addEventListener("click", (e) => {
-  exportDropdown.classList.remove("show");
-  exportJsonData();
-});
-exportCsvButton.addEventListener("click", (e) => {
-  exportDropdown.classList.remove("show");
-  exportCsvData();
-});
 autoDetectButton.addEventListener("click", () => autoDetectObjects({ replace: true }));
 if (autoTagButton) {
   autoTagButton.addEventListener("click", () => autoTagObjects());
 }
-
-
-
-
-importJsonInput.addEventListener("change", (event) => {
-  const file = event.target.files?.[0];
-  if (file) importData(file);
-  importJsonInput.value = "";
-});
-
-importCsvInput.addEventListener("change", (event) => {
-  const file = event.target.files?.[0];
-  if (file) importCsvData(file);
-  importCsvInput.value = "";
-});
 
 // Images are loaded from the project page, not dropped onto the canvas, so the
 // drop target only suppresses the browser's default navigate-to-file.
@@ -595,6 +539,9 @@ async function initWorkspaceContext() {
 
   if (backToProject) {
     backToProject.href = `project.html?id=${projectId}#/tasks`;
+  }
+  if (exportLink) {
+    exportLink.href = `project.html?id=${projectId}#/exports`;
   }
 
   try {

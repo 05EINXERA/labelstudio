@@ -209,21 +209,13 @@
         <div class="tool-group" role="group" aria-label="Data controls">
           <span class="tool-group-label">Data</span>
           <div class="tool-group-buttons">
-          <div class="dropdown">
-            <button class="icon-button" id="importMenuButton" type="button" title="Import Data"><span class="btn-icon">📥</span><span class="btn-label">Import</span> ▾</button>
-            <div class="dropdown-content" id="importDropdown">
-              <button type="button" id="importJsonButton">JSON</button>
-              <button type="button" id="importCsvButton">CSV</button>
-            </div>
-          </div>
-          <div class="dropdown">
-            <button class="icon-button primary" id="exportMenuButton" type="button" title="Export Data"><span class="btn-icon">📤</span><span class="btn-label">Export</span>
-              ▾</button>
-            <div class="dropdown-content" id="exportDropdown">
-              <button type="button" id="exportJsonButton">JSON</button>
-              <button type="button" id="exportCsvButton">CSV</button>
-            </div>
-          </div>
+          <!-- Export and import are project-level operations (status filters,
+               per-task ZIP, preview-before-import) and live in the project's
+               Exports/Imports tabs, backed by /api/exports and /api/imports.
+               This is a link there, not a second implementation: a canvas-side
+               export could only ever see the loaded gallery, which silently
+               differs from the project's task set. -->
+          <a class="icon-button primary" id="exportLink" href="#" title="Export this project's annotations"><span class="btn-icon">📤</span><span class="btn-label">Export…</span></a>
           </div>
         </div>
 
@@ -243,8 +235,6 @@
             <strong id="selectedInfo" class="selection-chip">None</strong>
           </div>
         </div>
-        <input id="importJsonInput" class="sr-only" type="file" accept="application/json,.json">
-        <input id="importCsvInput" class="sr-only" type="file" accept="text/csv,.csv">
       </header>
 
       <div class="stage-wrap">
