@@ -110,8 +110,10 @@ function template() {
     <!-- ===== Annotations tab ===== -->
     <div id="panelAnnotations" style="display:none;">
       <p style="font-size:.88rem; color:var(--muted); margin-bottom:18px;">
-        Accepts a <strong>COCO JSON</strong> (images + categories + annotations)
-        or the app's own per-task <strong>JSON export</strong>.
+        Accepts a <strong>COCO JSON</strong> (images + categories + annotations),
+        the app's own per-task <strong>JSON export</strong>, or a
+        <strong>.zip</strong> of either — including the per-task export archive
+        straight from the Exports tab.
         Images are matched to existing tasks by filename — upload images first
         via the Tasks tab, then import annotations here.
       </p>
@@ -134,7 +136,7 @@ function template() {
             style="padding:9px 18px; border-radius:8px; font-weight:600;">
             Choose file…
           </button>
-          <input type="file" id="annFileInput" accept=".json" style="display:none;">
+          <input type="file" id="annFileInput" accept=".json,.zip" style="display:none;">
           <span id="annFileName" style="font-size:.85rem; color:var(--muted); margin-left:12px;"></span>
         </div>
       </div>
