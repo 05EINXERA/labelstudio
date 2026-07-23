@@ -165,6 +165,11 @@ if (nextImageButton) {
 }
 
 drawMode.addEventListener("click", () => {
+  if (!state.activeLabelId) {
+    setStatus("Pick a class first, then draw");
+    render(); // re-render to show the hint in shapeHint
+    return;
+  }
   state.mode = "draw";
   render();
 });

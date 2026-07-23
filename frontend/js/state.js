@@ -26,7 +26,7 @@ export const state = {
   hiddenLabelIds: new Set(),
   hiddenAnnotationIds: new Set(),
   activeLabelId: null,
-  mode: "draw",
+  mode: "select",
   shape: "polygon",
   history: [],
   redoHistory: [],
@@ -125,6 +125,12 @@ export function resetWorkspaceForNewImage() {
   // state.labels is deliberately not cleared to persist classes across images
   state.annotations = [];
   state.selectedId = null;
+  // Re-arm the label gate for each new task: the annotator must pick a class
+  // before drawing, rather than inheriting the previous task's armed state.
+  state.mode = "select";
+  state.activeLabelId = null;
+  state.needsLabelSelection = false;
+  state.justFinalized = false;
 }
 
 export function selectedAnnotation() {

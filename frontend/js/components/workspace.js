@@ -136,10 +136,9 @@ export function renderClasses() {
     classesList.appendChild(empty);
   }
 
-  // Ensure there's always an active label if labels exist
-  if (!state.activeLabelId && state.labels.length > 0) {
-    state.activeLabelId = state.labels[0].id;
-  }
+  // Note: we deliberately do NOT auto-activate the first class here.
+  // The annotator must explicitly pick a class to start drawing, so that
+  // the first canvas click is never silently attributed to an unintended class.
 
   state.labels.forEach((label, index) => {
     const item = document.createElement("button");
@@ -418,11 +417,30 @@ export function renderControls() {
   commentMode.classList.toggle("is-active", state.shape === "comment");
   magicWandMode.classList.toggle("is-active", state.shape === "magicWand");
   if (state.shape === "polygon") {
-    shapeHint.textContent = "Select a class, then draw a polygon.";
+    if (state.mode === "select") {
+      shapeHint.textContent = state.activeLabelId
+        ? "Class selected — press Draw or click a class to start drawing."
+        : "Pick a class from the list to start drawing a polygon.";
+    } else if (state.needsLabelSelection) {
+      shapeHint.textContent = "Polygon drawn — pick a class to assign it.";
+    } else if (!state.activeLabelId) {
+      shapeHint.textContent = "Pick a class from the list to start drawing a polygon.";
+    } else {
+      shapeHint.textContent = "Click to add points. Click the first point to close the polygon.";
+    }
   } else if (state.shape === "comment") {
     shapeHint.textContent = "Click anywhere on the image to leave a comment.";
   } else {
-    shapeHint.textContent = "Select a class, then draw a bounding box.";
+    // box / magicWand
+    if (state.mode === "select") {
+      shapeHint.textContent = state.activeLabelId
+        ? "Class selected — press Draw or click a class to start drawing."
+        : "Pick a class from the list to start drawing a bounding box.";
+    } else if (!state.activeLabelId) {
+      shapeHint.textContent = "Pick a class from the list to start drawing a bounding box.";
+    } else {
+      shapeHint.textContent = "Click and drag to draw a bounding box.";
+    }
   }
   autoDetectButton.disabled = detectState.detectionBusy || !view.imageLoaded;
   const labelSpan = autoDetectButton.querySelector(".btn-label");
