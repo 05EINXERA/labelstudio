@@ -206,6 +206,17 @@
           <button class="tool-button" id="autoTagButton" type="button" title="Auto-tag image with AI"><span class="btn-icon">🏷️</span><span class="btn-label">Auto-Tag</span></button>
           </div>
         </div>
+        <div class="tool-group" role="group" aria-label="Edit controls">
+          <span class="tool-group-label">Edit</span>
+          <div class="tool-group-buttons">
+            <button class="icon-button" id="undoButton" type="button" title="Undo"><span class="btn-icon">↩</span><span class="btn-label">Undo</span></button>
+            <button class="icon-button" id="deleteButton" type="button" title="Delete selected"><span class="btn-icon">🗑</span><span class="btn-label">Delete</span></button>
+            <button class="icon-button" id="groupButton" type="button" title="Group selected (Shift+Click to select multiple)" disabled><span class="btn-icon">🔗</span><span class="btn-label">Group</span></button>
+            <button class="icon-button" id="ungroupButton" type="button" title="Ungroup selected" disabled><span class="btn-icon">💥</span><span class="btn-label">Ungroup</span></button>
+            <button class="icon-button" id="clearButton" type="button" title="Clear all annotations"><span class="btn-icon">✕</span><span class="btn-label">Clear</span></button>
+          </div>
+        </div>
+
         <div class="tool-group" role="group" aria-label="Data controls">
           <span class="tool-group-label">Data</span>
           <div class="tool-group-buttons">
@@ -215,18 +226,7 @@
                This is a link there, not a second implementation: a canvas-side
                export could only ever see the loaded gallery, which silently
                differs from the project's task set. -->
-          <a class="icon-button primary" id="exportLink" href="#" title="Export this project's annotations"><span class="btn-icon">📤</span><span class="btn-label">Export…</span></a>
-          </div>
-        </div>
-
-        <div class="tool-group" role="group" aria-label="Edit controls">
-          <span class="tool-group-label">Edit</span>
-          <div class="tool-group-buttons">
-            <button class="icon-button" id="undoButton" type="button" title="Undo"><span class="btn-icon">↩</span><span class="btn-label">Undo</span></button>
-            <button class="icon-button" id="deleteButton" type="button" title="Delete selected"><span class="btn-icon">🗑</span><span class="btn-label">Delete</span></button>
-            <button class="icon-button" id="groupButton" type="button" title="Group selected (Shift+Click to select multiple)" disabled><span class="btn-icon">🔗</span><span class="btn-label">Group</span></button>
-            <button class="icon-button" id="ungroupButton" type="button" title="Ungroup selected" disabled><span class="btn-icon">💥</span><span class="btn-label">Ungroup</span></button>
-            <button class="icon-button" id="clearButton" type="button" title="Clear all annotations"><span class="btn-icon">✕</span><span class="btn-label">Clear</span></button>
+          <a class="icon-button primary" id="exportLink" href="#" title="Export"><span class="btn-icon">📤</span><span class="btn-label">Export</span></a>
           </div>
         </div>
         <div class="tool-group" role="group" aria-label="Selection status">
