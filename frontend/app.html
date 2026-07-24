@@ -71,6 +71,12 @@
         <span id="galleryPosition" class="gallery-position">0 / 0</span>
         <button class="icon-button" id="nextImageButton" type="button" disabled title="Next image">&gt;</button>
       </div>
+      <!-- Export is a project-level operation (status filters, per-task ZIP,
+           preview-before-import) and lives in the project's Exports tab, backed
+           by /api/exports. This is a link there, not a second implementation:
+           a canvas-side export could only ever see the loaded gallery, which
+           silently differs from the project's task set. -->
+      <a class="tool-button save-button" id="exportLink" href="#" title="Export this project's annotations" style="background: var(--accent); color: white; text-decoration: none; display: inline-flex; align-items: center; justify-content: center;">Export</a>
       <button class="tool-button primary save-button" id="saveButton" type="button" title="Save annotations">Save</button>
     </div>
   </nav>
@@ -217,7 +223,8 @@
         <div class="tool-group" role="group" aria-label="Edit controls">
           <span class="tool-group-label">Edit</span>
           <div class="tool-group-buttons">
-            <button class="icon-button" id="undoButton" type="button" title="Undo"><span class="btn-icon">↩</span><span class="btn-label">Undo</span></button>
+            <button class="icon-button" id="undoButton" type="button" title="Undo (Ctrl+Z)"><span class="btn-icon">↩</span><span class="btn-label">Undo</span></button>
+            <button class="icon-button" id="redoButton" type="button" title="Redo (Ctrl+Shift+Z)"><span class="btn-icon">↪</span><span class="btn-label">Redo</span></button>
             <button class="icon-button" id="deleteButton" type="button" title="Delete selected"><span class="btn-icon">🗑</span><span class="btn-label">Delete</span></button>
             <button class="icon-button" id="groupButton" type="button" title="Group selected (Shift+Click to select multiple)" disabled><span class="btn-icon">🔗</span><span class="btn-label">Group</span></button>
             <button class="icon-button" id="ungroupButton" type="button" title="Ungroup selected" disabled><span class="btn-icon">💥</span><span class="btn-label">Ungroup</span></button>
@@ -225,18 +232,6 @@
           </div>
         </div>
 
-        <div class="tool-group" role="group" aria-label="Data controls">
-          <span class="tool-group-label">Data</span>
-          <div class="tool-group-buttons">
-          <!-- Export and import are project-level operations (status filters,
-               per-task ZIP, preview-before-import) and live in the project's
-               Exports/Imports tabs, backed by /api/exports and /api/imports.
-               This is a link there, not a second implementation: a canvas-side
-               export could only ever see the loaded gallery, which silently
-               differs from the project's task set. -->
-          <a class="icon-button primary" id="exportLink" href="#" title="Export"><span class="btn-icon">📤</span><span class="btn-label">Export</span></a>
-          </div>
-        </div>
         <div class="tool-group" role="group" aria-label="Selection status">
           <span class="tool-group-label">Selected</span>
           <div class="tool-group-buttons">

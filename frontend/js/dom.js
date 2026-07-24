@@ -23,6 +23,7 @@ export const commentMode = document.querySelector("#commentMode");
 export const magicWandMode = document.querySelector("#magicWandMode");
 export const autoDetectButton = document.querySelector("#autoDetectButton");
 export const undoButton = document.querySelector("#undoButton");
+export const redoButton = document.querySelector("#redoButton");
 export const deleteButton = document.querySelector("#deleteButton");
 export const clearButton = document.querySelector("#clearButton");
 // Link to the project's Exports tab. An <a>, not a <button>: export is a

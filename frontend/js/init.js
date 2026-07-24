@@ -8,7 +8,7 @@ import { commentOverlayRefs } from "./comment-overlay.js?v=1";
 import {
   canvas, ctx, imageCanvas, imageCtx, staticCanvas, staticCtx, stageWrap,
   emptyState, drawMode, selectMode, boxMode, polygonMode, commentMode, magicWandMode,
-  autoDetectButton, undoButton, deleteButton, clearButton, exportLink
+  autoDetectButton, undoButton, redoButton, deleteButton, clearButton, exportLink
 } from "./dom.js?v=1";
 import { drawAllLayers } from "./canvas/draw.js?v=1";
 import {
@@ -21,7 +21,7 @@ import {
   resetSessionForTask, refreshTimerDisplays
 } from "./components/timer.js?v=1";
 import {
-  finalizePolygon, deleteSelected, undoAction, setZoomChangeHandler
+  finalizePolygon, deleteSelected, undoAction, redoAction, setZoomChangeHandler
 } from "./canvas/interactions.js?v=1";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
 import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=1";
@@ -275,6 +275,10 @@ commentOverlayRefs.commentOverlayInput.addEventListener("keydown", (e) => {
 
 undoButton.addEventListener("click", () => {
   undoAction();
+});
+
+redoButton.addEventListener("click", () => {
+  redoAction();
 });
 
 deleteButton.addEventListener("click", () => {

@@ -12,7 +12,7 @@ import { draw, drawAllLayers } from "../canvas/draw.js?v=1";
 import {
   emptyState, classesList, annotationList, annotationCount, selectedInfo,
   drawMode, selectMode, boxMode, polygonMode, commentMode, magicWandMode,
-  autoDetectButton, undoButton, deleteButton, clearButton, exportLink,
+  autoDetectButton, undoButton, redoButton, deleteButton, clearButton, exportLink,
   shapeHint, saveStatus
 } from "../dom.js?v=1";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
@@ -449,6 +449,7 @@ export function renderControls() {
   }
   autoDetectButton.title = selectedAnnotation() ? "Detect objects inside the selected area" : "Detect objects in the whole image";
   undoButton.disabled = state.history.length === 0;
+  redoButton.disabled = state.redoHistory.length === 0;
   deleteButton.disabled = state.selectedIds.size === 0;
   const groupButton = document.querySelector("#groupButton");
   if (groupButton) {
