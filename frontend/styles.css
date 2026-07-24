@@ -132,6 +132,22 @@ button {
   cursor: not-allowed;
 }
 
+/* Reset-to-fit: an icon button rather than a glyph, so it needs the SVG
+   centred and a divider separating it from the +/- stepper it does not
+   belong to. */
+.top-nav .zoom-reset-btn {
+  margin-left: 2px;
+  padding-left: 4px;
+  border-left: 1px solid #bfdbfe;
+  border-radius: 0 4px 4px 0;
+  width: 24px;
+  min-width: 24px;
+}
+
+.top-nav .zoom-reset-btn svg {
+  display: block;
+}
+
 /* Fixed width and tabular figures: the label changes on every wheel notch, and
    an auto-width readout would shift the whole nav row as the digits change. */
 .zoom-readout {
@@ -1461,6 +1477,23 @@ canvas {
   overflow-y: auto;
 }
 
+.modal-footer {
+  padding: 16px 24px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  background: var(--panel-2);
+  border-radius: 0 0 12px 12px;
+}
+
+.modal-footer button {
+  padding: 9px 18px;
+  border-radius: 6px;
+  font-weight: 600;
+}
+
 .modal-list {
   list-style: none;
   padding: 0;
@@ -1729,7 +1762,9 @@ canvas {
 
 /* Selected-annotation readout, inline in the toolbar. Width tracks the class
    name: it shrink-wraps the text, with a floor so short names ("None") still
-   read as a chip and a cap so long ones cannot stretch the toolbar row. */
+   read as a chip. No max-width cap: long class names are legitimate in
+   annotation projects, and the toolbar already wraps to multiple rows when
+   constrained rather than overflowing. */
 .selection-chip {
   display: inline-flex;
   align-items: center;
@@ -1737,7 +1772,6 @@ canvas {
   height: 26px;
   width: max-content;
   min-width: 56px;
-  max-width: 220px;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;

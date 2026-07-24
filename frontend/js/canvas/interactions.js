@@ -112,7 +112,9 @@ export function updateCanvasCursor(point) {
       }
     }
     if (hitTest(point)) {
-      canvas.style.cursor = "move";
+      // "pointer", not "move": a finished annotation can be selected but not
+      // dragged as a whole, and a move cursor would promise otherwise.
+      canvas.style.cursor = "pointer";
       return;
     }
   }
@@ -486,7 +488,7 @@ canvas.addEventListener("pointerdown", (event) => {
 
   // In draw mode, skip hit-testing – clicks should create shapes, not select existing ones.
   // Also skipped while a polygon is in progress: the polygon being drawn is itself a hit
-  // target, so selecting it would replace view.drag with a "move" and end the shape. state.mode
+  // target, so selecting it would clear view.drag and end the shape. state.mode
   // is not sufficient here — line 3286 can leave it as "select" before drawing ever starts.
   // The inert post-finalize state is included even though state.mode is still
   // "draw": no new shape can be started until a class is picked, so a click on an
@@ -518,12 +520,12 @@ canvas.addEventListener("pointerdown", (event) => {
       view.selectedLineIndex = -1;
       view.hoveredLineIndex = -1;
       state.mode = "select";
-      snapshot();
-      view.drag = {
-        type: "move",
-        start: imagePoint(point),
-        originals: state.annotations.filter(a => state.selectedIds.has(a.id)).map(a => JSON.parse(JSON.stringify(a)))
-      };
+      // Clicking a finished annotation selects it and nothing more. Arming a
+      // whole-shape move here meant any slight pointer travel during the click
+      // dragged the entire annotation off its object, which then had to be
+      // re-aligned by hand. Reshaping stays available through the vertex and
+      // edge handles ("move-point"), which are deliberate targets.
+      // No snapshot(): selecting is not an undoable edit.
       render();
       return;
     }
@@ -728,21 +730,6 @@ canvas.addEventListener("pointermove", (event) => {
     draw();
   }
 
-  if (view.drag.type === "move") {
-    view.drag.originals.forEach(original => {
-      const updated = {
-        ...original,
-        points: (original.points || annotationPoints(original)).map((item) => ({
-          x: round(clamp(item.x + (end.x - view.drag.start.x), 0, view.imageElement.naturalWidth)),
-          y: round(clamp(item.y + (end.y - view.drag.start.y), 0, view.imageElement.naturalHeight))
-        }))
-      };
-      updateAnnotationBounds(updated);
-      replaceAnnotation(updated);
-    });
-    render();
-  }
-
   if (view.drag.type === "move-point") {
     const annotation = state.annotations.find((item) => item.id === view.drag.annotationId);
     if (annotation) {
@@ -792,24 +779,6 @@ canvas.addEventListener("pointerup", (e) => {
   if (view.drag?.type === "draw-polygon" && view.drag.needsSave) {
     view.drag.needsSave = false;
     save();
-  }
-
-  if (view.drag?.type === "move") {
-    let changed = false;
-    view.drag.originals.forEach(original => {
-      const updated = state.annotations.find(a => a.id === original.id);
-      if (updated && annotationChanged(original, updated)) {
-        changed = true;
-      }
-    });
-    view.drag = null;
-    if (changed) {
-      save();
-    } else {
-      state.history.pop();
-    }
-    render();
-    return;
   }
 
   if (view.drag?.draft && view.drag.type === "draw" && state.mode === "draw") {
