@@ -29,6 +29,17 @@ const STEP = 1.1;
 const zoomInButton = document.querySelector("#zoomInButton");
 const zoomOutButton = document.querySelector("#zoomOutButton");
 const zoomLevel = document.querySelector("#zoomLevel");
+const zoomResetButton = document.querySelector("#zoomResetButton");
+
+// Back to the view a task opens with: fit-to-canvas and centred. setZoom derives
+// viewPan from its pivot point, so the pan must be cleared explicitly or the
+// image stays offset at fit scale.
+function resetView() {
+  setZoom(1);
+  view.viewPan.x = 0;
+  view.viewPan.y = 0;
+  drawAllLayers();
+}
 
 export function updateZoomDisplay() {
   if (!zoomLevel) return;
@@ -50,6 +61,13 @@ export function updateZoomDisplay() {
     zoomOutButton.disabled = disabled || view.viewZoom <= MIN_ZOOM + 1e-6;
   }
   zoomLevel.disabled = disabled;
+  if (zoomResetButton) {
+    // Kept enabled at fit scale rather than keyed to "already at default":
+    // panning mutates view.viewPan without routing through the zoom-change
+    // handler, so a pan-only offset would otherwise leave this stuck disabled
+    // with the image visibly off-centre and no way to recentre it.
+    zoomResetButton.disabled = disabled;
+  }
 }
 
 export function initZoomControl() {
@@ -68,14 +86,11 @@ export function initZoomControl() {
   }
 
   if (zoomLevel) {
-    zoomLevel.addEventListener("click", () => {
-      // Reset to fit (viewZoom === 1) and re-centre. setZoom derives viewPan
-      // from its pivot point, so pan must be cleared here to actually centre.
-      setZoom(1);
-      view.viewPan.x = 0;
-      view.viewPan.y = 0;
-      drawAllLayers();
-    });
+    zoomLevel.addEventListener("click", resetView);
+  }
+
+  if (zoomResetButton) {
+    zoomResetButton.addEventListener("click", resetView);
   }
 
   updateZoomDisplay();

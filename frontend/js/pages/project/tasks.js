@@ -102,12 +102,9 @@ function template() {
               </select>
             </label>
           </div>
-          <div style="display:flex;gap:10px;justify-content:space-between;padding:16px;">
-            <button type="button" class="tool-button" id="editAnnotateBtn">✏️ Annotate this image</button>
-            <div style="display:flex;gap:10px;">
-              <button type="button" class="tool-button" id="editCancel">Cancel</button>
-              <button type="submit" class="primary" style="padding:9px 18px;border-radius:6px;">Save</button>
-            </div>
+          <div class="modal-footer">
+            <button type="button" class="tool-button" id="editCancel">Cancel</button>
+            <button type="submit" class="primary">Save</button>
           </div>
         </form>
       </div>
@@ -280,11 +277,6 @@ function bindEditModal() {
   el("editCancel").addEventListener("click", closeEditModal);
   el("editModal").addEventListener("click", (e) => { if (e.target === el("editModal")) closeEditModal(); });
 
-  el("editAnnotateBtn").addEventListener("click", () => {
-    const id = el("editId").value;
-    window.location.href = `app.html?projectId=${encodeURIComponent(ctx.projectId)}&taskId=${encodeURIComponent(id)}`;
-  });
-
   el("editForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const id = el("editId").value;
@@ -405,7 +397,7 @@ export async function mount(hostRoot, hostCtx) {
           ? `<img src="/${escapeHTML(String(r.image_path).replace(/\\/g, "/"))}" style="height:40px;border-radius:4px;border:1px solid var(--line);">`
           : "",
       },
-      { key: "description", label: "Filename", render: (r) => `<span style="max-width:320px;display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle;">${escapeHTML(r.description || "")}</span>` },
+      { key: "description", label: "Filename", render: (r) => `<a href="app.html?projectId=${encodeURIComponent(ctx.projectId)}&taskId=${encodeURIComponent(r.id)}" style="max-width:320px;display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle;color:var(--accent);text-decoration:none;cursor:pointer;transition:color 0.2s ease;" onmouseover="this.style.color='var(--accent-dark)';this.style.textDecoration='underline'" onmouseout="this.style.color='var(--accent)';this.style.textDecoration='none'" title="${escapeHTML(r.description || '')}">${escapeHTML(r.description || "")}</a>` },
       { key: "assignee", label: "Assignee", render: (r) => r.assignee ? escapeHTML(r.assignee) : `<span style="color:var(--muted);">—</span>` },
       { key: "status", label: "Status", render: (r) => statusPill(r.status) },
       { key: "time_spent", label: "Time", render: (r) => r.time_spent ? `<span style="font-family:monospace;font-size:.85rem;">${formatTime(r.time_spent)}</span>` : `<span style="color:var(--muted);">—</span>` },
