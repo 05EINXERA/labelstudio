@@ -44,7 +44,11 @@ export function predictionsToAnnotations(predictions) {
       height: box.height,
       score: round(prediction.score),
       source: "auto-detect",
-      type: prediction.points ? "polygon" : "box",
+      // "bbox", not "box": this is the vocabulary the exporters read
+      // (formats/common.py annotation_type_of). Nothing renders off this
+      // string — draw.js keys on type === "polygon" or the point count — so
+      // the old value was write-only and never reached an export correctly.
+      type: prediction.points ? "polygon" : "bbox",
       detectedClass: prediction.class
     };
   });
@@ -402,6 +406,8 @@ export async function performMagicWandSegmentation(point, bbox = null, isShift =
       const labelId = state.activeLabelId || ensureLabel("object").id;
       const annotation = {
         id: generateUUID(),
+        // SAM returns a traced mask contour — always a polygon, never a box.
+        type: "polygon",
         labelId: labelId,
         points: points,
         promptPoints: promptPoints,

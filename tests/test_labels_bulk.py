@@ -6,6 +6,7 @@ projects in the same session.
 """
 import io
 import itertools
+import json
 
 import pytest
 
@@ -75,7 +76,7 @@ def test_bulk_delete(client, alice):
         "labels": [_label(id_a, "cat", "#111", pid), _label(id_b, "dog", "#222", pid)],
     }, headers=alice)
     res = client.post("/api/labels/bulk-delete", json={"projectId": pid, "ids": [id_a]}, headers=alice)
-    assert res.json() == {"status": "ok", "deleted": 1}
+    assert res.json() == {"status": "ok", "deleted": 1, "annotationsDeleted": 0}
     remaining = client.get(f"/api/labels?projectId={pid}", headers=alice).json()
     assert [l["id"] for l in remaining] == [id_b]
 
@@ -84,6 +85,88 @@ def test_bulk_delete_requires_ownership(client, alice, bob):
     pid = _new_project(client, alice)
     res = client.post("/api/labels/bulk-delete", json={"projectId": pid, "ids": [_lid()]}, headers=bob)
     assert res.status_code == 404
+
+
+# --- deleting a class cascades to its annotations -----------------------------
+
+def _new_task(client, auth, pid, description, annotations):
+    tid = client.post("/api/tasks", json={"description": description}, params={"projectId": pid}, headers=auth).json()["id"]
+    client.patch(f"/api/tasks/{tid}", json={"annotations": json.dumps(annotations)}, headers=auth)
+    return tid
+
+
+def _annotations_of(client, auth, pid, tid):
+    tasks = client.get("/api/tasks", params={"projectId": pid}, headers=auth).json()
+    task = next(t for t in tasks if t["id"] == tid)
+    anns = task["annotations"]
+    return json.loads(anns) if isinstance(anns, str) else (anns or [])
+
+
+def test_delete_label_deletes_its_annotations(client, alice):
+    pid = _new_project(client, alice)
+    id_a, id_b = _lid(), _lid()
+    client.post("/api/labels", json=_label(id_a, "cat", "#111", pid), headers=alice)
+    client.post("/api/labels", json=_label(id_b, "dog", "#222", pid), headers=alice)
+    tid = _new_task(client, alice, pid, "a.png", [
+        {"id": "1", "type": "bbox", "labelId": id_a},
+        {"id": "2", "type": "bbox", "labelId": id_b},
+        {"id": "3", "type": "comment", "text": "keep me"},
+    ])
+
+    res = client.delete(f"/api/labels/{id_a}?projectId={pid}", headers=alice)
+    assert res.json() == {"status": "ok", "annotationsDeleted": 1}
+
+    remaining = _annotations_of(client, alice, pid, tid)
+    assert [a["id"] for a in remaining] == ["2", "3"]
+
+
+def test_bulk_delete_cascades_across_tasks(client, alice):
+    pid = _new_project(client, alice)
+    id_a, id_b, id_c = _lid(), _lid(), _lid()
+    for lid, name in ((id_a, "cat"), (id_b, "dog"), (id_c, "bird")):
+        client.post("/api/labels", json=_label(lid, name, "#111", pid), headers=alice)
+    t1 = _new_task(client, alice, pid, "a.png", [
+        {"id": "1", "type": "bbox", "labelId": id_a},
+        {"id": "2", "type": "polygon", "labelId": id_c},
+    ])
+    t2 = _new_task(client, alice, pid, "b.png", [
+        {"id": "3", "type": "bbox", "labelId": id_b},
+    ])
+
+    res = client.post("/api/labels/bulk-delete", json={"projectId": pid, "ids": [id_a, id_b]}, headers=alice)
+    assert res.json() == {"status": "ok", "deleted": 2, "annotationsDeleted": 2}
+
+    assert [a["id"] for a in _annotations_of(client, alice, pid, t1)] == ["2"]
+    assert _annotations_of(client, alice, pid, t2) == []
+
+
+def test_delete_label_leaves_other_projects_untouched(client, alice):
+    pid = _new_project(client, alice)
+    other = _new_project(client, alice, "other")
+    lid = _lid()
+    client.post("/api/labels", json=_label(lid, "cat", "#111", pid), headers=alice)
+    # Label ids are globally unique, but an annotation in another project could
+    # still reference one; the purge must stay scoped to the owning project.
+    other_tid = _new_task(client, alice, other, "z.png", [{"id": "9", "type": "bbox", "labelId": lid}])
+
+    client.delete(f"/api/labels/{lid}?projectId={pid}", headers=alice)
+
+    assert [a["id"] for a in _annotations_of(client, alice, other, other_tid)] == ["9"]
+
+
+def test_import_replace_deletes_orphaned_annotations(client, alice):
+    pid = _new_project(client, alice)
+    lid = _lid()
+    client.post("/api/labels", json=_label(lid, "obsolete", "#000", pid), headers=alice)
+    tid = _new_task(client, alice, pid, "a.png", [{"id": "1", "type": "bbox", "labelId": lid}])
+
+    client.post(
+        f"/api/labels/import?projectId={pid}&mode=replace",
+        files={"file": ("classes.txt", io.BytesIO(b"cat\n"), "text/plain")},
+        headers=alice,
+    )
+
+    assert _annotations_of(client, alice, pid, tid) == []
 
 
 # --- export ------------------------------------------------------------------

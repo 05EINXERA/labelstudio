@@ -12,7 +12,7 @@ import { draw, drawAllLayers } from "../canvas/draw.js?v=1";
 import {
   emptyState, classesList, annotationList, annotationCount, selectedInfo,
   drawMode, selectMode, boxMode, polygonMode, commentMode, magicWandMode,
-  autoDetectButton, undoButton, deleteButton, clearButton, exportMenuButton,
+  autoDetectButton, undoButton, deleteButton, clearButton, exportLink,
   shapeHint, saveStatus
 } from "../dom.js?v=1";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
@@ -136,10 +136,9 @@ export function renderClasses() {
     classesList.appendChild(empty);
   }
 
-  // Ensure there's always an active label if labels exist
-  if (!state.activeLabelId && state.labels.length > 0) {
-    state.activeLabelId = state.labels[0].id;
-  }
+  // Note: we deliberately do NOT auto-activate the first class here.
+  // The annotator must explicitly pick a class to start drawing, so that
+  // the first canvas click is never silently attributed to an unintended class.
 
   state.labels.forEach((label, index) => {
     const item = document.createElement("button");
@@ -418,11 +417,30 @@ export function renderControls() {
   commentMode.classList.toggle("is-active", state.shape === "comment");
   magicWandMode.classList.toggle("is-active", state.shape === "magicWand");
   if (state.shape === "polygon") {
-    shapeHint.textContent = "Select a class, then draw a polygon.";
+    if (state.mode === "select") {
+      shapeHint.textContent = state.activeLabelId
+        ? "Class selected — press Draw or click a class to start drawing."
+        : "Pick a class from the list to start drawing a polygon.";
+    } else if (state.needsLabelSelection) {
+      shapeHint.textContent = "Polygon drawn — pick a class to assign it.";
+    } else if (!state.activeLabelId) {
+      shapeHint.textContent = "Pick a class from the list to start drawing a polygon.";
+    } else {
+      shapeHint.textContent = "Click to add points. Click the first point to close the polygon.";
+    }
   } else if (state.shape === "comment") {
     shapeHint.textContent = "Click anywhere on the image to leave a comment.";
   } else {
-    shapeHint.textContent = "Select a class, then draw a bounding box.";
+    // box / magicWand
+    if (state.mode === "select") {
+      shapeHint.textContent = state.activeLabelId
+        ? "Class selected — press Draw or click a class to start drawing."
+        : "Pick a class from the list to start drawing a bounding box.";
+    } else if (!state.activeLabelId) {
+      shapeHint.textContent = "Pick a class from the list to start drawing a bounding box.";
+    } else {
+      shapeHint.textContent = "Click and drag to draw a bounding box.";
+    }
   }
   autoDetectButton.disabled = detectState.detectionBusy || !view.imageLoaded;
   const labelSpan = autoDetectButton.querySelector(".btn-label");
@@ -444,7 +462,11 @@ export function renderControls() {
   }
   clearButton.disabled = state.annotations.length === 0;
   const noData = !view.imageLoaded && state.annotations.length === 0;
-  exportMenuButton.disabled = noData;
+  // An <a> has no .disabled — dim it and drop it out of the tab order instead.
+  if (exportLink) {
+    exportLink.classList.toggle("is-disabled", noData);
+    exportLink.tabIndex = noData ? -1 : 0;
+  }
   emptyState.classList.toggle("is-hidden", view.imageLoaded);
 }
 
@@ -517,229 +539,4 @@ export function renderImageClasses() {
     div.appendChild(countSpan);
     imageClassesList.appendChild(div);
   });
-}
-
-export function importData(file) {
-  const reader = new FileReader();
-  reader.onload = () => {
-    try {
-      const payload = JSON.parse(reader.result);
-      snapshot();
-
-      let importedLabels = [];
-      let importedAnnotations = [];
-
-      if (Array.isArray(payload)) {
-        payload.forEach(task => {
-          if (Array.isArray(task.annotations)) {
-            task.annotations.forEach(ann => {
-              importedAnnotations.push({ ...ann, _imgWidth: task.width, _imgHeight: task.height });
-            });
-          }
-        });
-      } else {
-        if (Array.isArray(payload.labels)) importedLabels = payload.labels;
-        if (Array.isArray(payload.annotations)) importedAnnotations = payload.annotations;
-      }
-
-      if (importedLabels.length) {
-        state.labels = importedLabels.map((label) => ({
-          id: label.id || generateUUID(),
-          name: normalizeClassName(label.name || label.label || "object"),
-          color: label.color || colorForName(label.name || label.label || "object")
-        }));
-      }
-
-      if (importedAnnotations.length) {
-        const currentImageWidth = view.imageLoaded ? (view.imageElement.naturalWidth || 1) : 1;
-        const currentImageHeight = view.imageLoaded ? (view.imageElement.naturalHeight || 1) : 1;
-
-        state.annotations = importedAnnotations.map((item) => {
-          const labelName = item.title || item.label || item.detectedClass || labelById(item.labelId)?.name || "object";
-          const label = ensureLabel(labelName, item.color || null);
-
-          let parsedPoints = null;
-          if (Array.isArray(item.points) && item.points.length >= 3) {
-            if (typeof item.points[0] === 'number') {
-              parsedPoints = [];
-              for (let i = 0; i < item.points.length; i += 2) {
-                parsedPoints.push({ x: Number(item.points[i]) || 0, y: Number(item.points[i + 1]) || 0 });
-              }
-            } else {
-              parsedPoints = item.points.map((point) => ({ x: Number(point.x) || 0, y: Number(point.y) || 0 }));
-            }
-          }
-
-          let scaleX = 1;
-          let scaleY = 1;
-          if (item._imgWidth && item._imgHeight && view.imageLoaded) {
-            if (item._imgWidth !== currentImageWidth || item._imgHeight !== currentImageHeight) {
-              scaleX = currentImageWidth / item._imgWidth;
-              scaleY = currentImageHeight / item._imgHeight;
-            }
-          }
-
-          if (parsedPoints) {
-            if (scaleX !== 1 || scaleY !== 1) {
-              parsedPoints = parsedPoints.map(p => ({ x: p.x * scaleX, y: p.y * scaleY }));
-            }
-          }
-
-          let box = item.bbox || [item.x, item.y, item.width, item.height];
-          if (scaleX !== 1 || scaleY !== 1) {
-            const bx = (Number(box[0]) || 0) * scaleX;
-            const by = (Number(box[1]) || 0) * scaleY;
-            const bw = (Number(box[2]) || 1) * scaleX;
-            const bh = (Number(box[3]) || 1) * scaleY;
-            box = [bx, by, bw, bh];
-          }
-
-          const annotation = {
-            id: item.id || generateUUID(),
-            labelId: label.id,
-            score: item.score,
-            source: item.source,
-            detectedClass: item.detectedClass,
-            labelStudioTaskId: item.labelStudioTaskId,
-            labelStudioAnnotationId: item.labelStudioAnnotationId
-          };
-
-          if (parsedPoints) {
-            annotation.points = parsedPoints;
-          } else {
-            const x = Number(box[0]) || 0;
-            const y = Number(box[1]) || 0;
-            const width = Math.max(1, Number(box[2]) || 1);
-            const height = Math.max(1, Number(box[3]) || 1);
-            annotation.points = [
-              { x, y },
-              { x: x + width, y },
-              { x: x + width, y: y + height },
-              { x, y: y + height }
-            ];
-          }
-
-          updateAnnotationBounds(annotation);
-          return annotation;
-        });
-      }
-      repairLabelsFromAnnotations();
-      state.selectedId = null;
-      render();
-      save();
-    } catch (e) {
-      console.error(e);
-      setStatus("Import failed");
-    }
-  };
-  reader.readAsText(file);
-}
-
-export function importCsvData(file) {
-  const reader = new FileReader();
-  reader.onload = () => {
-    try {
-      const csv = reader.result;
-      const lines = csv.split("\n");
-      if (lines.length <= 1) return;
-
-      const headerLine = lines[0].toLowerCase();
-      const hasImgDims = headerLine.includes("imgwidth") && headerLine.includes("imgheight");
-
-      snapshot();
-      const newAnnotations = [];
-      const currentImageWidth = view.imageLoaded ? (view.imageElement.naturalWidth || 1) : 1;
-      const currentImageHeight = view.imageLoaded ? (view.imageElement.naturalHeight || 1) : 1;
-
-      for (let i = 1; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (!line) continue;
-
-        const firstQuoteIdx = line.indexOf('"[{"');
-        let cols = [];
-        let pointsStr = null;
-
-        if (firstQuoteIdx !== -1) {
-          const before = line.substring(0, firstQuoteIdx);
-          cols = before.split(",").map(c => c.trim()).filter(c => c !== "");
-          const after = line.substring(firstQuoteIdx);
-          if (after.startsWith('"') && after.endsWith('"')) {
-            pointsStr = after.substring(1, after.length - 1).replace(/""/g, '"');
-          }
-        } else {
-          cols = line.split(",");
-        }
-
-        if (cols.length >= 7) {
-          const labelName = cols[1];
-          let x = Number(cols[3]);
-          let y = Number(cols[4]);
-          let width = Number(cols[5]);
-          let height = Number(cols[6]);
-
-          let imgW = 0, imgH = 0;
-          if (hasImgDims && cols.length >= 9) {
-            imgW = Number(cols[7]);
-            imgH = Number(cols[8]);
-          }
-
-          const label = ensureLabel(labelName);
-
-          let points = [];
-          if (pointsStr) {
-            try {
-              points = JSON.parse(pointsStr);
-            } catch (e) {
-              console.error("Failed to parse points", pointsStr);
-            }
-          }
-
-          let scaleX = 1;
-          let scaleY = 1;
-          if (imgW && imgH && view.imageLoaded) {
-            if (imgW !== currentImageWidth || imgH !== currentImageHeight) {
-              scaleX = currentImageWidth / imgW;
-              scaleY = currentImageHeight / imgH;
-            }
-          }
-
-          if (points && points.length > 0) {
-            if (scaleX !== 1 || scaleY !== 1) {
-              points = points.map(p => ({ x: p.x * scaleX, y: p.y * scaleY }));
-            }
-          } else {
-            x *= scaleX;
-            y *= scaleY;
-            width *= scaleX;
-            height *= scaleY;
-            points = [
-              { x, y },
-              { x: x + width, y },
-              { x: x + width, y: y + height },
-              { x, y: y + height }
-            ];
-          }
-
-          const annotation = {
-            id: generateUUID(),
-            labelId: label.id,
-            points: points
-          };
-          updateAnnotationBounds(annotation);
-          newAnnotations.push(annotation);
-        }
-      }
-
-      state.annotations = newAnnotations;
-      repairLabelsFromAnnotations();
-      state.selectedId = null;
-      render();
-      save();
-      setStatus("Imported CSV");
-    } catch (e) {
-      console.error(e);
-      setStatus("Import failed");
-    }
-  };
-  reader.readAsText(file);
 }

@@ -255,7 +255,11 @@ function bindBulkActions() {
   el("bulkDeleteBtn").addEventListener("click", async () => {
     const ids = [...table.getSelection()];
     if (!ids.length) return;
-    if (!confirm(`Delete ${ids.length} class${ids.length === 1 ? "" : "es"}? Existing annotations keep the old label id but it will no longer appear in the canvas.`)) return;
+    const affected = ids.reduce((n, id) => n + (usageByLabelId[id] || 0), 0);
+    const warning = affected
+      ? ` This will also delete ${affected} existing annotation${affected === 1 ? "" : "s"} using ${ids.length === 1 ? "it" : "them"}.`
+      : "";
+    if (!confirm(`Delete ${ids.length} class${ids.length === 1 ? "" : "es"}?${warning}`)) return;
     try {
       const res = await apiFetch("/api/labels/bulk-delete", {
         method: "POST",
@@ -268,6 +272,7 @@ function bindBulkActions() {
         return;
       }
       table.clearSelection();
+      await loadUsage();
       await loadLabels();
     } catch (err) {
       console.error("Bulk delete failed", err);
@@ -401,7 +406,9 @@ export async function mount(hostRoot, hostCtx) {
   el("searchInput").addEventListener("input", (e) => table.setQuery(e.target.value));
 
   table.onAction("delete", async (row) => {
-    if (!confirm(`Delete "${row.name}"?`)) return;
+    const used = usageByLabelId[row.id] || 0;
+    const warning = used ? ` This will also delete ${used} existing annotation${used === 1 ? "" : "s"} using it.` : "";
+    if (!confirm(`Delete "${row.name}"?${warning}`)) return;
     try {
       const res = await apiFetch(`/api/labels/${encodeURIComponent(row.id)}?projectId=${encodeURIComponent(ctx.projectId)}`, { method: "DELETE" });
       if (!res) return;
@@ -409,6 +416,7 @@ export async function mount(hostRoot, hostCtx) {
         showError(`Could not delete the class (${res.status}).`);
         return;
       }
+      await loadUsage();
       await loadLabels();
     } catch (err) {
       console.error("Failed to delete class", err);

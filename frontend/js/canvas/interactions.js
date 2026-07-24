@@ -5,7 +5,7 @@ import { view } from "./view.js?v=1";
 import { draw, drawAllLayers } from "./draw.js?v=1";
 import { canvas, undoButton } from "../dom.js?v=1";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
-import { setStatus, save, render, ensureLabel } from "../components/workspace.js?v=1";
+import { setStatus, save, render } from "../components/workspace.js?v=1";
 import { performMagicWandSegmentation } from "../ai/detect.js?v=1";
 
 export function canvasPoint(event) {
@@ -247,17 +247,15 @@ export function setZoomChangeHandler(fn) {
 export function setZoom(newZoom, mouseX, mouseY) {
   if (!view.imageLoaded) return;
   const oldZoom = view.viewZoom;
-  view.viewZoom = Math.max(0.25, Math.min(100, newZoom));
+  view.viewZoom = Math.max(0.1, Math.min(500, newZoom));
 
   const rect = canvas.getBoundingClientRect();
   const cx = mouseX !== undefined ? mouseX : rect.width / 2;
   const cy = mouseY !== undefined ? mouseY : rect.height / 2;
 
-  // Must match computeImageBox's contain-fit, or zoom-at-cursor drifts.
-  const baseScale = Math.min(
-    rect.width / view.imageElement.naturalWidth,
-    rect.height / view.imageElement.naturalHeight
-  );
+  // view.baseScale is written by computeImageBox on every draw. It matches
+  // the contain-fit formula exactly so zoom-at-cursor never drifts.
+  const baseScale = view.baseScale;
   const oldScale = baseScale * oldZoom;
   const newScale = baseScale * view.viewZoom;
 
@@ -572,14 +570,18 @@ canvas.addEventListener("pointerdown", (event) => {
           setStatus("Please select a class name first");
           return;
         }
+        if (!state.activeLabelId) {
+          setStatus("Select a class first");
+          return;
+        }
         // First point – create annotation immediately so it appears in the Objects panel
         snapshot();
-        if (!state.activeLabelId) {
-          const defaultLabel = ensureLabel("object");
-          state.activeLabelId = defaultLabel.id;
-        }
         const annotation = {
           id: generateUUID(),
+          // Recorded so exports can tell a box from a polygon. Without it both
+          // shapes are just points plus a bound, and every box leaves as a
+          // polygon (see formats/common.py annotation_type_of).
+          type: "polygon",
           labelId: state.activeLabelId,
           points: [{ x: round(pointInImage.x), y: round(pointInImage.y) }]
         };
@@ -611,8 +613,8 @@ canvas.addEventListener("pointerdown", (event) => {
         return;
       }
       if (!state.activeLabelId) {
-        const defaultLabel = ensureLabel("object");
-        state.activeLabelId = defaultLabel.id;
+        setStatus("Select a class first");
+        return;
       }
       view.drag = {
         type: "draw",
@@ -832,6 +834,9 @@ canvas.addEventListener("pointerup", (e) => {
       snapshot();
       const annotation = {
         id: generateUUID(),
+        // A real box, not a 4-vertex polygon that happens to be rectangular.
+        // YOLO and COCO can represent the two differently.
+        type: "bbox",
         labelId: view.drag.draft.labelId,
         points: view.drag.draft.points.map((point) => ({ x: round(point.x), y: round(point.y) }))
       };
@@ -980,8 +985,13 @@ window.addEventListener("keydown", (event) => {
   }
 
   if (event.key.toLowerCase() === "d") {
-    state.mode = "draw";
-    render();
+    if (!state.activeLabelId) {
+      setStatus("Pick a class first, then draw");
+      render();
+    } else {
+      state.mode = "draw";
+      render();
+    }
   }
 
   if (event.key.toLowerCase() === "s") {

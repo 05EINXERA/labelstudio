@@ -25,5 +25,7 @@ export const autoDetectButton = document.querySelector("#autoDetectButton");
 export const undoButton = document.querySelector("#undoButton");
 export const deleteButton = document.querySelector("#deleteButton");
 export const clearButton = document.querySelector("#clearButton");
-export const exportMenuButton = document.querySelector("#exportMenuButton");
+// Link to the project's Exports tab. An <a>, not a <button>: export is a
+// project-level operation handled there, not on the canvas.
+export const exportLink = document.querySelector("#exportLink");
 export const shapeHint = document.querySelector("#shapeHint");

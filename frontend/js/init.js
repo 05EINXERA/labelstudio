@@ -8,18 +8,17 @@ import { commentOverlayRefs } from "./comment-overlay.js?v=1";
 import {
   canvas, ctx, imageCanvas, imageCtx, staticCanvas, staticCtx, stageWrap,
   emptyState, drawMode, selectMode, boxMode, polygonMode, commentMode, magicWandMode,
-  autoDetectButton, undoButton, deleteButton, clearButton, exportMenuButton
+  autoDetectButton, undoButton, deleteButton, clearButton, exportLink
 } from "./dom.js?v=1";
 import { drawAllLayers } from "./canvas/draw.js?v=1";
-import { exportJsonData } from "./export/coco.js?v=1";
-import { exportCsvData } from "./export/csv.js?v=1";
 import {
   setStatus, syncToBackend, save, loadSaved,
-  render, importData, importCsvData
+  render
 } from "./components/workspace.js?v=1";
 import { autoDetectObjects, autoTagObjects } from "./ai/detect.js?v=1";
 import {
-  syncTaskTime, syncTimeToServer, drainTaskTime, setActiveTaskResolver
+  syncTaskTime, syncTimeToServer, drainTaskTime, setActiveTaskResolver,
+  resetSessionForTask, refreshTimerDisplays
 } from "./components/timer.js?v=1";
 import {
   finalizePolygon, deleteSelected, undoAction, setZoomChangeHandler
@@ -37,15 +36,6 @@ const backToProject = document.querySelector("#backToProject");
 const autoTagButton = document.querySelector("#autoTagButton");
 const aiSettingsMenuButton = document.querySelector("#aiSettingsMenuButton");
 const aiSettingsDropdownContainer = document.querySelector("#aiSettingsDropdownContainer");
-const importMenuButton = document.querySelector("#importMenuButton");
-const importDropdown = document.querySelector("#importDropdown").parentElement;
-const importJsonButton = document.querySelector("#importJsonButton");
-const importCsvButton = document.querySelector("#importCsvButton");
-const importJsonInput = document.querySelector("#importJsonInput");
-const importCsvInput = document.querySelector("#importCsvInput");
-const exportDropdown = document.querySelector("#exportDropdown").parentElement;
-const exportJsonButton = document.querySelector("#exportJsonButton");
-const exportCsvButton = document.querySelector("#exportCsvButton");
 const prevImageButton = document.querySelector("#prevImageButton");
 const nextImageButton = document.querySelector("#nextImageButton");
 const galleryPosition = document.querySelector("#galleryPosition");
@@ -141,9 +131,14 @@ function switchImage(index) {
   if (state.galleryIndex >= 0 && state.gallery[state.galleryIndex]) {
     const prevTask = state.gallery[state.galleryIndex];
     prevTask.annotations = [...state.annotations];
+    // Drains the accumulator against the outgoing task. Bound to prevTask, so
+    // it stays correct even though galleryIndex moves before it resolves.
     syncTaskTime(prevTask);
   }
   state.galleryIndex = index;
+  // Session time is per-task: the new task starts a fresh session, and the
+  // Total readout switches to that task's stored total.
+  resetSessionForTask();
   const item = state.gallery[index];
 
   snapshot();
@@ -170,6 +165,11 @@ if (nextImageButton) {
 }
 
 drawMode.addEventListener("click", () => {
+  if (!state.activeLabelId) {
+    setStatus("Pick a class first, then draw");
+    render(); // re-render to show the hint in shapeHint
+    return;
+  }
   state.mode = "draw";
   render();
 });
@@ -292,22 +292,6 @@ clearButton.addEventListener("click", () => {
   setStatus("All annotations cleared");
 });
 
-importMenuButton.addEventListener("click", (e) => {
-  e.stopPropagation();
-  importDropdown.classList.toggle("show");
-});
-importJsonButton.addEventListener("click", () => {
-  importDropdown.classList.remove("show");
-  importJsonInput.click();
-});
-importCsvButton.addEventListener("click", () => {
-  importDropdown.classList.remove("show");
-  importCsvInput.click();
-});
-exportMenuButton.addEventListener("click", (e) => {
-  e.stopPropagation();
-  exportDropdown.classList.toggle("show");
-});
 if (aiSettingsMenuButton) {
   aiSettingsMenuButton.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -315,44 +299,15 @@ if (aiSettingsMenuButton) {
   });
 }
 document.addEventListener("click", (e) => {
-  if (!exportDropdown.contains(e.target)) {
-    exportDropdown.classList.remove("show");
-  }
-  if (!importDropdown.contains(e.target)) {
-    importDropdown.classList.remove("show");
-  }
   if (aiSettingsDropdownContainer && !aiSettingsDropdownContainer.contains(e.target)) {
     aiSettingsDropdownContainer.classList.remove("show");
   }
 });
 
-exportJsonButton.addEventListener("click", (e) => {
-  exportDropdown.classList.remove("show");
-  exportJsonData();
-});
-exportCsvButton.addEventListener("click", (e) => {
-  exportDropdown.classList.remove("show");
-  exportCsvData();
-});
 autoDetectButton.addEventListener("click", () => autoDetectObjects({ replace: true }));
 if (autoTagButton) {
   autoTagButton.addEventListener("click", () => autoTagObjects());
 }
-
-
-
-
-importJsonInput.addEventListener("change", (event) => {
-  const file = event.target.files?.[0];
-  if (file) importData(file);
-  importJsonInput.value = "";
-});
-
-importCsvInput.addEventListener("change", (event) => {
-  const file = event.target.files?.[0];
-  if (file) importCsvData(file);
-  importCsvInput.value = "";
-});
 
 // Images are loaded from the project page, not dropped onto the canvas, so the
 // drop target only suppresses the browser's default navigate-to-file.
@@ -596,6 +551,9 @@ async function initWorkspaceContext() {
   if (backToProject) {
     backToProject.href = `project.html?id=${projectId}#/tasks`;
   }
+  if (exportLink) {
+    exportLink.href = `project.html?id=${projectId}#/exports`;
+  }
 
   try {
     const res = await apiFetch('/api/projects');
@@ -625,7 +583,10 @@ async function loadWorkspaceTasks() {
         width: 0,
         height: 0,
         status: t.status,
-        assignee: t.assignee
+        assignee: t.assignee,
+        // Persisted per-task total; the workspace "Total" readout is scoped to
+        // the open task, so it needs this as its base.
+        time_spent: t.time_spent || 0
       }));
 
       if (state.gallery.length > 0) {
@@ -640,6 +601,8 @@ async function loadWorkspaceTasks() {
       } else {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         updateGalleryUI();
+        // No task open: the Total readout has nothing to show.
+        refreshTimerDisplays();
       }
     }
   } catch (e) {

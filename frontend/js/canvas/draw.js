@@ -16,6 +16,7 @@ export function computeImageBox() {
     rect.width / view.imageElement.naturalWidth,
     rect.height / view.imageElement.naturalHeight
   );
+  view.baseScale = baseScale;
   const scale = baseScale * view.viewZoom;
   const width = view.imageElement.naturalWidth * scale;
   const height = view.imageElement.naturalHeight * scale;
@@ -102,7 +103,7 @@ export function draw() {
     const edgeColor = label ? label.color : "#0f8b8d";
     // Matches the committed-annotation fill so the shape does not visibly
     // change shade the moment the polygon is closed.
-    const fillColor = label ? hexToRgba(label.color, 0.50) : "rgba(15, 139, 141, 0.50)";
+    const fillColor = label ? hexToRgba(label.color, 0.65) : "rgba(15, 139, 141, 0.65)";
 
     // The starting point is now distinguished by filling it with the class color via drawVertexHandles
     // Draw preview line from last point to cursor
@@ -183,7 +184,7 @@ export function drawAnnotation(annotation, selected = false, targetCtx = ctx) {
   targetCtx.strokeStyle = label.color;
   // Fill matches the outline colour but stays well below it in opacity, so the
   // class reads at a glance without obscuring the pixels being annotated.
-  targetCtx.fillStyle = hexToRgba(label.color, selected ? 0.65 : 0.50);
+  targetCtx.fillStyle = hexToRgba(label.color, selected ? 0.60 : 0.5);
 
   if (!screenPoints.length) {
     targetCtx.restore();

@@ -1,0 +1,8 @@
+RustArea
+ExposedSteelPlateArea
+ExposedACPaintArea
+AFPaintDeteriorationPeeling
+Dirt1RubberMarksHeavyRustStainsOilStainsRemainingWashResidue
+Dirt2
+ResidualMarineOrganismsMarineFouling
+SoundArea
