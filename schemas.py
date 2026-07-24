@@ -203,9 +203,13 @@ class ExportJobStatus(BaseModel):
 
 
 class UserCreate(BaseModel):
-    username: str
+    username: str = Field(min_length=1, max_length=64)
     password: str
 
 class Token(BaseModel):
     access_token: str
     token_type: str
+    # Double-submit CSRF token, also set as a readable cookie. Returned in the
+    # body so a non-browser client (tests, scripts) can echo it back without
+    # having to parse Set-Cookie.
+    csrf_token: Optional[str] = None

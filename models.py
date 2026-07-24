@@ -2,8 +2,16 @@ from sqlalchemy import Column, Integer, String, DateTime, func, Text, ForeignKey
 from database import Base
 
 class WorkspaceData(Base):
+    """Per-user key/value workspace state.
+
+    `owner_id` is part of the primary key: this table used to be keyed on
+    `key` alone, which made it a single global blackboard — every annotator
+    read and overwrote everyone else's UI state. Scoping it per user is what
+    makes the table safe on a shared instance.
+    """
     __tablename__ = "workspace_data"
     key = Column(String, primary_key=True, index=True)
+    owner_id = Column(Integer, ForeignKey("users.id"), primary_key=True, index=True)
     value = Column(Text)
 
 class Project(Base):

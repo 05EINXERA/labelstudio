@@ -10,10 +10,10 @@ from sqlalchemy import func
 
 import models
 import schemas
-from config import DATA_DIR
+from config import DATA_DIR, MAX_UPLOAD_FILES
 from database import get_db
 from schemas import ProjectModel, ProjectMetrics, ProjectSummary
-from api.auth import get_current_user
+from api.auth import get_current_user, require_csrf
 from formats.common import measure_image
 
 logger = logging.getLogger(__name__)
@@ -98,7 +98,11 @@ def _aggregate_metrics(project_ids: List[int], db: Session) -> dict:
     return metrics
 
 
-router = APIRouter(prefix="/api/projects", tags=["projects"], dependencies=[Depends(get_current_user)])
+router = APIRouter(
+    prefix="/api/projects",
+    tags=["projects"],
+    dependencies=[Depends(get_current_user), Depends(require_csrf)],
+)
 
 @router.get("", response_model=List[ProjectSummary])
 def get_projects(db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
@@ -235,6 +239,19 @@ def upload_files(project_id: int, assignee: Optional[str] = Query(None), file: L
     what did succeed. Each file is now reported individually.
     """
     get_owned_project(project_id, user, db)
+
+    # Bounds the work one request can queue. Each file is streamed to disk while
+    # holding a worker thread, so an unbounded batch lets a single request stall
+    # the shared threadpool for everyone else on the instance.
+    if len(file) > MAX_UPLOAD_FILES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"{len(file)} files in one request; the limit is "
+                f"{MAX_UPLOAD_FILES}. Upload in smaller batches."
+            ),
+        )
+
     uploads_dir = os.path.join(DATA_DIR, "uploads")
     os.makedirs(uploads_dir, exist_ok=True)
 

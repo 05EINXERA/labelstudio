@@ -18,7 +18,7 @@ import sys
 import os
 sys.path.insert(0, os.path.abspath('.'))
 import models
-from config import DATA_DIR
+from config import DATABASE_URL
 
 # add your model's MetaData object here
 # for 'autogenerate' support
@@ -26,16 +26,18 @@ from config import DATA_DIR
 # target_metadata = mymodel.Base.metadata
 target_metadata = models.Base.metadata
 
-# Honour DATA_DIR, the same way database.py does.
+# Honour DATABASE_URL, the same way database.py does.
 #
 # alembic.ini hardcodes `sqlite:///./workspace.db`, so without this every
-# migration runs against the CWD regardless of DATA_DIR — on a Render-style
-# deploy that silently migrates a throwaway file while the real database on the
-# persistent disk stays on an old schema, and locally it defeats any attempt to
-# rehearse a migration against a copy. The env var is the single source of
-# truth for where the database lives; the ini value is only the fallback.
-_db_path = os.path.join(DATA_DIR, "workspace.db")
-config.set_main_option("sqlalchemy.url", f"sqlite:///{_db_path.replace(os.sep, '/')}")
+# migration runs against the CWD regardless of where the database actually
+# lives — silently migrating a throwaway file while the real database stays on
+# an old schema. config.DATABASE_URL is the single source of truth (it resolves
+# to the DATA_DIR SQLite file when the env var is unset); the ini value is only
+# a fallback for a bare `alembic` invocation with no app config importable.
+#
+# `%` is escaped because ConfigParser would otherwise treat it as interpolation
+# syntax — Postgres passwords routinely contain percent-encoded characters.
+config.set_main_option("sqlalchemy.url", DATABASE_URL.replace("%", "%%"))
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
@@ -82,7 +84,12 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection,
+            target_metadata=target_metadata,
+            # SQLite cannot ALTER most column properties; batch mode emulates it
+            # by rebuilding the table. No-op on Postgres, so it is safe to leave
+            # on for both backends.
+            render_as_batch=connection.dialect.name == "sqlite",
         )
 
         with context.begin_transaction():
