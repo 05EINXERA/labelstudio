@@ -259,11 +259,11 @@ button {
 /* 30:70 of the available height, held regardless of content volume.
    flex-basis 0 makes the ratio depend on the shares alone, not on content. */
 .sidebar-pane-classes {
-  flex: 3 1 0;
+  flex: 5 1 0;
 }
 
 .sidebar-pane-objects {
-  flex: 7 1 0;
+  flex: 5 1 0;
 }
 
 .pane-header {
