@@ -248,3 +248,63 @@ places is wrong in one of them within a month.
 **Do instead:** one definition per setting, delete the unused copy the moment
 you notice it. If you find yourself copying a constant, move it to `config.py`
 and import it from both places.
+
+---
+
+## 15. Interop masks are PNG, not JPEG — and it's deliberate
+
+**Where:** `formats/masks.py` writes PNG for every mask variant, including
+direct colour.
+
+**What you'll assume:** that to match the reference tool's output you should
+write JPEG for the direct-colour masks, since that's what it emits.
+
+**Why that's wrong:** the reference tool's direct-colour masks are JPEG, and
+its lossy compression destroys the exact class colours the format exists to
+convey. Sampling the reference files yields RGB like `(3,0,0)` and `(14,0,32)`
+where flat class colours should be. Reproducing that would ship a mask a
+consumer cannot read a class off of. We emit PNG so the pixel stays exact, and
+this is a decision, not an oversight — don't "fix" it back to JPEG.
+
+**Related:** masks are export-only for the same family of reasons plus one
+more — a raster mask cannot be traced back to the original polygons faithfully.
+See `.devnotes/data-refactor/00_FORMAT_ANALYSIS.md` § 8; the import side rejects
+a mask archive with a message that says so.
+
+---
+
+## 16. `format="json"` means COCO, and other export-code renames
+
+**Where:** `schemas.py` `EXPORT_FORMATS` / `EXPORT_FORMAT_ALIASES`.
+
+**What you'll assume:** that `format="json"` is the JSON export and
+`format="coco"` doesn't exist.
+
+**Why that's wrong:** the code historically called the COCO export "json",
+which left no name for the array-of-task-objects JSON the reference tool calls
+"JSON". The formats were renamed — `json` → `coco`, `pertask` →
+`annotations_pertask` — and the single-file task JSON added as
+`annotations_json`. The old spellings are kept as deprecated aliases, resolved
+by a validator on `ExportRequest`, so existing clients keep working; the job
+status always reports the canonical code. Use the canonical names in new code;
+don't add logic that branches on the deprecated ones.
+
+**Note:** the class-set export in `labels.py` still uses `format="fastlabel"`
+as a public API value the Classes page sends. That one was intentionally left
+alone — renaming it is a separate, breaking change.
+
+---
+
+## 17. Two label `value`s can collide and silently merge classes
+
+**Where:** `formats/common.py` `value_from_name` / `values_for_labels`.
+
+**What happens:** the interop `value` (identifier) is derived from a label's
+display name by stripping spaces and punctuation, so `"A/B"` and `"AB"` both
+become `"AB"`. YOLO's `classes.txt` uses the value as the class *identity*, so
+a collision there corrupts every class index in the export.
+
+**Do instead:** derive values through `values_for_labels`, which detects
+collisions across the whole class set and suffixes them (`AB`, `AB-2`) with a
+warning. Never re-derive a value inline with a local `.replace(...)` chain —
+that's the duplication this helper replaced, and it can't see collisions.

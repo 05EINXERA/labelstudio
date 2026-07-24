@@ -1,34 +1,35 @@
 """Annotation export (tracker P4.4, G6).
 
-Filters tasks by status, builds a COCO-style JSON, a flat CSV, or a ZIP of
-per-task JSON files, and returns it as a downloadable file.
+Filters tasks by status and builds one of the export formats — COCO, task JSON
+(single array or per-task ZIP), YOLO segmentation, masks (direct/index colour),
+or CSV — returning it as a downloadable file. Format logic lives in `formats/`
+(see ARCHITECTURE.md § 2.1); this module owns request validation, the job
+queue, the download handler, and archive assembly.
 
-The ZIP is deliberately multi-folder: `_build_zip` owns the archive and asks
-each registered builder (ZIP_BUILDERS) for its (arcname, content) entries,
-prefixing them into that format's own folder. Today only `pertask` is
-registered, writing `jsons/<image>.json`; COCO, CSV and bundled images can be
-added as further folders without reshaping the container or the download
-handler. Format builders must never construct a ZIP themselves.
+Two archive containers, both owned here so builders never construct a ZIP
+themselves:
+- `_build_zip` — prefixed multi-folder archives, one folder per registered
+  builder (ZIP_BUILDERS). Used by the per-task JSON format (`jsons/`).
+- `_zip_entries` — for a format that owns its whole directory layout and
+  supplies complete arcnames (YOLO's root classes.txt + annotations/, masks'
+  semantic_segmentations/ + instance_segmentations/).
 
-Uses the in-process background-job pattern from
-detect.py (JOBS dict + BackgroundTasks) even though JSON/CSV generation here
-is fast enough to be synchronous, because the mask-rendering and image-
-bundling formats that will land later (see the TODOs below) will not be, and
-building the job plumbing once now avoids reshaping the frontend contract
-later.
+A builder may return a `skipped` list of tasks it could not represent (YOLO and
+masks need image dimensions); it is threaded through the job status to the UI
+so a short export is never silent.
+
+Uses the in-process background-job pattern from detect.py (JOBS dict +
+BackgroundTasks). Mask rasterization is the one genuinely slow format, so the
+job plumbing earns its keep; the mask task cap (checked before the job starts)
+keeps a request from holding the worker for minutes.
 
 Rule 9 applies: this JOBS dict is in-process state, same constraint as
 detect.py's — the app must stay a single uvicorn worker.
 
-Format logic lives in `formats/`, not here: this module owns request
-validation, the job queue and the download handler. See
-.devnotes/data-refactor/01_PLAN.md § 0 for the package layout.
+Deprecated format codes (`json` → `coco`, `pertask` → `annotations_pertask`)
+resolve in `ExportRequest`; see GOTCHAS.md § 16.
 
-A format that owns its whole directory layout (YOLO: classes.txt at the root
-plus annotations/) uses `_zip_entries` instead, supplying complete arcnames.
-
-Not implemented yet (left as explicit rejections, not silent no-ops):
-- mask rendering, bundling original images into the archive
+Not implemented (left as an explicit rejection, not a silent no-op):
 - format=pascal_voc
 """
 import csv
