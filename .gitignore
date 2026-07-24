@@ -36,3 +36,6 @@ models/**/*.pt
 
 # Application logs (rotating app.log)
 logs/
+
+# Local database backups (contain real annotation data)
+backups/
