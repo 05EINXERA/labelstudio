@@ -8,6 +8,7 @@ import itertools
 import os
 import sys
 import tempfile
+import uuid
 
 import pytest
 
@@ -65,3 +66,15 @@ def alice(client):
 @pytest.fixture
 def bob(client):
     return _register(client, "bob")
+
+
+def unique_label_id(prefix="lbl"):
+    """A globally unique label id for tests.
+
+    labels.id is UNIQUE and the schema is created once per session, so any
+    literal id collides as soon as two test files use the same one — and it
+    fails only in a full run, not when either file runs alone. uuid4 rather
+    than a counter because per-module counters have the same collision
+    problem they are meant to solve.
+    """
+    return f"{prefix}-{uuid.uuid4().hex[:12]}"

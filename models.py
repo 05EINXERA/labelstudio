@@ -29,8 +29,16 @@ class Task(Base):
     status = Column(String)
     assignee = Column(String)
     time_spent = Column(Integer, default=0)
+    created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     annotations = Column(Text)
+    # Pixel dimensions of the image at image_path, captured at upload.
+    # Nullable because rows predating this column have never been measured;
+    # formats.common.image_size() backfills them lazily. YOLO normalization and
+    # mask rasterization divide by these, so a missing value is a skip, not a
+    # guess. See .devnotes/data-refactor/01_PLAN.md § 1.1.
+    image_width = Column(Integer, nullable=True)
+    image_height = Column(Integer, nullable=True)
 
 class TeamMember(Base):
     __tablename__ = "team_members"

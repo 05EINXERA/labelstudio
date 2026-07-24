@@ -18,12 +18,24 @@ import sys
 import os
 sys.path.insert(0, os.path.abspath('.'))
 import models
+from config import DATA_DIR
 
 # add your model's MetaData object here
 # for 'autogenerate' support
 # from myapp import mymodel
 # target_metadata = mymodel.Base.metadata
 target_metadata = models.Base.metadata
+
+# Honour DATA_DIR, the same way database.py does.
+#
+# alembic.ini hardcodes `sqlite:///./workspace.db`, so without this every
+# migration runs against the CWD regardless of DATA_DIR — on a Render-style
+# deploy that silently migrates a throwaway file while the real database on the
+# persistent disk stays on an old schema, and locally it defeats any attempt to
+# rehearse a migration against a copy. The env var is the single source of
+# truth for where the database lives; the ini value is only the fallback.
+_db_path = os.path.join(DATA_DIR, "workspace.db")
+config.set_main_option("sqlalchemy.url", f"sqlite:///{_db_path.replace(os.sep, '/')}")
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:

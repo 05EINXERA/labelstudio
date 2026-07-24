@@ -1,0 +1,296 @@
+{
+  "images": [
+    {
+      "file_name": "P1000006.JPG",
+      "height": 1944,
+      "width": 2592,
+      "id": 1
+    },
+    {
+      "file_name": "P1000066.JPG",
+      "height": 1944,
+      "width": 2592,
+      "id": 2
+    }
+  ],
+  "categories": [
+    {
+      "skeleton": [],
+      "keypoints": [],
+      "color": "#D95319",
+      "supercategory": "RustArea",
+      "id": 1,
+      "name": "RustArea",
+      "keypoint_colors": []
+    },
+    {
+      "skeleton": [],
+      "keypoints": [],
+      "color": "#0FFFFF",
+      "supercategory": "ACPaintExposedSteelPlate",
+      "id": 2,
+      "name": "ACPaintExposedSteelPlate",
+      "keypoint_colors": []
+    },
+    {
+      "skeleton": [],
+      "keypoints": [],
+      "color": "#FF13A6",
+      "supercategory": "AFPaintDeteriorationPeeling",
+      "id": 3,
+      "name": "AFPaintDeteriorationPeeling",
+      "keypoint_colors": []
+    },
+    {
+      "skeleton": [],
+      "keypoints": [],
+      "color": "#B746FF",
+      "supercategory": "ResidualMarineOrganisms",
+      "id": 4,
+      "name": "ResidualMarineOrganisms",
+      "keypoint_colors": []
+    },
+    {
+      "skeleton": [],
+      "keypoints": [],
+      "color": "#64D413",
+      "supercategory": "dirt",
+      "id": 5,
+      "name": "dirt",
+      "keypoint_colors": []
+    },
+    {
+      "skeleton": [],
+      "keypoints": [],
+      "color": "#000000",
+      "supercategory": "HealthyArea",
+      "id": 6,
+      "name": "HealthyArea",
+      "keypoint_colors": []
+    }
+  ],
+  "annotations": [
+    {
+      "num_keypoints": 0,
+      "keypoints": [],
+      "segmentation": [
+        [
+          706.67,
+          569.26,
+          707.02,
+          568.33,
+          707.6,
+          567.28,
+          707.84,
+          565.52,
+          708.07,
+          563.54,
+          708.54,
+          562.72,
+          709.47,
+          561.78,
+          711.11,
+          561.66
+        ]
+      ],
+      "iscrowd": 0,
+      "area": 166.5378000009805,
+      "image_id": 1,
+      "bbox": [
+        706.67,
+        561.66,
+        15.660000000000082,
+        15.889999999999986
+      ],
+      "category_id": 3,
+      "id": 1,
+      "attributes": {},
+      "rotation": 0
+    },
+    {
+      "num_keypoints": 0,
+      "keypoints": [],
+      "segmentation": [
+        [
+          1040.17,
+          994.08,
+          1040.26,
+          993.11,
+          1040.84,
+          992.43,
+          1041.72,
+          991.94,
+          1042.5,
+          991.36,
+          1042.59,
+          990.58,
+          1042.59,
+          988.73,
+          1042.89,
+          988.05
+        ]
+      ],
+      "iscrowd": 0,
+      "area": 145.59040000289679,
+      "image_id": 1,
+      "bbox": [
+        1040.17,
+        986,
+        15.970000000000027,
+        12.860000000000014
+      ],
+      "category_id": 3,
+      "id": 2,
+      "attributes": {},
+      "rotation": 0
+    },
+    {
+      "num_keypoints": 0,
+      "keypoints": [],
+      "segmentation": [
+        [
+          2481.17,
+          1133.45,
+          2481.59,
+          1131.77,
+          2483,
+          1130.51,
+          2484.26,
+          1129.67,
+          2485.94,
+          1128.83,
+          2487.76,
+          1128.13,
+          2492.39,
+          1128.13,
+          2493.51,
+          1128.83
+        ]
+      ],
+      "iscrowd": 0,
+      "area": 87.6807000041008,
+      "image_id": 1,
+      "bbox": [
+        2481.17,
+        1128.13,
+        12.61999999999989,
+        8.959999999999809
+      ],
+      "category_id": 3,
+      "id": 3,
+      "attributes": {},
+      "rotation": 0
+    },
+    {
+      "num_keypoints": 0,
+      "keypoints": [],
+      "segmentation": [
+        [
+          2418.78,
+          1845.09,
+          2419.63,
+          1844.35,
+          2420.48,
+          1844.14,
+          2421.64,
+          1844.03,
+          2422.6,
+          1843.08,
+          2422.39,
+          1841.6,
+          2422.17,
+          1840.64,
+          2422.17,
+          1839.05
+        ]
+      ],
+      "iscrowd": 0,
+      "area": 1990.2107998132706,
+      "image_id": 2,
+      "bbox": [
+        2418.78,
+        1815.77,
+        172.38999999999987,
+        33.26999999999998
+      ],
+      "category_id": 2,
+      "id": 4,
+      "attributes": {},
+      "rotation": 0
+    },
+    {
+      "num_keypoints": 0,
+      "keypoints": [],
+      "segmentation": [
+        [
+          729.82,
+          1146.99,
+          730.85,
+          1145.08,
+          731.94,
+          1144.14,
+          733.03,
+          1143.18,
+          732.57,
+          1141.23,
+          732.57,
+          1139.83,
+          733.03,
+          1138.21,
+          733.49,
+          1136.58
+        ]
+      ],
+      "iscrowd": 0,
+      "area": 12204.02950000763,
+      "image_id": 2,
+      "bbox": [
+        729.82,
+        1126.83,
+        181.27999999999997,
+        120.25
+      ],
+      "category_id": 2,
+      "id": 5,
+      "attributes": {},
+      "rotation": 0
+    },
+    {
+      "num_keypoints": 0,
+      "keypoints": [],
+      "segmentation": [
+        [
+          904.7,
+          1194.96,
+          906.16,
+          1193.83,
+          907.39,
+          1193.24,
+          908.61,
+          1192.94,
+          910.74,
+          1192.94,
+          911.81,
+          1193.08,
+          913.64,
+          1194,
+          914.86,
+          1194
+        ]
+      ],
+      "iscrowd": 0,
+      "area": 298.62569999694824,
+      "image_id": 2,
+      "bbox": [
+        904.7,
+        1192.94,
+        26.779999999999973,
+        18.309999999999945
+      ],
+      "category_id": 3,
+      "id": 6,
+      "attributes": {},
+      "rotation": 0
+    }
+  ]
+}
