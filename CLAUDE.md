@@ -65,7 +65,8 @@ old pattern into new code.
 | `models.py` | SQLAlchemy ORM models (database tables) |
 | `schemas.py` | Pydantic request/response schemas |
 | `api/auth.py` | JWT creation/validation, password hashing, `get_current_user` |
-| `api/routers/` | One router per resource (projects, tasks, labels, team, data, detect, auth, label_studio) |
+| `api/routers/` | One router per resource (projects, tasks, labels, team, data, detect, auth, label_studio, exports, imports) |
+| `formats/` | Import/export format logic (COCO, task JSON, YOLO, masks), one module per format; pure, testable without a server. See docs/ARCHITECTURE.md § 2.1 |
 | `detector.py` | ML model loading + inference (YOLO, SAM, CLIP) |
 | `frontend/app.html` + `app.js` | The annotation canvas page (the monolith) |
 | `frontend/js/` | Shared ES modules (`utils.js`) — new frontend code goes here |

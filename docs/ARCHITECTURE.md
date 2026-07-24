@@ -48,6 +48,7 @@ Request flows worth understanding:
 |---|---|
 | A new API resource (e.g. comments) | `api/routers/comments.py` + models in `models.py` + schemas in `schemas.py` + an Alembic migration; mount in `main.py` |
 | An endpoint on an existing resource | That resource's router file |
+| An import/export format | A module in `formats/` (see § 2.1); wire it into `exports.py` / `imports.py` |
 | Logic shared by two routers | A module under `api/` (like `api/auth.py`) |
 | A new ML capability | `detector.py` for now (see § 3.5) + a job runner in `api/routers/detect.py` |
 | Frontend behavior for the annotation page | A new ES module in `frontend/js/` (or an existing one whose responsibility matches — see § 3.1), imported by `init.js` or by the module that needs it |
@@ -56,9 +57,54 @@ Request flows worth understanding:
 | A real automated test | `tests/` |
 
 The dependency direction to preserve: **routers → (models, schemas, database,
-detector); never the reverse.** `detector.py` must not import from `api/`;
-`models.py`/`schemas.py` must not import routers. Keeping the arrows one-way is
-what lets you test the lower layers without a running server.
+detector, formats); never the reverse.** `detector.py` and `formats/` must not
+import from `api/`; `models.py`/`schemas.py` must not import routers. Keeping
+the arrows one-way is what lets you test the lower layers without a running
+server.
+
+---
+
+## 2.1 The `formats/` package
+
+Import/export format logic lives in `formats/`, a top-level package peer to
+`api/` and `detector.py`. The routers (`exports.py`, `imports.py`) stay
+HTTP-shaped — request validation, the job queue, the download handler, task
+matching, label resolution — and everything that knows what a COCO file or a
+YOLO label file *looks like* lives in `formats/`.
+
+| Module | Format | Direction |
+|---|---|---|
+| `common.py` | shared helpers: geometry, `value_from_name`, status maps, `image_size`, `annotation_type_of` | — |
+| `coco.py` | COCO JSON | build + parse |
+| `annotations_json.py` | task JSON (single array or per-task) | build + parse |
+| `yolo.py` | YOLOv8 segmentation | build + parse |
+| `masks.py` | rasterized masks (semantic/instance × direct/index) | **build only** |
+| — | flat CSV | build only (still inline in `exports.py`) |
+
+Everything in `formats/` is pure or takes an explicit `Session`/`Task` — no
+FastAPI, no request state — so each piece is unit-testable without a
+TestClient. That is the reason the logic was lifted out of the routers.
+
+Two contracts hold this together:
+
+- **Export builders** return `List[(arcname, bytes)]` for archive formats, or a
+  serialized string for single-file ones. A builder never constructs a ZIP
+  itself; `exports.py` owns the container (`_build_zip` for prefixed
+  multi-folder archives, `_zip_entries` for a format that owns its whole
+  layout, like YOLO).
+- **Parsers** return `{filename: [annotation, ...]}`. YOLO is the exception
+  that shaped the pipeline: its coordinates are normalized to `[0, 1]` and
+  can't be scaled to pixels until the file is matched to a task, so the parser
+  leaves them normalized and `imports.py` denormalizes in the apply step.
+
+Some formats can't represent every task (YOLO and masks need image
+dimensions). Rather than silently drop them, a builder returns a `skipped`
+list of `{filename, reason}`, threaded through the job status to the export UI.
+
+Masks are **export-only** by decision, not omission — a raster mask can't be
+traced back to the source polygons faithfully, and it carries no trustworthy
+class identity. See `.devnotes/data-refactor/00_FORMAT_ANALYSIS.md` § 8 before
+adding a mask parser.
 
 ---
 
