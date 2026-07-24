@@ -67,36 +67,41 @@ function hasActiveTask() {
 export async function drainTaskTime(task, { status, annotations, useBeacon = false } = {}) {
   if (!task || !task.id) return;
 
-  const taskId = task.id;
-  const timeDelta = timerState.taskSessionSeconds;
-  timerState.taskSessionSeconds = 0;
-
-  const payload = {
-    id: taskId,
-    time_spent_delta: timeDelta,
-    status: status || task.status || 'In Progress',
-    assignee: localStorage.getItem('dataset_username') || 'Unknown',
-    annotations: JSON.stringify(annotations || task.annotations || []),
-    updated_at: task.updated_at
-  };
-
-  // On unload a normal fetch is not guaranteed to be delivered; sendBeacon is
-  // (F2). Beacons give us no response, so treat dispatch as success.
-  if (useBeacon && navigator.sendBeacon) {
-    const ok = navigator.sendBeacon(
-      '/api/tasks',
-      new Blob([JSON.stringify(payload)], { type: 'application/json' })
-    );
-    if (ok) {
-      task.time_spent = (task.time_spent || 0) + timeDelta;
-    } else {
-      timerState.taskSessionSeconds += timeDelta;
-    }
-    updateTimerDisplays();
-    return;
+  while (task._syncPromise) {
+    await task._syncPromise;
   }
+  
+  let resolveSync;
+  task._syncPromise = new Promise(resolve => resolveSync = resolve);
 
   try {
+    const taskId = task.id;
+    const timeDelta = timerState.taskSessionSeconds;
+    timerState.taskSessionSeconds = 0;
+
+    const payload = {
+      id: taskId,
+      time_spent_delta: timeDelta,
+      status: status || task.status || 'In Progress',
+      assignee: localStorage.getItem('dataset_username') || 'Unknown',
+      annotations: JSON.stringify(annotations || task.annotations || []),
+      updated_at: task.updated_at
+    };
+
+    if (useBeacon && navigator.sendBeacon) {
+      const ok = navigator.sendBeacon(
+        '/api/tasks',
+        new Blob([JSON.stringify(payload)], { type: 'application/json' })
+      );
+      if (ok) {
+        task.time_spent = (task.time_spent || 0) + timeDelta;
+      } else {
+        timerState.taskSessionSeconds += timeDelta;
+      }
+      updateTimerDisplays();
+      return;
+    }
+
     const res = await apiFetch('/api/tasks', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -107,9 +112,7 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
     if (res.status === 409) {
       const errorMsg = await res.json();
       alert(`Conflict: ${errorMsg.detail}`);
-      task.id = null; // Prevent further autosaves for this task
-      // The task is abandoned, so the delta has nowhere to go. Drop it rather
-      // than letting it leak into the next task the user opens.
+      task.id = null;
       updateTimerDisplays();
       return;
     }
@@ -118,9 +121,6 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
       updateTimerDisplays();
       return;
     }
-    // The server has banked the delta, so move it from the pending accumulator
-    // into the task's stored total. Without this the "Total" readout would drop
-    // back by the delta on every sync.
     task.time_spent = (task.time_spent || 0) + timeDelta;
 
     const data = await res.json();
@@ -129,6 +129,9 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
     }
   } catch (e) {
     timerState.taskSessionSeconds += timeDelta;
+  } finally {
+    if (resolveSync) resolveSync();
+    if (task._syncPromise && resolveSync) task._syncPromise = null;
   }
   updateTimerDisplays();
 }

@@ -15,4 +15,4 @@ torch>=2.0.0
 # Tests
 pytest>=9.0.0
 httpx>=0.28.0
-pg8000>=1.31.5
+psycopg2-binary>=2.9.0
