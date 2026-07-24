@@ -10,6 +10,9 @@ alembic>=1.13.0
 # PostgreSQL driver for the multi-user deployment (DATABASE_URL=postgresql+psycopg://...).
 # Unused when running on the SQLite default.
 psycopg[binary]>=3.1.0
+# Loads .env in config.py, so every entry point (uvicorn, alembic, scripts)
+# sees the same configuration rather than only the launcher script.
+python-dotenv>=1.0.0
 # JWT Auth
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4

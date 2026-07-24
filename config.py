@@ -8,8 +8,50 @@ setting env vars, not editing source. See
 inconvenient in development become fatal at startup (see `validate_config`):
 a missing JWT secret or a wildcard CORS origin must never reach a machine that
 other people can connect to.
+
+`.env` is loaded here rather than only by the launcher script, so *every*
+entry point sees the same configuration. Loading it in `scripts/run.ps1` alone
+meant `alembic upgrade head` ran with an unconfigured environment and silently
+fell back to `alembic.ini`'s SQLite URL — or, once a native Postgres was also
+installed, to the wrong server on the default port.
 """
 import os
+import sys
+from pathlib import Path
+
+
+def _load_dotenv() -> None:
+    """Populate os.environ from the repo-root .env, if present.
+
+    Real environment variables always win: `.env` is the deployment's stored
+    defaults, while an explicitly exported variable is a deliberate override
+    (and is how the test suite pins DATA_DIR).
+    """
+    # Never under pytest: the suite drives configuration through monkeypatched
+    # environment variables and reloads this module to assert on the result. A
+    # .env reload would put the developer's real deployment values back and
+    # make those assertions pass or fail based on an untracked local file.
+    if "PYTEST_CURRENT_TEST" in os.environ or "pytest" in sys.modules:
+        return
+
+    env_path = Path(__file__).resolve().parent / ".env"
+    if not env_path.is_file():
+        return
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        # Not fatal: a deployment may set real environment variables instead.
+        # Silence here would be worse than a warning, since the symptom
+        # (connecting to the wrong database) looks nothing like the cause.
+        print(
+            f"WARNING: {env_path} exists but python-dotenv is not installed; "
+            "its values are being ignored. Run: pip install -r requirements.txt"
+        )
+        return
+    load_dotenv(env_path, override=False)
+
+
+_load_dotenv()
 
 # DATA_DIR allows us to store persistent data on a mounted disk (like Render's Persistent Disk at /data)
 DATA_DIR = os.environ.get("DATA_DIR", ".")
@@ -25,7 +67,7 @@ IS_PRODUCTION = APP_ENV == "production"
 # Bind address. Defaults to loopback so an unconfigured run is never exposed;
 # a LAN deployment sets APP_HOST=0.0.0.0 explicitly.
 APP_HOST = os.environ.get("APP_HOST", "127.0.0.1")
-APP_PORT = int(os.environ.get("APP_PORT", "8765"))
+APP_PORT = int(os.environ.get("APP_PORT", "8000"))
 
 # --- Database -------------------------------------------------------------
 # DATABASE_URL is authoritative. Without it we fall back to the historical
@@ -67,7 +109,10 @@ MAX_IMPORT_BYTES = int(os.environ.get("MAX_IMPORT_BYTES", str(300 * 1024 * 1024)
 
 # --- Logging --------------------------------------------------------------
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").strip().upper()
-LOG_DIR = os.environ.get("LOG_DIR", os.path.join(DATA_DIR, "logs"))
+# `or` rather than a plain default: an explicitly empty LOG_DIR="" in .env is
+# how a deployment says "use the default", but os.environ.get would hand back
+# the empty string and disable file logging entirely.
+LOG_DIR = os.environ.get("LOG_DIR", "").strip() or os.path.join(DATA_DIR, "logs")
 LOG_MAX_BYTES = int(os.environ.get("LOG_MAX_BYTES", str(10 * 1024 * 1024)))
 LOG_BACKUP_COUNT = int(os.environ.get("LOG_BACKUP_COUNT", "5"))
 
