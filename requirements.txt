@@ -7,6 +7,9 @@ uvicorn>=0.30.0
 python-multipart>=0.0.9
 sqlalchemy>=2.0.0
 alembic>=1.13.0
+# PostgreSQL driver for the multi-user deployment (DATABASE_URL=postgresql+psycopg://...).
+# Unused when running on the SQLite default.
+psycopg[binary]>=3.1.0
 # JWT Auth
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4

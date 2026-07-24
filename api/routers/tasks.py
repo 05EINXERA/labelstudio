@@ -8,15 +8,15 @@ from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 import models
-from database import get_db
+from database import get_db, commit_with_retry
 from schemas import TaskUpdate, BulkDelete, BulkUpdate
-from api.auth import get_current_user
+from api.auth import get_current_user, require_csrf
 from api.routers.projects import get_owned_project
 
 router = APIRouter(
     prefix="/api/tasks",
     tags=["tasks"],
-    dependencies=[Depends(get_current_user)],
+    dependencies=[Depends(get_current_user), Depends(require_csrf)],
 )
 
 logger = logging.getLogger(__name__)
@@ -165,7 +165,7 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
             if project and project.status != new_status:
                 project.status = new_status
 
-    db.commit()
+    commit_with_retry(db)
     return {"id": task_id, "status": "ok", "updated_at": new_updated_at.isoformat()}
 
 @router.patch("/{task_id}")
@@ -209,7 +209,7 @@ def bulk_delete_tasks(payload: BulkDelete, db: Session = Depends(get_db), user: 
     owned, skipped = _restrict_to_owned(payload.ids, user, db)
     if owned:
         db.query(models.Task).filter(models.Task.id.in_(owned)).delete(synchronize_session=False)
-        db.commit()
+        commit_with_retry(db)
     return {"status": "ok", "deleted": len(owned), "skipped": skipped}
 
 @router.post("/bulk-update")
@@ -228,6 +228,6 @@ def bulk_update_tasks(payload: BulkUpdate, db: Session = Depends(get_db), user: 
     if update_data and owned:
         update_data[models.Task.updated_at] = datetime.datetime.now(datetime.timezone.utc)
         db.query(models.Task).filter(models.Task.id.in_(owned)).update(update_data, synchronize_session=False)
-        db.commit()
+        commit_with_retry(db)
 
     return {"status": "ok", "updated": len(owned) if update_data else 0, "skipped": skipped}

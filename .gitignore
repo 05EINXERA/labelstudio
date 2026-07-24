@@ -33,3 +33,6 @@ models/**/*.pt
 
 # Agent working notes — not part of the shipped codebase
 .devnotes/
+
+# Application logs (rotating app.log)
+logs/

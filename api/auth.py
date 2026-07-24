@@ -1,33 +1,141 @@
+import logging
 import os
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import Depends, HTTPException, status, Request
+from fastapi import Depends, HTTPException, status, Request, Response
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 import bcrypt
 from sqlalchemy.orm import Session
 
 import models
+from config import (
+    COOKIE_SAMESITE,
+    COOKIE_SECURE,
+    DATA_DIR,
+    IS_PRODUCTION,
+    JWT_SECRET,
+)
 from database import get_db
 
-_env_secret = os.environ.get("JWT_SECRET", "")
-if not _env_secret:
-    secret_file = os.path.join(os.getcwd(), ".jwt_secret")
+logger = logging.getLogger(__name__)
+
+
+def _resolve_secret() -> str:
+    """The JWT signing key.
+
+    In production `config.validate_config()` has already refused to start
+    without `JWT_SECRET`, so this is a straight read. In development we keep a
+    generated key in a file so sessions survive a restart — but anchored to
+    DATA_DIR rather than `os.getcwd()`. The old cwd-relative path meant that
+    launching the server from a different directory silently minted a new key
+    and signed everyone out.
+    """
+    if JWT_SECRET:
+        return JWT_SECRET
+
+    if IS_PRODUCTION:
+        # Unreachable via main.py (validate_config raises first), but a direct
+        # import of this module must not fall back to an ephemeral key.
+        raise RuntimeError("JWT_SECRET must be set when APP_ENV=production.")
+
+    secret_file = os.path.join(DATA_DIR, ".jwt_secret")
     if os.path.exists(secret_file):
-        with open(secret_file, "r") as f:
-            _env_secret = f.read().strip()
-    else:
-        import secrets
-        _env_secret = secrets.token_hex(32)
-        try:
-            with open(secret_file, "w") as f:
-                f.write(_env_secret)
-        except Exception:
-            print("WARNING: Could not save JWT_SECRET. Sessions will not survive restarts.")
-SECRET_KEY = _env_secret
+        with open(secret_file, "r") as handle:
+            existing = handle.read().strip()
+            if existing:
+                return existing
+
+    generated = secrets.token_hex(32)
+    try:
+        with open(secret_file, "w") as handle:
+            handle.write(generated)
+    except OSError as exc:
+        logger.warning(
+            "Could not persist a development JWT secret to %s (%s); sessions "
+            "will not survive a restart.", secret_file, exc,
+        )
+    return generated
+
+
+SECRET_KEY = _resolve_secret()
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7 # 7 days
+
+# Name of the readable companion cookie for double-submit CSRF (see
+# require_csrf). Deliberately NOT httpOnly: the frontend has to read it to echo
+# it back in a header, and that is exactly what a cross-origin page cannot do.
+CSRF_COOKIE_NAME = "csrf_token"
+CSRF_HEADER_NAME = "X-CSRF-Token"
+
+
+def issue_session_cookies(response: Response, access_token: str) -> str:
+    """Set the session + CSRF cookie pair on a login/register response.
+
+    Returns the CSRF token so the caller can also hand it back in the JSON body
+    (a client that cannot read cookies, e.g. a test, still needs it).
+    """
+    response.set_cookie(
+        key="access_token",
+        value=f"Bearer {access_token}",
+        httponly=True,
+        samesite=COOKIE_SAMESITE,
+        secure=COOKIE_SECURE,
+    )
+    csrf_token = secrets.token_urlsafe(32)
+    response.set_cookie(
+        key=CSRF_COOKIE_NAME,
+        value=csrf_token,
+        httponly=False,  # the frontend must read this to echo it in a header
+        samesite=COOKIE_SAMESITE,
+        secure=COOKIE_SECURE,
+    )
+    return csrf_token
+
+
+def clear_session_cookies(response: Response) -> None:
+    response.delete_cookie("access_token")
+    response.delete_cookie(CSRF_COOKIE_NAME)
+
+
+def require_csrf(request: Request) -> None:
+    """Double-submit CSRF check for state-changing requests.
+
+    The session lives in a cookie, so the browser attaches it to any request an
+    attacker's page can trigger. SameSite=strict blocks most of that, but it is
+    a single point of failure and does nothing for a same-site-but-untrusted
+    page. Requiring a header that echoes a readable cookie closes it: a
+    cross-origin page can cause the cookie to be sent but cannot read it to
+    construct the header.
+
+    Requests authenticated purely by an `Authorization: Bearer` header are
+    exempt — those are not cookie-driven and so are not forgeable this way.
+    """
+    if request.method in ("GET", "HEAD", "OPTIONS", "TRACE"):
+        return
+
+    # A bearer-token client (scripts, tests) is not subject to CSRF: the token
+    # is never attached automatically by a browser.
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer ") and not request.cookies.get("access_token"):
+        return
+
+    cookie_token = request.cookies.get(CSRF_COOKIE_NAME)
+    header_token = request.headers.get(CSRF_HEADER_NAME)
+
+    if not cookie_token or not header_token:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Missing CSRF token. Reload the page and try again.",
+        )
+    # Constant-time compare: the tokens are secrets of equal length.
+    if not secrets.compare_digest(cookie_token, header_token):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="CSRF token mismatch. Reload the page and try again.",
+        )
 
 def get_token(request: Request):
     token = request.cookies.get("access_token")
