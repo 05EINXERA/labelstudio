@@ -232,13 +232,19 @@ def test_pertask_zip_entry_matches_reference_shape(client, alice):
 
     task = _pertask_entries(client, alice, pid)["jsons/P1000066.json"]
     assert set(task) == {
-        "id", "name", "status", "width", "height", "secondsToAnnotate",
+        "id", "name", "status", "externalStatus", "url",
+        "width", "height", "secondsToAnnotate",
         "assignee", "reviewer", "approver",
         "externalAssignee", "externalReviewer", "externalApprover",
-        "tags", "metadatas", "relations", "updatedAt", "annotations",
+        "tags", "metadatas", "relations", "createdAt", "updatedAt", "annotations",
     }
     assert task["name"] == "P1000066.JPG"
-    assert task["status"] == "New"
+    # Statuses are emitted in the interop vocabulary, not ours: "New" is
+    # "registered" there, and approval rides in the separate externalStatus.
+    assert task["status"] == "registered"
+    assert task["externalStatus"] == ""
+    # We host no public image URL, so this is empty rather than a dead link.
+    assert task["url"] == ""
 
     anns = task["annotations"]
     assert len(anns) == 1

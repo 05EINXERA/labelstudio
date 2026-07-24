@@ -14,6 +14,7 @@ from config import DATA_DIR
 from database import get_db
 from schemas import ProjectModel, ProjectMetrics, ProjectSummary
 from api.auth import get_current_user
+from formats.common import measure_image
 
 logger = logging.getLogger(__name__)
 
@@ -251,9 +252,16 @@ def upload_files(project_id: int, assignee: Optional[str] = Query(None), file: L
             failed.append({"filename": f.filename, "error": "Could not save the file."})
             continue
 
+        # Measured once here rather than on every export: YOLO normalizes by
+        # these and mask rasterization sizes its canvas from them. Pillow reads
+        # only the header, so this adds no meaningful cost to a request that
+        # already wrote the file.
+        width, height = measure_image(os.path.join(DATA_DIR, *db_filepath.split("/")))
+
         db.add(models.Task(
             project_id=project_id, image_path=db_filepath,
             description=f.filename, status='New', assignee=assignee,
+            image_width=width, image_height=height,
         ))
         uploaded.append({"filename": f.filename, "path": db_filepath})
 

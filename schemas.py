@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # Upper bound on a single reported time delta. Clients sync far more often than
 # once a day; anything larger is a bug or a forged payload. See
@@ -151,15 +151,49 @@ TASK_STATUSES = ["New", "In Progress", "Completed", "Approved"]
 # bundling are explicit TODOs (see REFACTOR_MANAGEMENT.md §3 Phase 4) — the
 # API rejects them rather than silently ignoring the request.
 EXPORT_INCLUDE_OPTIONS = ["annotations_only"]
-EXPORT_FORMATS = ["json", "csv", "pertask"]
+
+# Canonical export format codes.
+#
+# "coco" and "annotations_json" are both JSON but are different documents: COCO
+# is {images, categories, annotations}, while annotations_json is an array of
+# task objects. The old code called the former "json", which left no name for
+# the latter — hence the rename.
+EXPORT_FORMATS = [
+    "coco",                 # COCO JSON, one file
+    "annotations_json",     # array of task objects, one file
+    "annotations_pertask",  # ZIP of one task object per file
+    "yolo",                 # ZIP: classes.txt + annotations/<stem>.txt
+    "masks_direct",         # ZIP of RGB PNG masks (pixel = colour)
+    "masks_index",          # ZIP of palette PNG masks (pixel = index)
+    "csv",                  # flat CSV
+]
+
+# Deprecated spellings, still accepted so existing clients and bookmarked UI
+# state keep working. Resolved to the canonical code before validation.
+EXPORT_FORMAT_ALIASES = {
+    "json": "coco",
+    "pertask": "annotations_pertask",
+}
+
+
+def canonical_export_format(value: str) -> str:
+    """Resolve a possibly-deprecated format code to its canonical spelling."""
+    return EXPORT_FORMAT_ALIASES.get(value, value)
 
 
 class ExportRequest(BaseModel):
     projectId: int
-    format: str = "json"
+    format: str = "coco"
     # None/omitted means "all statuses".
     statusFilter: Optional[List[str]] = None
     include: str = "annotations_only"
+
+    @field_validator("format")
+    @classmethod
+    def _resolve_format_alias(cls, v: str) -> str:
+        # Normalized here rather than at each use site, so nothing downstream
+        # has to know the deprecated spellings exist.
+        return canonical_export_format(v)
 
 
 class ExportJobStatus(BaseModel):
