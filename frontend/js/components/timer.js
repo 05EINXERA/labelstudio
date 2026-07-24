@@ -1,7 +1,16 @@
-import { formatTime } from "../utils.js?v=1";
+import { formatTime, clientId } from "../utils.js?v=1";
 import { apiFetch } from "../api.js?v=1";
 import { timerState } from "../timer-state.js?v=1";
 import { canvas } from "../dom.js?v=1";
+
+// Called when the server reports a genuine cross-client conflict. Registered
+// by the page so timer.js does not have to know how the workspace wants to
+// resolve it (reload, merge, or force-overwrite).
+let onConflict = null;
+
+export function setConflictHandler(fn) {
+  onConflict = typeof fn === 'function' ? fn : null;
+}
 
 const timerToggleBtn = document.getElementById("timerToggleBtn");
 const sessionTimerDisplay = document.getElementById("sessionTimerDisplay");
@@ -64,8 +73,9 @@ function hasActiveTask() {
  * are retried on the next sync rather than silently lost (F3). This is the
  * single drain point for timerState.taskSessionSeconds (F4).
  */
+/** Resolves true when the server accepted the write, false otherwise. */
 export async function drainTaskTime(task, { status, annotations, useBeacon = false } = {}) {
-  if (!task || !task.id) return;
+  if (!task || !task.id) return false;
 
   const taskId = task.id;
   const timeDelta = timerState.taskSessionSeconds;
@@ -77,7 +87,12 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
     status: status || task.status || 'In Progress',
     assignee: localStorage.getItem('dataset_username') || 'Unknown',
     annotations: JSON.stringify(annotations || task.annotations || []),
-    updated_at: task.updated_at
+    // Sent explicitly as null rather than left undefined when unknown:
+    // JSON.stringify drops undefined keys, and an absent updated_at silently
+    // disables conflict detection instead of declaring "I have no token".
+    updated_at: task.updated_at || null,
+    // Lets the server tell our own earlier writes apart from another user's.
+    client_id: clientId()
   };
 
   // On unload a normal fetch is not guaranteed to be delivered; sendBeacon is
@@ -89,11 +104,20 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
     );
     if (ok) {
       task.time_spent = (task.time_spent || 0) + timeDelta;
+      // A beacon returns no body, so the updated_at this write just produced
+      // is unknowable. Holding on to the old one would send a stale token on
+      // the next save and 409 against ourselves — the exact sequence that lost
+      // annotations after a tab switch. Clearing it makes the next save
+      // declare "no token"; `client_id` still identifies us, so a genuine
+      // conflict with another user is still caught.
+      task.updated_at = null;
     } else {
       timerState.taskSessionSeconds += timeDelta;
     }
     updateTimerDisplays();
-    return;
+    // Dispatch is the only signal a beacon gives; treat it as provisional
+    // success so the draft survives until a normal save confirms.
+    return false;
   }
 
   try {
@@ -105,18 +129,29 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
     });
 
     if (res.status === 409) {
-      const errorMsg = await res.json();
-      alert(`Conflict: ${errorMsg.detail}`);
-      task.id = null; // Prevent further autosaves for this task
-      // The task is abandoned, so the delta has nowhere to go. Drop it rather
-      // than letting it leak into the next task the user opens.
+      // A real conflict: another client wrote this task since we last read it.
+      //
+      // This used to set `task.id = null` to "prevent further autosaves",
+      // which silently disabled saving for the rest of the session — every
+      // later edit went to localStorage only and vanished on refresh. A
+      // conflict must never cost the user their work, so instead we keep the
+      // delta, hand the decision to the user, and leave saving enabled.
+      timerState.taskSessionSeconds += timeDelta;
       updateTimerDisplays();
-      return;
+
+      if (onConflict) {
+        onConflict(task);
+      } else {
+        // No handler registered (e.g. a beacon-less background drain): keep
+        // the seconds and let the next save retry rather than dropping them.
+        console.warn('Task conflict with another client; save deferred.');
+      }
+      return false;
     }
     if (!res.ok) {
       timerState.taskSessionSeconds += timeDelta;
       updateTimerDisplays();
-      return;
+      return false;
     }
     // The server has banked the delta, so move it from the pending accumulator
     // into the task's stored total. Without this the "Total" readout would drop
@@ -127,10 +162,13 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
     if (data && data.updated_at) {
       task.updated_at = data.updated_at;
     }
+    updateTimerDisplays();
+    return true;
   } catch (e) {
     timerState.taskSessionSeconds += timeDelta;
+    updateTimerDisplays();
+    return false;
   }
-  updateTimerDisplays();
 }
 
 // Back-compat name used by init.js's gallery switch.

@@ -1,7 +1,7 @@
 import { generateUUID, normalizeClassName } from "../utils.js?v=1";
 import { apiFetch } from "../api.js?v=1";
 import {
-  state, storageKey, colorForName, labelByName, labelById,
+  state, storageKey, draftKey, colorForName, labelByName, labelById,
   labelDisplayName, snapshot, selectedAnnotation
 } from "../state.js?v=1";
 import { annotationPoints, updateAnnotationBounds } from "../canvas/geometry.js?v=1";
@@ -74,32 +74,118 @@ export function syncToBackend({ useBeacon = false } = {}) {
   // Time accounting (drain, retry-on-failure, task binding) lives in timer.js
   // so there is exactly one drain point for taskSessionSeconds. See
   // docs/TIMER_AUDIT.md F3/F4.
-  return drainTaskTime(currentTask, {
+  return Promise.resolve(drainTaskTime(currentTask, {
     status: taskStatus,
     annotations: currentTask.annotations,
     useBeacon
+  })).then((ok) => {
+    // The draft exists to cover work the server does not have. Once it has
+    // taken the write, the draft is stale and must go, or the next load would
+    // "recover" it over fresher server data.
+    if (ok !== false && currentTask.id) clearDraft(currentTask.id);
+    return ok;
   });
 }
 
+/** The task currently open, or null. */
+function currentTask() {
+  if (!state.gallery || state.galleryIndex < 0) return null;
+  return state.gallery[state.galleryIndex] || null;
+}
+
+/**
+ * Write a local draft for the open task.
+ *
+ * The draft is the safety net for everything the server has not acknowledged
+ * yet. It is deliberately per-task (see state.draftKey) and is cleared only
+ * once a save succeeds, so a refresh mid-edit — or after a failed save —
+ * recovers the work instead of losing it.
+ */
+export function saveDraft() {
+  const task = currentTask();
+  if (!task || !task.id) return;
+  try {
+    localStorage.setItem(draftKey(task.id), JSON.stringify({
+      annotations: state.annotations,
+      labels: state.labels,
+      savedAt: Date.now()
+    }));
+  } catch (e) {
+    // Quota exceeded: the draft is best-effort, the server save is the real
+    // path. Losing the net is worth knowing about but must not break editing.
+    console.warn('Could not write local draft', e);
+  }
+}
+
+export function clearDraft(taskId) {
+  try {
+    localStorage.removeItem(draftKey(taskId));
+  } catch (e) {
+    console.warn('Could not clear local draft', e);
+  }
+}
+
+/**
+ * Restore a draft for `task` if it holds work the server does not have.
+ *
+ * Returns true if anything was restored. Called after the task's server-side
+ * annotations are already in state, so the draft only wins when it actually
+ * differs — otherwise every reload would report a phantom recovery.
+ */
+export function restoreDraft(task) {
+  if (!task || !task.id) return false;
+  let raw;
+  try {
+    raw = localStorage.getItem(draftKey(task.id));
+  } catch {
+    return false;
+  }
+  if (!raw) return false;
+
+  try {
+    const draft = JSON.parse(raw);
+    if (!Array.isArray(draft.annotations)) {
+      clearDraft(task.id);
+      return false;
+    }
+    // Same content as the server's copy: nothing to recover.
+    if (JSON.stringify(draft.annotations) === JSON.stringify(state.annotations)) {
+      clearDraft(task.id);
+      return false;
+    }
+    state.annotations = draft.annotations;
+    if (Array.isArray(draft.labels) && draft.labels.length) {
+      state.labels = draft.labels;
+    }
+    repairLabelsFromAnnotations();
+    return true;
+  } catch {
+    clearDraft(task.id);
+    return false;
+  }
+}
+
 export function save() {
-  const payload = {
-    labels: state.labels,
-    annotations: state.annotations,
-    image: state.image
-  };
-  localStorage.setItem(storageKey, JSON.stringify(payload));
-  setStatus("Saved");
+  saveDraft();
+  setStatus("Saving…");
 
   if (window.backendSyncTimeout) {
     clearTimeout(window.backendSyncTimeout);
   }
   window.backendSyncTimeout = setTimeout(() => {
     window.backendSyncTimeout = null;
-    syncToBackend();
+    // "Saved" is only claimed once the server has actually taken the write.
+    // Reporting it on the localStorage write alone told annotators their work
+    // was safe while it existed nowhere but their own browser.
+    Promise.resolve(syncToBackend())
+      .then((ok) => setStatus(ok === false ? "Not saved — will retry" : "Saved"))
+      .catch(() => setStatus("Not saved — will retry"));
   }, 1000);
 }
 
 export function loadSaved() {
+  // Legacy global-slot draft. Kept only to migrate anything a previous version
+  // left behind; drafts are per-task now (see restoreDraft).
   const saved = localStorage.getItem(storageKey);
   if (!saved) return;
 
@@ -108,14 +194,13 @@ export function loadSaved() {
     if (Array.isArray(payload.labels)) {
       state.labels = payload.labels;
     }
-    if (Array.isArray(payload.annotations)) {
-      state.annotations = payload.annotations;
-    }
     repairLabelsFromAnnotations();
-    // Removed auto-loading of previous session image based on user request
   } catch {
-    localStorage.removeItem(storageKey);
+    // fall through to the removal below
   }
+  // Drop the global slot either way: it is shared across tasks and across
+  // tabs, so keeping it would let one task's annotations leak into another's.
+  localStorage.removeItem(storageKey);
 }
 
 // Eye / eye-off pair, sized to match the existing 20x20 row action buttons.
