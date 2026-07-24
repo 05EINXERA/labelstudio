@@ -292,9 +292,13 @@ def test_parse_archive_keys_on_stem():
 
 def test_looks_like_archive_detection():
     assert yolo.looks_like_archive(["classes.txt", "annotations/a.txt"])
+    # classes.txt missing still counts as a YOLO attempt — parse_archive then
+    # raises the helpful "no classes.txt" error rather than the generic one.
+    assert yolo.looks_like_archive(["annotations/a.txt"])
     assert not yolo.looks_like_archive(["classes.txt"])           # no label files
-    assert not yolo.looks_like_archive(["annotations/a.txt"])     # no classes.txt
-    assert not yolo.looks_like_archive(["jsons/a.json"])
+    assert not yolo.looks_like_archive(["jsons/a.json"])          # JSON format
+    # A mixed archive (label files + JSON) is left to the JSON walk.
+    assert not yolo.looks_like_archive(["annotations/a.txt", "jsons/a.json"])
 
 
 # ---------------------------------------------------------------------------
