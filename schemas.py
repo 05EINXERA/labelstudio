@@ -34,6 +34,13 @@ class TaskUpdate(BaseModel):
     time_spent_delta: Optional[int] = Field(0, ge=0, le=MAX_TIME_DELTA_SECONDS)
     annotations: Optional[str] = None
     updated_at: Optional[str] = None
+    # Identifies the browser tab that produced this write. Conflict detection
+    # compares it against the last writer so a client never 409s against its
+    # own previous save — the overwhelmingly common case, since one tab
+    # autosaves, flushes a beacon on tab-switch and drains the timer, all
+    # against the same task. Only a *different* client is a real conflict.
+    # See .devnotes/deployment-hardening/04_ANNOTATION_SAVE_LOSS.md.
+    client_id: Optional[str] = Field(None, max_length=64)
 
 class ProjectSummary(BaseModel):
     """A project plus its task metrics — one row of the projects list.

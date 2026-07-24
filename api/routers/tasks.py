@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import datetime
 from typing import Optional
 
@@ -20,6 +21,18 @@ router = APIRouter(
 )
 
 logger = logging.getLogger(__name__)
+
+# How far the stored timestamp may run ahead of the client's before a write
+# from a *different* client is treated as a conflict.
+#
+# The old 1.0s was tuned on a localhost round-trip. Over the LAN, with SQLite
+# write contention from ~20-30 annotators, a legitimate save can easily be
+# further behind than that, which turned ordinary latency into a 409. Widened
+# to five seconds: still far shorter than a human edit cycle, so a genuine
+# two-person collision is caught, but no longer fires on network jitter.
+CONFLICT_TOLERANCE_SECONDS = float(
+    os.environ.get("TASK_CONFLICT_TOLERANCE_SECONDS", "5.0")
+)
 
 
 def _owned_project_ids(user: models.User, db: Session):
@@ -84,24 +97,49 @@ def get_tasks(projectId: Optional[int] = Query(None), include_annotations: bool 
 def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(None), db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     if task.id:
         db_task = _get_owned_task(task.id, user, db)
-        if task.updated_at and db_task.updated_at:
+        # Conflict detection guards one thing: a client overwriting a write it
+        # never saw. It deliberately does *not* fire when a client overwrites
+        # its own earlier save — one browser tab writes the same task from
+        # three places (debounced autosave, the visibilitychange beacon, and
+        # the 30s timer drain), and the beacon path can never learn the
+        # timestamp it produced. Treating that as a conflict is what silently
+        # discarded annotations on the LAN deployment.
+        # See .devnotes/deployment-hardening/04_ANNOTATION_SAVE_LOSS.md.
+        #
+        # `last_client_id` answers "who wrote last" exactly, so it is the
+        # primary signal. The timestamp is only consulted when identity is
+        # unavailable (an older client, or a row predating the column), where
+        # it remains the best available approximation.
+        if task.updated_at:
+            # Parsed even when unused, so a malformed value is still a 422
+            # rather than silently disabling the check (TIMER_AUDIT.md F10).
             try:
                 client_updated = datetime.datetime.fromisoformat(task.updated_at.replace('Z', '+00:00'))
             except ValueError:
-                # Silently skipping the check here disabled conflict
-                # detection entirely on a malformed timestamp, which then
-                # caused clients to drop time deltas. See TIMER_AUDIT.md F10.
                 raise HTTPException(status_code=422, detail="Invalid 'updated_at' timestamp format.")
-
-            # Rows written before the tz-aware migration are naive UTC.
-            stored = db_task.updated_at
-            if stored.tzinfo is None:
-                stored = stored.replace(tzinfo=datetime.timezone.utc)
             if client_updated.tzinfo is None:
                 client_updated = client_updated.replace(tzinfo=datetime.timezone.utc)
 
-            if (stored - client_updated).total_seconds() > 1.0:
-                raise HTTPException(status_code=409, detail="Task was updated by another user. Please refresh to see latest annotations.")
+            if task.client_id and db_task.last_client_id:
+                # Both sides identified: a different last writer is a genuine
+                # conflict regardless of how recently it happened.
+                if task.client_id != db_task.last_client_id:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Task was updated by another user. Please refresh to see latest annotations.",
+                    )
+            elif db_task.updated_at:
+                # No identity to compare — fall back to the timestamp.
+                stored = db_task.updated_at
+                if stored.tzinfo is None:
+                    stored = stored.replace(tzinfo=datetime.timezone.utc)
+                if (stored - client_updated).total_seconds() > CONFLICT_TOLERANCE_SECONDS:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Task was updated by another user. Please refresh to see latest annotations.",
+                    )
+        if task.client_id is not None:
+            db_task.last_client_id = task.client_id
         if task.assignee is not None:
             db_task.assignee = task.assignee
         if task.status is not None:
@@ -131,7 +169,8 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
             status=task.status or "New", 
             time_spent=task.time_spent_delta or 0, 
             annotations=task.annotations,
-            updated_at=datetime.datetime.now(datetime.timezone.utc)
+            updated_at=datetime.datetime.now(datetime.timezone.utc),
+            last_client_id=task.client_id,
         )
         db.add(db_task)
         db.commit()

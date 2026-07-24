@@ -47,6 +47,12 @@ class Task(Base):
     # guess. See .devnotes/data-refactor/01_PLAN.md § 1.1.
     image_width = Column(Integer, nullable=True)
     image_height = Column(Integer, nullable=True)
+    # The client (browser tab) that last wrote this row. Conflict detection
+    # only fires when the incoming write comes from a *different* client, so a
+    # tab never 409s against its own earlier save. Nullable: rows written
+    # before this column existed have no recorded writer, and a write with no
+    # client_id skips the check entirely.
+    last_client_id = Column(String(64), nullable=True)
 
 class TeamMember(Base):
     __tablename__ = "team_members"
