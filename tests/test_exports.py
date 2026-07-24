@@ -100,8 +100,10 @@ def test_export_rejects_unknown_status_value(client, alice):
 
 
 def test_export_rejects_unimplemented_format(client, alice):
+    """Pascal VOC is still unbuilt. (YOLO used to be checked here; it is
+    implemented now — see tests/test_yolo_format.py.)"""
     pid = _new_project(client, alice)
-    res = client.post("/api/exports", json={"projectId": pid, "format": "yolo"}, headers=alice)
+    res = client.post("/api/exports", json={"projectId": pid, "format": "pascal_voc"}, headers=alice)
     assert res.status_code == 422
 
 

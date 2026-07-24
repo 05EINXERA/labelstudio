@@ -578,6 +578,10 @@ canvas.addEventListener("pointerdown", (event) => {
         snapshot();
         const annotation = {
           id: generateUUID(),
+          // Recorded so exports can tell a box from a polygon. Without it both
+          // shapes are just points plus a bound, and every box leaves as a
+          // polygon (see formats/common.py annotation_type_of).
+          type: "polygon",
           labelId: state.activeLabelId,
           points: [{ x: round(pointInImage.x), y: round(pointInImage.y) }]
         };
@@ -830,6 +834,9 @@ canvas.addEventListener("pointerup", (e) => {
       snapshot();
       const annotation = {
         id: generateUUID(),
+        // A real box, not a 4-vertex polygon that happens to be rectangular.
+        // YOLO and COCO can represent the two differently.
+        type: "bbox",
         labelId: view.drag.draft.labelId,
         points: view.drag.draft.points.map((point) => ({ x: round(point.x), y: round(point.y) }))
       };

@@ -16,6 +16,16 @@ A dry-run preview (`/preview`) reports the match before anything is written,
 because a failed match is silent and expensive to discover after the fact: an
 annotation for "img_01.jpg" that does not match any task's description is
 simply skipped, and the only way to know that happened is to have asked first.
+
+Format parsing lives in `formats/` alongside the builders it has to agree with;
+this module owns the HTTP shape, the container detection, task matching and
+label resolution.
+
+Label resolution matches an existing class on its display name *or* its derived
+interop `value`. An interop COCO export puts the value form in
+`supercategory` ("RustArea") while its per-task JSON uses the display name
+("Rust Area"), so importing both files from one source project would
+otherwise create two labels for the same class.
 """
 import io
 import json
@@ -32,137 +42,19 @@ import models
 from database import get_db
 from api.auth import get_current_user
 from api.routers.projects import get_owned_project
+from formats import annotations_json
+from formats import coco as coco_format
+from formats.common import value_from_name
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/imports", tags=["imports"], dependencies=[Depends(get_current_user)])
 
 
-def _round(v: float) -> float:
-    return round(v, 2)
-
-
-def _points_from_bbox(bbox: List[float]) -> List[dict]:
-    x, y, w, h = bbox
-    return [
-        {"x": _round(x), "y": _round(y)},
-        {"x": _round(x + w), "y": _round(y)},
-        {"x": _round(x + w), "y": _round(y + h)},
-        {"x": _round(x), "y": _round(y + h)},
-    ]
-
-
-def _points_from_segmentation(seg: List[float]) -> List[dict]:
-    pts = []
-    for i in range(0, len(seg) - 1, 2):
-        pts.append({"x": _round(seg[i]), "y": _round(seg[i + 1])})
-    return pts
-
-
-def _bbox_of(points: List[dict]) -> tuple:
-    xs = [p["x"] for p in points]
-    ys = [p["y"] for p in points]
-    return min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)
-
-
-def _parse_coco(data: dict) -> Dict[str, List[dict]]:
-    """COCO-shaped `{images, categories, annotations}` -> {filename: [annotation, ...]}.
-
-    Category name becomes the label name; the caller resolves label names to
-    this project's label ids (creating any that don't exist, tracker P4.2).
-
-    `color` is not part of the COCO spec — it is an extension our own export
-    emits (and FastLabel's). Carrying it through as `labelColor` is what makes
-    an export/import round trip preserve class colors; a standard third-party
-    COCO file has no `color` key and falls through to the palette in
-    `_ensure_labels`, unchanged.
-    """
-    images_by_id = {img["id"]: img for img in data.get("images", [])}
-    categories_by_id = {
-        c["id"]: (c.get("name", "object"), c.get("color"))
-        for c in data.get("categories", [])
-    }
-
-    out = defaultdict(list)
-    for ann in data.get("annotations", []):
-        img = images_by_id.get(ann.get("image_id"))
-        if not img or not img.get("file_name"):
-            continue
-        label_name, label_color = categories_by_id.get(ann.get("category_id"), ("object", None))
-        seg = ann.get("segmentation")
-        if seg and isinstance(seg, list) and seg and isinstance(seg[0], list):
-            groups = seg
-        elif ann.get("bbox"):
-            groups = [None]  # sentinel: use bbox directly below
-        else:
-            continue
-
-        for group in groups:
-            points = _points_from_segmentation(group) if group is not None else _points_from_bbox(ann["bbox"])
-            if len(points) < 2:
-                continue
-            x, y, w, h = _bbox_of(points)
-            out[img["file_name"]].append({
-                "id": uuid.uuid4().hex, "labelName": label_name,
-                "labelColor": label_color,  # preserved for label creation
-                "points": points, "x": _round(x), "y": _round(y),
-                "width": _round(w), "height": _round(h),
-            })
-    return out
-
-
-def _parse_native(data) -> Dict[str, List[dict]]:
-    """The app's own per-task export: a list of `{name, annotations: [...]}`.
-
-    Each annotation already carries `labelId`; since the target project's
-    label ids will not match the source project's, only `title`/`value` (the
-    label's display name at export time) survive the round trip.
-    """
-    # Handle three cases:
-    # 1. A list of task objects: [{name, annotations}, ...]
-    # 2. A dict with "tasks" key: {tasks: [{name, annotations}, ...]}
-    # 3. A single task object (FastLabel per-task format): {name, annotations: [...]}
-    if isinstance(data, list):
-        items = data
-    elif isinstance(data, dict) and "tasks" in data:
-        items = data["tasks"]
-    elif isinstance(data, dict) and "name" in data and "annotations" in data:
-        # Single per-task object - wrap in a list
-        items = [data]
-    else:
-        items = []
-    
-    out = {}
-    for item in items:
-        name = item.get("name")
-        if not name:
-            continue
-        anns = []
-        for a in item.get("annotations", []):
-            pts = a.get("points")
-            if not pts:
-                continue
-            # buildExportAnnotation() flattens to [x1,y1,x2,y2,...]; the
-            # canvas's own annotations are already {x,y} dicts.
-            if pts and isinstance(pts[0], (int, float)):
-                points = _points_from_segmentation(pts)
-            else:
-                points = [{"x": _round(p["x"]), "y": _round(p["y"])} for p in pts]
-            if len(points) < 2:
-                continue
-            x, y, w, h = _bbox_of(points)
-            # Use title (display name) first, fallback to value/labelName
-            label_name = a.get("title") or a.get("value") or a.get("labelName") or "object"
-            anns.append({
-                "id": uuid.uuid4().hex, 
-                "labelName": label_name,
-                "labelColor": a.get("color"),  # Preserve color for label creation
-                "points": points, "x": _round(x), "y": _round(y),
-                "width": _round(w), "height": _round(h),
-            })
-        if anns:
-            out[name] = anns
-    return out
+# Parsing lives in formats/, each alongside the builder it has to agree with.
+# The geometry helpers that used to sit here moved to formats/common.py.
+_parse_coco = coco_format.parse
+_parse_native = annotations_json.parse
 
 
 # Zip-bomb guards. This endpoint takes an upload from any authenticated user,
@@ -283,45 +175,75 @@ def _match_to_tasks(by_filename: Dict[str, List[dict]], project_id: int, db: Ses
     return matched, unmatched
 
 
+# Keys a parser attaches to carry class identity through label resolution.
+# They are stripped before the annotation is stored — the task's annotations
+# reference a labelId, not a name.
+_TRANSIENT_KEYS = ("labelName", "labelColor", "labelValue")
+
+
+def _label_key(a: dict) -> str:
+    """The key an annotation's class resolves under, case-insensitive."""
+    return (a.get("labelName") or "object").lower()
+
+
 def _resolve_label_ids(by_filename: Dict[str, List[dict]], project_id: int, db: Session) -> Dict[str, str]:
     """Map label name (case-insensitive) -> label id, creating missing labels.
 
     Import must not silently drop annotations because their class doesn't
     exist yet in the target project; it creates the label instead, consistent
     with the Classes import behaviour in labels.py.
-    
-    Uses the color from the annotation if provided, otherwise falls back to palette.
+
+    An existing label is matched on its display name *or* its derived the interop format
+    `value`. An interop COCO export puts the value form in `supercategory`
+    ("RustArea") while its per-task JSON uses the display name ("Rust Area"),
+    so importing both files from one source project used to create two
+    labels for the same class. Matching on either collapses them.
+
+    Uses the color from the annotation if provided, otherwise falls back to the
+    palette.
     """
-    existing = {l.name.lower(): l.id for l in db.query(models.Label).filter(models.Label.project_id == project_id).all()}
+    labels = db.query(models.Label).filter(models.Label.project_id == project_id).all()
+    existing = {l.name.lower(): l.id for l in labels}
+    # Secondary index: value form -> id. Only consulted when the display name
+    # does not match, so an exact name match always wins.
+    by_value = {value_from_name(l.name).lower(): l.id for l in labels}
+
     palette = ["#ef4444", "#f97316", "#eab308", "#22c55e", "#0f8b8d", "#3b82f6", "#8b5cf6", "#ec4899"]
     i = len(existing)
-    
+
     # Track which labels we've seen (first occurrence wins for color)
     labels_to_create = {}
-    
+
     for anns in by_filename.values():
         for a in anns:
-            key = a["labelName"].lower()
-            if key not in existing and key not in labels_to_create:
-                # Use annotation color if provided, otherwise use palette
-                color = a.get("labelColor") or palette[i % len(palette)]
-                labels_to_create[key] = {
-                    "name": a["labelName"],
-                    "color": color
-                }
-                i += 1
-    
+            key = _label_key(a)
+            if key in existing or key in labels_to_create:
+                continue
+            # The incoming name may itself be a value form, or the file may
+            # report the value separately — try both against existing labels.
+            candidates = [value_from_name(a.get("labelName") or "").lower()]
+            if a.get("labelValue"):
+                candidates.append(a["labelValue"].lower())
+            matched = next((by_value[c] for c in candidates if c in by_value), None)
+            if matched:
+                existing[key] = matched
+                continue
+
+            color = a.get("labelColor") or palette[i % len(palette)]
+            labels_to_create[key] = {"name": a.get("labelName") or "object", "color": color}
+            i += 1
+
     # Create all new labels
     for key, label_data in labels_to_create.items():
         new_label = models.Label(
-            id=uuid.uuid4().hex, 
-            name=label_data["name"], 
-            color=label_data["color"], 
+            id=uuid.uuid4().hex,
+            name=label_data["name"],
+            color=label_data["color"],
             project_id=project_id
         )
         db.add(new_label)
         existing[key] = new_label.id
-    
+
     return existing
 
 
@@ -344,9 +266,19 @@ async def preview_annotation_import(
         raise HTTPException(status_code=422, detail="No recognizable annotations found in the uploaded file.")
 
     matched, unmatched = _match_to_tasks(by_filename, projectId, db)
-    label_names = sorted({a["labelName"] for anns in by_filename.values() for a in anns})
-    existing_names = {l.name.lower() for l in db.query(models.Label).filter(models.Label.project_id == projectId).all()}
-    new_labels = [n for n in label_names if n.lower() not in existing_names]
+
+    # Which classes this import would create, using the same name-or-value
+    # matching the apply path uses — otherwise the preview would promise a new
+    # label that the import then resolves to an existing one.
+    labels = db.query(models.Label).filter(models.Label.project_id == projectId).all()
+    existing_names = {l.name.lower() for l in labels}
+    existing_values = {value_from_name(l.name).lower() for l in labels}
+
+    new_labels = []
+    for name in sorted({a.get("labelName") or "object" for anns in by_filename.values() for a in anns}):
+        if name.lower() in existing_names or value_from_name(name).lower() in existing_values:
+            continue
+        new_labels.append(name)
 
     return {
         "matched": matched,
@@ -386,7 +318,8 @@ async def import_annotations(
         task = tasks_by_id[m["task_id"]]
         anns = by_filename[m["filename"]]
         resolved = [
-            {**{k: v for k, v in a.items() if k not in ("labelName", "labelColor")}, "labelId": label_ids[a["labelName"].lower()]}
+            {**{k: v for k, v in a.items() if k not in _TRANSIENT_KEYS},
+             "labelId": label_ids[_label_key(a)]}
             for a in anns
         ]
 
