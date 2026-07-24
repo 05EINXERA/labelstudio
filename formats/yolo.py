@@ -248,13 +248,19 @@ def parse_archive(entries: Dict[str, bytes]) -> Dict[str, List[dict]]:
 
 
 def looks_like_archive(names: Sequence[str]) -> bool:
-    """True when an archive's entry names look like a YOLO export.
+    """True when an archive's entry names look like a YOLO export attempt.
 
-    Used for container detection: a classes.txt plus at least one .txt label
-    file. Checked before the generic JSON walk so the archive is routed here
-    rather than falling through as "nothing recognizable".
+    Used for container detection, checked before the generic JSON walk so a
+    YOLO archive is routed here rather than falling through as "nothing
+    recognizable".
+
+    The signal is: at least one .txt label file, and nothing that looks like
+    one of the JSON formats. classes.txt is deliberately *not* required — an
+    archive of label files with it missing is still a YOLO import, just a
+    broken one, and parse_archive raises a message that says so. Requiring it
+    here would send that case to the generic error instead.
     """
     bases = [posixpath.basename(n.replace("\\", "/")).lower() for n in names]
-    has_classes = CLASSES_FILE in bases
-    has_labels = any(b.endswith(".txt") and b != CLASSES_FILE for b in bases)
-    return has_classes and has_labels
+    has_txt_labels = any(b.endswith(".txt") and b != CLASSES_FILE for b in bases)
+    has_json = any(b.endswith(".json") for b in bases)
+    return has_txt_labels and not has_json
