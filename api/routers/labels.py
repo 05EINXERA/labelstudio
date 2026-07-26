@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 
 import models
-from database import get_db
+from database import get_db, commit_with_retry
 from api.uploads import read_capped
 from schemas import LabelModel, LabelBulkUpsert, LabelBulkDelete, LabelBulkResult, LabelImportResult
 from api.auth import get_current_user, require_csrf
@@ -75,7 +75,7 @@ def create_or_update_label(label: LabelModel, db: Session = Depends(get_db), use
     else:
         db_label = models.Label(id=label.id, name=label.name, color=label.color, project_id=label.projectId)
         db.add(db_label)
-    db.commit()
+    commit_with_retry(db)
     return {"status": "ok", "id": db_label.id}
 
 @router.post("/bulk", response_model=LabelBulkResult)
@@ -109,10 +109,8 @@ def bulk_upsert_labels(payload: LabelBulkUpsert, db: Session = Depends(get_db), 
             db.add(models.Label(id=label.id, name=label.name, color=label.color, project_id=payload.projectId))
             created += 1
 
-    db.commit()
+    commit_with_retry(db)
     return LabelBulkResult(created=created, updated=updated)
-
-
 @router.post("/bulk-delete")
 def bulk_delete_labels(payload: LabelBulkDelete, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     get_owned_project(payload.projectId, user, db)
@@ -129,7 +127,7 @@ def bulk_delete_labels(payload: LabelBulkDelete, db: Session = Depends(get_db), 
         .filter(models.Label.project_id == payload.projectId, models.Label.id.in_(payload.ids))
         .delete(synchronize_session=False)
     )
-    db.commit()
+    commit_with_retry(db)
     return {"status": "ok", "deleted": deleted, "annotationsDeleted": annotations_deleted}
 
 
@@ -337,7 +335,7 @@ async def import_labels(
             by_name[key] = row
             created += 1
 
-    db.commit()
+    commit_with_retry(db)
     final = db.query(models.Label).filter(models.Label.project_id == projectId).order_by(models.Label.name).all()
     return LabelImportResult(
         created=created, updated=updated, skipped=skipped,
@@ -355,5 +353,5 @@ def delete_label(label_id: str, projectId: int = Query(...), db: Session = Depen
     if db_label:
         annotations_deleted = purge_annotations_for_labels(projectId, {db_label.id}, db)
         db.delete(db_label)
-        db.commit()
+        commit_with_retry(db)
     return {"status": "ok", "annotationsDeleted": annotations_deleted}

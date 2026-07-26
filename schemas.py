@@ -209,6 +209,25 @@ class ExportJobStatus(BaseModel):
     task_count: Optional[int] = None
 
 
+class TaskDetail(BaseModel):
+    """Single-task response for GET /api/tasks/{id} — includes annotations.
+
+    The list endpoint (GET /api/tasks) returns annotation-free rows for the
+    gallery shell; this endpoint hydrates the one task that was actually
+    opened, keeping the initial page load small (T1.1).
+    """
+    model_config = {"from_attributes": True}
+
+    id: int
+    description: Optional[str] = None
+    assignee: Optional[str] = None
+    image_path: Optional[str] = None
+    status: Optional[str] = None
+    time_spent: Optional[int] = None
+    updated_at: Optional[datetime] = None
+    annotations: List[Any] = Field(default_factory=list)
+
+
 class UserCreate(BaseModel):
     username: str = Field(min_length=1, max_length=64)
     password: str

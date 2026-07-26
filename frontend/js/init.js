@@ -1,4 +1,4 @@
-import { generateUUID, clamp, round, normalizeClassName, formatTime } from "./utils.js?v=1";
+import { generateUUID, clamp, round, normalizeClassName, formatTime, clientId } from "./utils.js?v=1";
 import { apiFetch, pollJob } from "./api.js?v=1";
 import {
   state, snapshot, resetWorkspaceForNewImage
@@ -26,6 +26,7 @@ import {
 import { initContextMenu } from "./canvas/context-menu.js?v=1";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
 import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=1";
+import { claimTask, heartbeatTask, releaseTask } from "./task-lock.js?v=1";
 
 if (!localStorage.getItem('logged_in')) {
   window.location.href = '/';
@@ -55,15 +56,25 @@ function flushPendingSaves({ useBeacon = false } = {}) {
   syncTimeToServer({ useBeacon });
 }
 
+function _releaseCurrentLock({ useBeacon = false } = {}) {
+  // T2.2 — release the soft lock on the open task on page hide / unload.
+  const task = state.gallery && state.galleryIndex >= 0
+    ? state.gallery[state.galleryIndex] : null;
+  if (task && task.id) {
+    releaseTask(task.id, clientId(), { useBeacon });
+  }
+}
+
 window.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') {
-    // The page may never come back, so this flush must survive unload too.
     flushPendingSaves({ useBeacon: true });
+    _releaseCurrentLock({ useBeacon: true });
   }
 });
 
 window.addEventListener('pagehide', () => {
   flushPendingSaves({ useBeacon: true });
+  _releaseCurrentLock({ useBeacon: true });
 });
 
 function resizeCanvas() {
@@ -119,15 +130,18 @@ function loadImageFromSource(src, name, { autoDetect = false } = {}) {
     render();
     if (autoDetect) {
       await autoDetectObjects({ replace: true });
-    } else {
-      save();
     }
+    // No save() here. Saving on image load sent a write with whatever
+    // updated_at token was in state at that instant — frequently stale —
+    // producing a spurious 409 on every task open. Annotation changes
+    // call save() themselves; the timer drain handles time accounting.
+    // (Fix for the looping conflict dialog bug — T1.3 regression.)
   };
   view.imageElement.src = src;
 }
 
 
-function switchImage(index) {
+async function switchImage(index) {
   if (index < 0 || index >= state.gallery.length) return;
   if (state.galleryIndex >= 0 && state.gallery[state.galleryIndex]) {
     const prevTask = state.gallery[state.galleryIndex];
@@ -135,6 +149,8 @@ function switchImage(index) {
     // Drains the accumulator against the outgoing task. Bound to prevTask, so
     // it stays correct even though galleryIndex moves before it resolves.
     syncTaskTime(prevTask);
+    // T2.2 — release the soft lock on the outgoing task.
+    releaseTask(prevTask.id, clientId());
   }
   state.galleryIndex = index;
   // Session time is per-task: the new task starts a fresh session, and the
@@ -144,6 +160,44 @@ function switchImage(index) {
 
   snapshot();
   resetWorkspaceForNewImage();
+
+  // T1.3 — Hydrate annotations on demand.
+  // The gallery list is fetched annotation-free (include_annotations=false),
+  // so each task carries an empty annotations array until it is opened. Fetch
+  // the full task now — one small request instead of the whole project blob
+  // on every page load. The draft wins if it differs from the server copy,
+  // which is the correct recovery behaviour (same as before).
+  if (item.id) {
+    try {
+      const res = await apiFetch(`/api/tasks/${item.id}`);
+      if (res && res.ok) {
+        const detail = await res.json();
+        // Write the server copy into the gallery slot so subsequent switches
+        // don't re-fetch unnecessarily.
+        item.annotations = Array.isArray(detail.annotations) ? detail.annotations : [];
+        // Always refresh the concurrency token from the server response —
+        // omitting this was the root of the annotation-loss bug.
+        if (detail.updated_at) item.updated_at = detail.updated_at;
+        if (detail.time_spent != null) item.time_spent = detail.time_spent;
+      }
+    } catch (e) {
+      console.error("Failed to hydrate task annotations:", e);
+    }
+
+    // T2.2 — claim the soft lock on the new task.
+    // If another annotator already holds it, warn but don't block.
+    try {
+      const lock = await claimTask(item.id, clientId());
+      if (lock.status === 'locked') {
+        const secsLeft = lock.seconds_remaining || 60;
+        setStatus(`⚠ Task in use by another annotator (~${secsLeft}s remaining)`);
+      }
+    } catch (e) {
+      // Lock errors are never fatal — annotation can continue.
+      console.warn('[task-lock] claim on open failed:', e);
+    }
+  }
+
   state.annotations = [...item.annotations];
   // Recover anything this browser had for the task that never reached the
   // server (refresh mid-edit, failed save, unresolved conflict). Applied after
@@ -165,10 +219,10 @@ function updateGalleryUI() {
 }
 
 if (prevImageButton) {
-  prevImageButton.addEventListener("click", () => switchImage(state.galleryIndex - 1));
+  prevImageButton.addEventListener("click", () => { switchImage(state.galleryIndex - 1); });
 }
 if (nextImageButton) {
-  nextImageButton.addEventListener("click", () => switchImage(state.galleryIndex + 1));
+  nextImageButton.addEventListener("click", () => { switchImage(state.galleryIndex + 1); });
 }
 
 drawMode.addEventListener("click", () => {
@@ -382,7 +436,7 @@ window.addEventListener("resize", resizeCanvas);
 // single global key, so a second tab editing a different task would overwrite
 // this tab's in-memory annotations with unrelated ones.
 
-// A genuine conflict means another client saved this task since we loaded it.
+// A genuine conflict means another browser wrote this task since we loaded it.
 // The user decides: keep editing (and overwrite on the next save) or reload
 // the server's copy. Either way their work stays in the local draft, so the
 // destructive old behaviour — disabling saves outright — cannot recur.
@@ -396,8 +450,8 @@ setConflictHandler((task) => {
   if (reload) {
     window.location.reload();
   } else {
-    // Drop the stale token so the next save is accepted as a deliberate
-    // overwrite rather than looping on the same conflict.
+    // Null token: next save is accepted as a deliberate overwrite rather than
+    // looping on the same conflict.
     task.updated_at = null;
     setStatus("Keeping your version — will overwrite on next save");
   }
@@ -559,39 +613,25 @@ if (clearDataBtn) {
   });
 }
 
-// Team Validation Modal Logic
+// T3.2 — Annotator name prompt: advisory free-text, no server validation.
+// Under the shared account we can't verify names against /api/team because
+// everyone logs in as the same user; the name is purely a local label used
+// for display and assignment convention.
 const teamValidationForm = document.getElementById("teamValidationForm");
 if (teamValidationForm) {
-  teamValidationForm.addEventListener("submit", async (e) => {
+  teamValidationForm.addEventListener("submit", (e) => {
     e.preventDefault();
     const nameInput = document.getElementById("teamValidationName").value.trim();
-    const errorDiv = document.getElementById("teamValidationError");
+    if (!nameInput) return;
 
-    let team = [];
-    try {
-      const res = await apiFetch('/api/team');
-      if (res.ok) {
-        const data = await res.json();
-        team = data.map(t => t.name);
-      }
-    } catch (err) {
-      console.error(err);
-    }
+    localStorage.setItem('dataset_username', nameInput);
 
-    if (team.includes(nameInput)) {
-      errorDiv.style.display = "none";
-      localStorage.setItem('dataset_username', nameInput);
-      currentUserForTimer = nameInput;
+    const displayUser = document.getElementById("displayUsername");
+    if (displayUser) displayUser.textContent = nameInput;
 
-      const displayUser = document.getElementById("displayUsername");
-      if (displayUser) displayUser.textContent = nameInput;
-
-      document.getElementById("teamValidationModal").classList.remove("is-active");
-      const userPanel = document.getElementById("userPanel");
-      if (userPanel) userPanel.style.display = "block";
-    } else {
-      errorDiv.style.display = "block";
-    }
+    document.getElementById("teamValidationModal").classList.remove("is-active");
+    const userPanel = document.getElementById("userPanel");
+    if (userPanel) userPanel.style.display = "block";
   });
 }
 
@@ -648,14 +688,20 @@ async function initWorkspaceContext() {
 async function loadWorkspaceTasks() {
   if (!projectId) return;
   try {
-    const res = await apiFetch(`/api/tasks?projectId=${projectId}`);
+    // T1.2 — Fetch the gallery shell without annotation blobs. At 25 clients
+    // each refreshing at shift start, shipping every task's full annotation
+    // JSON through one process was O(project size × clients). The per-task
+    // detail endpoint (GET /api/tasks/{id}) hydrates annotations when the
+    // task is actually opened (switchImage → T1.3).
+    const res = await apiFetch(`/api/tasks?projectId=${projectId}&include_annotations=false`);
     if (res.ok) {
       const tasks = await res.json();
       state.gallery = tasks.map(t => ({
         id: t.id,
         name: t.description,
         url: "/" + t.image_path.replace(/\\/g, "/"),
-        annotations: t.annotations || [],
+        // Starts empty; hydrated on open via GET /api/tasks/{id}.
+        annotations: [],
         width: 0,
         height: 0,
         status: t.status,
@@ -663,13 +709,8 @@ async function loadWorkspaceTasks() {
         // Persisted per-task total; the workspace "Total" readout is scoped to
         // the open task, so it needs this as its base.
         time_spent: t.time_spent || 0,
-        // Optimistic-concurrency token. Omitting this was the root of the
-        // annotation-loss bug: without it every save sent `updated_at:
-        // undefined`, which JSON.stringify drops, so the first save skipped
-        // the conflict check and only later saves carried a timestamp — one
-        // that the beacon path could never refresh. The resulting 409 then
-        // disabled saving for the task. See
-        // .devnotes/deployment-hardening/04_ANNOTATION_SAVE_LOSS.md.
+        // Optimistic-concurrency token — refreshed from the detail fetch on
+        // open, but initialised here so the field is always present.
         updated_at: t.updated_at || null
       }));
 
@@ -681,7 +722,7 @@ async function loadWorkspaceTasks() {
           const foundIndex = state.gallery.findIndex(t => t.id == targetTaskId);
           if (foundIndex !== -1) initialIndex = foundIndex;
         }
-        switchImage(initialIndex);
+        await switchImage(initialIndex);
       } else {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         updateGalleryUI();
@@ -707,6 +748,16 @@ document.addEventListener('DOMContentLoaded', () => {
     if (state.galleryIndex < 0 || !state.gallery) return null;
     return state.gallery[state.galleryIndex] || null;
   });
+
+  // T2.2 — heartbeat: refresh the soft lock every 30 s while a task is open.
+  setInterval(() => {
+    const task = state.gallery && state.galleryIndex >= 0
+      ? state.gallery[state.galleryIndex] : null;
+    if (task && task.id) {
+      heartbeatTask(task.id, clientId()).catch(() => {});
+    }
+  }, 30_000);
+
   initWorkspaceContext();
   fetchLabels();
   if (projectId) {
@@ -757,7 +808,7 @@ const tcOk = document.getElementById('taskCompletedOkBtn');
 function closeTaskCompletedModal() {
   if (tcModal) tcModal.classList.remove('is-active');
   if (state.galleryIndex < state.gallery.length - 1) {
-    switchImage(state.galleryIndex + 1);
+    switchImage(state.galleryIndex + 1); // async; no await needed here — fire and continue
   }
 }
 

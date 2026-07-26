@@ -165,3 +165,100 @@ def test_writes_without_client_id_still_work(client, alice):
         "updated_at": task["updated_at"],
     }, headers=alice)
     assert res.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# T1.1 / T1.4 — GET /api/tasks/{id} (per-task detail endpoint)
+# ---------------------------------------------------------------------------
+
+def test_get_task_by_id_returns_200_with_annotations(client, alice):
+    """T1.1: the per-task endpoint must return the task with its annotations."""
+    project_id = _project(client, alice)
+    task = _create_task(client, alice, project_id)
+
+    # Write some annotations via the save path so there is something to read back.
+    client.post("/api/tasks", json={
+        "id": task["id"], "annotations": _annotations(3),
+        "updated_at": task["updated_at"], "client_id": "tab-A",
+    }, headers=alice)
+
+    res = client.get(f"/api/tasks/{task['id']}", headers=alice)
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["id"] == task["id"]
+    assert len(body["annotations"]) == 3
+
+
+def test_get_task_by_id_exposes_updated_at(client, alice):
+    """T1.4: updated_at must survive the round-trip through the detail endpoint.
+
+    This field going missing was the original cause of the annotation-loss bug
+    (the save payload silently omitted it, disabling conflict detection).
+    """
+    project_id = _project(client, alice)
+    task = _create_task(client, alice, project_id)
+
+    res = client.get(f"/api/tasks/{task['id']}", headers=alice)
+    assert res.status_code == 200
+    assert res.json().get("updated_at"), "GET /api/tasks/{id} must expose updated_at"
+
+
+def test_get_task_by_id_returns_404_for_nonexistent(client, alice):
+    """T1.1: a missing task id must 404, not 500."""
+    res = client.get("/api/tasks/999999", headers=alice)
+    assert res.status_code == 404
+
+
+def test_get_task_by_id_returns_404_for_other_users_task(client, alice, bob):
+    """T1.1: ownership is enforced — bob cannot read alice's task."""
+    project_id = _project(client, alice)
+    task = _create_task(client, alice, project_id)
+
+    res = client.get(f"/api/tasks/{task['id']}", headers=bob)
+    assert res.status_code == 404
+
+
+def test_get_tasks_list_is_annotation_free_by_default(client, alice):
+    """T1.2: the list endpoint must not ship annotation blobs when
+    include_annotations=false, keeping the gallery load lightweight."""
+    project_id = _project(client, alice)
+    task = _create_task(client, alice, project_id)
+
+    # Write annotations so there is definitely something to omit.
+    client.post("/api/tasks", json={
+        "id": task["id"], "annotations": _annotations(5),
+        "updated_at": task["updated_at"], "client_id": "tab-A",
+    }, headers=alice)
+
+    rows = client.get(
+        f"/api/tasks?projectId={project_id}&include_annotations=false",
+        headers=alice,
+    ).json()
+    assert rows[0]["annotations"] == [], (
+        "include_annotations=false must return empty annotation lists"
+    )
+
+
+def test_get_task_by_id_updated_at_matches_after_save(client, alice):
+    """T1.4: the token returned by GET /{id} must match what POST returned,
+    so the next save uses a fresh token and does not 409 against itself."""
+    project_id = _project(client, alice)
+    task = _create_task(client, alice, project_id)
+
+    save_res = client.post("/api/tasks", json={
+        "id": task["id"], "annotations": _annotations(2),
+        "updated_at": task["updated_at"], "client_id": "tab-A",
+    }, headers=alice)
+    assert save_res.status_code == 200
+    token_from_save = save_res.json()["updated_at"]
+
+    detail = client.get(f"/api/tasks/{task['id']}", headers=alice).json()
+    # The token from GET /{id} must be usable in the next save without a 409.
+    follow_up = client.post("/api/tasks", json={
+        "id": task["id"], "annotations": _annotations(4),
+        "updated_at": detail["updated_at"], "client_id": "tab-A",
+    }, headers=alice)
+    assert follow_up.status_code == 200, (
+        f"Token from GET /{task['id']} should be accepted as fresh; "
+        f"save token was {token_from_save!r}, detail token was {detail['updated_at']!r}"
+    )
