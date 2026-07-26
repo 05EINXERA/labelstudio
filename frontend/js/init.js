@@ -23,6 +23,7 @@ import {
 import {
   finalizePolygon, deleteSelected, undoAction, redoAction, setZoomChangeHandler
 } from "./canvas/interactions.js?v=1";
+import { initContextMenu } from "./canvas/context-menu.js?v=1";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
 import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=1";
 
@@ -313,6 +314,51 @@ document.addEventListener("click", (e) => {
     aiSettingsDropdownContainer.classList.remove("show");
   }
 });
+
+// --- Move Objects lock/unlock toggle -----------------------------------
+const moveObjectsDropdownContainer = document.querySelector("#moveObjectsDropdownContainer");
+const moveObjectsMenuButton = document.querySelector("#moveObjectsMenuButton");
+const moveObjectsToggle = document.querySelector("#moveObjectsToggle");
+
+// Keep the toolbar button, the switch, and the hint in sync with state so the
+// lock status reads the same everywhere it is shown.
+function renderMoveObjectsUI() {
+  const on = state.moveObjectsUnlocked;
+  if (moveObjectsToggle) {
+    moveObjectsToggle.classList.toggle("is-on", on);
+    moveObjectsToggle.setAttribute("aria-checked", on ? "true" : "false");
+  }
+  if (moveObjectsMenuButton) {
+    const icon = moveObjectsMenuButton.querySelector(".btn-icon");
+    const label = moveObjectsMenuButton.querySelector(".btn-label");
+    if (icon) icon.textContent = on ? "🔓" : "🔒";
+    if (label) label.textContent = on ? "Unlocked" : "Locked";
+    moveObjectsMenuButton.classList.toggle("is-active", on);
+  }
+}
+
+if (moveObjectsMenuButton) {
+  moveObjectsMenuButton.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const open = moveObjectsDropdownContainer.classList.toggle("show");
+    moveObjectsMenuButton.setAttribute("aria-expanded", open ? "true" : "false");
+  });
+}
+if (moveObjectsToggle) {
+  moveObjectsToggle.addEventListener("click", (e) => {
+    e.stopPropagation();
+    state.moveObjectsUnlocked = !state.moveObjectsUnlocked;
+    renderMoveObjectsUI();
+    setStatus(state.moveObjectsUnlocked ? "Move Objects: On" : "Move Objects: Off");
+  });
+}
+document.addEventListener("click", (e) => {
+  if (moveObjectsDropdownContainer && !moveObjectsDropdownContainer.contains(e.target)) {
+    moveObjectsDropdownContainer.classList.remove("show");
+    if (moveObjectsMenuButton) moveObjectsMenuButton.setAttribute("aria-expanded", "false");
+  }
+});
+renderMoveObjectsUI();
 
 autoDetectButton.addEventListener("click", () => autoDetectObjects({ replace: true }));
 if (autoTagButton) {
@@ -651,6 +697,7 @@ async function loadWorkspaceTasks() {
 
 document.addEventListener('DOMContentLoaded', () => {
   initSidebarResize();
+  initContextMenu();
   setZoomChangeHandler(updateZoomDisplay);
   initZoomControl();
   // Resolves the open task, or null. Task time is only billed while a task is

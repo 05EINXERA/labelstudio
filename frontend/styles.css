@@ -595,6 +595,109 @@ h2 {
   display: block;
 }
 
+/* Right-click z-order menu. Shares the dropdown's panel look but is positioned
+   at the cursor in viewport space (fixed) rather than relative to a trigger. */
+.context-menu {
+  display: none;
+  position: fixed;
+  z-index: 1000;
+  min-width: 190px;
+  background-color: #fff;
+  box-shadow: 0px 8px 16px 0px rgba(0, 0, 0, 0.15);
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  padding: 4px 0;
+}
+
+.context-menu button {
+  color: var(--ink);
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  min-height: 32px;
+  font-weight: 500;
+  font-size: 0.85rem;
+}
+
+.context-menu button:hover {
+  background-color: var(--surface);
+}
+
+.context-menu-hint {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+/* Move Objects dropdown menu */
+.move-objects-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  white-space: nowrap;
+}
+
+.move-objects-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+/* On/off pill switch, reused wherever a boolean toggle is needed. The many
+   !important flags override the generic .dropdown-content button rules this
+   switch inherits by virtue of living inside the menu. */
+.switch {
+  position: relative;
+  width: 40px !important;
+  height: 22px !important;
+  min-height: 22px !important;
+  flex-shrink: 0;
+  padding: 0 !important;
+  margin: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--line);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.switch .switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: transform 0.15s ease;
+}
+
+/* On = blue, and it stays blue on hover (the inherited button:hover would
+   otherwise repaint it grey). */
+.switch.is-on,
+.switch.is-on:hover {
+  background: #2563eb !important;
+}
+
+.switch.is-on .switch-knob {
+  transform: translateX(18px);
+}
+
+.switch:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
 .label-list,
 .classes-list,
 .annotation-list {
