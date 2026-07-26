@@ -1,0 +1,10 @@
+2026-07-26 10:15:54,915 INFO     main: CORS_ORIGINS not set; cross-origin requests are not permitted.
+2026-07-26 10:21:32,385 INFO     main: CORS_ORIGINS not set; cross-origin requests are not permitted.
+2026-07-26 11:01:52,242 INFO     main: CORS_ORIGINS not set; cross-origin requests are not permitted.
+2026-07-26 11:03:03,576 INFO     main: CORS_ORIGINS not set; cross-origin requests are not permitted.
+2026-07-26 11:03:57,751 WARNING  api.routers.auth: Failed login for username='badal' from 127.0.0.1
+2026-07-26 11:04:06,213 WARNING  api.routers.auth: Failed login for username='badal11' from 127.0.0.1
+2026-07-26 11:04:06,955 WARNING  api.routers.auth: Failed login for username='badal11' from 127.0.0.1
+2026-07-26 11:04:07,516 WARNING  api.routers.auth: Failed login for username='badal11' from 127.0.0.1
+2026-07-26 11:10:10,309 INFO     main: CORS_ORIGINS not set; cross-origin requests are not permitted.
+2026-07-26 11:20:47,487 INFO     main: CORS_ORIGINS not set; cross-origin requests are not permitted.
