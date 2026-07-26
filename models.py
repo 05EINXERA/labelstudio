@@ -3,8 +3,10 @@ from database import Base
 
 class WorkspaceData(Base):
     __tablename__ = "workspace_data"
-    key = Column(String, primary_key=True, index=True)
+    key = Column(String, primary_key=True)
+    owner_id = Column(Integer, ForeignKey("users.id"), primary_key=True, index=True)
     value = Column(Text)
+
 
 class Project(Base):
     __tablename__ = "projects"
