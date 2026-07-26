@@ -48,7 +48,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 
 import models
-from database import get_db
+from database import get_db, commit_with_retry
 from api.uploads import read_capped
 from api.auth import get_current_user, require_csrf
 from api.routers.projects import get_owned_project
@@ -449,7 +449,7 @@ async def import_annotations(
         applied += 1
         annotations_imported += len(resolved)
 
-    db.commit()
+    commit_with_retry(db)
     return {
         "status": "ok",
         "tasks_updated": applied,
