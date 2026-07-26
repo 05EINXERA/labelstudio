@@ -111,10 +111,16 @@ export function updateCanvasCursor(point) {
         return;
       }
     }
-    if (hitTest(point)) {
-      // "pointer", not "move": a finished annotation can be selected but not
-      // dragged as a whole, and a move cursor would promise otherwise.
-      canvas.style.cursor = "pointer";
+    const hoverId = hitTest(point);
+    if (hoverId) {
+      // With Move Objects unlocked, hovering the interior of an already-selected
+      // shape promises a drag, so show "move". Otherwise a finished annotation
+      // can only be selected, and "pointer" is the honest cursor.
+      if (state.moveObjectsUnlocked && state.selectedIds.has(hoverId)) {
+        canvas.style.cursor = "move";
+      } else {
+        canvas.style.cursor = "pointer";
+      }
       return;
     }
   }
@@ -297,6 +303,110 @@ export function deleteSelected() {
   view.hoveredPointIndex = -1;
   render();
   save();
+}
+
+// --- Z-order (stacking) --------------------------------------------------
+//
+// Annotations paint in state.annotations array order (later = on top), and
+// hitTest() walks the array backwards, so the topmost-painted shape wins a
+// click. Reordering the array is therefore the whole feature: it changes both
+// what is drawn on top and what is selectable first, and — because the array
+// is persisted verbatim by save() — it survives reloads with no schema change.
+//
+// The selected annotations move as a single contiguous block, preserving
+// their relative order, so a multi-select or a group never gets interleaved
+// with the shapes it passes.
+
+// Split state.annotations into the selected block (relative order kept) and
+// the unselected remainder. Returns null when there is nothing to move.
+function partitionBySelection() {
+  if (state.selectedIds.size === 0) return null;
+  const selected = [];
+  const others = [];
+  state.annotations.forEach((a) => {
+    if (state.selectedIds.has(a.id)) selected.push(a);
+    else others.push(a);
+  });
+  if (selected.length === 0) return null;
+  return { selected, others };
+}
+
+// Commit a new array order and persist it, mirroring every other mutating
+// action in this file (snapshot already taken by the caller).
+function applyReorder(next) {
+  state.annotations = next;
+  render();
+  save();
+}
+
+export function sendToBack() {
+  const parts = partitionBySelection();
+  if (!parts) return;
+  // Already at the very back: the selected block occupies indices 0..n-1.
+  const alreadyBack = state.annotations
+    .slice(0, parts.selected.length)
+    .every((a) => state.selectedIds.has(a.id));
+  if (alreadyBack) return;
+  snapshot();
+  applyReorder([...parts.selected, ...parts.others]);
+  setStatus("Sent to back");
+}
+
+export function bringToFront() {
+  const parts = partitionBySelection();
+  if (!parts) return;
+  const n = parts.selected.length;
+  const alreadyFront = state.annotations
+    .slice(state.annotations.length - n)
+    .every((a) => state.selectedIds.has(a.id));
+  if (alreadyFront) return;
+  snapshot();
+  applyReorder([...parts.others, ...parts.selected]);
+  setStatus("Brought to front");
+}
+
+// Move the selected block one step towards index 0 (visually backwards): drop
+// it just before the nearest unselected neighbour above it. No-op when the
+// block is already at the back.
+export function sendBackward() {
+  const parts = partitionBySelection();
+  if (!parts) return;
+  // Index in the full array of the first selected annotation.
+  const firstSel = state.annotations.findIndex((a) => state.selectedIds.has(a.id));
+  if (firstSel <= 0) return; // already at the back
+  // Insert the block one position earlier among the unselected remainder.
+  const insertAt = firstSel - 1;
+  snapshot();
+  const next = [...parts.others];
+  next.splice(insertAt, 0, ...parts.selected);
+  applyReorder(next);
+  setStatus("Sent backward");
+}
+
+// Move the selected block one step towards the end (visually forwards): drop
+// it just after the nearest unselected neighbour below it. No-op when the
+// block is already at the front.
+export function bringForward() {
+  const parts = partitionBySelection();
+  if (!parts) return;
+  let lastSel = -1;
+  for (let i = state.annotations.length - 1; i >= 0; i -= 1) {
+    if (state.selectedIds.has(state.annotations[i].id)) { lastSel = i; break; }
+  }
+  if (lastSel === -1 || lastSel >= state.annotations.length - 1) return; // already at front
+  // Count how many unselected shapes precede the block; the block should land
+  // one unselected neighbour further forward than where it starts.
+  let othersBefore = 0;
+  for (let i = 0; i < state.annotations.length; i += 1) {
+    if (state.selectedIds.has(state.annotations[i].id)) break;
+    othersBefore += 1;
+  }
+  const insertAt = othersBefore + 1;
+  snapshot();
+  const next = [...parts.others];
+  next.splice(insertAt, 0, ...parts.selected);
+  applyReorder(next);
+  setStatus("Brought forward");
 }
 
 const groupButton = document.querySelector("#groupButton");
@@ -496,6 +606,33 @@ canvas.addEventListener("pointerdown", (event) => {
   if ((state.mode !== "draw" || state.needsLabelSelection) && view.drag?.type !== "draw-polygon") {
     const hitId = hitTest(point);
     if (hitId) {
+      // Move Objects unlocked: clicking an already-selected annotation (without
+      // Shift, i.e. not a multi-select gesture) grabs the whole selection to
+      // drag it. Vertex/edge hits were already handled above, so this only
+      // fires on the shape's interior. Locked, or clicking an unselected shape,
+      // falls through to plain selection below.
+      if (state.moveObjectsUnlocked && !event.shiftKey && state.selectedIds.has(hitId)) {
+        const moving = state.annotations.filter((a) => state.selectedIds.has(a.id));
+        // snapshot() is deferred to the first move (see pointermove) so a plain
+        // click on a selected shape doesn't push a no-op undo entry.
+        view.drag = {
+          type: "move-shape",
+          moved: false,
+          start: imagePoint(point),
+          // Deep-copied pre-drag geometry, keyed by id. pointermove rewrites
+          // each shape's points from these plus the cursor delta, so repeated
+          // moves never compound rounding. draw.js already renders any shape
+          // listed in drag.originals on the interactive layer.
+          originals: moving.map((a) => ({
+            id: a.id,
+            points: (a.points || []).map((p) => ({ x: p.x, y: p.y })),
+            x: a.x,
+            y: a.y
+          }))
+        };
+        canvas.style.cursor = "grabbing";
+        return;
+      }
       if (event.shiftKey) {
         const hitAnnotation = state.annotations.find(a => a.id === hitId);
         const toSelect = hitAnnotation.groupId ? state.annotations.filter(a => a.groupId === hitAnnotation.groupId).map(a => a.id) : [hitId];
@@ -741,6 +878,44 @@ canvas.addEventListener("pointermove", (event) => {
       render();
     }
   }
+
+  if (view.drag.type === "move-shape") {
+    const naturalW = view.imageElement.naturalWidth;
+    const naturalH = view.imageElement.naturalHeight;
+    let dx = end.x - view.drag.start.x;
+    let dy = end.y - view.drag.start.y;
+
+    // Take the undo snapshot once, on the first movement that actually shifts
+    // the shape — a click that never moves leaves history untouched.
+    if (!view.drag.moved) {
+      if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
+      snapshot();
+      view.drag.moved = true;
+    }
+
+    // Clamp the delta so no shape in the moved set leaves the image on any
+    // edge — the whole group stops together rather than deforming when one
+    // member hits a wall.
+    view.drag.originals.forEach((orig) => {
+      const pts = orig.points.length ? orig.points : [{ x: orig.x || 0, y: orig.y || 0 }];
+      pts.forEach((p) => {
+        dx = clamp(dx, -p.x, naturalW - p.x);
+        dy = clamp(dy, -p.y, naturalH - p.y);
+      });
+    });
+
+    view.drag.originals.forEach((orig) => {
+      const annotation = state.annotations.find((a) => a.id === orig.id);
+      if (!annotation) return;
+      if (annotation.points) {
+        annotation.points = orig.points.map((p) => ({ x: round(p.x + dx), y: round(p.y + dy) }));
+      }
+      if (typeof orig.x === "number") annotation.x = round(orig.x + dx);
+      if (typeof orig.y === "number") annotation.y = round(orig.y + dy);
+      updateAnnotationBounds(annotation);
+    });
+    render();
+  }
 });
 
 canvas.addEventListener("dblclick", (event) => {
@@ -773,6 +948,15 @@ canvas.addEventListener("pointerup", (e) => {
   if (view.drag?.type === "move-point") {
     view.drag = null;
     save();
+    return;
+  }
+
+  if (view.drag?.type === "move-shape") {
+    const moved = view.drag.moved;
+    view.drag = null;
+    canvas.style.cursor = "default";
+    render();
+    if (moved) save();
     return;
   }
 
@@ -864,8 +1048,14 @@ canvas.addEventListener("pointercancel", () => {
       state.annotations = state.annotations.filter((item) => item.id !== annotation.id);
     }
   }
+  // A cancelled shape move keeps wherever it currently sits — the snapshot taken
+  // on the first move still lets Ctrl+Z put it back. Only persist if it actually
+  // moved (a snapshot was taken).
+  const wasMoved = view.drag?.type === "move-shape" && view.drag.moved;
   view.drag = null;
+  canvas.style.cursor = "default";
   render();
+  if (wasMoved) save();
 });
 
 window.addEventListener("keydown", (event) => {
@@ -950,6 +1140,22 @@ window.addEventListener("keydown", (event) => {
 
   if (event.key.toLowerCase() === "g") {
     groupSelectedAnnotations();
+    return;
+  }
+
+  // Z-order shortcuts. Only meaningful with a selection, and only in select
+  // mode so they don't collide with drawing. Shift = jump to the extreme
+  // (back/front); no modifier = one step (backward/forward).
+  if (event.key.toLowerCase() === "b" && state.selectedIds.size > 0) {
+    event.preventDefault();
+    if (event.shiftKey) sendToBack();
+    else sendBackward();
+    return;
+  }
+  if (event.key.toLowerCase() === "f" && state.selectedIds.size > 0) {
+    event.preventDefault();
+    if (event.shiftKey) bringToFront();
+    else bringForward();
     return;
   }
 

@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Image Annotation MVP</title>
   <link rel="icon" type="image/png" href="logo.png">
-  <link rel="stylesheet" href="styles.css?v=19">
+  <link rel="stylesheet" href="styles.css?v=21">
   <script src="sync.js"></script>
   <script>
     window.addEventListener('error', function(e) {
@@ -229,6 +229,31 @@
             <button class="icon-button" id="groupButton" type="button" title="Group selected (Shift+Click to select multiple)" disabled><span class="btn-icon">🔗</span><span class="btn-label">Group</span></button>
             <button class="icon-button" id="ungroupButton" type="button" title="Ungroup selected" disabled><span class="btn-icon">💥</span><span class="btn-label">Ungroup</span></button>
             <button class="icon-button" id="clearButton" type="button" title="Clear all annotations"><span class="btn-icon">✕</span><span class="btn-label">Clear</span></button>
+          </div>
+        </div>
+
+        <!-- Full-width divider: forces the Move Objects toggle and the Selected
+             status onto their own second row, left-to-right. -->
+        <div class="toolbar-row-break" aria-hidden="true"></div>
+
+        <div class="tool-group" role="group" aria-label="Object movement">
+          <span class="tool-group-label">Move</span>
+          <div class="tool-group-buttons">
+            <div class="dropdown" id="moveObjectsDropdownContainer">
+              <button class="icon-button" type="button" id="moveObjectsMenuButton"
+                title="Move Objects — toggle whether whole annotations can be dragged"
+                aria-haspopup="true" aria-expanded="false">
+                <span class="btn-icon">🔒</span><span class="btn-label">Locked</span> ▾
+              </button>
+              <div class="dropdown-content move-objects-menu" style="left: 0; right: auto; min-width: 0; padding: 10px 12px;">
+                <div class="move-objects-row">
+                  <span class="move-objects-title">Move Objects</span>
+                  <button type="button" id="moveObjectsToggle" class="switch" role="switch" aria-checked="false" aria-label="Move Objects">
+                    <span class="switch-knob"></span>
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 

@@ -39,6 +39,11 @@ export const state = {
   activeLabelId: null,
   mode: "select",
   shape: "polygon",
+  // When false (the default), a whole annotation cannot be dragged — only its
+  // vertices/edges move. This guards against accidentally shoving a finished
+  // shape off its object. The Move Objects toolbar toggle flips it. Session-only:
+  // never persisted, so every reload starts locked.
+  moveObjectsUnlocked: false,
   history: [],
   redoHistory: [],
   needsLabelSelection: false,
