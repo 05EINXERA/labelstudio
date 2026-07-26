@@ -586,7 +586,8 @@ async function loadWorkspaceTasks() {
         assignee: t.assignee,
         // Persisted per-task total; the workspace "Total" readout is scoped to
         // the open task, so it needs this as its base.
-        time_spent: t.time_spent || 0
+        time_spent: t.time_spent || 0,
+        updated_at: t.updated_at || null
       }));
 
       if (state.gallery.length > 0) {
