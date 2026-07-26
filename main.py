@@ -1,25 +1,58 @@
+"""FastAPI app assembly: logging, config validation, middleware, routers, static files.
+
+Deployment configuration is read from the environment via `config.py`. In
+production (`APP_ENV=production`) an unsafe configuration stops startup rather
+than serving — see `config.validate_config()`.
+
+The schema is NOT created here. `Base.metadata.create_all` only ever creates
+missing tables and silently ignores changed columns, so on a shared instance it
+hides schema drift. Run `alembic upgrade head` as a deploy step instead
+(CLAUDE.md rule 8, .devnotes/deployment-hardening/01_HARDENING_PLAN.md C-1).
+"""
+import logging
 import os
+
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from sqlalchemy import text
 
-from database import engine, Base
-from api.routers import projects, tasks, team, data, detect, label_studio, labels, auth, imports, exports
-from config import DATA_DIR
+from config import (
+    APP_HOST,
+    APP_PORT,
+    CORS_ORIGINS,
+    DATA_DIR,
+    IS_PRODUCTION,
+    validate_config,
+)
+from logging_config import configure_logging
 
-HOST = "127.0.0.1"
-PORT = int(os.environ.get("APP_PORT", "8765"))
+# Validated before the routers are imported: api.auth resolves the signing key
+# at import time, so importing it first would surface a missing JWT_SECRET as a
+# bare RuntimeError instead of the actionable message validate_config gives.
+validate_config()
+configure_logging()
 
-# Create tables
-Base.metadata.create_all(bind=engine)
+from api.routers import projects, tasks, team, data, detect, label_studio, labels, auth, imports, exports  # noqa: E402
+from database import engine  # noqa: E402
 
-app = FastAPI()
+logger = logging.getLogger(__name__)
+
+app = FastAPI(title="Annotation Workspace")
 
 @app.middleware("http")
-async def add_cache_headers(request, call_next):
+async def add_security_and_cache_headers(request, call_next):
     response = await call_next(request)
     path = request.url.path
+
+    # Cheap, always-correct hardening headers. A CSP is deliberately not set
+    # here — the annotation canvas uses inline handlers today, so a meaningful
+    # policy needs frontend work first (tracked as deferred item T-4).
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "same-origin"
+
     if (
         path.endswith(".js") or
         path.endswith(".html") or
@@ -32,13 +65,23 @@ async def add_cache_headers(request, call_next):
         response.headers["Expires"] = "0"
     return response
 
-_cors_origins = os.environ.get("CORS_ORIGINS", "*")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=_cors_origins.split(","),
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+
+# Exact origins only. A wildcard cannot be combined with cookie credentials, and
+# on a LAN it would let any page on the network call the API with the
+# annotator's session attached. validate_config() rejects "*" in production.
+if CORS_ORIGINS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=CORS_ORIGINS,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-CSRF-Token"],
+    )
+else:
+    # No CORS middleware at all: same-origin requests (how the app is actually
+    # used) do not need it, and adding none is safer than adding a permissive
+    # one. Development only — production requires CORS_ORIGINS.
+    logger.info("CORS_ORIGINS not set; cross-origin requests are not permitted.")
 
 # Include routers
 app.include_router(data.router)
@@ -51,6 +94,29 @@ app.include_router(labels.router)
 app.include_router(auth.router)
 app.include_router(imports.router)
 app.include_router(exports.router)
+
+
+@app.get("/health")
+def health():
+    """Liveness + database reachability, for the operator and any supervisor.
+
+    Deliberately unauthenticated and free of detail: it reports whether the
+    process can serve, not anything about its contents.
+    """
+    db_ok = True
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+    except Exception as exc:  # surface as unhealthy, never as a 500
+        db_ok = False
+        logger.error("Health check database probe failed: %s", exc)
+
+    return {
+        "status": "ok" if db_ok else "degraded",
+        "database": "up" if db_ok else "down",
+        "environment": "production" if IS_PRODUCTION else "development",
+    }
+
 
 # Ensure uploads directory exists
 uploads_dir = os.path.join(DATA_DIR, "uploads")
@@ -68,6 +134,5 @@ app.mount("/", StaticFiles(directory="frontend"), name="frontend")
 
 if __name__ == "__main__":
     import uvicorn
-    print(f"App running at http://{HOST}:{PORT}/")
-    print("Object detection: YOLOv8 ONNX via OpenCV DNN")
-    uvicorn.run("main:app", host=HOST, port=PORT, reload=False)
+    logger.info("App running at http://%s:%s/", APP_HOST, APP_PORT)
+    uvicorn.run("main:app", host=APP_HOST, port=APP_PORT, reload=False)

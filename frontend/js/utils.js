@@ -8,6 +8,35 @@ export function generateUUID() {
   });
 }
 
+// Identifies this browser tab to the backend's conflict detection, so a write
+// is never treated as conflicting with an earlier write from the same tab.
+//
+// sessionStorage, not localStorage: two tabs on the same machine are two
+// genuinely independent editors and must get different ids, which is exactly
+// what sessionStorage's per-tab scope gives. It also survives a reload, so a
+// refresh does not look like a new client to the server.
+const CLIENT_ID_KEY = "annotation-client-id";
+
+export function clientId() {
+  let id = null;
+  try {
+    id = sessionStorage.getItem(CLIENT_ID_KEY);
+    if (!id) {
+      id = generateUUID();
+      sessionStorage.setItem(CLIENT_ID_KEY, id);
+    }
+  } catch {
+    // Private-browsing modes can throw on storage access. A per-page id still
+    // suppresses self-conflicts within this page's lifetime, which is where
+    // the autosave/beacon/timer writes collide.
+    if (!window.__annotationClientId) {
+      window.__annotationClientId = generateUUID();
+    }
+    id = window.__annotationClientId;
+  }
+  return id;
+}
+
 // Escape before interpolating user-controlled text into innerHTML. Project and
 // task names come from the database and are rendered as HTML in several tables.
 export function escapeHTML(value) {

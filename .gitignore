@@ -33,3 +33,9 @@ models/**/*.pt
 
 # Agent working notes — not part of the shipped codebase
 .devnotes/
+
+# Application logs (rotating app.log)
+logs/
+
+# Local database backups (contain real annotation data)
+backups/

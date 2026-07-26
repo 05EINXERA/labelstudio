@@ -49,7 +49,8 @@ from sqlalchemy.orm import Session
 
 import models
 from database import get_db
-from api.auth import get_current_user
+from api.uploads import read_capped
+from api.auth import get_current_user, require_csrf
 from api.routers.projects import get_owned_project
 from formats import annotations_json
 from formats import coco as coco_format
@@ -64,7 +65,7 @@ _MASK_DIRS = ("semantic_segmentations", "instance_segmentations")
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/imports", tags=["imports"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/api/imports", tags=["imports"], dependencies=[Depends(get_current_user), Depends(require_csrf)])
 
 
 # Parsing lives in formats/, each alongside the builder it has to agree with.
@@ -348,7 +349,7 @@ async def preview_annotation_import(
 ):
     """Report what an import would do, without writing anything."""
     get_owned_project(projectId, user, db)
-    raw = await file.read()
+    raw = await read_capped(file)
     try:
         by_filename = _parse_import_file(file.filename or "", raw)
     except ValueError as exc:
@@ -392,7 +393,7 @@ async def import_annotations(
     existing annotations; `replace` overwrites them.
     """
     get_owned_project(projectId, user, db)
-    raw = await file.read()
+    raw = await read_capped(file)
     try:
         by_filename = _parse_import_file(file.filename or "", raw)
     except ValueError as exc:

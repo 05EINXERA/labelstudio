@@ -6,9 +6,9 @@ from sqlalchemy.orm import Session
 import models
 from database import get_db
 from schemas import TeamMemberModel, TeamTime
-from api.auth import get_current_user
+from api.auth import get_current_user, require_csrf
 
-router = APIRouter(prefix="/api/team", tags=["team"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/api/team", tags=["team"], dependencies=[Depends(get_current_user), Depends(require_csrf)])
 
 @router.get("")
 def get_team(db: Session = Depends(get_db)):
