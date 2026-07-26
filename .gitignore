@@ -39,3 +39,6 @@ logs/
 
 # Local database backups (contain real annotation data)
 backups/
+
+# Team Credentials
+team_credentials.txt
