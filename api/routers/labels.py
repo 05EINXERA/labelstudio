@@ -11,13 +11,14 @@ from typing import List, Optional
 
 import models
 from database import get_db
+from api.uploads import read_capped
 from schemas import LabelModel, LabelBulkUpsert, LabelBulkDelete, LabelBulkResult, LabelImportResult
-from api.auth import get_current_user
+from api.auth import get_current_user, require_csrf
 from api.routers.projects import get_owned_project
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/labels", tags=["labels"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/api/labels", tags=["labels"], dependencies=[Depends(get_current_user), Depends(require_csrf)])
 
 def purge_annotations_for_labels(project_id: int, label_ids: set, db: Session) -> int:
     """Delete every annotation in `project_id` that references a deleted label.
@@ -295,7 +296,7 @@ async def import_labels(
     """
     get_owned_project(projectId, user, db)
 
-    raw = await file.read()
+    raw = await read_capped(file)
     try:
         parsed = _parse_import_file(file.filename or "", raw)
     except ValueError as exc:

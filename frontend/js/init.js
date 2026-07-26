@@ -1,7 +1,7 @@
 import { generateUUID, clamp, round, normalizeClassName, formatTime } from "./utils.js?v=1";
 import { apiFetch, pollJob } from "./api.js?v=1";
 import {
-  state, storageKey, snapshot, resetWorkspaceForNewImage
+  state, snapshot, resetWorkspaceForNewImage
 } from "./state.js?v=1";
 import { view } from "./canvas/view.js?v=1";
 import { commentOverlayRefs } from "./comment-overlay.js?v=1";
@@ -12,13 +12,13 @@ import {
 } from "./dom.js?v=1";
 import { drawAllLayers } from "./canvas/draw.js?v=1";
 import {
-  setStatus, syncToBackend, save, loadSaved,
+  setStatus, syncToBackend, save, loadSaved, saveDraft, restoreDraft,
   render
 } from "./components/workspace.js?v=1";
 import { autoDetectObjects, autoTagObjects } from "./ai/detect.js?v=1";
 import {
   syncTaskTime, syncTimeToServer, drainTaskTime, setActiveTaskResolver,
-  resetSessionForTask, refreshTimerDisplays
+  setConflictHandler, resetSessionForTask, refreshTimerDisplays
 } from "./components/timer.js?v=1";
 import {
   finalizePolygon, deleteSelected, undoAction, redoAction, setZoomChangeHandler
@@ -144,6 +144,12 @@ function switchImage(index) {
   snapshot();
   resetWorkspaceForNewImage();
   state.annotations = [...item.annotations];
+  // Recover anything this browser had for the task that never reached the
+  // server (refresh mid-edit, failed save, unresolved conflict). Applied after
+  // the server copy is in place, so it only takes effect when it differs.
+  if (restoreDraft(item)) {
+    setStatus("Recovered unsaved changes");
+  }
   loadImageFromSource(item.url, item.name);
 
   updateGalleryUI();
@@ -325,12 +331,32 @@ stageWrap.addEventListener("drop", (event) => {
 
 window.addEventListener("resize", resizeCanvas);
 
-window.addEventListener("storage", (e) => {
-  if (e.key === storageKey) {
-    loadSaved();
-    render();
+// Note: there is deliberately no cross-tab `storage` listener that reloads
+// annotations. Drafts are per-task and per-tab now; the old listener watched a
+// single global key, so a second tab editing a different task would overwrite
+// this tab's in-memory annotations with unrelated ones.
+
+// A genuine conflict means another client saved this task since we loaded it.
+// The user decides: keep editing (and overwrite on the next save) or reload
+// the server's copy. Either way their work stays in the local draft, so the
+// destructive old behaviour — disabling saves outright — cannot recur.
+setConflictHandler((task) => {
+  saveDraft();
+  const reload = confirm(
+    "This task was changed by someone else while you were working.\n\n" +
+    "OK — reload their version (your unsaved work stays recoverable).\n" +
+    "Cancel — keep your version and overwrite on the next save."
+  );
+  if (reload) {
+    window.location.reload();
+  } else {
+    // Drop the stale token so the next save is accepted as a deliberate
+    // overwrite rather than looping on the same conflict.
+    task.updated_at = null;
+    setStatus("Keeping your version — will overwrite on next save");
   }
 });
+
 loadSaved();
 resizeCanvas();
 render();
@@ -590,7 +616,15 @@ async function loadWorkspaceTasks() {
         assignee: t.assignee,
         // Persisted per-task total; the workspace "Total" readout is scoped to
         // the open task, so it needs this as its base.
-        time_spent: t.time_spent || 0
+        time_spent: t.time_spent || 0,
+        // Optimistic-concurrency token. Omitting this was the root of the
+        // annotation-loss bug: without it every save sent `updated_at:
+        // undefined`, which JSON.stringify drops, so the first save skipped
+        // the conflict check and only later saves carried a timestamp — one
+        // that the beacon path could never refresh. The resulting 409 then
+        // disabled saving for the task. See
+        // .devnotes/deployment-hardening/04_ANNOTATION_SAVE_LOSS.md.
+        updated_at: t.updated_at || null
       }));
 
       if (state.gallery.length > 0) {

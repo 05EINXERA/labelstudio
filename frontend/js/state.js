@@ -2,6 +2,17 @@ import { normalizeClassName, formatClassName } from "./utils.js?v=1";
 import { view } from "./canvas/view.js?v=1";
 
 export const storageKey = "image-annotation-mvp-v1";
+
+// Local draft of the annotations for one task, used to recover work that had
+// not reached the server yet (a refresh mid-edit, a failed save, a conflict).
+//
+// Keyed per task. The legacy `storageKey` above is a single global slot shared
+// by every task, which meant opening a second task — or a second tab firing a
+// cross-tab `storage` event — overwrote the draft of the first with unrelated
+// annotations. See .devnotes/deployment-hardening/04_ANNOTATION_SAVE_LOSS.md.
+export function draftKey(taskId) {
+  return `annotation-draft-v1:${taskId}`;
+}
 export const labelStudioStorageKey = "image-annotation-label-studio-settings";
 export const handleSize = 9;
 export const closeThreshold = 1;

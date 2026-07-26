@@ -50,7 +50,7 @@ from sqlalchemy.orm import Session
 import models
 from database import get_db
 from schemas import ExportRequest, EXPORT_FORMATS, EXPORT_INCLUDE_OPTIONS, TASK_STATUSES
-from api.auth import get_current_user
+from api.auth import get_current_user, require_csrf
 from api.routers.projects import get_owned_project
 from formats import annotations_json
 from formats import coco as coco_format
@@ -60,7 +60,7 @@ from formats.common import image_size, points_of, round2, safe_stem, values_for_
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/exports", tags=["exports"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/api/exports", tags=["exports"], dependencies=[Depends(get_current_user), Depends(require_csrf)])
 
 JOBS = {}
 
