@@ -34,7 +34,47 @@ export function drawImageLayer() {
   const rect = imageCanvas.getBoundingClientRect();
   imageCtx.clearRect(0, 0, rect.width, rect.height);
   if (!view.imageLoaded) return;
-  imageCtx.drawImage(view.imageElement, view.imageBox.x, view.imageBox.y, view.imageBox.width, view.imageBox.height);
+
+  // Resampling policy. `scale` is device-independent pixels per image pixel.
+  //
+  // Smoothing stays ON at every zoom, at "high" quality (the browser default
+  // is "low" — a cheap bilinear blend, and the original source of softness).
+  //
+  // Turning smoothing OFF while magnifying was tried and reverted: it exposes
+  // the raw pixel grid, and hard blocky edges are harder to annotate against
+  // than a smooth one, not easier. Sharpness at high zoom is bounded by the
+  // image's own resolution — past 1:1 there is no detail left to recover, and
+  // nearest-neighbour only makes the missing detail louder. The fix for real
+  // blur is keeping the backing store matched to the display box (see
+  // resizeCanvas in init.js), not disabling interpolation.
+  imageCtx.imageSmoothingEnabled = true;
+  imageCtx.imageSmoothingQuality = "high";
+
+  let { x, y, width, height } = view.imageBox;
+
+  if (view.imageBox.scale >= 1) {
+    // Snap the destination to whole device pixels. imageBox.x/y are arbitrary
+    // floats (pan offset + a centring term), and the canvas transform scales
+    // them by devicePixelRatio — commonly fractional (1.25 / 1.5) on Windows.
+    // Unsnapped, every image pixel straddles a device pixel boundary, so the
+    // interpolator blends neighbours even at exactly 1:1 where it should be
+    // sampling each source pixel cleanly — softening the image at all zooms.
+    //
+    // Deliberately snapped HERE and not in computeImageBox: view.imageBox is
+    // the one shared coordinate transform, and interactions.js inverts exactly
+    // these numbers to turn cursor positions into stored image coordinates
+    // (see interactions.js screen->image). Rounding imageBox itself would move
+    // that inverse, so identical clicks would map to different saved
+    // coordinates depending on pan — annotation drift. The snap is display-only.
+    const ratio = window.devicePixelRatio || 1;
+    const snap = (v) => Math.round(v * ratio) / ratio;
+    x = snap(x);
+    y = snap(y);
+    width = snap(width);
+    height = snap(height);
+  }
+
+  imageCtx.drawImage(view.imageElement, x, y, width, height);
 }
 
 export function drawStaticLayer() {
