@@ -77,6 +77,21 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "").strip() or _default_sqlite
 IS_SQLITE = DATABASE_URL.startswith("sqlite")
 
 # Connection pool sizing. Only meaningful for Postgres; SQLite ignores it.
+#
+# Relationship to the request threadpool (T0.2):
+#   Starlette's default anyio threadpool cap is 40 threads. Each thread can
+#   hold a DB connection for the duration of a sync route. To avoid thread
+#   pile-up waiting on pool_timeout (30s) under a 25-user burst:
+#     DB_POOL_SIZE + DB_MAX_OVERFLOW  >=  threadpool cap (40)
+#   Current: 10 + 20 = 30, which is slightly under the threadpool cap.
+#   Acceptable for 25 users doing normal annotation; adjust upward if load
+#   tests (T4.1) reveal pool-timeout spikes under burst-refresh scenarios.
+#   Postgres max_connections must be >= pool ceiling + admin headroom
+#   (e.g. 30 + 5 = 35 minimum; default Postgres is 100, which is fine).
+#
+# NOTE — multi-worker gate (D3): the app must stay a single uvicorn worker
+#   because JOBS and _models are in-process state (CLAUDE.md rule 9).
+#   Do not add --workers N until job state is moved to Postgres/Redis.
 DB_POOL_SIZE = int(os.environ.get("DB_POOL_SIZE", "10"))
 DB_MAX_OVERFLOW = int(os.environ.get("DB_MAX_OVERFLOW", "20"))
 DB_POOL_TIMEOUT = int(os.environ.get("DB_POOL_TIMEOUT", "30"))

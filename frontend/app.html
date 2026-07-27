@@ -7,7 +7,10 @@
   <title>Image Annotation MVP</title>
   <link rel="icon" type="image/png" href="logo.png">
   <link rel="stylesheet" href="styles.css?v=21">
-  <script src="sync.js"></script>
+  <!-- sync.js (legacy global annotation-slot sync to /api/data) removed in T3.1.
+       Under a shared account the 'image-annotation-mvp-v1' row was last-writer-wins
+       across all 25 clients. Per-task localStorage drafts (workspace.js restoreDraft)
+       now provide the same recovery guarantee without touching the server. -->
   <script>
     window.addEventListener('error', function(e) {
       alert("JS Error: " + e.message + " at " + e.filename + ":" + e.lineno);
@@ -62,7 +65,9 @@
       </button>
       <span class="timer-divider"></span>
       <strong id="totalTimeLogged" class="timer-readout">00:00:00</strong>
-      <span class="timer-caption">Total time</span>
+      <!-- T3.2: labelled "task total" not "my total" — under a shared account
+           all time accrues to one identity; this readout is per-task only. -->
+      <span class="timer-caption" title="Total time logged on this task (all annotators combined under the shared account)">Task total</span>
     </div>
 
     <div class="top-nav-right">
@@ -373,17 +378,21 @@
     </div>
   </div>
 
-  <!-- Team Validation Modal Overlay -->
+  <!-- Annotator name prompt (T3.2 — advisory only, no server validation).
+       Under the shared-account deployment all annotators use the same login;
+       this name is stored locally and used purely for display / assignee
+       labelling. It is NOT verified against /api/team. -->
   <div id="teamValidationModal" class="modal-overlay" style="z-index: 9999;">
     <div class="modal-content" style="max-width: 400px; text-align: center;">
       <div class="modal-header">
         <h2 style="margin: 0; font-size: 1.2rem; color: var(--ink);">👤 Start Annotation Session</h2>
       </div>
       <div class="modal-body" style="padding: 24px;">
-        <p style="margin-top: 0; margin-bottom: 16px; color: var(--ink-light);">Please enter your team member name to begin annotating.</p>
+        <p style="margin-top: 0; margin-bottom: 4px; color: var(--ink-light);">Enter your name so tasks can show who is working on what.</p>
+        <p style="margin-top: 0; margin-bottom: 16px; font-size: 0.8rem; color: var(--muted);">This is advisory only — stored in your browser, not verified server-side.</p>
         <form id="teamValidationForm" style="display: flex; flex-direction: column; gap: 12px;">
-          <div id="teamValidationError" style="color: var(--danger); font-size: 0.85rem; display: none;">Name not found in the team list.</div>
-          <input type="text" id="teamValidationName" placeholder="Enter your name" required style="padding: 10px; border-radius: 6px; border: 1px solid var(--line);">
+          <input type="text" id="teamValidationName" placeholder="Enter your name" required
+            style="padding: 10px; border-radius: 6px; border: 1px solid var(--line);">
           <button type="submit" class="primary" style="padding: 12px; margin-top: 8px;">Start Session</button>
         </form>
       </div>

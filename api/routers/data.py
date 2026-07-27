@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 import models
-from database import get_db
+from database import get_db, commit_with_retry
 from schemas import WorkspaceData
 from api.auth import get_current_user, require_csrf
 
@@ -42,5 +42,5 @@ def set_data(
     else:
         item = models.WorkspaceData(key=data.key, value=data.value, owner_id=user.id)
         db.add(item)
-    db.commit()
+    commit_with_retry(db)
     return {"status": "ok"}

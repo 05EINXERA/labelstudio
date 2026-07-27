@@ -3,8 +3,11 @@
  *
  * Ported from `project_details.js` onto `js/components/data-table.js`. Two
  * things intentionally changed on the way over:
- *  - `prompt()` for bulk-assign is now a small modal, consistent with the rest
- *    of the shell (rule 12: modals toggle `.is-active`, not `style.display`).
+ *  - Assignment is advisory free-text only. All annotators share one account,
+ *    so assignment is a coordination convention displayed in the table, not a
+ *    server-enforced boundary. The previous <select> was populated from
+ *    /api/team (a list of registered team members) which is meaningless in a
+ *    single-shared-account deployment (L2/T2.3 trade-off decision).
  *  - The upload endpoint now reports per-file success/failure (P3.1), so the
  *    UI shows a summary instead of a single "Upload failed" alert.
  */
@@ -15,7 +18,21 @@ import { createDataTable } from "../../components/data-table.js?v=1";
 let root = null;
 let ctx = null;
 let table = null;
-let teamMembers = [];
+
+// T2.2 — lock status cache: {taskId: {locked: bool, locked_by: str}}
+// Populated asynchronously after the task list renders.
+const _lockCache = {};
+
+async function _refreshLockCache(tasks) {
+  // Fetch lock status for every task in parallel (fire-and-forget batches).
+  // Errors are silently swallowed — lock display is best-effort.
+  await Promise.allSettled(tasks.map(async (t) => {
+    try {
+      const res = await apiFetch(`/api/tasks/${t.id}/lock-status`);
+      if (res && res.ok) _lockCache[t.id] = await res.json();
+    } catch { /* best-effort */ }
+  }));
+}
 
 const ICON_EDIT = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></svg>`;
 const ICON_DELETE = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>`;
@@ -90,10 +107,8 @@ function template() {
               <input type="text" id="editDescription" required style="padding:9px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink);">
             </label>
             <label style="display:grid;gap:6px;">
-              <span style="font-size:.85rem;color:var(--muted);">Assignee</span>
-              <select id="editAssignee" style="padding:9px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink);">
-                <option value="">Unassigned</option>
-              </select>
+              <span style="font-size:.85rem;color:var(--muted);">Assignee <span style="font-weight:400;font-style:italic;">(optional, advisory only)</span></span>
+              <input type="text" id="editAssignee" placeholder="Enter name…" autocomplete="off" style="padding:9px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink);">
             </label>
             <label style="display:grid;gap:6px;">
               <span style="font-size:.85rem;color:var(--muted);">Status</span>
@@ -119,10 +134,8 @@ function template() {
         <form id="assignForm">
           <div class="modal-body">
             <label style="display:grid;gap:6px;">
-              <span style="font-size:.85rem;color:var(--muted);">Assignee</span>
-              <select id="assignSelect" style="padding:9px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink);">
-                <option value="">Unassigned</option>
-              </select>
+              <span style="font-size:.85rem;color:var(--muted);">Assignee <span style="font-weight:400;font-style:italic;">(optional, advisory only)</span></span>
+              <input type="text" id="assignInput" placeholder="Enter name, or leave blank to unassign…" autocomplete="off" style="padding:9px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink);">
             </label>
           </div>
           <div style="display:flex;gap:10px;justify-content:flex-end;padding:16px;">
@@ -158,25 +171,10 @@ async function loadTasks() {
     return;
   }
   clearError();
-  table.setRows(await res.json());
-}
-
-async function loadTeam() {
-  try {
-    const res = await apiFetch("/api/team");
-    if (!res || !res.ok) return;
-    teamMembers = await res.json();
-    [el("editAssignee"), el("assignSelect")].forEach((select) => {
-      teamMembers.forEach((m) => {
-        const opt = document.createElement("option");
-        opt.value = m.name;
-        opt.textContent = m.name;
-        select.appendChild(opt);
-      });
-    });
-  } catch (err) {
-    console.error("Failed to load team", err);
-  }
+  const tasks = await res.json();
+  table.setRows(tasks);
+  // T2.2 — refresh lock badges after the table renders (async, non-blocking).
+  _refreshLockCache(tasks).then(() => table.setRows(tasks));
 }
 
 // --- upload --------------------------------------------------------------
@@ -338,6 +336,7 @@ function bindBulkActions() {
 
   el("bulkAssignBtn").addEventListener("click", () => {
     if (table.getSelection().size === 0) return;
+    el("assignInput").value = "";
     el("assignModal").classList.add("is-active");
   });
   el("assignClose").addEventListener("click", () => el("assignModal").classList.remove("is-active"));
@@ -354,7 +353,7 @@ function bindBulkActions() {
       const res = await apiFetch("/api/tasks/bulk-update", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids, assignee: el("assignSelect").value }),
+        body: JSON.stringify({ ids, assignee: el("assignInput").value.trim() }),
       });
       if (!res) return;
       if (!res.ok) {
@@ -399,6 +398,15 @@ export async function mount(hostRoot, hostCtx) {
       },
       { key: "description", label: "Filename", render: (r) => `<a href="app.html?projectId=${encodeURIComponent(ctx.projectId)}&taskId=${encodeURIComponent(r.id)}" style="max-width:320px;display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle;color:var(--accent);text-decoration:none;cursor:pointer;transition:color 0.2s ease;" onmouseover="this.style.color='var(--accent-dark)';this.style.textDecoration='underline'" onmouseout="this.style.color='var(--accent)';this.style.textDecoration='none'" title="${escapeHTML(r.description || '')}">${escapeHTML(r.description || "")}</a>` },
       { key: "assignee", label: "Assignee", render: (r) => r.assignee ? escapeHTML(r.assignee) : `<span style="color:var(--muted);">—</span>` },
+      {
+        // T2.2 — show a "busy" badge when another annotator has the task open.
+        key: "_lock", label: "", sortable: false, width: "56px",
+        render: (r) => {
+          const lock = _lockCache[r.id];
+          if (!lock || !lock.locked) return "";
+          return `<span title="In use by another annotator" style="font-size:.75rem;padding:2px 6px;border-radius:10px;background:rgba(239,68,68,.15);color:#ef4444;white-space:nowrap;">● busy</span>`;
+        },
+      },
       { key: "status", label: "Status", render: (r) => statusPill(r.status) },
       { key: "time_spent", label: "Time", render: (r) => r.time_spent ? `<span style="font-family:monospace;font-size:.85rem;">${formatTime(r.time_spent)}</span>` : `<span style="color:var(--muted);">—</span>` },
       {
@@ -429,8 +437,7 @@ export async function mount(hostRoot, hostCtx) {
   el("statusFilter").addEventListener("change", (e) => table.setFilter("status", e.target.value));
 
   table.onAction("edit", (row) => openEditModal(row));
-  table.onAction("delete", async (row) => {
-    if (!confirm(`Delete "${row.description}"? This cannot be undone.`)) return;
+  table.onAction("delete", async (row) => {    if (!confirm(`Delete "${row.description}"? This cannot be undone.`)) return;
     try {
       const res = await apiFetch(`/api/tasks/${row.id}`, { method: "DELETE" });
       if (!res) return;
@@ -445,7 +452,6 @@ export async function mount(hostRoot, hostCtx) {
     }
   });
 
-  await loadTeam();
   await loadTasks();
 }
 
