@@ -76,23 +76,35 @@ _default_sqlite = f"sqlite:///{os.path.join(DATA_DIR, 'workspace.db').replace(os
 DATABASE_URL = os.environ.get("DATABASE_URL", "").strip() or _default_sqlite
 IS_SQLITE = DATABASE_URL.startswith("sqlite")
 
+# Request threadpool cap. Sync route handlers run in Starlette's anyio
+# threadpool (default 40). main.py sets the live cap from this at startup.
+#
+# It is pinned equal to the DB pool ceiling below so that under a burst a
+# request waits for a *thread* (which frees in tens of ms once a DB call
+# returns) rather than acquiring a thread and then blocking up to
+# pool_timeout (30s) for a connection. Matching the two removes that second,
+# far slower queue. See the load-test results in
+# .devnotes/deployment-hardening/05_LOAD_TEST.md.
+THREADPOOL_CAP = int(os.environ.get("THREADPOOL_CAP", "40"))
+
 # Connection pool sizing. Only meaningful for Postgres; SQLite ignores it.
 #
-# Relationship to the request threadpool (T0.2):
-#   Starlette's default anyio threadpool cap is 40 threads. Each thread can
-#   hold a DB connection for the duration of a sync route. To avoid thread
-#   pile-up waiting on pool_timeout (30s) under a 25-user burst:
-#     DB_POOL_SIZE + DB_MAX_OVERFLOW  >=  threadpool cap (40)
-#   Current: 10 + 20 = 30, which is slightly under the threadpool cap.
-#   Acceptable for 25 users doing normal annotation; adjust upward if load
-#   tests (T4.1) reveal pool-timeout spikes under burst-refresh scenarios.
-#   Postgres max_connections must be >= pool ceiling + admin headroom
-#   (e.g. 30 + 5 = 35 minimum; default Postgres is 100, which is fine).
+# Sized from the T4.1 load test (05_LOAD_TEST.md), not a guess:
+#   - 25 clients (the target) doing the real shift pattern peaked at 22
+#     concurrent Postgres connections — inside pool_size alone, zero
+#     pool timeouts.
+#   - 40 clients (a deliberate overload) peaked at 31, saturating overflow
+#     but never exhausting it, still zero errors.
+# So 20 + 20 = 40 gives the 25-user target clear headroom and matches the
+# threadpool cap (see above), so neither queue is the bottleneck first.
+#
+# Postgres max_connections must be >= pool ceiling + admin headroom
+# (40 + 5 = 45 minimum; default Postgres is 100, which is fine).
 #
 # NOTE — multi-worker gate (D3): the app must stay a single uvicorn worker
-#   because JOBS and _models are in-process state (CLAUDE.md rule 9).
-#   Do not add --workers N until job state is moved to Postgres/Redis.
-DB_POOL_SIZE = int(os.environ.get("DB_POOL_SIZE", "10"))
+#   because JOBS, _models, and _TASK_LOCKS are in-process state (CLAUDE.md
+#   rule 9). Do not add --workers N until that state is moved out of process.
+DB_POOL_SIZE = int(os.environ.get("DB_POOL_SIZE", "20"))
 DB_MAX_OVERFLOW = int(os.environ.get("DB_MAX_OVERFLOW", "20"))
 DB_POOL_TIMEOUT = int(os.environ.get("DB_POOL_TIMEOUT", "30"))
 DB_POOL_RECYCLE = int(os.environ.get("DB_POOL_RECYCLE", "1800"))
