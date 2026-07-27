@@ -7,6 +7,7 @@ import { canvas, undoButton } from "../dom.js?v=1";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
 import { setStatus, save, render } from "../components/workspace.js?v=1";
 import { performMagicWandSegmentation } from "../ai/detect.js?v=1";
+import { applyAutoSmooth } from "../fft-controls.js?v=1";
 
 export function canvasPoint(event) {
   const rect = canvas.getBoundingClientRect();
@@ -154,6 +155,9 @@ export function finalizePolygon() {
     save();
     return;
   }
+  // Auto-smooth: apply FFT low-pass filter when the toggle is enabled.
+  // Called before updateAnnotationBounds so the bounds reflect the smoothed points.
+  applyAutoSmooth(annotation);
   updateAnnotationBounds(annotation);
   state.needsLabelSelection = true;
   state.justFinalized = true;
