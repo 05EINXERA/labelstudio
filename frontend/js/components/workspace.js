@@ -12,10 +12,12 @@ import { draw, drawAllLayers } from "../canvas/draw.js?v=1";
 import {
   emptyState, classesList, annotationList, annotationCount, selectedInfo,
   drawMode, selectMode, boxMode, polygonMode, commentMode, magicWandMode,
-  autoDetectButton, undoButton, redoButton, deleteButton, clearButton, exportLink,
+  autoDetectButton, aiSettingsMenuButton, autoTagButton, fftToolGroup,
+  undoButton, redoButton, deleteButton, clearButton, exportLink,
   shapeHint, saveStatus
 } from "../dom.js?v=1";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
+import { toolAvailability } from "../feature-flags.js?v=1";
 
 
 export function setStatus(text) {
@@ -566,12 +568,32 @@ export function renderControls() {
       shapeHint.textContent = "Click and drag to draw a bounding box.";
     }
   }
-  autoDetectButton.disabled = detectState.detectionBusy || !view.imageLoaded;
+  // ── AI section ────────────────────────────────────────────────────────────
+  // When toolAvailability.ai is false every AI control is permanently disabled
+  // regardless of any other runtime state.
+  const aiBlocked = !toolAvailability.ai;
+  autoDetectButton.disabled = aiBlocked || detectState.detectionBusy || !view.imageLoaded;
   const labelSpan = autoDetectButton.querySelector(".btn-label");
   if (labelSpan) {
     labelSpan.textContent = detectState.detectionBusy ? "Detecting..." : "Detect";
   }
   autoDetectButton.title = selectedAnnotation() ? "Detect objects inside the selected area" : "Detect objects in the whole image";
+  if (aiSettingsMenuButton) aiSettingsMenuButton.disabled = aiBlocked;
+  if (autoTagButton)        autoTagButton.disabled        = aiBlocked;
+  // Magic Wand is in the Tools group but is AI-dependent — block it too.
+  magicWandMode.disabled = aiBlocked;
+
+  // ── Smooth section ────────────────────────────────────────────────────────
+  // Disable every interactive control inside the FFT tool-group when
+  // toolAvailability.smooth is false.  The container itself is not hidden so
+  // the toolbar layout stays stable; the controls are just non-interactive.
+  if (fftToolGroup) {
+    fftToolGroup.querySelectorAll("button, input").forEach(el => {
+      el.disabled = !toolAvailability.smooth;
+    });
+  }
+
+  // ── Edit section ──────────────────────────────────────────────────────────
   undoButton.disabled = state.history.length === 0;
   redoButton.disabled = state.redoHistory.length === 0;
   deleteButton.disabled = state.selectedIds.size === 0;
