@@ -24,6 +24,7 @@ from config import (
     CORS_ORIGINS,
     DATA_DIR,
     IS_PRODUCTION,
+    THREADPOOL_CAP,
     validate_config,
 )
 from logging_config import configure_logging
@@ -40,6 +41,25 @@ from database import engine  # noqa: E402
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Annotation Workspace")
+
+
+@app.on_event("startup")
+async def _set_threadpool_capacity() -> None:
+    """Pin the anyio threadpool cap that carries sync route handlers.
+
+    Sized in config.THREADPOOL_CAP to match the DB pool ceiling so a burst
+    queues on threads (which free in tens of ms) rather than on pool_timeout.
+    Set here, inside the running event loop, because the limiter is loop-bound.
+    See .devnotes/deployment-hardening/05_LOAD_TEST.md.
+    """
+    try:
+        from anyio import to_thread
+        limiter = to_thread.current_default_thread_limiter()
+        limiter.total_tokens = THREADPOOL_CAP
+        logger.info("Request threadpool cap set to %d", THREADPOOL_CAP)
+    except Exception as exc:  # pragma: no cover - never worth failing startup
+        logger.warning("Could not set threadpool cap (%s); using anyio default", exc)
+
 
 @app.middleware("http")
 async def add_security_and_cache_headers(request, call_next):
