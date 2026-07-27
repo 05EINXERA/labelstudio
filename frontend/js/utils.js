@@ -18,17 +18,20 @@ export function generateUUID() {
 const CLIENT_ID_KEY = "annotation-client-id";
 
 export function clientId() {
+  // localStorage (not sessionStorage) so the same tab ID survives page
+  // reloads. The whole point of client_id is distinguishing "this browser"
+  // from "another browser" — a new ID on every reload made the tab conflict
+  // with its own previous saves, firing the spurious 409 dialog on load.
   let id = null;
   try {
-    id = sessionStorage.getItem(CLIENT_ID_KEY);
+    id = localStorage.getItem(CLIENT_ID_KEY);
     if (!id) {
       id = generateUUID();
-      sessionStorage.setItem(CLIENT_ID_KEY, id);
+      localStorage.setItem(CLIENT_ID_KEY, id);
     }
   } catch {
-    // Private-browsing modes can throw on storage access. A per-page id still
-    // suppresses self-conflicts within this page's lifetime, which is where
-    // the autosave/beacon/timer writes collide.
+    // Storage blocked (private mode, etc.): fall back to an in-memory id.
+    // This suppresses self-conflicts within the page's lifetime only.
     if (!window.__annotationClientId) {
       window.__annotationClientId = generateUUID();
     }

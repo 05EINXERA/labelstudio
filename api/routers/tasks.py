@@ -2,7 +2,7 @@ import json
 import logging
 import os
 import datetime
-from typing import Optional
+from typing import Dict, Optional
 
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy import case, func
@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 import models
 from database import get_db, commit_with_retry
-from schemas import TaskUpdate, BulkDelete, BulkUpdate
+from schemas import TaskUpdate, BulkDelete, BulkUpdate, TaskDetail
 from api.auth import get_current_user, require_csrf
 from api.routers.projects import get_owned_project
 
@@ -21,6 +21,31 @@ router = APIRouter(
 )
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Soft task lock (T2.1)
+#
+# In-process dict keyed by task_id → {client_id, claimed_at}.
+# Single-worker constraint applies (CLAUDE.md rule 9 / D3): do not use this
+# across multiple workers.  TTL = 60 s — a claim not refreshed within that
+# window is stale and any other annotator may take it.
+# ---------------------------------------------------------------------------
+TASK_LOCK_TTL_SECONDS = int(os.environ.get("TASK_LOCK_TTL_SECONDS", "60"))
+
+# {task_id: {"client_id": str, "claimed_at": datetime}}
+_TASK_LOCKS: Dict[int, dict] = {}
+
+
+def _lock_status(task_id: int) -> Optional[dict]:
+    """Return the active lock for task_id, or None if absent/stale."""
+    lock = _TASK_LOCKS.get(task_id)
+    if not lock:
+        return None
+    age = (datetime.datetime.now(datetime.timezone.utc) - lock["claimed_at"]).total_seconds()
+    if age > TASK_LOCK_TTL_SECONDS:
+        _TASK_LOCKS.pop(task_id, None)
+        return None
+    return lock
 
 # How far the stored timestamp may run ahead of the client's before a write
 # from a *different* client is treated as a conflict.
@@ -93,6 +118,129 @@ def get_tasks(projectId: Optional[int] = Query(None), include_annotations: bool 
         })
     return result
 
+@router.get("/{task_id}", response_model=TaskDetail)
+def get_task(task_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """Return a single task with its full annotations blob.
+
+    The list endpoint (GET /api/tasks) intentionally omits annotations so the
+    initial gallery load stays small. The workspace calls this endpoint once per
+    task open to hydrate annotations on demand (T1.1 / T1.3).
+    """
+    task = _get_owned_task(task_id, user, db)
+    annotations_data: list = []
+    if task.annotations:
+        try:
+            annotations_data = json.loads(task.annotations)
+        except (ValueError, TypeError) as exc:
+            logger.warning("Task %s has unparseable annotations: %s", task.id, exc)
+    return TaskDetail(
+        id=task.id,
+        description=task.description,
+        assignee=task.assignee,
+        image_path=task.image_path,
+        status=task.status,
+        time_spent=task.time_spent,
+        updated_at=task.updated_at,
+        annotations=annotations_data,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Soft lock endpoints (T2.1)
+# ---------------------------------------------------------------------------
+
+@router.post("/{task_id}/claim")
+def claim_task(task_id: int, client_id: str = Query(..., max_length=64),
+               db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """Claim a task for editing, or refresh an existing claim.
+
+    Returns {"status": "ok"} when the claim is granted.
+    Returns HTTP 409 with a "locked" status when the task is held by a
+    *different* client that is still within its TTL.
+
+    The lock is advisory — the save path does not enforce it.  Its purpose is
+    to warn a second annotator before they invest time on a task someone else
+    is already editing, not to block them outright.
+
+    Single-worker constraint: _TASK_LOCKS is in-process.  Rule 9 applies.
+    """
+    _get_owned_task(task_id, user, db)      # 404 if not owned
+    now = datetime.datetime.now(datetime.timezone.utc)
+    existing = _lock_status(task_id)
+    if existing and existing["client_id"] != client_id:
+        age = (now - existing["claimed_at"]).total_seconds()
+        return {"status": "locked",
+                "locked_by": existing["client_id"],
+                "seconds_remaining": max(0, TASK_LOCK_TTL_SECONDS - int(age))}
+    _TASK_LOCKS[task_id] = {"client_id": client_id, "claimed_at": now}
+    return {"status": "ok", "ttl": TASK_LOCK_TTL_SECONDS}
+
+
+@router.post("/{task_id}/heartbeat")
+def heartbeat_task(task_id: int, client_id: str = Query(..., max_length=64),
+                   db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """Refresh the TTL on an existing claim.
+
+    Called on a timer cadence (every ~30 s) while the task is open.  Silently
+    re-claims if the lock expired (e.g. the client was backgrounded longer
+    than the TTL).
+    """
+    _get_owned_task(task_id, user, db)
+    existing = _lock_status(task_id)
+    if existing and existing["client_id"] != client_id:
+        # Another client took over the stale lock before this heartbeat arrived.
+        return {"status": "lost"}
+    _TASK_LOCKS[task_id] = {
+        "client_id": client_id,
+        "claimed_at": datetime.datetime.now(datetime.timezone.utc),
+    }
+    return {"status": "ok", "ttl": TASK_LOCK_TTL_SECONDS}
+
+
+@router.delete("/{task_id}/claim")
+def release_task(task_id: int, client_id: str = Query(..., max_length=64),
+                 db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """Release a claim when the annotator closes or switches away from the task."""
+    _get_owned_task(task_id, user, db)
+    existing = _TASK_LOCKS.get(task_id)
+    if existing and existing["client_id"] == client_id:
+        del _TASK_LOCKS[task_id]
+    return {"status": "ok"}
+
+
+@router.post("/{task_id}/release-beacon")
+def release_task_beacon(task_id: int, client_id: str = Query(..., max_length=64),
+                        db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """POST variant of release for sendBeacon (which cannot send DELETE).
+
+    sendBeacon is used on pagehide/visibilitychange where a real fetch is not
+    guaranteed to complete.  The advisory lock will expire via TTL anyway, but
+    an explicit release is cleaner UX for the waiting annotator.
+    """
+    _get_owned_task(task_id, user, db)
+    existing = _TASK_LOCKS.get(task_id)
+    if existing and existing["client_id"] == client_id:
+        del _TASK_LOCKS[task_id]
+    return {"status": "ok"}
+
+
+@router.get("/{task_id}/lock-status")
+def get_lock_status(task_id: int,
+                    db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """Query the current lock state without claiming.  Used by the task list."""
+    _get_owned_task(task_id, user, db)
+    lock = _lock_status(task_id)
+    if not lock:
+        return {"locked": False}
+    now = datetime.datetime.now(datetime.timezone.utc)
+    age = (now - lock["claimed_at"]).total_seconds()
+    return {
+        "locked": True,
+        "locked_by": lock["client_id"],
+        "seconds_remaining": max(0, TASK_LOCK_TTL_SECONDS - int(age)),
+    }
+
+
 @router.post("")
 def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(None), db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     if task.id:
@@ -123,7 +271,23 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
             if task.client_id and db_task.last_client_id:
                 # Both sides identified: a different last writer is a genuine
                 # conflict regardless of how recently it happened.
-                if task.client_id != db_task.last_client_id:
+                #
+                # Exception: if the client's token already matches the stored
+                # updated_at exactly, the client loaded a fresh copy of this
+                # task (via GET /api/tasks/{id}) and has up-to-date state.
+                # A client_id mismatch in that case means the previous session's
+                # ID is still in last_client_id but this is the same browser —
+                # the localStorage-based clientId persists across reloads, so
+                # this guard should be rare but is included for safety.
+                stored = db_task.updated_at
+                if stored:
+                    if stored.tzinfo is None:
+                        stored = stored.replace(tzinfo=datetime.timezone.utc)
+                    tokens_match = abs((stored - client_updated).total_seconds()) <= 0.001
+                else:
+                    tokens_match = False
+
+                if task.client_id != db_task.last_client_id and not tokens_match:
                     raise HTTPException(
                         status_code=409,
                         detail="Task was updated by another user. Please refresh to see latest annotations.",
@@ -173,7 +337,7 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
             last_client_id=task.client_id,
         )
         db.add(db_task)
-        db.commit()
+        commit_with_retry(db)
         db.refresh(db_task)
         task_id = db_task.id
         new_updated_at = db_task.updated_at
@@ -222,7 +386,7 @@ def patch_task(task_id: int, task: TaskUpdate, db: Session = Depends(get_db), us
 def delete_task(task_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     task = _get_owned_task(task_id, user, db)
     db.delete(task)
-    db.commit()
+    commit_with_retry(db)
     return {"status": "ok"}
 
 

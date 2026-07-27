@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 import models
-from database import get_db
+from database import get_db, commit_with_retry
 from schemas import TeamMemberModel, TeamTime
 from api.auth import get_current_user, require_csrf
 
@@ -21,14 +21,14 @@ def create_team_member(member: TeamMemberModel, db: Session = Depends(get_db)):
     if not existing:
         new_member = models.TeamMember(name=member.name, time_logged=0)
         db.add(new_member)
-        db.commit()
+        commit_with_retry(db)
     return {"status": "ok"}
 
 @router.delete("/{name}")
 def delete_team_member(name: str, db: Session = Depends(get_db)):
     name = urllib.parse.unquote(name)
     db.query(models.TeamMember).filter(models.TeamMember.name == name).delete()
-    db.commit()
+    commit_with_retry(db)
     return {"status": "ok"}
 
 @router.post("/time")
@@ -49,5 +49,5 @@ def update_team_time(
         db.add(member)
 
     member.time_logged = (member.time_logged or 0) + payload.time_logged
-    db.commit()
+    commit_with_retry(db)
     return {"status": "ok", "time_logged": member.time_logged}

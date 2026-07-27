@@ -11,7 +11,7 @@ from sqlalchemy import func
 import models
 import schemas
 from config import DATA_DIR, MAX_UPLOAD_FILES
-from database import get_db
+from database import get_db, commit_with_retry
 from schemas import ProjectModel, ProjectMetrics, ProjectSummary
 from api.auth import get_current_user, require_csrf
 from formats.common import measure_image
@@ -149,7 +149,7 @@ def create_project(project: ProjectModel, db: Session = Depends(get_db), user: m
     # The owner is the authenticated caller; `creator` is only a display name.
     db_project = models.Project(name=project.name, slug=project.slug, type=project.type, status="Preparing", creator=user.username, owner_id=user.id, assignee=project.assignee)
     db.add(db_project)
-    db.commit()
+    commit_with_retry(db)
     db.refresh(db_project)
     return {"id": db_project.id, "status": "ok"}
 
@@ -166,7 +166,7 @@ def _apply_project_update(db_project: models.Project, project_update: schemas.Pr
 def patch_project(project_id: int, project_update: schemas.ProjectUpdate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     db_project = get_owned_project(project_id, user, db)
     _apply_project_update(db_project, project_update)
-    db.commit()
+    commit_with_retry(db)
     return {"status": "ok"}
 
 @router.delete("/{project_id}")
@@ -175,7 +175,7 @@ def delete_project(project_id: int, db: Session = Depends(get_db), user: models.
     db.query(models.Task).filter(models.Task.project_id == project_id).delete()
     db.query(models.Label).filter(models.Label.project_id == project_id).delete()
     db.delete(db_project)
-    db.commit()
+    commit_with_retry(db)
     return {"status": "ok"}
 
 ALLOWED_UPLOAD_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.gif', '.webp'}
@@ -282,7 +282,7 @@ def upload_files(project_id: int, assignee: Optional[str] = Query(None), file: L
         ))
         uploaded.append({"filename": f.filename, "path": db_filepath})
 
-    db.commit()
+    commit_with_retry(db)
     return {
         "status": "ok",
         "uploaded": uploaded,

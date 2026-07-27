@@ -85,7 +85,6 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
     id: taskId,
     time_spent_delta: timeDelta,
     status: status || task.status || 'In Progress',
-    assignee: localStorage.getItem('dataset_username') || 'Unknown',
     annotations: JSON.stringify(annotations || task.annotations || []),
     // Sent explicitly as null rather than left undefined when unknown:
     // JSON.stringify drops undefined keys, and an absent updated_at silently
