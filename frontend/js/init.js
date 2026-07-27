@@ -81,8 +81,28 @@ window.addEventListener('pagehide', () => {
 function resizeCanvas() {
   const rect = stageWrap.getBoundingClientRect();
   const ratio = window.devicePixelRatio || 1;
-  const w = Math.floor(rect.width * ratio);
-  const h = Math.floor(rect.height * ratio);
+  // Rounded, not floored. The canvases are CSS-sized to 100% of .stage-wrap,
+  // whose rect is fractional at non-integer zoom / display scaling. Flooring
+  // made the backing store up to a device pixel narrower than the box it is
+  // painted into, so the browser rescaled the entire canvas by e.g. 1919/1920
+  // — a slight blur over the image at every zoom level. Rounding keeps the
+  // backing store matched to the display box to within half a device pixel.
+  const w = Math.round(rect.width * ratio);
+  const h = Math.round(rect.height * ratio);
+
+  // Pin the CSS size to the exact backing-store size in device pixels rather
+  // than leaving the stylesheet's width/height:100% to stretch it. With 100%,
+  // any backing store that does not match the box is bilinearly rescaled by
+  // the browser AFTER we draw — a blur we cannot cancel from inside the 2D
+  // context, and the reason crisp (unsmoothed) output looked blurry AND
+  // blocky at once. Rounding above can differ from the fractional box by up
+  // to half a device pixel, so the two must be tied together explicitly.
+  const cssW = w / ratio;
+  const cssH = h / ratio;
+  for (const el of [imageCanvas, staticCanvas, canvas]) {
+    el.style.width = cssW + "px";
+    el.style.height = cssH + "px";
+  }
 
   imageCanvas.width = w;
   imageCanvas.height = h;
@@ -448,6 +468,28 @@ stageWrap.addEventListener("drop", (event) => {
 });
 
 window.addEventListener("resize", resizeCanvas);
+
+// The window `resize` event alone is not enough. .stage-wrap is a flex child
+// (flex: 1 1 auto; min-height: 0), so its box changes without the window
+// changing size at all: the toolbar wrapping to a second row, the annotation
+// list growing, a scrollbar appearing. Each of those left the backing store
+// sized for the OLD box while CSS stretched the canvas to the new one, and the
+// browser bilinearly resampled the whole layer on top of whatever we drew —
+// blur that no imageSmoothing setting inside the 2D context can undo.
+if (typeof ResizeObserver !== "undefined") {
+  // Guarded: resizeCanvas writes inline width/height on the canvases, which is
+  // itself a layout change inside .stage-wrap. Without the no-op check that
+  // feeds back into the observer as a "ResizeObserver loop" warning.
+  let lastW = 0;
+  let lastH = 0;
+  new ResizeObserver(() => {
+    const rect = stageWrap.getBoundingClientRect();
+    if (rect.width === lastW && rect.height === lastH) return;
+    lastW = rect.width;
+    lastH = rect.height;
+    resizeCanvas();
+  }).observe(stageWrap);
+}
 
 // Note: there is deliberately no cross-tab `storage` listener that reloads
 // annotations. Drafts are per-task and per-tab now; the old listener watched a
