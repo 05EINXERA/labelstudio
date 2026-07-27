@@ -30,3 +30,4 @@ export const clearButton = document.querySelector("#clearButton");
 // project-level operation handled there, not on the canvas.
 export const exportLink = document.querySelector("#exportLink");
 export const shapeHint = document.querySelector("#shapeHint");
+export const saveButton = document.querySelector("#saveButton");

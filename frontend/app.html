@@ -34,7 +34,6 @@
         <span class="breadcrumb-sep">/</span>
         <span class="breadcrumb-image" id="breadcrumbImage">No image</span>
       </span>
-      <span class="status-pill" id="saveStatus">Ready</span>
 
       <div class="zoom-control" role="group" aria-label="Canvas zoom">
         <button class="icon-button zoom-btn" id="zoomOutButton" type="button" title="Zoom out">&minus;</button>
@@ -71,10 +70,14 @@
     </div>
 
     <div class="top-nav-right">
-      <div class="image-nav">
-        <button class="icon-button" id="prevImageButton" type="button" disabled title="Previous image">&lt;</button>
-        <span id="galleryPosition" class="gallery-position">0 / 0</span>
-        <button class="icon-button" id="nextImageButton" type="button" disabled title="Next image">&gt;</button>
+      <div class="image-nav" style="display: flex; align-items: center; gap: 12px;">
+        <span class="status-pill" id="saveStatus" style="margin: 0 8px;">Saved</span>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <button class="icon-button" id="prevImageButton" type="button" disabled title="Previous image">&lt;</button>
+          <span id="galleryPosition" class="gallery-position">0 / 0</span>
+          <button class="icon-button" id="nextImageButton" type="button" disabled title="Next image">&gt;</button>
+        </div>
+        
       </div>
       <!-- Export is a project-level operation (status filters, per-task ZIP,
            preview-before-import) and lives in the project's Exports tab, backed
@@ -492,6 +495,14 @@
           <button id="taskCompletedOkBtn" class="primary" style="flex: 1; padding: 12px;">Continue</button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- Save overlay with spinner (appears when user manually triggers save) -->
+  <div id="saveOverlay" class="save-overlay">
+    <div class="save-spinner-container">
+      <div class="save-spinner"></div>
+      <div class="save-spinner-text">Saving Task…</div>
     </div>
   </div>
 

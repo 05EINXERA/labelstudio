@@ -50,17 +50,17 @@ function applySmoothToSelected() {
   const annotation = state.annotations.find(a => a.id === state.selectedId);
 
   if (!annotation) {
-    setStatus('Select a polygon first, then click Smooth');
+    setStatus('Select polygon to smooth');
     return;
   }
   if (!annotation.points || annotation.points.length < 4) {
-    setStatus('FFT smoothing requires a polygon with at least 4 points');
+    setStatus('Polygon needs 4+ points');
     return;
   }
   // Bounding-box annotations (exactly 4 axis-aligned points) should not be
   // smoothed — they would turn into a non-rectangular quadrilateral.
   if (annotation.type === 'bbox' || annotation.points.length === 4) {
-    setStatus('FFT smoothing works on polygons, not bounding boxes');
+    setStatus('Works on polygons only');
     return;
   }
 
@@ -70,7 +70,7 @@ function applySmoothToSelected() {
   annotation.points = smoothed;
   updateAnnotationBounds(annotation);
   render();
-  setStatus(`FFT smooth applied (keep ${Math.round(keepRatio * 100)}%)`);
+  setStatus(`Smoothed (${Math.round(keepRatio * 100)}%)`);
 }
 
 // ---------------------------------------------------------------------------
@@ -112,7 +112,7 @@ export function initFftControls() {
     const on = autoToggle.classList.toggle('is-on');
     autoToggle.setAttribute('aria-checked', String(on));
     localStorage.setItem(AUTO_SMOOTH_KEY, String(on));
-    setStatus(on ? 'Auto-smooth: ON — polygons will be smoothed on finalize' : 'Auto-smooth: OFF');
+    setStatus(on ? 'Auto-smooth: ON' : 'Auto-smooth: OFF');
   });
 
   // ── Helper ────────────────────────────────────────────────────────────────

@@ -120,7 +120,7 @@ export async function autoDetectObjects({ replace = true } = {}) {
       }
       render();
       save();
-      setStatus("No objects found");
+      setStatus("No objects");
       return 0;
     }
 
@@ -140,7 +140,7 @@ export async function autoDetectObjects({ replace = true } = {}) {
     }
     render();
     save();
-    setStatus(`Found ${detected.length} objects`);
+    setStatus(`${detected.length} objects`);
     return detected.length;
   } catch (error) {
     console.error(error);
@@ -177,7 +177,7 @@ export async function autoTagObjects() {
     : null;
 
   setDetectionBusy(true);
-  setStatus(selection ? "Auto-tagging selection..." : "Auto-tagging image...");
+  setStatus(selection ? "Auto-tagging…" : "Auto-tagging…");
 
   try {
     const payload = {
@@ -201,10 +201,10 @@ export async function autoTagObjects() {
     const tags = result.tags || [];
 
     if (tags && tags.length > 0) {
-      setStatus(`Found ${tags.length} tags`);
+      setStatus(`${tags.length} tags`);
       showAutoTagModal(tags);
     } else {
-      setStatus("No tags found");
+      setStatus("No tags");
     }
   } catch (error) {
     console.error(error);
@@ -323,7 +323,7 @@ export function showAutoTagModal(tags) {
 
     if (classNames.length > 0) {
       classNames.forEach(className => ensureLabel(className, tagColors[className]));
-      setStatus(`Added tags: ${classNames.join(", ")}`);
+      setStatus(`Tags added`);
       render();
     }
     closeModal();
@@ -340,7 +340,7 @@ export async function performMagicWandSegmentation(point, bbox = null, isShift =
   if (!view.imageLoaded || detectState.detectionBusy) return;
 
   setDetectionBusy(true);
-  setStatus("Segmenting object...");
+  setStatus("Segmenting…");
 
   try {
     const activeLabelId = state.activeLabelId;
@@ -391,7 +391,7 @@ export async function performMagicWandSegmentation(point, bbox = null, isShift =
     const result = await pollJob(job_id, null);
     const points = result.points || [];
     if (!points.length) {
-      setStatus("No object found at points");
+      setStatus("No object found");
       return;
     }
 
@@ -422,7 +422,7 @@ export async function performMagicWandSegmentation(point, bbox = null, isShift =
 
     render();
     save();
-    setStatus("Segmented object");
+    setStatus("Segmented");
   } catch (error) {
     console.error(error);
     setStatus("Segmentation failed");
