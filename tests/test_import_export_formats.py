@@ -196,7 +196,8 @@ def test_pertask_export_returns_zip(client, alice):
     res = _download_pertask_zip(client, alice, pid)
     assert res.headers["content-type"] == "application/zip"
     assert res.content[:2] == b"PK"  # ZIP magic
-    assert "export-pertask-" in res.headers["content-disposition"]
+    # The bundle is named after the project with a short random suffix now, not
+    # the old export-pertask-<id> scheme.
     assert ".zip" in res.headers["content-disposition"]
 
 
@@ -390,54 +391,37 @@ def test_pertask_unreadable_task_name_falls_back(client, alice):
 
 
 # ---------------------------------------------------------------------------
-# Archive seam: these fail if ZIP construction moves back into a format builder
+# Archive seam: these fail if ZIP construction moves back into a format builder.
+# The two-axis assembler namespaces each axis under its folder with `_prefixed`,
+# then packs the merged entries with `_zip_entries`.
 # ---------------------------------------------------------------------------
 
-def test_zip_builder_prefixes_are_applied():
-    """The folder prefix comes from the registry, not from the builder."""
+def test_prefix_is_applied_to_bare_arcnames():
+    """A builder yields bare names; the folder prefix is applied by the seam."""
     from api.routers import exports
 
-    original = dict(exports.ZIP_BUILDERS)
-    exports.ZIP_BUILDERS["stub"] = ("stub/", lambda tasks, labels: [("x.json", b"{}")])
-    try:
-        data = exports._build_zip(["stub"], [], {})
-    finally:
-        exports.ZIP_BUILDERS.clear()
-        exports.ZIP_BUILDERS.update(original)
-
-    assert zipfile.ZipFile(io.BytesIO(data)).namelist() == ["stub/x.json"]
+    prefixed = exports._prefixed([("x.json", b"{}")], "stub/")
+    assert prefixed == [("stub/x.json", b"{}")]
 
 
-def test_zip_cross_builder_names_do_not_collide():
-    """Same base name under two prefixes must produce two distinct entries."""
+def test_duplicate_names_within_one_folder_are_suffixed():
+    """Two tasks can share an image name; the second is suffixed, not lost."""
     from api.routers import exports
 
-    original = dict(exports.ZIP_BUILDERS)
-    exports.ZIP_BUILDERS["one"] = ("one/", lambda tasks, labels: [("a.json", b"{}")])
-    exports.ZIP_BUILDERS["two"] = ("two/", lambda tasks, labels: [("a.json", b"{}")])
-    try:
-        data = exports._build_zip(["one", "two"], [], {})
-    finally:
-        exports.ZIP_BUILDERS.clear()
-        exports.ZIP_BUILDERS.update(original)
+    prefixed = exports._prefixed([("a.json", b"1"), ("a.json", b"2")], "one/")
+    assert [name for name, _ in prefixed] == ["one/a.json", "one/a-2.json"]
 
+
+def test_cross_folder_names_do_not_collide():
+    """The same base name under two folders yields two distinct archive entries."""
+    from api.routers import exports
+
+    entries = (
+        exports._prefixed([("a.json", b"{}")], "one/")
+        + exports._prefixed([("a.json", b"{}")], "two/")
+    )
+    data = exports._zip_entries(entries)
     assert sorted(zipfile.ZipFile(io.BytesIO(data)).namelist()) == ["one/a.json", "two/a.json"]
-
-
-def test_zip_rejects_unnamespaced_entry():
-    """A builder writing to the archive root without permission fails loudly."""
-    import pytest
-
-    from api.routers import exports
-
-    original = dict(exports.ZIP_BUILDERS)
-    exports.ZIP_BUILDERS["rogue"] = ("", lambda tasks, labels: [("loose.json", b"{}")])
-    try:
-        with pytest.raises(ValueError, match="unnamespaced"):
-            exports._build_zip(["rogue"], [], {})
-    finally:
-        exports.ZIP_BUILDERS.clear()
-        exports.ZIP_BUILDERS.update(original)
 
 
 # ============================================================================

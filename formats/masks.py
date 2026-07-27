@@ -24,17 +24,17 @@ values like (3,0,0) and (14,0,32) where flat class colours should be). We emit
 PNG for all four, so a consumer can actually read a class off the pixel.
 """
 import io
-import json
 import logging
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import List, Sequence, Tuple
 
 import models
 from PIL import Image, ImageDraw
 
 from formats.common import (
+    hex_to_rgb,
     image_size,
-    is_annotation,
-    points_of,
+    ordered_annotations,
+    polygon_points,
     safe_stem,
 )
 
@@ -70,52 +70,6 @@ _MAX_PALETTE_ENTRIES = 255
 MAX_MASK_TASKS = 150
 
 
-def _hex_to_rgb(value: Optional[str]) -> Tuple[int, int, int]:
-    """'#RRGGBB' -> (r, g, b). Unparseable colours fall back to mid-grey.
-
-    A label colour comes from the UI or an import and is not guaranteed to be
-    well-formed; a bad value must not fail the export.
-    """
-    text = (value or "").strip().lstrip("#")
-    if len(text) == 3:  # shorthand #abc
-        text = "".join(c * 2 for c in text)
-    if len(text) != 6:
-        logger.warning("Unparseable label colour %r; using grey in the mask.", value)
-        return (128, 128, 128)
-    try:
-        return (int(text[0:2], 16), int(text[2:4], 16), int(text[4:6], 16))
-    except ValueError:
-        logger.warning("Unparseable label colour %r; using grey in the mask.", value)
-        return (128, 128, 128)
-
-
-def _ordered_annotations(task: models.Task) -> List[dict]:
-    """A task's annotations in paint order.
-
-    Later shapes paint over earlier ones, so the order decides what a pixel in
-    an overlap reports. Explicit `order` wins where present; otherwise the
-    stored sequence is the order the user drew them in.
-    """
-    try:
-        anns = json.loads(task.annotations) if task.annotations else []
-    except (ValueError, TypeError) as exc:
-        logger.warning("Task %s has unparseable annotations, skipping in export: %s", task.id, exc)
-        return []
-    if not isinstance(anns, list):
-        return []
-    real = [a for a in anns if is_annotation(a)]
-    return sorted(enumerate(real), key=lambda pair: (pair[1].get("order", pair[0]), pair[0]))
-
-
-def _polygon(ann: dict) -> Optional[List[Tuple[float, float]]]:
-    """Vertices as (x, y) tuples, or None if too few to fill."""
-    points = points_of(ann)
-    if len(points) < 3:
-        # A line or a single point encloses no area; ImageDraw would raise.
-        return None
-    return [(p["x"], p["y"]) for p in points]
-
-
 def _render(task: models.Task, labels_by_id: dict, width: int, height: int,
             *, instance: bool, indexed: bool) -> Tuple[Image.Image, int]:
     """One mask for one task, plus the count of instances it could not hold.
@@ -139,15 +93,15 @@ def _render(task: models.Task, labels_by_id: dict, width: int, height: int,
     class_index = {label_id: i + 1 for i, label_id in enumerate(labels_by_id)}
     if indexed and not instance:
         for label_id in labels_by_id:
-            palette.extend(_hex_to_rgb(labels_by_id[label_id].color))
+            palette.extend(hex_to_rgb(labels_by_id[label_id].color))
 
     instance_ordinal = 0
     overflow = 0
-    for _, ann in _ordered_annotations(task):
+    for ann in ordered_annotations(task):
         label = labels_by_id.get(ann.get("labelId"))
         if not label:
             continue  # references a deleted label
-        polygon = _polygon(ann)
+        polygon = polygon_points(ann)
         if polygon is None:
             continue
 
@@ -167,7 +121,7 @@ def _render(task: models.Task, labels_by_id: dict, width: int, height: int,
                 fill = colour
         else:
             ordinal = class_index.get(label.id, 0)
-            fill = ordinal if indexed else _hex_to_rgb(label.color)
+            fill = ordinal if indexed else hex_to_rgb(label.color)
 
         draw.polygon(polygon, fill=fill)
 
