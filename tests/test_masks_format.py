@@ -19,7 +19,7 @@ import pytest
 from PIL import Image
 
 from conftest import unique_label_id
-from formats import masks
+from formats import common, masks
 
 
 def _new_project(client, auth, name="mask"):
@@ -61,6 +61,22 @@ def _set_annotations(client, auth, pid, description, annotations):
     assert res.status_code == 200, res.text
 
 
+# The legacy "masks_direct"/"masks_index" format codes now resolve to a COCO
+# annotation format paired with the mask image output, so the archive carries a
+# coco/ folder alongside the masks. The mask files live under mask_direct_color/
+# or mask_index_color/; that prefix is stripped here so the pixel-level
+# assertions keep reading semantic_segmentations/ and instance_segmentations/
+# directly. A dedicated test asserts the folder nesting itself.
+_MASK_PREFIXES = ("mask_direct_color/", "mask_index_color/")
+
+
+def _strip_mask_prefix(name):
+    for p in _MASK_PREFIXES:
+        if name.startswith(p):
+            return name[len(p):]
+    return name
+
+
 def _export_masks(client, auth, pid, fmt):
     res = client.post("/api/exports", json={"projectId": pid, "format": fmt}, headers=auth)
     assert res.status_code == 200, res.text
@@ -69,7 +85,13 @@ def _export_masks(client, auth, pid, fmt):
     assert status["status"] == "completed", status
     download = client.get(f"/api/exports/{job_id}/download", headers=auth)
     zf = zipfile.ZipFile(io.BytesIO(download.content))
-    return {n: zf.read(n) for n in zf.namelist()}, status
+    # Keep only the mask folder's contents, prefix stripped; the coco/ folder
+    # the alias now also emits is irrelevant to these mask-pixel tests.
+    return {
+        _strip_mask_prefix(n): zf.read(n)
+        for n in zf.namelist()
+        if n.startswith(_MASK_PREFIXES)
+    }, status
 
 
 def _open(entries, name):
@@ -288,11 +310,13 @@ def test_degenerate_shapes_do_not_crash_the_render(client, alice):
 
 def test_unparseable_label_colour_falls_back_to_grey():
     """A colour comes from the UI or an import and is not guaranteed valid."""
-    assert masks._hex_to_rgb("#D95319") == (217, 83, 25)
-    assert masks._hex_to_rgb("#abc") == (170, 187, 204)
-    assert masks._hex_to_rgb("not-a-colour") == (128, 128, 128)
-    assert masks._hex_to_rgb(None) == (128, 128, 128)
-    assert masks._hex_to_rgb("#GGGGGG") == (128, 128, 128)
+    # hex_to_rgb moved to formats.common when the mask and image builders were
+    # unified on one set of geometry helpers.
+    assert common.hex_to_rgb("#D95319") == (217, 83, 25)
+    assert common.hex_to_rgb("#abc") == (170, 187, 204)
+    assert common.hex_to_rgb("not-a-colour") == (128, 128, 128)
+    assert common.hex_to_rgb(None) == (128, 128, 128)
+    assert common.hex_to_rgb("#GGGGGG") == (128, 128, 128)
 
 
 def test_annotation_for_deleted_label_is_skipped(client, alice):

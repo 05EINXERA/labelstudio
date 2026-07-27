@@ -1,39 +1,47 @@
 """Annotation export (tracker P4.4, G6).
 
-Filters tasks by status and builds one of the export formats — COCO, task JSON
-(single array or per-task ZIP), YOLO segmentation, masks (direct/index colour),
-or CSV — returning it as a downloadable file. Format logic lives in `formats/`
-(see ARCHITECTURE.md § 2.1); this module owns request validation, the job
-queue, the download handler, and archive assembly.
+An export is two independent axes bundled into one ZIP:
 
-Two archive containers, both owned here so builders never construct a ZIP
-themselves:
-- `_build_zip` — prefixed multi-folder archives, one folder per registered
-  builder (ZIP_BUILDERS). Used by the per-task JSON format (`jsons/`).
-- `_zip_entries` — for a format that owns its whole directory layout and
-  supplies complete arcnames (YOLO's root classes.txt + annotations/, masks'
-  semantic_segmentations/ + instance_segmentations/).
+- an annotation FORMAT — COCO, task JSON (single array or per-task), or YOLO
+  segmentation (plus legacy CSV);
+- an IMAGE OUTPUT — none, the original image, the annotated image, or a mask
+  (direct / index colour / binary).
 
-A builder may return a `skipped` list of tasks it could not represent (YOLO and
-masks need image dimensions); it is threaded through the job status to the UI
-so a short export is never silent.
+Each axis lives in its own named top-level folder (`coco/`, `yolo/`,
+`mask_direct_color/`, `annotated_image/`, …) so the two never collide. Format
+logic lives in `formats/` (see ARCHITECTURE.md § 2.1); this module owns request
+validation, the job queue, the download handler, and archive assembly.
+
+Archive assembly:
+- `_format_entries` / `_image_entries` — turn each axis into bare (arcname,
+  bytes) pairs plus a `skipped` list of tasks it could not represent;
+- `_prefixed` — namespaces one axis's bare arcnames under its folder;
+- `_zip_entries` — packs the merged, fully-qualified entries into the ZIP.
+
+The finished archive is named `<project>-<short-random>.zip`. Two carve-outs
+skip the ZIP entirely for backward compatibility: CSV, and a single-file
+annotation format (COCO / annotations_json) with image output "none", both stay
+a bare download.
+
+A builder's `skipped` list (YOLO and the masks need image dimensions) is
+threaded through the job status to the UI so a short export is never silent.
 
 Uses the in-process background-job pattern from detect.py (JOBS dict +
-BackgroundTasks). Mask rasterization is the one genuinely slow format, so the
-job plumbing earns its keep; the mask task cap (checked before the job starts)
-keeps a request from holding the worker for minutes.
+BackgroundTasks). Rasterizing images is the slow path, so the job plumbing
+earns its keep; the task cap (checked before the job starts) keeps a request
+from holding the worker for minutes.
 
 Rule 9 applies: this JOBS dict is in-process state, same constraint as
 detect.py's — the app must stay a single uvicorn worker.
 
-Deprecated format codes (`json` → `coco`, `pertask` → `annotations_pertask`)
-resolve in `ExportRequest`; see GOTCHAS.md § 16.
+Deprecated single-axis codes (`json` → coco, `pertask` → annotations_pertask,
+`masks_direct`/`masks_index` → coco + that mask image output) resolve in
+`resolve_export_request`; see GOTCHAS.md § 16.
 
 Not implemented (left as an explicit rejection, not a silent no-op):
 - format=pascal_voc
 """
 import csv
-import inspect
 import io
 import json
 import logging
@@ -41,7 +49,7 @@ import os
 import traceback
 import uuid
 import zipfile
-from typing import Dict, List, Optional, Tuple
+from typing import List, Tuple
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import Response
@@ -49,14 +57,22 @@ from sqlalchemy.orm import Session
 
 import models
 from database import get_db
-from schemas import ExportRequest, EXPORT_FORMATS, EXPORT_INCLUDE_OPTIONS, TASK_STATUSES
+from schemas import (
+    ExportRequest,
+    EXPORT_FORMATS,
+    EXPORT_INCLUDE_OPTIONS,
+    IMAGE_OUTPUTS,
+    TASK_STATUSES,
+    resolve_export_request,
+)
 from api.auth import get_current_user, require_csrf
 from api.routers.projects import get_owned_project
 from formats import annotations_json
 from formats import coco as coco_format
+from formats import images as images_format
 from formats import masks as masks_format
 from formats import yolo as yolo_format
-from formats.common import image_size, points_of, round2, safe_stem, values_for_labels
+from formats.common import archive_name, points_of, round2, values_for_labels
 
 logger = logging.getLogger(__name__)
 
@@ -65,32 +81,43 @@ router = APIRouter(prefix="/api/exports", tags=["exports"], dependencies=[Depend
 JOBS = {}
 
 
-# COCO building lives in formats/coco.py. The shared helpers moved to
-# formats/common.py; aliased here so the per-task and CSV builders below keep
-# reading the same way until they move too.
+# The legacy CSV builder still reads through these short aliases; the shared
+# helpers themselves live in formats/common.py.
 _round = round2
 _points_of = points_of
-_image_size = image_size
-_safe_stem = safe_stem
 
-
-# The per-task object and its archive entries live in
-# formats/annotations_json.py, alongside the single-file builder that emits the
-# identical object shape.
-_pertask_object = annotations_json.task_object
+# The per-task JSON archive entries live in formats/annotations_json.py.
 _entries_pertask = annotations_json.build_entries
 
 
-# Arcname prefix per format — the archive's directory contract. Adding a format
-# is a row here plus a builder returning (arcname, content) pairs.
-#   "coco": ("coco/", _entries_coco),   # future
-#   "csv":  ("csv/",  _entries_csv),    # future
-ZIP_BUILDERS = {
-    "annotations_pertask": ("jsons/", _entries_pertask),
+# --- Two-axis archive layout ------------------------------------------------
+#
+# An export bundles up to two axes into one ZIP, each in its own named
+# top-level folder so the two never collide:
+#
+#   <format-folder>/     the annotation format's files    (json/, yolo/, ...)
+#   <image-folder>/      the image output's files         (original_image/, ...)
+#
+# Adding an axis value is a row in one of these maps plus a builder returning
+# (bare-arcname, bytes) pairs; the folder prefix is applied here, once.
+
+# Annotation-format axis -> (folder prefix, builder). Each builder follows the
+# `build(tasks, labels, db) -> (entries, skipped)` contract, entries bare.
+FORMAT_FOLDERS = {
+    "coco": "coco/",
+    "annotations_json": "json/",
+    "annotations_pertask": "jsons/",
+    "yolo": "yolo/",
 }
 
-# Files allowed at the archive root rather than under a format prefix.
-ZIP_ROOT_ALLOWED = {"classes.json", "manifest.json"}
+# Image-output axis -> (folder prefix, builder). "none" has no folder.
+IMAGE_FOLDERS = {
+    "original": "original_image/",
+    "annotated": "annotated_image/",
+    "mask_direct": "mask_direct_color/",
+    "mask_index": "mask_index_color/",
+    "mask_binary": "mask_binary_color/",
+}
 
 
 def _zip_entries(entries: List[Tuple[str, bytes]]) -> bytes:
@@ -118,62 +145,66 @@ def _zip_entries(entries: List[Tuple[str, bytes]]) -> bytes:
     return buf.getvalue()
 
 
-def _call_builder(builder, tasks, labels_by_id, values, db):
-    """Invoke a ZIP builder, passing only the arguments it declares.
+def _prefixed(entries: List[Tuple[str, bytes]], prefix: str) -> List[Tuple[str, bytes]]:
+    """Namespace a builder's bare arcnames under one folder, de-duplicating.
 
-    The contract is `builder(tasks, labels_by_id)`; the project-wide value map
-    and a Session are optional extras. Inspecting the signature keeps both a
-    minimal builder and a full one valid, so registering a format never
-    requires accepting parameters it has no use for.
+    Two tasks can share an image name, so a genuine collision inside the folder
+    is suffixed rather than overwritten. Different folders never collide because
+    the prefix makes the full arcname unique.
     """
-    params = inspect.signature(builder).parameters
-    kwargs = {}
-    if "values" in params:
-        kwargs["values"] = values
-    if "db" in params:
-        kwargs["db"] = db
-    return builder(tasks, labels_by_id, **kwargs)
+    out: List[Tuple[str, bytes]] = []
+    seen: set = set()
+    for name, content in entries:
+        arcname = f"{prefix}{name}"
+        if arcname in seen:
+            stem, ext = os.path.splitext(arcname)
+            n = 2
+            candidate = f"{stem}-{n}{ext}"
+            while candidate in seen:
+                n += 1
+                candidate = f"{stem}-{n}{ext}"
+            arcname = candidate
+        seen.add(arcname)
+        out.append((arcname, content))
+    return out
 
 
-def _build_zip(formats: List[str], tasks: List[models.Task], labels_by_id: dict,
-               values: Optional[Dict[str, str]] = None, db=None) -> bytes:
-    """Assemble one archive from the selected formats' entries.
+def _format_entries(fmt: str, tasks, labels, values, db) -> Tuple[List[Tuple[str, bytes]], List[dict]]:
+    """Annotation-format axis -> (bare entries, skipped), before folder prefix.
 
-    The container lives here, not in any builder, so several formats can share
-    a single archive later. Takes a list today even though callers pass one
-    format, so that widening the request needs no change at this layer.
-
-    Collisions are resolved on the *full* arcname: `jsons/a.json` and a future
-    `coco/a.json` must not false-collide, while a genuine duplicate within one
-    folder is suffixed rather than silently overwritten.
-
-    The builder contract is `builder(tasks, labels_by_id)`. A builder may
-    additionally accept `values` (the project-wide {label_id: value} map) and
-    `db`; those are passed only when its signature declares them, so a minimal
-    two-argument builder stays valid.
+    A single-file format (COCO, annotations_json) yields exactly one entry named
+    `annotations.json`; the multi-file formats yield their own layout inside the
+    folder (YOLO's classes.txt + annotations/, the per-task jsons).
     """
-    buf = io.BytesIO()
-    seen = set()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for fmt in formats:
-            prefix, builder = ZIP_BUILDERS[fmt]
-            for name, content in _call_builder(builder, tasks, labels_by_id, values, db):
-                arcname = f"{prefix}{name}"
-                if prefix == "" and name not in ZIP_ROOT_ALLOWED:
-                    raise ValueError(f"Builder '{fmt}' wrote unnamespaced entry '{name}'.")
-                if arcname in seen:
-                    stem, ext = os.path.splitext(arcname)
-                    # Duplicate image names are legal in a project, so this is a
-                    # real case, not a defensive branch. Suffix until unique.
-                    n = 2
-                    candidate = f"{stem}-{n}{ext}"
-                    while candidate in seen:
-                        n += 1
-                        candidate = f"{stem}-{n}{ext}"
-                    arcname = candidate
-                seen.add(arcname)
-                zf.writestr(arcname, content)
-    return buf.getvalue()
+    if fmt == "coco":
+        body = json.dumps(coco_format.build(tasks, labels, db=db), indent=2)
+        return [("annotations.json", body.encode("utf-8"))], []
+    if fmt == "annotations_json":
+        body = annotations_json.build_single(tasks, labels, db=db)
+        raw = body.encode("utf-8") if isinstance(body, str) else body
+        return [("annotations.json", raw)], []
+    if fmt == "annotations_pertask":
+        entries = list(_entries_pertask(tasks, {l.id: l for l in labels}, values=values, db=db))
+        norm = [(n, c.encode("utf-8") if isinstance(c, str) else c) for n, c in entries]
+        return norm, []
+    if fmt == "yolo":
+        entries, skipped = yolo_format.build(tasks, labels, db=db)
+        norm = [(n, c.encode("utf-8") if isinstance(c, str) else c) for n, c in entries]
+        return norm, skipped
+    raise ValueError(f"Unknown export format {fmt!r}.")
+
+
+def _image_entries(image_output: str, tasks, labels, db) -> Tuple[List[Tuple[str, bytes]], List[dict]]:
+    """Image-output axis -> (bare entries, skipped), before folder prefix."""
+    if image_output == "original":
+        return images_format.build_original(tasks, labels, db=db)
+    if image_output == "annotated":
+        return images_format.build_annotated(tasks, labels, db=db)
+    if image_output == "mask_binary":
+        return images_format.build_binary(tasks, labels, db=db)
+    if image_output in ("mask_direct", "mask_index"):
+        return masks_format.build(tasks, labels, indexed=image_output == "mask_index", db=db)
+    raise ValueError(f"Unknown image output {image_output!r}.")
 
 
 def _build_csv(tasks: List[models.Task], labels_by_id: dict) -> str:
@@ -207,6 +238,13 @@ def _run_export_job(job_id: str, req: ExportRequest, project_id: int):
     from database import SessionLocal
     db = SessionLocal()
     try:
+        # Resolve deprecated single-axis codes (json, masks_index, …) into the
+        # canonical (format, imageOutput) pair. The field validator that used
+        # to do this is gone; resolution spans two fields now, so it lives here.
+        fmt, image_output = resolve_export_request(req.format, req.imageOutput)
+
+        project = db.query(models.Project).filter(models.Project.id == project_id).first()
+
         query = db.query(models.Task).filter(models.Task.project_id == project_id)
         if req.statusFilter:
             query = query.filter(models.Task.status.in_(req.statusFilter))
@@ -214,59 +252,62 @@ def _run_export_job(job_id: str, req: ExportRequest, project_id: int):
         labels = db.query(models.Label).filter(models.Label.project_id == project_id).all()
         labels_by_id = {l.id: l for l in labels}
 
-        # Tasks a format could not represent, reported with the finished job
-        # so a silently short export is visible to the user.
-        skipped: List[dict] = []
-
         # One collision-free {label_id: value} map for the whole export, so
         # every format in it agrees on the class identifiers.
         values = values_for_labels(labels)
 
-        # `db` is passed to the builders so image dimensions recovered from
-        # disk are written back to the Task — this is a POST-initiated
-        # background job with its own session, not a GET handler (rule 4).
-        if req.format == "csv":
-            body = _build_csv(tasks, labels_by_id)
-            media_type = "text/csv"
-            filename = f"export-{project_id}.csv"
-        elif req.format == "annotations_pertask":
-            # A ZIP of one JSON file per task, under jsons/. The container is
-            # multi-folder by design so later formats can share one archive.
-            body = _build_zip(["annotations_pertask"], tasks, labels_by_id, values, db)
-            media_type = "application/zip"
-            filename = f"export-pertask-{project_id}.zip"
-        elif req.format == "annotations_json":
-            # The same task objects as the per-task ZIP, in one JSON array.
-            body = annotations_json.build_single(tasks, labels, db=db)
-            media_type = "application/json"
-            filename = f"export-annotations-{project_id}.json"
-        elif req.format == "yolo":
-            # classes.txt lives at the archive root and the label files under
-            # annotations/, so this format owns its whole layout rather than
-            # contributing into a single prefixed folder.
-            entries, skipped = yolo_format.build(tasks, labels, db=db)
-            body = _zip_entries(entries)
-            media_type = "application/zip"
-            filename = f"export-yolo-{project_id}.zip"
-        elif req.format in ("masks_direct", "masks_index"):
-            # Both variants emit semantic_segmentations/ and
-            # instance_segmentations/, mirroring the reference archive.
-            entries, skipped = masks_format.build(
-                tasks, labels, indexed=req.format == "masks_index", db=db)
-            body = _zip_entries(entries)
-            media_type = "application/zip"
-            filename = f"export-{req.format}-{project_id}.zip"
-        else:  # coco
-            body = json.dumps(coco_format.build(tasks, labels, db=db), indent=2)
-            media_type = "application/json"
-            filename = f"export-{project_id}.json"
+        # `db` is passed to the builders so image dimensions recovered from disk
+        # are written back to the Task — this is a POST-initiated background job
+        # with its own session, not a GET handler (rule 4).
 
+        # CSV is a legacy single-file format with no folder and no image axis.
+        if fmt == "csv":
+            body = _build_csv(tasks, labels_by_id)
+            db.commit()
+            JOBS[job_id] = {
+                "status": "completed", "body": body, "media_type": "text/csv",
+                "filename": f"export-{project_id}.csv", "task_count": len(tasks),
+                "format": fmt, "image_output": image_output, "skipped": [],
+            }
+            return
+
+        # Compat carve-out: a single-file annotation format with no image output
+        # stays a bare .json download (no folder wrapper), preserving the long-
+        # standing behaviour and the clients that depend on it.
+        if image_output == "none" and fmt in ("coco", "annotations_json"):
+            if fmt == "coco":
+                body = json.dumps(coco_format.build(tasks, labels, db=db), indent=2)
+            else:
+                body = annotations_json.build_single(tasks, labels, db=db)
+            db.commit()
+            JOBS[job_id] = {
+                "status": "completed", "body": body, "media_type": "application/json",
+                "filename": f"export-{project_id}.json", "task_count": len(tasks),
+                "format": fmt, "image_output": image_output, "skipped": [],
+            }
+            return
+
+        # General case: one ZIP, each axis in its own top-level folder.
+        entries: List[Tuple[str, bytes]] = []
+        skipped: List[dict] = []
+
+        fmt_entries, fmt_skipped = _format_entries(fmt, tasks, labels, values, db)
+        entries += _prefixed(fmt_entries, FORMAT_FOLDERS[fmt])
+        skipped += fmt_skipped
+
+        if image_output != "none":
+            img_entries, img_skipped = _image_entries(image_output, tasks, labels, db)
+            entries += _prefixed(img_entries, IMAGE_FOLDERS[image_output])
+            skipped += img_skipped
+
+        body = _zip_entries(entries)
         db.commit()
 
         JOBS[job_id] = {
-            "status": "completed", "body": body, "media_type": media_type,
-            "filename": filename, "task_count": len(tasks), "format": req.format,
-            "skipped": skipped,
+            "status": "completed", "body": body, "media_type": "application/zip",
+            "filename": archive_name(project) if project else f"export-{project_id}.zip",
+            "task_count": len(tasks), "format": fmt,
+            "image_output": image_output, "skipped": skipped,
         }
     except Exception:
         traceback.print_exc()
@@ -279,8 +320,14 @@ def _run_export_job(job_id: str, req: ExportRequest, project_id: int):
 def create_export(req: ExportRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     get_owned_project(req.projectId, user, db)
 
-    if req.format not in EXPORT_FORMATS:
+    # Resolve deprecated single-axis codes before validating, so an old client
+    # sending format=masks_index or format=json still passes.
+    fmt, image_output = resolve_export_request(req.format, req.imageOutput)
+
+    if fmt not in EXPORT_FORMATS:
         raise HTTPException(status_code=422, detail=f"format must be one of {EXPORT_FORMATS}.")
+    if image_output not in IMAGE_OUTPUTS:
+        raise HTTPException(status_code=422, detail=f"imageOutput must be one of {IMAGE_OUTPUTS}.")
     if req.include not in EXPORT_INCLUDE_OPTIONS:
         raise HTTPException(
             status_code=422,
@@ -292,11 +339,12 @@ def create_export(req: ExportRequest, background_tasks: BackgroundTasks, db: Ses
         if bad:
             raise HTTPException(status_code=422, detail=f"Unknown status filter values: {bad}. Valid: {TASK_STATUSES}.")
 
-    if req.format in ("masks_direct", "masks_index"):
+    # Any raster image output is the slow path that holds the single worker
+    # (rule 9): colour masks emit two full-size PNGs per task, and annotated/
+    # binary one each. Cap on the resolved image output, not the format code.
+    if image_output in ("mask_direct", "mask_index", "mask_binary", "annotated", "original"):
         # Counted before the job starts so an oversized request fails fast
-        # rather than holding the single worker (rule 9) for minutes and
-        # looking like a hang. Rasterizing is the one genuinely slow export:
-        # a 20-megapixel image yields two full-size masks per task.
+        # rather than holding the worker for minutes and looking like a hang.
         count_query = db.query(models.Task).filter(models.Task.project_id == req.projectId)
         if req.statusFilter:
             count_query = count_query.filter(models.Task.status.in_(req.statusFilter))
@@ -305,7 +353,7 @@ def create_export(req: ExportRequest, background_tasks: BackgroundTasks, db: Ses
             raise HTTPException(
                 status_code=422,
                 detail=(
-                    f"Mask export is limited to {masks_format.MAX_MASK_TASKS} tasks per "
+                    f"Image output is limited to {masks_format.MAX_MASK_TASKS} tasks per "
                     f"request; this project has {task_count}. Narrow the status filter "
                     "and export in batches."
                 ),
@@ -327,6 +375,7 @@ def get_export_status(job_id: str):
             "status": "completed",
             "task_count": job["task_count"],
             "format": job["format"],
+            "image_output": job.get("image_output", "none"),
             # Tasks a format could not represent (YOLO without image
             # dimensions, for example). Reported so a short export is visible
             # rather than silently missing files.

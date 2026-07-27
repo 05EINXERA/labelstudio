@@ -9,8 +9,11 @@ Covers .devnotes/data-refactor/01_PLAN.md § 1.2-1.5:
   - value_from_name()     the single interop `value` derivation (gap G5)
   - status maps           our vocabulary <-> the interop format's (gap G4)
 """
+import json
 import logging
 import os
+import secrets
+import re
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from PIL import Image, UnidentifiedImageError
@@ -149,6 +152,55 @@ def annotation_type_of(ann: dict) -> str:
 def is_annotation(ann) -> bool:
     """Real annotations only — comments live in the same array but are not shapes."""
     return isinstance(ann, dict) and ann.get("type") != "comment"
+
+
+def hex_to_rgb(value: Optional[str]) -> Tuple[int, int, int]:
+    """'#RRGGBB' -> (r, g, b). Unparseable colours fall back to mid-grey.
+
+    A label colour comes from the UI or an import and is not guaranteed to be
+    well-formed; a bad value must not fail the export.
+    """
+    text = (value or "").strip().lstrip("#")
+    if len(text) == 3:  # shorthand #abc
+        text = "".join(c * 2 for c in text)
+    if len(text) != 6:
+        logger.warning("Unparseable label colour %r; using grey.", value)
+        return (128, 128, 128)
+    try:
+        return (int(text[0:2], 16), int(text[2:4], 16), int(text[4:6], 16))
+    except ValueError:
+        logger.warning("Unparseable label colour %r; using grey.", value)
+        return (128, 128, 128)
+
+
+def ordered_annotations(task: models.Task) -> List[dict]:
+    """A task's real annotations in paint order.
+
+    Later shapes paint over earlier ones, so the order decides what a pixel in
+    an overlap reports. Explicit `order` wins where present; otherwise the
+    stored sequence is the order the user drew them in.
+    """
+    try:
+        anns = json.loads(task.annotations) if task.annotations else []
+    except (ValueError, TypeError) as exc:
+        logger.warning("Task %s has unparseable annotations, skipping: %s", task.id, exc)
+        return []
+    if not isinstance(anns, list):
+        return []
+    real = [a for a in anns if is_annotation(a)]
+    ordered = sorted(enumerate(real), key=lambda pair: (pair[1].get("order", pair[0]), pair[0]))
+    return [ann for _, ann in ordered]
+
+
+def polygon_points(ann: dict) -> Optional[List[Tuple[float, float]]]:
+    """Vertices as (x, y) tuples, or None if too few to fill a region.
+
+    A line or single point encloses no area; PIL's ImageDraw would raise.
+    """
+    points = points_of(ann)
+    if len(points) < 3:
+        return None
+    return [(p["x"], p["y"]) for p in points]
 
 
 # ---------------------------------------------------------------------------
@@ -326,3 +378,25 @@ def safe_stem(task: models.Task) -> str:
     if not stem or stem in (".", ".."):
         return f"task-{task.id}"
     return stem
+
+
+# Filesystem-hostile characters in a project name, collapsed to a hyphen so the
+# download name is safe on every OS. Kept deliberately narrow: letters, digits,
+# and a few separators survive; everything else (slashes, colons, quotes) goes.
+_ARCHIVE_NAME_STRIP = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def archive_name(project: models.Project, ext: str = "zip") -> str:
+    """`<project-slug>-<short-random>.<ext>` for a downloadable bundle.
+
+    The random suffix keeps repeated exports of one project from overwriting
+    each other in a downloads folder, and never leaks a database id. Falls back
+    to the project id when the name sanitises to nothing (e.g. a name of only
+    punctuation).
+    """
+    raw = (project.name or "").strip()
+    base = _ARCHIVE_NAME_STRIP.sub("-", raw).strip("-.")
+    if not base:
+        base = f"project-{project.id}"
+    suffix = secrets.token_hex(3)  # 6 hex chars
+    return f"{base}-{suffix}.{ext}"

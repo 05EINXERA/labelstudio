@@ -70,7 +70,25 @@ def _export_yolo(client, auth, pid):
     assert status["status"] == "completed", status
     download = client.get(f"/api/exports/{job_id}/download", headers=auth)
     zf = zipfile.ZipFile(io.BytesIO(download.content))
-    return {n: zf.read(n) for n in zf.namelist()}, status
+    # YOLO now lives under its own top-level folder in the two-axis archive; the
+    # prefix is stripped here so the layout assertions below keep reading the
+    # format's *internal* structure (classes.txt + annotations/). One dedicated
+    # test asserts the yolo/ nesting itself.
+    return {_strip_yolo_prefix(n): zf.read(n) for n in zf.namelist()}, status
+
+
+def _export_yolo_raw(client, auth, pid):
+    """As _export_yolo but with the archive's full arcnames, prefix intact."""
+    res = client.post("/api/exports", json={"projectId": pid, "format": "yolo"}, headers=auth)
+    assert res.status_code == 200, res.text
+    job_id = res.json()["job_id"]
+    download = client.get(f"/api/exports/{job_id}/download", headers=auth)
+    zf = zipfile.ZipFile(io.BytesIO(download.content))
+    return {n: zf.read(n) for n in zf.namelist()}
+
+
+def _strip_yolo_prefix(name):
+    return name[len("yolo/"):] if name.startswith("yolo/") else name
 
 
 # ---------------------------------------------------------------------------
@@ -78,7 +96,7 @@ def _export_yolo(client, auth, pid):
 # ---------------------------------------------------------------------------
 
 def test_archive_layout_matches_the_reference(client, alice):
-    """classes.txt at the root, label files under annotations/."""
+    """classes.txt at the format-folder root, label files under annotations/."""
     pid = _new_project(client, alice)
     _new_label(client, alice, pid, "l", "Rust Area")
     _upload_png(client, alice, pid, "P1000015.png", 100, 50)
@@ -86,6 +104,19 @@ def test_archive_layout_matches_the_reference(client, alice):
     entries, _ = _export_yolo(client, alice, pid)
     assert "classes.txt" in entries
     assert "annotations/P1000015.txt" in entries
+
+
+def test_yolo_lives_under_its_own_top_level_folder(client, alice):
+    """The two-axis archive nests the whole format under yolo/."""
+    pid = _new_project(client, alice)
+    _new_label(client, alice, pid, "l", "Rust Area")
+    _upload_png(client, alice, pid, "P1000015.png", 100, 50)
+
+    raw = _export_yolo_raw(client, alice, pid)
+    assert "yolo/classes.txt" in raw
+    assert "yolo/annotations/P1000015.txt" in raw
+    # Nothing escapes the folder.
+    assert all(name.startswith("yolo/") for name in raw)
 
 
 def test_classes_file_uses_the_value_form(client, alice):

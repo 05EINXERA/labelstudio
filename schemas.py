@@ -159,7 +159,12 @@ TASK_STATUSES = ["New", "In Progress", "Completed", "Approved"]
 # API rejects them rather than silently ignoring the request.
 EXPORT_INCLUDE_OPTIONS = ["annotations_only"]
 
-# Canonical export format codes.
+# An export is two independent axes: an annotation FORMAT and an IMAGE OUTPUT,
+# bundled into one project-named ZIP. Either axis can be chosen without the
+# other (image output "none" = annotations only, the historical behaviour).
+# See .devnotes/data-refactor/02_IMAGE_OUTPUT_PLAN.md.
+
+# Axis A — annotation format.
 #
 # "coco" and "annotations_json" are both JSON but are different documents: COCO
 # is {images, categories, annotations}, while annotations_json is an array of
@@ -168,39 +173,59 @@ EXPORT_INCLUDE_OPTIONS = ["annotations_only"]
 EXPORT_FORMATS = [
     "coco",                 # COCO JSON, one file
     "annotations_json",     # array of task objects, one file
-    "annotations_pertask",  # ZIP of one task object per file
-    "yolo",                 # ZIP: classes.txt + annotations/<stem>.txt
-    "masks_direct",         # ZIP of RGB PNG masks (pixel = colour)
-    "masks_index",          # ZIP of palette PNG masks (pixel = index)
-    "csv",                  # flat CSV
+    "annotations_pertask",  # one task object per file
+    "yolo",                 # classes.txt + annotations/<stem>.txt
+    "csv",                  # flat CSV (deprecated: dropped from the UI, still accepted)
 ]
 
-# Deprecated spellings, still accepted so existing clients and bookmarked UI
-# state keep working. Resolved to the canonical code before validation.
+# Axis B — image output. "none" writes no images (annotations only).
+IMAGE_OUTPUTS = [
+    "none",
+    "original",     # the uploaded image, unchanged
+    "annotated",    # the image with the committed annotations drawn on it
+    "mask_direct",  # RGB PNG masks (pixel = class/instance colour)
+    "mask_index",   # palette PNG masks (pixel = class/instance index)
+    "mask_binary",  # 8-bit grayscale masks (annotated pixel = 255)
+]
+
+# Deprecated single-axis format spellings, still accepted so existing clients
+# and bookmarked UI state keep working. Each maps to a (format, imageOutput)
+# pair. The two standalone mask "formats" are now an image output combined with
+# a default annotation format.
 EXPORT_FORMAT_ALIASES = {
-    "json": "coco",
-    "pertask": "annotations_pertask",
+    "json": ("coco", "none"),
+    "pertask": ("annotations_pertask", "none"),
+    "masks_direct": ("coco", "mask_direct"),
+    "masks_index": ("coco", "mask_index"),
 }
 
 
-def canonical_export_format(value: str) -> str:
-    """Resolve a possibly-deprecated format code to its canonical spelling."""
-    return EXPORT_FORMAT_ALIASES.get(value, value)
+def resolve_export_request(fmt: str, image_output: Optional[str]) -> tuple:
+    """Resolve a possibly-deprecated (format, imageOutput) into the two-axis
+    canonical pair.
+
+    A deprecated single-axis format code (e.g. "masks_index") expands to its
+    pair and *wins* over an omitted/none image output, so an old client that
+    only sends `format=masks_index` still gets masks. An explicit image output
+    on a canonical format is passed through unchanged.
+    """
+    if fmt in EXPORT_FORMAT_ALIASES:
+        canon_fmt, alias_image = EXPORT_FORMAT_ALIASES[fmt]
+        # The alias' image output applies only when the caller didn't ask for
+        # one; a caller pairing a legacy format with an explicit image output
+        # keeps their choice.
+        resolved_image = image_output if image_output and image_output != "none" else alias_image
+        return canon_fmt, resolved_image
+    return fmt, (image_output or "none")
 
 
 class ExportRequest(BaseModel):
     projectId: int
     format: str = "coco"
+    imageOutput: str = "none"
     # None/omitted means "all statuses".
     statusFilter: Optional[List[str]] = None
     include: str = "annotations_only"
-
-    @field_validator("format")
-    @classmethod
-    def _resolve_format_alias(cls, v: str) -> str:
-        # Normalized here rather than at each use site, so nothing downstream
-        # has to know the deprecated spellings exist.
-        return canonical_export_format(v)
 
 
 class ExportJobStatus(BaseModel):
