@@ -8,6 +8,7 @@ import { commentOverlayRefs } from "../comment-overlay.js?v=1";
 import { setStatus, save, render } from "../components/workspace.js?v=1";
 import { performMagicWandSegmentation } from "../ai/detect.js?v=1";
 import { applyAutoSmooth } from "../fft-controls.js?v=1";
+import { annotationSettings } from "../feature-flags.js?v=1";
 
 export function canvasPoint(event) {
   const rect = canvas.getBoundingClientRect();
@@ -50,7 +51,10 @@ export function hitTest(point) {
 export function hitTestPoint(point, annotation) {
   if (!annotation || !annotation.points) return -1;
   const img = imagePoint(point);
-  const threshold = 6 / view.imageBox.scale;
+  // Divided by scale to convert the on-screen pixel radius into image space,
+  // where the comparison happens — so the grab area stays a constant physical
+  // size on screen instead of shrinking as the annotator zooms in.
+  const threshold = annotationSettings.vertexGrabRadius / view.imageBox.scale;
   for (let i = 0; i < annotation.points.length; i++) {
     const pt = annotation.points[i];
     if (Math.hypot(pt.x - img.x, pt.y - img.y) < threshold) {
@@ -63,7 +67,8 @@ export function hitTestPoint(point, annotation) {
 export function hitTestLine(point, annotation) {
   if (!annotation || !annotation.points || annotation.points.length < 3) return -1;
   const img = imagePoint(point);
-  const threshold = 6 / view.imageBox.scale;
+  // Screen pixels -> image space; see hitTestPoint above.
+  const threshold = annotationSettings.edgeGrabRadius / view.imageBox.scale;
   const pts = annotation.points;
   for (let i = 0; i < pts.length; i++) {
     const p1 = pts[i];
@@ -841,7 +846,9 @@ canvas.addEventListener("pointermove", (event) => {
       if (annotation) {
         const pts = annotation.points || [];
         const lastPoint = pts[pts.length - 1];
-        const threshold = 10 / view.imageBox.scale;
+        // Screen pixels -> image space, so tracing at high zoom lays down
+        // proportionally finer detail without retuning the setting.
+        const threshold = annotationSettings.freehandPointSpacing / view.imageBox.scale;
         if (lastPoint && Math.hypot(lastPoint.x - end.x, lastPoint.y - end.y) > threshold) {
           annotation.points.push({ x: round(end.x), y: round(end.y) });
           updateAnnotationBounds(annotation);
