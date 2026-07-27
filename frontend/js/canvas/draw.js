@@ -1,5 +1,6 @@
 import { canvas, ctx, imageCanvas, imageCtx, staticCanvas, staticCtx } from "../dom.js?v=1";
-import { state, handleSize, labelById, isAnnotationHidden } from "../state.js?v=1";
+import { state, labelById, isAnnotationHidden } from "../state.js?v=1";
+import { annotationSettings, annotationOpacity } from "../feature-flags.js?v=1";
 import { view } from "./view.js?v=1";
 import { annotationPoints, hexToRgba } from "./geometry.js?v=1";
 
@@ -141,9 +142,10 @@ export function draw() {
     const pts = annotation?.points || [];
     const label = annotation ? labelById(annotation.labelId) : null;
     const edgeColor = label ? label.color : "#0f8b8d";
-    // Matches the committed-annotation fill so the shape does not visibly
-    // change shade the moment the polygon is closed.
-    const fillColor = label ? hexToRgba(label.color, 0.65) : "rgba(15, 139, 141, 0.65)";
+    // Fill for the shape still being drawn. Set annotationOpacity.drawing equal
+    // to .normal if you want no shade change at the moment the polygon closes;
+    // it is slightly higher by default so the in-progress shape stands out.
+    const fillColor = hexToRgba(label ? label.color : "#0f8b8d", annotationOpacity.drawing);
 
     // The starting point is now distinguished by filling it with the class color via drawVertexHandles
     // Draw preview line from last point to cursor
@@ -224,7 +226,10 @@ export function drawAnnotation(annotation, selected = false, targetCtx = ctx) {
   targetCtx.strokeStyle = label.color;
   // Fill matches the outline colour but stays well below it in opacity, so the
   // class reads at a glance without obscuring the pixels being annotated.
-  targetCtx.fillStyle = hexToRgba(label.color, selected ? 0.60 : 0.5);
+  targetCtx.fillStyle = hexToRgba(
+    label.color,
+    selected ? annotationOpacity.selected : annotationOpacity.normal
+  );
 
   if (!screenPoints.length) {
     targetCtx.restore();
@@ -298,12 +303,12 @@ export function drawAnnotation(annotation, selected = false, targetCtx = ctx) {
 }
 
 export function drawVertexHandles(points, color, targetCtx = ctx, isBeingDrawn = false) {
-  const half = handleSize / 2;
+  const radius = annotationSettings.vertexHandleRadius;
   targetCtx.strokeStyle = color;
   targetCtx.lineWidth = 2;
   points.forEach((point, i) => {
     targetCtx.beginPath();
-    targetCtx.arc(point.x, point.y, half, 0, Math.PI * 2);
+    targetCtx.arc(point.x, point.y, radius, 0, Math.PI * 2);
     if (i === 0 && isBeingDrawn) {
       targetCtx.fillStyle = color;
     } else {

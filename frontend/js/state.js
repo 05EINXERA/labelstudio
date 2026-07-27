@@ -14,7 +14,8 @@ export function draftKey(taskId) {
   return `annotation-draft-v1:${taskId}`;
 }
 export const labelStudioStorageKey = "image-annotation-label-studio-settings";
-export const handleSize = 9;
+// Vertex handle size moved to feature-flags.js (annotationSettings) so the
+// drawn radius and the click-target radius are configured in one place.
 export const closeThreshold = 1;
 
 export const labelPalette = [
