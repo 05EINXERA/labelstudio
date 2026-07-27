@@ -73,3 +73,4 @@ To deploy:
 3. Click **New** -> **Blueprint**.
 4. Connect your GitHub repository. Render will automatically read the `render.yaml` file, provision the persistent 5GB `/data` disk, and start the FastAPI server.
 5. *Important*: Go to the **Environment** tab of your new service in the Render dashboard and update the `JWT_SECRET` to a secure random string.
+t

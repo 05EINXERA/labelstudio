@@ -9,8 +9,11 @@ import os
 import models
 from database import SessionLocal
 
-PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"0" * 32
-
+import io
+from PIL import Image
+buf = io.BytesIO()
+Image.new('RGB', (1, 1)).save(buf, format='PNG')
+PNG_BYTES = buf.getvalue()
 
 def _new_project(client, auth):
     res = client.post("/api/projects", json={"name": "up", "slug": "up", "creator": "ignored"}, headers=auth)
@@ -136,7 +139,7 @@ def test_unreadable_image_leaves_dimensions_null(client, alice):
     pid = _new_project(client, alice)
     res = client.post(
         f"/api/projects/{pid}/upload",
-        files=[("file", ("stub.png", PNG_BYTES, "image/png"))],
+        files=[("file", ("stub.png", b"invalid_png_data", "image/png"))],
         headers=alice,
     )
     assert res.status_code == 200, res.text

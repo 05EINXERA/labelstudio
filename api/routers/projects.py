@@ -4,6 +4,7 @@ import os
 import uuid
 from typing import List, Optional
 
+from PIL import Image
 from fastapi import APIRouter, Depends, UploadFile, File, Query, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -224,6 +225,31 @@ def _save_upload(f: UploadFile, uploads_dir: str) -> str:
         except OSError as exc:
             logger.warning("Could not remove empty upload %s: %s", filepath, exc)
         raise ValueError("File is empty.")
+
+    # Convert to PNG if it's not already
+    if ext != '.png':
+        try:
+            png_filename = f"{uuid.uuid4().hex}.png"
+            png_filepath = os.path.join(uploads_dir, png_filename)
+            
+            with Image.open(filepath) as img:
+                img.save(png_filepath, format="PNG")
+                
+            os.remove(filepath)  # Remove original file
+            
+            new_filename = png_filename
+            filepath = png_filepath
+        except Exception as e:
+            logger.warning("Failed to convert image %s to PNG: %s", filepath, e)
+            # If conversion fails, we could either raise an error or just return the original file.
+            # Let's clean up the failed PNG if it exists, and raise an error.
+            try:
+                if os.path.exists(png_filepath):
+                    os.remove(png_filepath)
+                os.remove(filepath)
+            except OSError:
+                pass
+            raise ValueError(f"Failed to process image file: {str(e)}")
 
     # Always a forward slash: this is served as a URL path, and os.path.join
     # would produce a backslash on Windows that breaks the <img src>.
