@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Image Annotation MVP</title>
   <link rel="icon" type="image/png" href="logo.png">
-  <link rel="stylesheet" href="styles.css?v=21">
+  <link rel="stylesheet" href="styles.css?v=22">
   <!-- sync.js (legacy global annotation-slot sync to /api/data) removed in T3.1.
        Under a shared account the 'image-annotation-mvp-v1' row was last-writer-wins
        across all 25 clients. Per-task localStorage drafts (workspace.js restoreDraft)
@@ -259,6 +259,43 @@
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+
+        <!-- FFT Smooth tool group -->
+        <div class="tool-group fft-tool-group" role="group" aria-label="FFT noise filter">
+          <span class="tool-group-label">Smooth</span>
+          <div class="tool-group-buttons fft-group-buttons">
+            <button class="tool-button fft-smooth-btn" id="fftSmoothBtn" type="button"
+              title="FFT smooth selected polygon — removes jagged noise by low-pass filtering the vertex coordinates">
+              <span class="btn-icon">〰️</span><span class="btn-label">Smooth</span>
+            </button>
+
+            <div class="fft-slider-wrap" title="Frequency keep ratio: lower = smoother, higher = preserves detail">
+              <label class="tool-group-label fft-slider-label" for="fftStrengthSlider">
+                Keep: <span id="fftStrengthLabel">40%</span>
+              </label>
+              <input
+                type="range"
+                id="fftStrengthSlider"
+                min="0.05"
+                max="1.0"
+                step="0.05"
+                value="0.40"
+                class="fft-slider"
+                aria-label="FFT smoothing strength"
+              >
+            </div>
+
+            <button
+              class="tool-button fft-auto-btn"
+              id="fftAutoSmoothToggle"
+              type="button"
+              role="switch"
+              aria-checked="false"
+              title="Auto-smooth: when ON, every finalized polygon is automatically FFT-smoothed using an optimal cutoff based on its point count">
+              <span class="btn-icon">🤖</span><span class="btn-label">Auto</span>
+            </button>
           </div>
         </div>
 

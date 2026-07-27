@@ -2138,3 +2138,141 @@ a.metric-tile:hover { border-color: var(--accent); }
   .project-nav a.nav-link { white-space: nowrap; margin-bottom: 0; }
   .mgmt-main, .project-view { padding: 16px; }
 }
+
+/* ── FFT Smooth toolbar group ──────────────────────────────────────────────── */
+
+.fft-tool-group {
+  border-left: 1px solid var(--line);
+  padding-left: 8px;
+}
+
+.fft-group-buttons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+
+/* Smooth button: teal accent to indicate a signal-processing action */
+.fft-smooth-btn {
+  background: linear-gradient(135deg, #0f8b8d 0%, #2a9d8f 100%);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: opacity 0.15s, transform 0.1s;
+  box-shadow: 0 2px 6px rgba(15, 139, 141, 0.3);
+}
+.fft-smooth-btn:hover {
+  opacity: 0.88;
+  transform: translateY(-1px);
+}
+.fft-smooth-btn:active {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+/* Slider wrapper */
+.fft-slider-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 80px;
+}
+
+.fft-slider-label {
+  font-size: 0.7rem;
+  color: var(--muted);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.fft-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 90px;
+  height: 5px;
+  border-radius: 3px;
+  /* Fallback: full teal track; JS will update --val inline to split fill/rail */
+  background: linear-gradient(
+    to right,
+    var(--accent) 0%,
+    var(--accent) var(--val, 35%),
+    rgba(0,0,0,0.15) var(--val, 35%),
+    rgba(0,0,0,0.15) 100%
+  );
+  cursor: pointer;
+  outline: none;
+  border: none;
+}
+/* Webkit thumb */
+.fft-slider::-webkit-slider-runnable-track {
+  height: 5px;
+  border-radius: 3px;
+}
+.fft-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(15,139,141,0.5);
+  cursor: pointer;
+  margin-top: -4.5px;   /* vertically centre thumb on the track */
+  transition: box-shadow 0.15s, transform 0.1s;
+}
+.fft-slider:hover::-webkit-slider-thumb {
+  box-shadow: 0 0 0 4px rgba(15,139,141,0.22);
+  transform: scale(1.12);
+}
+.fft-slider:active::-webkit-slider-thumb {
+  transform: scale(1.0);
+}
+/* Firefox thumb */
+.fft-slider::-moz-range-track {
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(0,0,0,0.15);
+}
+.fft-slider::-moz-range-progress {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--accent);
+}
+.fft-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(15,139,141,0.5);
+  cursor: pointer;
+}
+
+/* Auto-smooth toggle button — lights up when active */
+.fft-auto-btn {
+  position: relative;
+  transition: background 0.2s, color 0.2s, box-shadow 0.2s;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.fft-auto-btn.is-on {
+  background: linear-gradient(135deg, #7b2cbf 0%, #b5179e 100%);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 0 10px rgba(123, 44, 191, 0.45);
+  animation: fft-auto-pulse 2s ease-in-out infinite;
+}
+
+@keyframes fft-auto-pulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(123, 44, 191, 0.45); }
+  50%       { box-shadow: 0 0 18px rgba(181, 23, 158, 0.65); }
+}
