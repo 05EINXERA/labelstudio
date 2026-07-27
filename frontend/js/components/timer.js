@@ -307,7 +307,7 @@ function startTimer() {
   }, 1000);
 }
 
-function pauseTimer() {
+function pauseTimer({ useBeacon = false } = {}) {
   if (!timerLocalState.isTimerRunning) return;
   timerLocalState.isTimerRunning = false;
   if (timerToggleBtn) {
@@ -319,7 +319,7 @@ function pauseTimer() {
   accrueElapsed(); // bill the partial interval since the last tick
   timerLocalState.runStartedAt = null;
   updateTimerDisplays();
-  syncTimeToServer(); // final sync on pause
+  syncTimeToServer({ useBeacon }); // final sync on pause
 }
 
 if (timerToggleBtn) {
@@ -436,6 +436,33 @@ function pauseIfIdle() {
     timerLocalState.sessionSeconds = Math.floor(timerLocalState.accumulatedMs / 1000);
   }
   pauseTimer();
+}
+
+// --- Tab-visibility auto-pause/resume (.devnotes/timer/01_TAB_VISIBILITY_PAUSE.md) ---
+// Idle-pause (above) only catches a hidden tab after up to 5 minutes. A tab
+// switch is detectable instantly via the Page Visibility API, so pause the
+// moment it happens rather than waiting for the idle rollback. Unlike idle
+// -pause, no rollback is needed: the event fires before any wrongly-accrued
+// time builds up, so a plain pause is exact.
+let pausedByVisibility = false;
+
+export function handleVisibilityChange() {
+  if (document.visibilityState === 'hidden') {
+    // Only mark this as "our" pause if the timer was actually running.
+    // Otherwise a manual pause (or an idle-pause) that happened to precede
+    // the tab switch would get force-resumed when the tab comes back.
+    if (timerLocalState.isTimerRunning) {
+      pausedByVisibility = true;
+      pauseTimer({ useBeacon: true });
+      const task = currentTaskResolver();
+      if (task) drainTaskTime(task, { useBeacon: true });
+    }
+  } else if (document.visibilityState === 'visible') {
+    if (pausedByVisibility) {
+      pausedByVisibility = false;
+      startTimer();
+    }
+  }
 }
 
 // Initialize displays
