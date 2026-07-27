@@ -32,6 +32,7 @@ Then open `http://127.0.0.1:8000/` (or whatever port Uvicorn specifies in the te
 
 - **Project Dashboard**: A comprehensive interface to manage tasks, datasets, and your project's taxonomy (classes). Includes full CRUD operations and JSON import/export functionality.
 - **Precision Annotation Engine**: A custom-built HTML5 Canvas engine supporting precise bounding boxes and robust polygon drawing (with accurate starting-point closure and vertex manipulation).
+- **FFT Polygon Smoothing**: Automatically (or manually) remove high-frequency, jagged noise from freehand-drawn polygons using a purely client-side Fast Fourier Transform.
 - **Auto-Detect**: Detect all objects in an image instantly using YOLOv8 or YOLO-World.
 - **Magic Wand**: Click any object to automatically generate precise polygon masks using Meta's Segment Anything Model (SAM).
 - **Auto-Tag**: Automatically assign scene and object tags to your images using CLIP zero-shot classification.
