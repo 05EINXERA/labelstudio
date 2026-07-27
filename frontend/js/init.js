@@ -27,6 +27,7 @@ import { initContextMenu } from "./canvas/context-menu.js?v=1";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
 import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=1";
 import { claimTask, heartbeatTask, releaseTask } from "./task-lock.js?v=1";
+import { initFftControls } from "./fft-controls.js?v=1";
 
 if (!localStorage.getItem('logged_in')) {
   window.location.href = '/';
@@ -814,3 +815,6 @@ function closeTaskCompletedModal() {
 
 if (tcClose) tcClose.addEventListener('click', closeTaskCompletedModal);
 if (tcOk) tcOk.addEventListener('click', closeTaskCompletedModal);
+
+// Initialise FFT smoothing controls (Smooth button, slider, auto-smooth toggle).
+initFftControls();
