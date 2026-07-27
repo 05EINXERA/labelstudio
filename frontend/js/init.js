@@ -8,12 +8,12 @@ import { commentOverlayRefs } from "./comment-overlay.js?v=1";
 import {
   canvas, ctx, imageCanvas, imageCtx, staticCanvas, staticCtx, stageWrap,
   emptyState, drawMode, selectMode, boxMode, polygonMode, commentMode, magicWandMode,
-  autoDetectButton, undoButton, redoButton, deleteButton, clearButton, exportLink
+  autoDetectButton, undoButton, redoButton, deleteButton, clearButton, exportLink, saveButton
 } from "./dom.js?v=1";
 import { drawAllLayers } from "./canvas/draw.js?v=1";
 import {
   setStatus, syncToBackend, save, loadSaved, saveDraft, restoreDraft,
-  render
+  render, manualSaveWithUI
 } from "./components/workspace.js?v=1";
 import { autoDetectObjects, autoTagObjects } from "./ai/detect.js?v=1";
 import {
@@ -191,7 +191,7 @@ async function switchImage(index) {
       const lock = await claimTask(item.id, clientId());
       if (lock.status === 'locked') {
         const secsLeft = lock.seconds_remaining || 60;
-        setStatus(`⚠ Task in use by another annotator (~${secsLeft}s remaining)`);
+        setStatus(`⚠ Task locked (~${secsLeft}s)`);
       }
     } catch (e) {
       // Lock errors are never fatal — annotation can continue.
@@ -204,7 +204,7 @@ async function switchImage(index) {
   // server (refresh mid-edit, failed save, unresolved conflict). Applied after
   // the server copy is in place, so it only takes effect when it differs.
   if (restoreDraft(item)) {
-    setStatus("Recovered unsaved changes");
+    setStatus("Recovered draft");
   }
   loadImageFromSource(item.url, item.name);
 
@@ -228,7 +228,7 @@ if (nextImageButton) {
 
 drawMode.addEventListener("click", () => {
   if (!state.activeLabelId) {
-    setStatus("Pick a class first, then draw");
+    setStatus("Pick class first");
     render(); // re-render to show the hint in shapeHint
     return;
   }
@@ -355,7 +355,24 @@ clearButton.addEventListener("click", () => {
   view.drag = null;
   render();
   save();
-  setStatus("All annotations cleared");
+  setStatus("Cleared all");
+});
+
+// Save button: manual save with visual feedback
+if (saveButton) {
+  saveButton.addEventListener("click", () => {
+    manualSaveWithUI();
+  });
+}
+
+// Ctrl+S shortcut: trigger manual save
+document.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+    e.preventDefault();
+    if (saveButton) {
+      manualSaveWithUI();
+    }
+  }
 });
 
 if (aiSettingsMenuButton) {
@@ -404,7 +421,7 @@ if (moveObjectsToggle) {
     e.stopPropagation();
     state.moveObjectsUnlocked = !state.moveObjectsUnlocked;
     renderMoveObjectsUI();
-    setStatus(state.moveObjectsUnlocked ? "Move Objects: On" : "Move Objects: Off");
+    setStatus(state.moveObjectsUnlocked ? "Move: On" : "Move: Off");
   });
 }
 document.addEventListener("click", (e) => {
@@ -454,7 +471,7 @@ setConflictHandler((task) => {
     // Null token: next save is accepted as a deliberate overwrite rather than
     // looping on the same conflict.
     task.updated_at = null;
-    setStatus("Keeping your version — will overwrite on next save");
+    setStatus("Keeping version (will overwrite)");
   }
 });
 
@@ -501,7 +518,7 @@ if (aiModelSize) {
   aiModelSize.value = localStorage.getItem("ai_model_size") || "n";
   aiModelSize.addEventListener('change', e => {
     localStorage.setItem("ai_model_size", e.target.value);
-    setStatus("Detection Model Size Changed");
+    setStatus("Model size changed");
   });
 }
 
@@ -509,7 +526,7 @@ if (aiSamModel) {
   aiSamModel.value = localStorage.getItem("ai_sam_model") || "mobile_sam.pt";
   aiSamModel.addEventListener('change', e => {
     localStorage.setItem("ai_sam_model", e.target.value);
-    setStatus("Magic Wand Model Changed");
+    setStatus("Magic Wand updated");
   });
 }
 
@@ -532,7 +549,7 @@ if (dropdownSaveAiSettingsBtn) {
     localStorage.setItem("ai_conf", dropdownAiConf.value);
     localStorage.setItem("ai_nms", dropdownAiNms.value);
 
-    setStatus("AI Settings Applied");
+    setStatus("Settings applied");
     // Dropdown will close automatically if it loses focus, or we just leave it open.
   });
 }
@@ -556,7 +573,7 @@ if (saveUsernameBtn) {
       localStorage.setItem("dataset_username", newName);
       const displayUsername = document.getElementById("displayUsername");
       if (displayUsername) displayUsername.textContent = newName;
-      setStatus("Username updated");
+      setStatus("Username saved");
     }
   });
 }

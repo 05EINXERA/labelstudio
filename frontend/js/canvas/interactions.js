@@ -163,7 +163,7 @@ export function finalizePolygon() {
   state.justFinalized = true;
   render();
   save();
-  setStatus("Please select a class name for the next polygon");
+  setStatus("Select class for next");
 }
 
 export function undoLastPoint() {
@@ -353,7 +353,7 @@ export function sendToBack() {
   if (alreadyBack) return;
   snapshot();
   applyReorder([...parts.selected, ...parts.others]);
-  setStatus("Sent to back");
+  setStatus("Sent back");
 }
 
 export function bringToFront() {
@@ -366,7 +366,7 @@ export function bringToFront() {
   if (alreadyFront) return;
   snapshot();
   applyReorder([...parts.others, ...parts.selected]);
-  setStatus("Brought to front");
+  setStatus("Brought forward");
 }
 
 // Move the selected block one step towards index 0 (visually backwards): drop
@@ -443,7 +443,7 @@ export function groupSelectedAnnotations() {
 
   render();
   save();
-  setStatus("Grouped annotations");
+  setStatus("Grouped");
 }
 
 const ungroupButton = document.querySelector("#ungroupButton");
@@ -460,7 +460,7 @@ if (ungroupButton) {
     if (ungrouped) {
       render();
       save();
-      setStatus("Ungrouped annotations");
+      setStatus("Ungrouped");
     } else {
       state.history.pop();
     }
@@ -710,11 +710,11 @@ canvas.addEventListener("pointerdown", (event) => {
     if (state.shape === "polygon") {
       if (view.drag?.type !== "draw-polygon") {
         if (state.needsLabelSelection) {
-          setStatus("Please select a class name first");
+          setStatus("Select class");
           return;
         }
         if (!state.activeLabelId) {
-          setStatus("Select a class first");
+          setStatus("Select class");
           return;
         }
         // First point – create annotation immediately so it appears in the Objects panel
@@ -752,11 +752,11 @@ canvas.addEventListener("pointerdown", (event) => {
       return;
     } else {
       if (state.needsLabelSelection && state.shape !== "magicWand") {
-        setStatus("Please select a class name first");
+        setStatus("Select class");
         return;
       }
       if (!state.activeLabelId) {
-        setStatus("Select a class first");
+        setStatus("Select class");
         return;
       }
       view.drag = {
@@ -1165,7 +1165,7 @@ window.addEventListener("keydown", (event) => {
 
   if (event.key.toLowerCase() === "d") {
     if (!state.activeLabelId) {
-      setStatus("Pick a class first, then draw");
+      setStatus("Pick class first");
       render();
     } else {
       state.mode = "draw";

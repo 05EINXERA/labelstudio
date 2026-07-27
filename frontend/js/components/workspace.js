@@ -23,7 +23,7 @@ export function setStatus(text) {
   window.clearTimeout(setStatus.timer);
   setStatus.timer = window.setTimeout(() => {
     saveStatus.textContent = "Saved";
-  }, 1200);
+  }, 3000);
 }
 
 export function ensureLabel(className, customColor = null) {
@@ -178,9 +178,48 @@ export function save() {
     // Reporting it on the localStorage write alone told annotators their work
     // was safe while it existed nowhere but their own browser.
     Promise.resolve(syncToBackend())
-      .then((ok) => setStatus(ok === false ? "Not saved — will retry" : "Saved"))
-      .catch(() => setStatus("Not saved — will retry"));
+      .then((ok) => setStatus(ok === false ? "Not saved—retrying" : "Saved"))
+      .catch(() => setStatus("Not saved—retrying"));
   }, 1000);
+}
+
+/**
+ * Manual save with UI feedback.
+ * 
+ * This is called when the user clicks the Save button. It shows a spinner overlay
+ * while saving, then displays "Saved Successfully" for 3 seconds.
+ */
+export async function manualSaveWithUI() {
+  const overlay = document.getElementById('saveOverlay');
+  if (!overlay) return;
+
+  // Show the overlay
+  overlay.classList.add('is-active');
+
+  try {
+    // Save the draft locally
+    saveDraft();
+    
+    // Sync to backend
+    const ok = await syncToBackend();
+    
+    // Update status message
+    const message = ok === false ? "Not saved—retrying" : "Saved Successfully";
+    setStatus(message);
+    
+    // Keep the overlay visible for a brief moment, then fade it out
+    await new Promise(resolve => setTimeout(resolve, 800));
+    
+    overlay.classList.remove('is-active');
+    
+    // Keep "Saved Successfully" message for 3 seconds, then revert to "Saved"
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    setStatus("Saved");
+  } catch (err) {
+    console.error('Manual save failed:', err);
+    setStatus("Not saved—retrying");
+    overlay.classList.remove('is-active');
+  }
 }
 
 export function loadSaved() {
