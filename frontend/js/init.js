@@ -18,7 +18,8 @@ import {
 import { autoDetectObjects, autoTagObjects } from "./ai/detect.js?v=1";
 import {
   syncTaskTime, syncTimeToServer, drainTaskTime, setActiveTaskResolver,
-  setConflictHandler, resetSessionForTask, refreshTimerDisplays
+  setConflictHandler, resetSessionForTask, refreshTimerDisplays,
+  handleVisibilityChange
 } from "./components/timer.js?v=1";
 import {
   finalizePolygon, deleteSelected, undoAction, redoAction, setZoomChangeHandler
@@ -71,6 +72,9 @@ window.addEventListener('visibilitychange', () => {
     flushPendingSaves({ useBeacon: true });
     _releaseCurrentLock({ useBeacon: true });
   }
+  // Pauses the session timer on hide and auto-resumes it on return, without
+  // touching save-flush/lock-release above (see timer.js for details).
+  handleVisibilityChange();
 });
 
 window.addEventListener('pagehide', () => {
