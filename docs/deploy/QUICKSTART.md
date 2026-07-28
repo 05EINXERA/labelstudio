@@ -113,8 +113,8 @@ tail -f D:\annotation-data\logs\app.log
 # Reset a password
 python scripts/create_user.py alice --reset
 
-# Restart (if running as NSSM service)
-nssm restart AnnotationWorkspace
+# Restart (if running as a supervised Task Scheduler service — see install-service.ps1)
+Stop-ScheduledTask -TaskName "AnnotationApp"; Start-ScheduledTask -TaskName "AnnotationApp"
 ```
 
 ---

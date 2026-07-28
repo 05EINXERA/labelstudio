@@ -11,7 +11,7 @@ Despite the repo name `labelstudio`, this is **not** a fork of Label Studio. It'
 | Layer | Choice |
 |---|---|
 | Backend | FastAPI ([main.py](main.py)), Uvicorn |
-| ORM / DB | SQLAlchemy 2.x → SQLite (`workspace.db`), WAL mode |
+| ORM / DB | SQLAlchemy 2.x → SQLite (`workspace.db`, WAL mode) for dev; Postgres for the LAN deployment (`config.IS_SQLITE`) |
 | Migrations | Alembic ([alembic/](alembic/)) |
 | Auth | JWT (python-jose, HS256) in an httpOnly cookie; bcrypt hashing |
 | Frontend | Vanilla JS + HTML5 Canvas, no build step, no framework |
@@ -34,14 +34,14 @@ frontend/ (static, served by FastAPI itself)
     js/export/    → coco, csv
     js/ai/        → detect, shared, detect-state
     js/state.js, api.js, dom.js, utils.js, ...
-  sync.js         → localStorage ↔ /api/data mirror
+  sync.js         → dead code, no longer loaded (see below)
         │  fetch (cookie auth)
         ▼
 main.py  ── cache-control middleware ── CORS ── routers
         │
 api/routers/  auth, projects, tasks, team, labels, data, detect, label_studio
         │                                          │
-   database.py (SQLAlchemy/SQLite)          detector.py (30 KB ML core)
+   database.py (SQLAlchemy: SQLite dev / Postgres LAN deploy)    detector.py (30 KB ML core)
                                                    │
                                             models/ + *.pt weights
 ```
@@ -52,7 +52,7 @@ Three things worth knowing up front:
 
 **Caching is `no-store` across the board.** The middleware in [main.py](main.py#L19-L33) sends `no-store, no-cache, must-revalidate` on every HTML/CSS/JS response — nothing is long-cached, so frontend edits always show up on a normal refresh. No manual cache-busting is required.
 
-**AI runs through a job queue, not a request.** `POST /api/detect` returns a `job_id` immediately and does the work in a FastAPI `BackgroundTasks`; the client polls `GET /api/detect/status/{job_id}`. The store is an in-process dict (`JOBS` in [api/routers/detect.py](api/routers/detect.py#L11)) and results are **deleted on first read**. Consequences: single-worker only, jobs die on restart, and two pollers racing means one gets a 404.
+**AI runs through a job queue, not a request.** `POST /api/detect` returns a `job_id` immediately and does the work in a FastAPI `BackgroundTasks`; the client polls `GET /api/detect/status/{job_id}`. The store is an in-process dict (`JOBS` in [api/routers/detect.py](api/routers/detect.py#L11)) and results are **deleted on first read**. Consequences: single-worker only, jobs die on restart, and two pollers racing means one gets a 404. The soft per-task lock (`_TASK_LOCKS` in `api/routers/tasks.py`) is the same kind of in-process state, for the same reason (CLAUDE.md rule 9).
 
 ## 4. Data model ([models.py](models.py))
 
@@ -63,11 +63,11 @@ Three things worth knowing up front:
 | `team_members` | name (PK) + `time_logged`. Separate from `users`. |
 | `labels` | id/name/color — the global class palette. |
 | `users` | username + bcrypt hash. Auth identities. |
-| `workspace_data` | opaque key→value store backing `sync.js`. |
+| `workspace_data` | per-user key→value store (`owner_id` scoped); backed a legacy `sync.js` mirror that is no longer loaded — see `docs/GOTCHAS.md` #11. |
 
 Two deliberate consequences of the JSON-blob design: you cannot query "all polygons with label X" in SQL, and every annotation save rewrites the whole blob. That's why concurrency needs the check below.
 
-**Optimistic locking**: `POST /api/tasks` compares the client's `updated_at` against the row's; if the server is >1s newer it returns **409** ([api/routers/tasks.py](api/routers/tasks.py#L51-L59)). The frontend is expected to surface a refresh prompt.
+**Optimistic locking**: `POST /api/tasks` carries the client's `updated_at` plus a per-tab `client_id`; the server 409s only when a *different* client wrote since the caller last read (a client never conflicts with itself) — see CLAUDE.md rule 11 and `.devnotes/deployment-hardening/04_ANNOTATION_SAVE_LOSS.md`. The frontend surfaces a refresh/merge prompt on conflict, and never disables saving afterward.
 
 **`users` vs `team_members` are unrelated tables.** Login identity and workload/time-tracking rosters are tracked separately — creating a user does not create a team member.
 
@@ -98,7 +98,7 @@ Register/login at `/api/auth/register` and `/api/auth/token` (OAuth2 password fo
 
 The signing secret resolves in order: `JWT_SECRET` env → `.jwt_secret` file in CWD → generated and written to that file. There is no roles/permissions layer — every authenticated user sees everything.
 
-**Protection is per-router and currently uneven.** `projects`, `team`, `labels`, and `detect` declare `dependencies=[Depends(get_current_user)]`. **`tasks`, `data`, and `label_studio` do not** — they are reachable unauthenticated. Given `tasks` carries all annotation content and `data` is a read/write KV store, treat this as a real gap rather than a design choice, and fix it before any non-local deployment.
+**Status: fixed.** Every `/api/*` router now declares `dependencies=[Depends(get_current_user)]` except `/api/auth/*` itself (CLAUDE.md rule 1). This section previously described `tasks`, `data`, and `label_studio` as reachable unauthenticated; that gap is closed — any new router must include the same dependency.
 
 ## 8. Management & tracking
 

@@ -21,8 +21,10 @@ HTML5 canvas. AI assistance comes from local models: YOLOv8 / YOLO-World
 **Deployment/hardening state lives in `.devnotes/deployment-hardening/`** — read
 it before touching auth, config, the DB layer, task save/conflict logic, or the
 soft-lock: `01_AUDIT.md` (current audit + wins/lags), `tasks.md` (phased task
-list; Phases 0–3 done, Phase 4 load-testing pending), `04_ANNOTATION_SAVE_LOSS.md`
-(the save-loss bug and its fix — the model that makes concurrent editing safe).
+list; Phases 0–4 done — see `05_LOAD_TEST.md` for load-test results),
+`04_ANNOTATION_SAVE_LOSS.md` (the save-loss bug and its fix — the model that
+makes concurrent editing safe), `06_RESILIENCE_PLAN.md` (crash/power-loss/
+backup robustness for the single-PC deployment).
 
 Read `docs/ARCHITECTURE.md` before moving code between modules,
 `docs/CONVENTIONS.md` before writing new code, and `docs/GOTCHAS.md` before
@@ -89,7 +91,7 @@ old pattern into new code.
 | `detector.py` | ML model loading + inference (YOLO, SAM, CLIP) |
 | `frontend/app.html` + `app.js` | The annotation canvas page (the monolith) |
 | `frontend/js/` | Shared ES modules — new frontend code goes here (`utils.js`, `state.js`, `task-lock.js`, `components/`, `pages/`) |
-| `scripts/` | Ops + one-off tooling: `migrate_sqlite_to_postgres.py`, `backup.py`, `schedule-backup.ps1`, `install-service.ps1`, `run.ps1` |
-| `.devnotes/deployment-hardening/` | Deployment audit, phased task list, and the annotation-save-loss postmortem |
+| `scripts/` | Ops + one-off tooling: `migrate_sqlite_to_postgres.py`, `backup.py`, `schedule-backup.ps1`, `install-service.ps1`, `run.ps1`, `restore_drill.py`, `verify-resilience.ps1`, `health-check.ps1`, `schedule-health-check.ps1` |
+| `.devnotes/deployment-hardening/` | Deployment audit, phased task list, the annotation-save-loss postmortem, and the resilience plan/implementation record (`06_RESILIENCE_PLAN.md`, `07_RESILIENCE_IMPLEMENTATION.md`) |
 | `models/` | ML weight files (gitignored) — *not* Python code; `models.py` is the DB models |
 | `alembic/` | Database migrations |

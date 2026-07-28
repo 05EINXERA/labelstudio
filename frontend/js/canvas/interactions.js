@@ -171,41 +171,7 @@ export function finalizePolygon() {
   setStatus("Select class for next");
 }
 
-export function undoLastPoint() {
-  if (view.drag?.type === "draw-polygon") {
-    const annotation = state.annotations.find((item) => item.id === view.drag.annotationId);
-    if (annotation && annotation.points && annotation.points.length > 1) {
-      if (!view.drag.undonePoints) view.drag.undonePoints = [];
-      const popped = annotation.points.pop();
-      view.drag.undonePoints.push(popped);
-      updateAnnotationBounds(annotation);
-      render();
-      save();
-      return true;
-    }
-  }
-  return false;
-}
-
-export function redoLastPoint() {
-  if (view.drag?.type === "draw-polygon" && view.drag.undonePoints?.length > 0) {
-    const annotation = state.annotations.find((item) => item.id === view.drag.annotationId);
-    if (annotation && annotation.points) {
-      const restored = view.drag.undonePoints.pop();
-      annotation.points.push(restored);
-      updateAnnotationBounds(annotation);
-      render();
-      save();
-      return true;
-    }
-  }
-  return false;
-}
-
 export function undoAction() {
-  if (undoLastPoint()) {
-    return;
-  }
   const previous = state.history.pop();
   if (!previous) return;
   
@@ -229,9 +195,6 @@ export function undoAction() {
 }
 
 export function redoAction() {
-  if (redoLastPoint()) {
-    return;
-  }
   const next = state.redoHistory.pop();
   if (!next) return;
 
@@ -747,9 +710,12 @@ canvas.addEventListener("pointerdown", (event) => {
 
         const lastPoint = pts[pts.length - 1];
         if (!lastPoint || Math.hypot(lastPoint.x - pointInImage.x, lastPoint.y - pointInImage.y) > 1) {
+          // Each click-added vertex is its own undoable step, consistent with
+          // every other mutation — this is what lets undo remove one point at
+          // a time instead of jumping straight to deleting the whole polygon.
+          snapshot();
           annotation.points.push({ x: round(pointInImage.x), y: round(pointInImage.y) });
           updateAnnotationBounds(annotation);
-          if (view.drag.undonePoints) view.drag.undonePoints = [];
         }
       }
       render();
@@ -850,10 +816,17 @@ canvas.addEventListener("pointermove", (event) => {
         // proportionally finer detail without retuning the setting.
         const threshold = annotationSettings.freehandPointSpacing / view.imageBox.scale;
         if (lastPoint && Math.hypot(lastPoint.x - end.x, lastPoint.y - end.y) > threshold) {
+          // One snapshot per freehand stroke (not per point), mirroring the
+          // move-shape "snapshot on first movement" pattern below — otherwise
+          // a single mouse-down trace would flood history with one entry per
+          // sampled point.
+          if (!view.drag.strokeSnapshotted) {
+            snapshot();
+            view.drag.strokeSnapshotted = true;
+          }
           annotation.points.push({ x: round(end.x), y: round(end.y) });
           updateAnnotationBounds(annotation);
           view.drag.needsSave = true;
-          if (view.drag.undonePoints) view.drag.undonePoints = [];
         }
       }
     }
@@ -973,6 +946,7 @@ canvas.addEventListener("pointerup", (e) => {
 
   if (view.drag?.type === "draw-polygon" && view.drag.needsSave) {
     view.drag.needsSave = false;
+    view.drag.strokeSnapshotted = false;
     save();
   }
 

@@ -170,40 +170,49 @@ New-NetFirewallRule -DisplayName "Annotation Workspace" `
 
 Keep it on the `Private` profile so the app doesn't expose if the laptop joins a public network.
 
-### Step 8 (Optional): NSSM Service
+### Step 8 (Optional): Process Supervision
 
-Run the app as a Windows service so it survives crashes and reboots:
+Run the app as a self-restarting Windows Task Scheduler job so it survives
+crashes and reboots — no NSSM install required:
 
 ```powershell
-# Install
-nssm install AnnotationWorkspace "D:\ai\projects\annotation\labelstudio\venv\Scripts\python.exe"
-nssm set AnnotationWorkspace AppParameters "-m uvicorn main:app --host 0.0.0.0 --port 8000"
-nssm set AnnotationWorkspace AppDirectory "D:\ai\projects\annotation\labelstudio"
-nssm set AnnotationWorkspace AppEnvironmentExtra APP_ENV=production JWT_SECRET=<secret> CORS_ORIGINS=http://192.168.1.81:8000 ...
-
-# Start
-nssm start AnnotationWorkspace
-
-# Check status
-nssm status AnnotationWorkspace
-
-# View logs
-nssm edit AnnotationWorkspace  # Configure stderr/stdout redirection
+.\scripts\install-service.ps1
 ```
+
+This registers a Task Scheduler job (`AnnotationApp`) that wraps uvicorn in a
+restart loop, triggers `-AtStartup`, and disables sleep/hibernate so the PC
+stays available through a shift. Logs go to `$DATA_DIR\logs\service.log`.
+
+Check status: `Get-ScheduledTask -TaskName "AnnotationApp" | Get-ScheduledTaskInfo`
+Uninstall: `Unregister-ScheduledTask -TaskName "AnnotationApp" -Confirm:$false`
 
 ### Step 9 (Optional): Daily Backups
 
 Schedule a daily database + file backup to another machine:
 
 ```powershell
-python scripts/backup.py --dest \\fileserver\annotation-backups --keep 14
+.\scripts\schedule-backup.ps1 -Dest "\\fileserver\annotation-backups" -Keep 14
 ```
 
-Register with Task Scheduler:
+Registers a Task Scheduler job (`AnnotationBackup`, default 2 AM daily) that
+runs `scripts/backup.py` — snapshots the DB (with a pre-backup integrity
+check for SQLite), mirrors new uploads, aborts cleanly if disk space is low,
+and writes `last_backup_status.json` next to the backup so you can check at
+a glance whether the last run succeeded.
+
+### Step 10 (Optional): Verify supervision + backups are actually working
 
 ```powershell
-schtasks /create /tn "AnnotationBackup" /tr "D:\...\venv\Scripts\python.exe D:\...\scripts\backup.py --dest \\fileserver\annotation-backups" /sc daily /st 19:00
+.\scripts\verify-resilience.ps1 -BackupDest "\\fileserver\annotation-backups"
 ```
+
+Run this after Steps 8-9 (and periodically afterward) — it checks the
+*installed* state (scheduled tasks, service log freshness, a recent backup,
+power settings) rather than trusting the install scripts ran cleanly. Also
+consider `.\scripts\schedule-health-check.ps1` for a lightweight `/health`
+poll, and running `scripts/restore_drill.py` at least once to prove a backup
+actually restores. See `.devnotes/deployment-hardening/06_RESILIENCE_PLAN.md`
+/ `07_RESILIENCE_IMPLEMENTATION.md` for the full picture.
 
 ---
 
@@ -270,10 +279,14 @@ tail -f $env:DATA_DIR\logs\app.log
 
 (Or open `D:\annotation-data\logs\app.log` in an editor.)
 
-### Restart the service (NSSM)
+### Restart the service
+
+The Task Scheduler wrapper restarts uvicorn automatically on crash; to force
+a restart, stop and let it relaunch, or simply reboot the task:
 
 ```powershell
-nssm restart AnnotationWorkspace
+Stop-ScheduledTask -TaskName "AnnotationApp"
+Start-ScheduledTask -TaskName "AnnotationApp"
 ```
 
 ### Reset a forgotten password
@@ -288,10 +301,19 @@ From the frontend: click **Project > Export** to download annotations as JSON, C
 
 ### Restore from backup
 
-1. Copy a backup to `D:\annotation-data` (or wherever)
-2. Point `DATA_DIR` at it
-3. Start the app
-4. Verify projects appear
+Don't do this manually and hope — use the scripted drill, which restores
+into a disposable scratch DB/dir and verifies the data is actually readable
+without touching your live database:
+
+```powershell
+python scripts/restore_drill.py --dest \\fileserver\annotation-backups --backend sqlite
+# or, for Postgres:
+python scripts/restore_drill.py --dest \\fileserver\annotation-backups --backend postgres --pg-admin-url postgresql://<user>:<pass>@<host>:5432/postgres
+```
+
+For an actual full restore onto a fresh machine: copy the latest snapshot to
+`DATA_DIR` (SQLite) or `pg_restore` it into your Postgres instance, point
+`DATA_DIR`/`DATABASE_URL` at it, start the app, and verify projects appear.
 
 ---
 

@@ -87,36 +87,46 @@ Roll out the app to a shared server so your team can annotate together over the 
 
 ### Optional: Background Service
 
-Keep the app running after reboot with NSSM:
+Keep the app running after reboot — no NSSM needed, this ships in the repo:
 
-- [ ] Install NSSM: https://nssm.cc/ (extract to `C:\nssm` or `%PATH%`)
+- [ ] Run once as Administrator: `.\scripts\install-service.ps1`
 
-- [ ] Create service:
-  ```powershell
-  $pythonPath = "D:\ai\projects\annotation\labelstudio\venv\Scripts\python.exe"
-  $appDir = "D:\ai\projects\annotation\labelstudio"
-  
-  nssm install AnnotationWorkspace $pythonPath
-  nssm set AnnotationWorkspace AppParameters "-m uvicorn main:app --host 0.0.0.0 --port 8000"
-  nssm set AnnotationWorkspace AppDirectory $appDir
-  nssm set AnnotationWorkspace AppEnvironmentExtra APP_ENV=production JWT_SECRET=xyz123... CORS_ORIGINS=http://192.168.1.81:8000 ...
-  nssm start AnnotationWorkspace
-  ```
+  Registers a Task Scheduler job (`AnnotationApp`) that wraps uvicorn in a
+  self-restarting loop, triggers `-AtStartup`, and disables sleep/hibernate.
 
-- [ ] Check service status: `nssm status AnnotationWorkspace`
+- [ ] Check status: `Get-ScheduledTask -TaskName "AnnotationApp" | Get-ScheduledTaskInfo`
 
 ### Optional: Daily Backups
 
 Schedule incremental backups to another machine:
 
-- [ ] Run manual backup: `python scripts/backup.py --dest \\fileserver\annotation-backups --keep 14`
-
-- [ ] Schedule with Task Scheduler:
+- [ ] Register with Task Scheduler (defaults to 2 AM daily):
   ```powershell
-  schtasks /create /tn "AnnotationBackup" `
-    /tr "D:\ai\projects\annotation\labelstudio\venv\Scripts\python.exe D:\ai\projects\annotation\labelstudio\scripts\backup.py --dest \\fileserver\annotation-backups" `
-    /sc daily /st 19:00
+  .\scripts\schedule-backup.ps1 -Dest "\\fileserver\annotation-backups" -Keep 14
   ```
+
+  `scripts/backup.py` snapshots the DB (SQLite: online-backup API preceded by
+  a `PRAGMA integrity_check`; Postgres: `pg_dump`), mirrors new uploads,
+  aborts cleanly if destination disk space is low, and writes
+  `last_backup_status.json` next to the backup.
+
+### Optional but recommended: Verify supervision + backups, and prove restore works
+
+- [ ] `.\scripts\verify-resilience.ps1 -BackupDest "\\fileserver\annotation-backups"`
+      — checks the scheduled tasks are actually registered and `Ready`, the
+      service log is recent, a backup landed in the last day, and sleep is
+      disabled. Don't just trust the install scripts ran cleanly.
+- [ ] `python scripts/restore_drill.py --dest \\fileserver\annotation-backups --backend sqlite` (or `--backend postgres`)
+      — restores the latest snapshot into a disposable scratch DB and
+      confirms the data is actually readable. Run at least once; a backup
+      nobody has ever restored is not a proven recovery capability.
+- [ ] Consider `.\scripts\schedule-health-check.ps1` for a lightweight
+      `/health` poll with its own status file.
+
+See `.devnotes/deployment-hardening/06_RESILIENCE_PLAN.md` /
+`07_RESILIENCE_IMPLEMENTATION.md` for the full picture, including what's
+still an operator action item (running the Postgres restore drill live,
+buying a UPS).
 
 ### Communicate to Team
 

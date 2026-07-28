@@ -225,6 +225,27 @@ endpoints; render in the project card/table.
 mid-file (rule 2), and `:77-78` is a bare `except Exception: pass` (rule 3).
 Worth fixing in the same pass since F12 touches these functions.
 
+### F14 (P2) — Timer kept running while the tab was hidden
+
+Idle auto-pause (F8) only catches a hidden tab after up to 5 minutes of no
+pointer/key/wheel input — a plain tab switch to check something else kept
+billing both `taskSessionSeconds` and `totalSeconds` the whole time the tab
+was in the background. `init.js`'s existing `visibilitychange` listener only
+flushed pending saves and released the soft task lock; it never touched the
+timer, and there was no listener at all for the tab becoming visible again.
+
+**Fix:** `handleVisibilityChange()` in `timer.js` pauses the timer immediately
+on `hidden` (via the existing `pauseTimer()`, beaconed) and auto-resumes via
+`startTimer()` when the tab becomes `visible` again — but only if this
+handler was the one that paused it (`pausedByVisibility` flag), so a timer
+the user had already paused manually, or one already idle-paused, is not
+force-resumed on return. Because it reuses `pauseTimer()`/`syncTimeToServer()`
+/`drainTaskTime()` rather than adding a new drain path, the beacon
+`updated_at`-nulling convention from
+`.devnotes/deployment-hardening/04_ANNOTATION_SAVE_LOSS.md` (F3 there) is
+preserved automatically. See `.devnotes/timer/01_TAB_VISIBILITY_PAUSE.md` for
+the full design.
+
 ---
 
 ## 2a. Status
@@ -246,6 +267,7 @@ All five phases are implemented on `feat/sidebar` (2026-07-21).
 | F11 duplicated `formatTime` | **Fixed** — shared helper; overflow-safe past 99h |
 | F12 no project time metrics | **Fixed** — `total_time` / `avg_time_per_task` + dashboard column |
 | F13 metrics house rules | **Fixed** — GET no longer writes; imports hoisted |
+| F14 timer runs while tab hidden | **Fixed** — visibility-triggered pause/auto-resume in `timer.js` |
 
 Verified end to end: 660 s of throttled background time accrues fully (old code
 recorded 70 s); deltas accumulate 30+45=75 through the API; negative/oversized
