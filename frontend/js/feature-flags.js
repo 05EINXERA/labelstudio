@@ -15,8 +15,8 @@
  *              Set to false when no ML back-end is available.
  */
 export const toolAvailability = {
-  smooth: false,
-  ai:     false,
+  smooth: true,
+  ai: true,
 };
 
 /**
@@ -58,9 +58,9 @@ export const toolAvailability = {
  *   finer detail without changing this number.
  */
 export const annotationSettings = {
-  vertexHandleRadius:   4.5,
-  vertexGrabRadius:     6,
-  edgeGrabRadius:       6,
+  vertexHandleRadius: 4.5,
+  vertexGrabRadius: 6,
+  edgeGrabRadius: 6,
   freehandPointSpacing: 10,
 };
 
@@ -77,8 +77,8 @@ export const annotationSettings = {
  * separate from its neighbours without any other visual cue.
  */
 export const annotationOpacity = {
-  normal:   0.5,
+  normal: 0.5,
   selected: 0.6,
   /** Fill for the in-progress shape being drawn (before it is committed). */
-  drawing:  0.5,
+  drawing: 0.5,
 };

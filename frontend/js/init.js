@@ -8,12 +8,12 @@ import { commentOverlayRefs } from "./comment-overlay.js?v=1";
 import {
   canvas, ctx, backgroundImage, staticCanvas, staticCtx, stageWrap,
   emptyState, drawMode, selectMode, boxMode, polygonMode, commentMode, magicWandMode,
-  autoDetectButton, undoButton, redoButton, deleteButton, clearButton, exportLink
+  autoDetectButton, undoButton, redoButton, deleteButton, clearButton, exportLink, saveButton
 } from "./dom.js?v=1";
 import { drawAllLayers } from "./canvas/draw.js?v=1";
 import {
   setStatus, syncToBackend, save, loadSaved, saveDraft, restoreDraft,
-  render
+  render, manualSaveWithUI
 } from "./components/workspace.js?v=1";
 import { autoDetectObjects, autoTagObjects } from "./ai/detect.js?v=1";
 import {
@@ -348,14 +348,30 @@ deleteButton.addEventListener("click", () => {
 });
 
 clearButton.addEventListener("click", () => {
-  if (!state.annotations.length) return;
-  snapshot();
   state.annotations = [];
+  state.selectedIds.clear();
   state.selectedId = null;
   view.drag = null;
   render();
   save();
-  setStatus("All annotations cleared");
+  setStatus("Cleared all");
+});
+
+// Save button: manual save with visual feedback
+if (saveButton) {
+  saveButton.addEventListener("click", () => {
+    manualSaveWithUI();
+  });
+}
+
+// Ctrl+S shortcut: trigger manual save
+document.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+    e.preventDefault();
+    if (saveButton) {
+      manualSaveWithUI();
+    }
+  }
 });
 
 if (aiSettingsMenuButton) {

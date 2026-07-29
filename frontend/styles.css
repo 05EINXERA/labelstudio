@@ -2373,3 +2373,7 @@ button.switch[aria-checked="true"] .switch-knob {
     transform: rotate(360deg);
   }
 }
+
+#backgroundImage {
+  image-rendering: pixelated;
+}
