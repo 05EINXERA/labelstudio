@@ -81,6 +81,7 @@
            by /api/exports. This is a link there, not a second implementation:
            a canvas-side export could only ever see the loaded gallery, which
            silently differs from the project's task set. -->
+      <button class="tool-button" id="helpBtnApp" type="button" title="Help & Shortcuts" style="background: var(--surface-2); color: var(--ink);">Help</button>
       <a class="tool-button save-button" id="exportLink" href="#" title="Export this project's annotations" style="background: var(--accent); color: white; text-decoration: none; display: inline-flex; align-items: center; justify-content: center;">Export</a>
       <button class="tool-button primary save-button" id="saveButton" type="button" title="Save annotations">Save</button>
     </div>
@@ -363,6 +364,66 @@
           <div id="sessionModalTime" style="font-family: 'Courier New', Courier, monospace; font-size: 2.5rem; font-weight: 800; color: var(--accent);">00:00:00</div>
         </div>
         <button id="sessionOkBtn" class="primary" style="width: 100%; padding: 12px;">Got it</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Help Modal Overlay -->
+  <div id="helpModal" class="modal-overlay">
+    <div class="modal-content" style="max-width: 600px;">
+      <div class="modal-header">
+        <h2 style="margin: 0; font-size: 1.2rem; color: var(--ink); display: flex; align-items: center; gap: 10px;">💡 Help & Shortcuts</h2>
+        <button class="modal-close" id="helpClose">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 24px; max-height: 70vh; overflow-y: auto;">
+        
+        <h3 style="margin-top: 0;">🎯 Features & Tips</h3>
+        <ul style="padding-left: 20px; line-height: 1.5; color: var(--ink-light);">
+          <li><strong>Magic Wand:</strong> Click to automatically detect an object using the AI model. <code>Shift+Click</code> to add to the selection, <code>Alt+Click</code> to subtract.</li>
+          <li><strong>Auto-Detect:</strong> Detects all objects in the image at once using YOLO.</li>
+          <li><strong>Auto-Smooth:</strong> Smoothes rough polygons automatically using the RDP algorithm.</li>
+          <li><strong>Group Annotations:</strong> Select multiple annotations by dragging a box in Select Mode, then press <code>G</code> to group them.</li>
+          <li><strong>Line & Vertex Editing:</strong> Hover over a polygon point or line segment and press <code>Delete</code> to remove it.</li>
+        </ul>
+
+        <h3 style="margin-top: 24px;">⌨️ Keyboard Shortcuts</h3>
+        <table style="width: 100%; border-collapse: collapse; text-align: left; color: var(--ink-light);">
+          <tbody style="line-height: 2;">
+            <tr style="border-bottom: 1px solid var(--line);">
+              <td style="padding: 8px 0;">Undo / Redo</td>
+              <td><code>Ctrl+Z</code> / <code>Ctrl+Shift+Z</code></td>
+            </tr>
+            <tr style="border-bottom: 1px solid var(--line);">
+              <td style="padding: 8px 0;">Delete Selected / Vertex / Line</td>
+              <td><code>Delete</code> or <code>Backspace</code></td>
+            </tr>
+            <tr style="border-bottom: 1px solid var(--line);">
+              <td style="padding: 8px 0;">Finalize Polygon</td>
+              <td><code>Enter</code></td>
+            </tr>
+            <tr style="border-bottom: 1px solid var(--line);">
+              <td style="padding: 8px 0;">Cancel / Deselect</td>
+              <td><code>Escape</code></td>
+            </tr>
+            <tr style="border-bottom: 1px solid var(--line);">
+              <td style="padding: 8px 0;">Group Selected</td>
+              <td><code>G</code></td>
+            </tr>
+            <tr style="border-bottom: 1px solid var(--line);">
+              <td style="padding: 8px 0;">Draw Mode / Select Mode</td>
+              <td><code>D</code> / <code>S</code></td>
+            </tr>
+            <tr style="border-bottom: 1px solid var(--line);">
+              <td style="padding: 8px 0;">Bring Forward / Send Backward</td>
+              <td><code>F</code> / <code>B</code> (in Select Mode)</td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0;">Bring to Front / Send to Back</td>
+              <td><code>Shift+F</code> / <code>Shift+B</code></td>
+            </tr>
+          </tbody>
+        </table>
+
       </div>
     </div>
   </div>

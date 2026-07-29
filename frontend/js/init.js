@@ -549,6 +549,28 @@ if (settingsModal) {
   });
 }
 
+const helpBtnApp = document.getElementById("helpBtnApp");
+const helpModal = document.getElementById("helpModal");
+const helpClose = document.getElementById("helpClose");
+
+if (helpBtnApp && helpModal) {
+  helpBtnApp.addEventListener("click", () => {
+    helpModal.classList.add("is-active");
+  });
+}
+
+if (helpClose && helpModal) {
+  helpClose.addEventListener("click", () => {
+    helpModal.classList.remove("is-active");
+  });
+}
+
+if (helpModal) {
+  helpModal.addEventListener("click", (e) => {
+    if (e.target === helpModal) helpModal.classList.remove("is-active");
+  });
+}
+
 if (saveUsernameBtn) {
   saveUsernameBtn.addEventListener("click", () => {
     const newName = settingsUsernameInput.value.trim();
