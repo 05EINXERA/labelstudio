@@ -80,5 +80,5 @@ export const annotationOpacity = {
   normal:   0.5,
   selected: 0.6,
   /** Fill for the in-progress shape being drawn (before it is committed). */
-  drawing:  0.65,
+  drawing:  0.5,
 };
