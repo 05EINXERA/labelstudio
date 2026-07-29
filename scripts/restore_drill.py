@@ -30,6 +30,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+from urllib.parse import unquote, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -76,6 +77,35 @@ def drill_sqlite(dest_dir: str) -> int:
     return 0
 
 
+def _admin_conn_args(pg_admin_url: str) -> tuple[list, dict]:
+    """Translate the admin URL into createdb/dropdb flags plus an environment
+    carrying the password.
+
+    Passing only a database name to createdb/dropdb makes libpq fall back to
+    its own defaults - localhost:5432 as the current OS user - which silently
+    targets the wrong server whenever Postgres runs on a non-default port
+    (e.g. a Docker mapping on 5435) and then prompts for a password for a
+    role that does not exist.
+    """
+    parsed = urlparse(pg_admin_url)
+
+    args = []
+    if parsed.hostname:
+        args += ["-h", parsed.hostname]
+    if parsed.port:
+        args += ["-p", str(parsed.port)]
+    if parsed.username:
+        args += ["-U", parsed.username]
+
+    env = os.environ.copy()
+    if parsed.password:
+        # PGPASSWORD keeps the password off the command line (and out of the
+        # process list) while still avoiding an interactive prompt.
+        env["PGPASSWORD"] = unquote(parsed.password)
+
+    return args, env
+
+
 def drill_postgres(dest_dir: str, pg_admin_url: str, scratch_db_name: str) -> int:
     snapshot = _latest_snapshot(dest_dir, ".dump")
     print(f"Using snapshot: {snapshot}")
@@ -85,15 +115,20 @@ def drill_postgres(dest_dir: str, pg_admin_url: str, scratch_db_name: str) -> in
     base = pg_admin_url.rsplit("/", 1)[0]
     scratch_url = f"{base}/{scratch_db_name}"
 
+    conn_args, env = _admin_conn_args(pg_admin_url)
+
     print(f"Creating scratch database '{scratch_db_name}'...")
-    subprocess.run(["dropdb", "--if-exists", "-f", scratch_db_name], check=False)
-    subprocess.run(["createdb", scratch_db_name], check=True)
+    subprocess.run(
+        ["dropdb"] + conn_args + ["--if-exists", "-f", scratch_db_name],
+        check=False, env=env,
+    )
+    subprocess.run(["createdb"] + conn_args + [scratch_db_name], check=True, env=env)
 
     try:
         print("Restoring snapshot into scratch database...")
         result = subprocess.run(
             ["pg_restore", "--dbname", scratch_url, "--no-owner", "--no-privileges", snapshot],
-            capture_output=True, text=True,
+            capture_output=True, text=True, env=env,
         )
         # pg_restore commonly exits non-zero on harmless warnings (e.g.
         # missing roles from --no-owner); treat stderr content as informative
@@ -121,7 +156,10 @@ def drill_postgres(dest_dir: str, pg_admin_url: str, scratch_db_name: str) -> in
         engine.dispose()
     finally:
         print(f"Dropping scratch database '{scratch_db_name}'...")
-        subprocess.run(["dropdb", "--if-exists", "-f", scratch_db_name], check=False)
+        subprocess.run(
+            ["dropdb"] + conn_args + ["--if-exists", "-f", scratch_db_name],
+            check=False, env=env,
+        )
 
     print(f"PASS: snapshot restores cleanly — {project_count} project(s), {task_count} task(s) readable.")
     return 0

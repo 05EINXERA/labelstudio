@@ -47,7 +47,18 @@ $taskName = "AnnotationHealthCheck"
 $pwshExe  = (Get-Process -Id $PID).Path  # pwsh.exe running this script
 $args     = "-NoProfile -ExecutionPolicy Bypass -File `"$script`" -Url `"$Url`""
 $action   = New-ScheduledTaskAction -Execute $pwshExe -Argument $args -WorkingDirectory $repoRoot
-$trigger  = New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes) -RepetitionDuration ([TimeSpan]::MaxValue)
+# Daily trigger whose repetition re-arms every 24h, rather than -Once with an
+# indefinite RepetitionDuration: [TimeSpan]::MaxValue serialises to
+# P99999999DT23H59M59S, which Task Scheduler rejects as out of range on current
+# Windows builds ([TimeSpan]::Zero is rejected the same way).
+#
+# -Daily and -RepetitionInterval live in different parameter sets, so the
+# repetition is built on a throwaway -Once trigger and grafted on. This is the
+# documented workaround; the resulting values are PT15M / P1D.
+$trigger  = New-ScheduledTaskTrigger -Daily -At (Get-Date)
+$trigger.Repetition = (New-ScheduledTaskTrigger -Once -At (Get-Date) `
+    -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes) `
+    -RepetitionDuration (New-TimeSpan -Days 1)).Repetition
 $settings = New-ScheduledTaskSettingsSet `
     -ExecutionTimeLimit (New-TimeSpan -Minutes 5) `
     -StartWhenAvailable
@@ -66,7 +77,13 @@ Register-ScheduledTask `
     -Settings  $settings `
     -Principal $principal `
     -Description "Poll /health every $IntervalMinutes min and record status" `
+    -ErrorAction Stop `
     | Out-Null
+
+if (-not (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue)) {
+    Write-Error "Task '$taskName' was not registered."
+    exit 1
+}
 
 Write-Host "Scheduled task '$taskName' registered — polls every $IntervalMinutes min."
 Write-Host "Verify with:  Get-ScheduledTask -TaskName '$taskName' | Get-ScheduledTaskInfo"
