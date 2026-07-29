@@ -8,6 +8,8 @@ All setup guides, configurations, and deployment instructions for the annotation
 |---|---|---|
 | [QUICKSTART.md](QUICKSTART.md) | 2 min | Overview of all three paths |
 | [SETUP.md](SETUP.md) | 10 min | Full walkthrough with detailed steps |
+| [SETUP_ORDER.md](SETUP_ORDER.md) | 20 min | **After deploying:** install supervision + backups in the right order (do this before the runbook) |
+| [RESILIENCE_RUNBOOK.md](RESILIENCE_RUNBOOK.md) | 30 min | **Then:** verify backups/crash-recovery actually work, prove a restore, and know what to do when things break |
 
 ## 📋 Scenario-Specific Guides
 
@@ -15,21 +17,21 @@ Choose based on your deployment:
 
 ### Scenario 1: Local Dev (Solo Annotator)
 - **Guide:** [SETUP.md § Quick Start](SETUP.md#quick-start-local-development)
-- **Checklist:** [DEPLOYMENT_CHECKLIST.md § Scenario 1](./devnotes/DEPLOYMENT_CHECKLIST.md#-scenario-1-local-dev-solo-annotator)
+- **Checklist:** [DEPLOYMENT_CHECKLIST.md § Scenario 1](DEPLOYMENT_CHECKLIST.md#-scenario-1-local-dev-solo-annotator)
 - **Time:** 30 seconds
 - **Database:** SQLite (file)
 - **Command:** `.\scripts\run.ps1`
 
 ### Scenario 2: LAN Deployment (Team of 20–30)
 - **Guide:** [SETUP.md § Deployment to LAN](SETUP.md#deployment-to-lan)
-- **Checklist:** [DEPLOYMENT_CHECKLIST.md § Scenario 2](./devnotes/DEPLOYMENT_CHECKLIST.md#-scenario-2-lan-deployment-team-of-2030)
+- **Checklist:** [DEPLOYMENT_CHECKLIST.md § Scenario 2](DEPLOYMENT_CHECKLIST.md#-scenario-2-lan-deployment-team-of-2030)
 - **Time:** 10–15 minutes
 - **Database:** PostgreSQL (shared)
 - **Command:** `.\scripts\run.ps1` (after `.env` setup)
 
 ### Scenario 3: Wildcard CORS (Dev Testing)
 - **Guide:** [SETUP.md § CORS & Cross-Origin Requests](SETUP.md#cors--cross-origin-requests)
-- **Checklist:** [DEPLOYMENT_CHECKLIST.md § Scenario 3](./devnotes/DEPLOYMENT_CHECKLIST.md#-scenario-3-development--wildcard-cors)
+- **Checklist:** [DEPLOYMENT_CHECKLIST.md § Scenario 3](DEPLOYMENT_CHECKLIST.md#-scenario-3-development--wildcard-cors)
 - **Use:** Testing separate frontend (React, etc.)
 - **⚠️ Warning:** Dev-only (insecure for production)
 

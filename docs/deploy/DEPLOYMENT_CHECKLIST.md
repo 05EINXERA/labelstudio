@@ -123,10 +123,11 @@ Schedule incremental backups to another machine:
 - [ ] Consider `.\scripts\schedule-health-check.ps1` for a lightweight
       `/health` poll with its own status file.
 
-See `.devnotes/deployment-hardening/06_RESILIENCE_PLAN.md` /
-`07_RESILIENCE_IMPLEMENTATION.md` for the full picture, including what's
-still an operator action item (running the Postgres restore drill live,
-buying a UPS).
+**➡️ Full step-by-step walkthrough: [RESILIENCE_RUNBOOK.md](RESILIENCE_RUNBOOK.md)**
+— expected output for each command, how to read a failure, the recurring
+checks to calendar, and recovery procedures. Deeper background in
+`.devnotes/deployment-hardening/06_RESILIENCE_PLAN.md` /
+`07_RESILIENCE_IMPLEMENTATION.md`.
 
 ### Communicate to Team
 
