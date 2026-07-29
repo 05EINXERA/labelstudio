@@ -208,11 +208,15 @@ a glance whether the last run succeeded.
 
 Run this after Steps 8-9 (and periodically afterward) — it checks the
 *installed* state (scheduled tasks, service log freshness, a recent backup,
-power settings) rather than trusting the install scripts ran cleanly. Also
-consider `.\scripts\schedule-health-check.ps1` for a lightweight `/health`
-poll, and running `scripts/restore_drill.py` at least once to prove a backup
-actually restores. See `.devnotes/deployment-hardening/06_RESILIENCE_PLAN.md`
-/ `07_RESILIENCE_IMPLEMENTATION.md` for the full picture.
+power settings) rather than trusting the install scripts ran cleanly.
+
+**➡️ Now follow [RESILIENCE_RUNBOOK.md](RESILIENCE_RUNBOOK.md)** — a
+step-by-step operator guide that walks through verifying supervision and
+backups, *proving a backup actually restores* (the step people skip and
+regret), setting up health monitoring, the recurring checks to calendar, and
+what to do when something breaks. Deeper background lives in
+`.devnotes/deployment-hardening/06_RESILIENCE_PLAN.md` /
+`07_RESILIENCE_IMPLEMENTATION.md`.
 
 ---
 
