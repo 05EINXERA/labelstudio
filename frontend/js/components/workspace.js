@@ -12,10 +12,12 @@ import { draw, drawAllLayers } from "../canvas/draw.js?v=1";
 import {
   emptyState, classesList, annotationList, annotationCount, selectedInfo,
   drawMode, selectMode, boxMode, polygonMode, commentMode, magicWandMode,
-  autoDetectButton, undoButton, redoButton, deleteButton, clearButton, exportLink,
+  autoDetectButton, aiSettingsMenuButton, autoTagButton, fftToolGroup,
+  undoButton, redoButton, deleteButton, clearButton, exportLink,
   shapeHint, saveStatus
 } from "../dom.js?v=1";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
+import { toolAvailability } from "../feature-flags.js?v=1";
 
 
 export function setStatus(text) {
@@ -23,7 +25,7 @@ export function setStatus(text) {
   window.clearTimeout(setStatus.timer);
   setStatus.timer = window.setTimeout(() => {
     saveStatus.textContent = "Saved";
-  }, 1200);
+  }, 3000);
 }
 
 export function ensureLabel(className, customColor = null) {
@@ -178,9 +180,48 @@ export function save() {
     // Reporting it on the localStorage write alone told annotators their work
     // was safe while it existed nowhere but their own browser.
     Promise.resolve(syncToBackend())
-      .then((ok) => setStatus(ok === false ? "Not saved — will retry" : "Saved"))
-      .catch(() => setStatus("Not saved — will retry"));
+      .then((ok) => setStatus(ok === false ? "Not saved—retrying" : "Saved"))
+      .catch(() => setStatus("Not saved—retrying"));
   }, 1000);
+}
+
+/**
+ * Manual save with UI feedback.
+ * 
+ * This is called when the user clicks the Save button. It shows a spinner overlay
+ * while saving, then displays "Saved Successfully" for 3 seconds.
+ */
+export async function manualSaveWithUI() {
+  const overlay = document.getElementById('saveOverlay');
+  if (!overlay) return;
+
+  // Show the overlay
+  overlay.classList.add('is-active');
+
+  try {
+    // Save the draft locally
+    saveDraft();
+    
+    // Sync to backend
+    const ok = await syncToBackend();
+    
+    // Update status message
+    const message = ok === false ? "Not saved—retrying" : "Saved Successfully";
+    setStatus(message);
+    
+    // Keep the overlay visible for a brief moment, then fade it out
+    await new Promise(resolve => setTimeout(resolve, 800));
+    
+    overlay.classList.remove('is-active');
+    
+    // Keep "Saved Successfully" message for 3 seconds, then revert to "Saved"
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    setStatus("Saved");
+  } catch (err) {
+    console.error('Manual save failed:', err);
+    setStatus("Not saved—retrying");
+    overlay.classList.remove('is-active');
+  }
 }
 
 export function loadSaved() {
@@ -527,12 +568,32 @@ export function renderControls() {
       shapeHint.textContent = "Click and drag to draw a bounding box.";
     }
   }
-  autoDetectButton.disabled = detectState.detectionBusy || !view.imageLoaded;
+  // ── AI section ────────────────────────────────────────────────────────────
+  // When toolAvailability.ai is false every AI control is permanently disabled
+  // regardless of any other runtime state.
+  const aiBlocked = !toolAvailability.ai;
+  autoDetectButton.disabled = aiBlocked || detectState.detectionBusy || !view.imageLoaded;
   const labelSpan = autoDetectButton.querySelector(".btn-label");
   if (labelSpan) {
     labelSpan.textContent = detectState.detectionBusy ? "Detecting..." : "Detect";
   }
   autoDetectButton.title = selectedAnnotation() ? "Detect objects inside the selected area" : "Detect objects in the whole image";
+  if (aiSettingsMenuButton) aiSettingsMenuButton.disabled = aiBlocked;
+  if (autoTagButton)        autoTagButton.disabled        = aiBlocked;
+  // Magic Wand is in the Tools group but is AI-dependent — block it too.
+  magicWandMode.disabled = aiBlocked;
+
+  // ── Smooth section ────────────────────────────────────────────────────────
+  // Disable every interactive control inside the FFT tool-group when
+  // toolAvailability.smooth is false.  The container itself is not hidden so
+  // the toolbar layout stays stable; the controls are just non-interactive.
+  if (fftToolGroup) {
+    fftToolGroup.querySelectorAll("button, input").forEach(el => {
+      el.disabled = !toolAvailability.smooth;
+    });
+  }
+
+  // ── Edit section ──────────────────────────────────────────────────────────
   undoButton.disabled = state.history.length === 0;
   redoButton.disabled = state.redoHistory.length === 0;
   deleteButton.disabled = state.selectedIds.size === 0;

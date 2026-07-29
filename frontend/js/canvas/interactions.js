@@ -8,6 +8,7 @@ import { commentOverlayRefs } from "../comment-overlay.js?v=1";
 import { setStatus, save, render } from "../components/workspace.js?v=1";
 import { performMagicWandSegmentation } from "../ai/detect.js?v=1";
 import { applyAutoSmooth } from "../fft-controls.js?v=1";
+import { annotationSettings } from "../feature-flags.js?v=1";
 
 export function canvasPoint(event) {
   const rect = canvas.getBoundingClientRect();
@@ -50,7 +51,10 @@ export function hitTest(point) {
 export function hitTestPoint(point, annotation) {
   if (!annotation || !annotation.points) return -1;
   const img = imagePoint(point);
-  const threshold = 6 / view.imageBox.scale;
+  // Divided by scale to convert the on-screen pixel radius into image space,
+  // where the comparison happens — so the grab area stays a constant physical
+  // size on screen instead of shrinking as the annotator zooms in.
+  const threshold = annotationSettings.vertexGrabRadius / view.imageBox.scale;
   for (let i = 0; i < annotation.points.length; i++) {
     const pt = annotation.points[i];
     if (Math.hypot(pt.x - img.x, pt.y - img.y) < threshold) {
@@ -63,7 +67,8 @@ export function hitTestPoint(point, annotation) {
 export function hitTestLine(point, annotation) {
   if (!annotation || !annotation.points || annotation.points.length < 3) return -1;
   const img = imagePoint(point);
-  const threshold = 6 / view.imageBox.scale;
+  // Screen pixels -> image space; see hitTestPoint above.
+  const threshold = annotationSettings.edgeGrabRadius / view.imageBox.scale;
   const pts = annotation.points;
   for (let i = 0; i < pts.length; i++) {
     const p1 = pts[i];
@@ -163,9 +168,24 @@ export function finalizePolygon() {
   state.justFinalized = true;
   render();
   save();
-  setStatus("Please select a class name for the next polygon");
+  setStatus("Select class for next");
 }
 
+// Point-level undo/redo for an in-progress (not yet finalized) polygon.
+// Deliberately kept OUT of the state.history/redoHistory snapshot stack:
+// snapshotting every single point-click there would flood the 50-entry
+// history with one entry per vertex, so drawing a long freehand/click
+// polygon would blow undo history for everything else in the session and
+// (worse) collapse into "one Ctrl+Z removes dozens of points" once older
+// entries got shifted out. Instead, in-progress points are tracked on the
+// ephemeral view.drag.undonePoints array, one pop/push per point, and only
+// the *finalized* polygon (or its deletion) becomes a real history entry.
+//
+// undonePoints must survive exactly as long as the polygon it belongs to.
+// It is intentionally NOT cleared by undoAction/redoAction's history-restore
+// path so that undoing past the first vertex (which falls through to
+// deleting the whole in-progress annotation via history) can still be
+// redone point-by-point afterwards — see redoAction below.
 export function undoLastPoint() {
   if (view.drag?.type === "draw-polygon") {
     const annotation = state.annotations.find((item) => item.id === view.drag.annotationId);
@@ -201,23 +221,51 @@ export function undoAction() {
   if (undoLastPoint()) {
     return;
   }
+  // Falling through here means either there's no in-progress polygon, or its
+  // last remaining vertex is about to be undone away (undoLastPoint requires
+  // length > 1, so a 1-point polygon reaches this branch). That vertex, and
+  // any points still parked in view.drag.undonePoints from earlier point-undos,
+  // need to travel together into the same history entry so a later redo can
+  // bring the whole in-progress polygon back in one step instead of losing
+  // everything past the first point. Stash them on the annotation itself
+  // (a plain data field, harmless to serialize) before snapshotting.
+  const pendingDrag = view.drag?.type === "draw-polygon" ? view.drag : null;
+  let carryAnnotation = null;
+  if (pendingDrag?.undonePoints?.length > 0) {
+    carryAnnotation = state.annotations.find((item) => item.id === pendingDrag.annotationId);
+  }
+  if (carryAnnotation) {
+    carryAnnotation.__pendingUndonePoints = pendingDrag.undonePoints.slice();
+  }
+
   const previous = state.history.pop();
-  if (!previous) return;
-  
+  if (!previous) {
+    if (carryAnnotation) delete carryAnnotation.__pendingUndonePoints;
+    return;
+  }
+
   state.redoHistory.push(JSON.stringify({
     labels: state.labels,
     annotations: state.annotations,
     selectedId: state.selectedId
   }));
 
+  if (carryAnnotation) delete carryAnnotation.__pendingUndonePoints;
+
   const restored = JSON.parse(previous);
   state.labels = restored.labels;
   state.annotations = restored.annotations;
   state.selectedId = restored.selectedId;
-  
+
   if (view.drag?.type === "draw-polygon") {
     const exists = state.annotations.some((item) => item.id === view.drag.annotationId);
-    if (!exists) view.drag = null;
+    if (!exists) {
+      view.drag = null;
+    } else {
+      // The polygon this drag refers to still exists after the restore
+      // (we undid something else, not the polygon's own creation) — keep
+      // whatever point-undo buffer it already had.
+    }
   }
   render();
   save();
@@ -227,6 +275,7 @@ export function redoAction() {
   if (redoLastPoint()) {
     return;
   }
+
   const next = state.redoHistory.pop();
   if (!next) return;
 
@@ -245,6 +294,26 @@ export function redoAction() {
     const exists = state.annotations.some((item) => item.id === view.drag.annotationId);
     if (!exists) view.drag = null;
   }
+
+  // If the redone state brought back an in-progress polygon that still had
+  // points buffered from an earlier point-level undo (stashed on
+  // __pendingUndonePoints by undoAction just before it snapshotted), restore
+  // that buffer so redo can keep walking forward point-by-point instead of
+  // stopping dead after this one step. This can also be the step that brings
+  // the polygon itself back into existence (its creation was undone), in
+  // which case view.drag was nulled out and needs to be re-pointed at it.
+  const revivedAnnotation = state.annotations.find(
+    (item) => item.__pendingUndonePoints?.length > 0
+  );
+  if (revivedAnnotation) {
+    if (view.drag?.type !== "draw-polygon" || view.drag.annotationId !== revivedAnnotation.id) {
+      view.drag = { type: "draw-polygon", annotationId: revivedAnnotation.id };
+    }
+    view.drag.undonePoints = revivedAnnotation.__pendingUndonePoints;
+    delete revivedAnnotation.__pendingUndonePoints;
+    state.selectedId = revivedAnnotation.id;
+  }
+
   render();
   save();
 }
@@ -353,7 +422,7 @@ export function sendToBack() {
   if (alreadyBack) return;
   snapshot();
   applyReorder([...parts.selected, ...parts.others]);
-  setStatus("Sent to back");
+  setStatus("Sent back");
 }
 
 export function bringToFront() {
@@ -366,7 +435,7 @@ export function bringToFront() {
   if (alreadyFront) return;
   snapshot();
   applyReorder([...parts.others, ...parts.selected]);
-  setStatus("Brought to front");
+  setStatus("Brought forward");
 }
 
 // Move the selected block one step towards index 0 (visually backwards): drop
@@ -443,7 +512,7 @@ export function groupSelectedAnnotations() {
 
   render();
   save();
-  setStatus("Grouped annotations");
+  setStatus("Grouped");
 }
 
 const ungroupButton = document.querySelector("#ungroupButton");
@@ -460,7 +529,7 @@ if (ungroupButton) {
     if (ungrouped) {
       render();
       save();
-      setStatus("Ungrouped annotations");
+      setStatus("Ungrouped");
     } else {
       state.history.pop();
     }
@@ -710,11 +779,11 @@ canvas.addEventListener("pointerdown", (event) => {
     if (state.shape === "polygon") {
       if (view.drag?.type !== "draw-polygon") {
         if (state.needsLabelSelection) {
-          setStatus("Please select a class name first");
+          setStatus("Select class");
           return;
         }
         if (!state.activeLabelId) {
-          setStatus("Select a class first");
+          setStatus("Select class");
           return;
         }
         // First point – create annotation immediately so it appears in the Objects panel
@@ -744,6 +813,9 @@ canvas.addEventListener("pointerdown", (event) => {
         if (!lastPoint || Math.hypot(lastPoint.x - pointInImage.x, lastPoint.y - pointInImage.y) > 1) {
           annotation.points.push({ x: round(pointInImage.x), y: round(pointInImage.y) });
           updateAnnotationBounds(annotation);
+          // A genuinely new vertex invalidates whatever was parked by prior
+          // point-level undos — there is no longer a consistent "redo" path
+          // back to points that came after a different vertex.
           if (view.drag.undonePoints) view.drag.undonePoints = [];
         }
       }
@@ -752,11 +824,11 @@ canvas.addEventListener("pointerdown", (event) => {
       return;
     } else {
       if (state.needsLabelSelection && state.shape !== "magicWand") {
-        setStatus("Please select a class name first");
+        setStatus("Select class");
         return;
       }
       if (!state.activeLabelId) {
-        setStatus("Select a class first");
+        setStatus("Select class");
         return;
       }
       view.drag = {
@@ -841,7 +913,9 @@ canvas.addEventListener("pointermove", (event) => {
       if (annotation) {
         const pts = annotation.points || [];
         const lastPoint = pts[pts.length - 1];
-        const threshold = 10 / view.imageBox.scale;
+        // Screen pixels -> image space, so tracing at high zoom lays down
+        // proportionally finer detail without retuning the setting.
+        const threshold = annotationSettings.freehandPointSpacing / view.imageBox.scale;
         if (lastPoint && Math.hypot(lastPoint.x - end.x, lastPoint.y - end.y) > threshold) {
           annotation.points.push({ x: round(end.x), y: round(end.y) });
           updateAnnotationBounds(annotation);
@@ -1165,7 +1239,7 @@ window.addEventListener("keydown", (event) => {
 
   if (event.key.toLowerCase() === "d") {
     if (!state.activeLabelId) {
-      setStatus("Pick a class first, then draw");
+      setStatus("Pick class first");
       render();
     } else {
       state.mode = "draw";

@@ -1,13 +1,16 @@
 /**
  * Exports view (tracker P4.5).
  *
- * Builder UI for creating an annotation export job with:
+ * Builder UI for creating an annotation export job on two independent axes,
+ * bundled into one project-named ZIP:
  *   - Status filter: all | New | In Progress | Completed | Approved
- *   - Format: COCO | Task JSON (single / per-task) | YOLO | Masks
- *             (direct / index) | CSV
+ *   - Format (pick one): COCO | Task JSON (single / per-task) | YOLO
+ *   - Image output (pick one): none | original | annotated | mask (direct /
+ *                              index / binary)
  *
- * Masks are export-only and rendered from the polygons; a caveat note shows
- * when one is selected. Some formats cannot represent every task (YOLO and
+ * Each axis lands in its own top-level folder in the zip. Image outputs are
+ * rendered from the polygons and are export-only; a caveat note shows when a
+ * mask output is selected. Some outputs cannot represent every task (YOLO and
  * masks need image dimensions), so the completed-job panel surfaces the
  * backend's `skipped` list rather than letting a short export be silent.
  *
@@ -22,7 +25,7 @@ let ctx = null;
 let abortController = null;
 let pollInterval = null;
 
-// Job state: null | { job_id, status, format, task_count }
+// Job state: null | { job_id, status, format, imageOutput, task_count }
 let currentJob = null;
 
 // ---------------------------------------------------------------------------
@@ -71,9 +74,12 @@ function template() {
         </div>
       </div>
 
-      <div class="metric-tile" style="margin-bottom:24px;">
-        <p class="label">Format</p>
-        <div style="display:flex; flex-direction:column; gap:10px; margin-top:10px;">
+      <div class="metric-tile" style="margin-bottom:16px;">
+        <p class="label">Annotation format</p>
+        <p style="font-size:.85rem; color:var(--muted); margin:6px 0 10px;">
+          The annotation data lands in its own folder inside the export.
+        </p>
+        <div style="display:flex; flex-direction:column; gap:10px;">
           <label style="display:flex; align-items:center; gap:8px; font-size:.9rem;" title="COCO JSON: {images, categories, annotations} in one file">
             <input type="radio" name="format" value="coco" checked>
             COCO JSON
@@ -82,25 +88,46 @@ function template() {
             <input type="radio" name="format" value="annotations_json">
             Task JSON — single file
           </label>
-          <label style="display:flex; align-items:center; gap:8px; font-size:.9rem;" title="A ZIP with one JSON file per task, under jsons/, named after each image">
+          <label style="display:flex; align-items:center; gap:8px; font-size:.9rem;" title="One JSON file per task, under jsons/, named after each image">
             <input type="radio" name="format" value="annotations_pertask">
-            Task JSON — per-task (ZIP)
+            Task JSON — per-task
           </label>
-          <label style="display:flex; align-items:center; gap:8px; font-size:.9rem;" title="A ZIP with classes.txt and one YOLOv8 segmentation label file per task">
+          <label style="display:flex; align-items:center; gap:8px; font-size:.9rem;" title="classes.txt and one YOLOv8 segmentation label file per task">
             <input type="radio" name="format" value="yolo">
-            YOLO segmentation (ZIP)
+            YOLO segmentation
           </label>
-          <label style="display:flex; align-items:center; gap:8px; font-size:.9rem;" title="A ZIP of RGB PNG masks: each pixel is the class or instance colour">
-            <input type="radio" name="format" value="masks_direct">
-            Masks — direct colour (ZIP)
+        </div>
+      </div>
+
+      <div class="metric-tile" style="margin-bottom:24px;">
+        <p class="label">Image output</p>
+        <p style="font-size:.85rem; color:var(--muted); margin:6px 0 10px;">
+          Optionally bundle images alongside the annotations, in their own folder.
+        </p>
+        <div style="display:flex; flex-direction:column; gap:10px;">
+          <label style="display:flex; align-items:center; gap:8px; font-size:.9rem;" title="No images — annotations only">
+            <input type="radio" name="imageOutput" value="none" checked>
+            None
           </label>
-          <label style="display:flex; align-items:center; gap:8px; font-size:.9rem;" title="A ZIP of palette PNG masks: each pixel is a class or instance index">
-            <input type="radio" name="format" value="masks_index">
-            Masks — index colour (ZIP)
+          <label style="display:flex; align-items:center; gap:8px; font-size:.9rem;" title="The uploaded source images, copied unchanged">
+            <input type="radio" name="imageOutput" value="original">
+            Original image
           </label>
-          <label style="display:flex; align-items:center; gap:8px; font-size:.9rem;">
-            <input type="radio" name="format" value="csv">
-            CSV
+          <label style="display:flex; align-items:center; gap:8px; font-size:.9rem;" title="Source image with the polygons drawn on top (PNG)">
+            <input type="radio" name="imageOutput" value="annotated">
+            With annotation
+          </label>
+          <label style="display:flex; align-items:center; gap:8px; font-size:.9rem;" title="RGB PNG masks: each pixel is the class or instance colour">
+            <input type="radio" name="imageOutput" value="mask_direct">
+            Mask — direct colour
+          </label>
+          <label style="display:flex; align-items:center; gap:8px; font-size:.9rem;" title="Palette PNG masks: each pixel is a class or instance index">
+            <input type="radio" name="imageOutput" value="mask_index">
+            Mask — index colour
+          </label>
+          <label style="display:flex; align-items:center; gap:8px; font-size:.9rem;" title="8-bit grayscale PNG: annotated pixels 255, background 0">
+            <input type="radio" name="imageOutput" value="mask_binary">
+            Mask — binary
           </label>
         </div>
         <p id="maskNote" style="font-size:.8rem; color:var(--muted); margin-top:10px; display:none;">
@@ -147,12 +174,21 @@ function el(id) { return root.querySelector(`#${id}`); }
 const FORMAT_LABELS = {
   coco: "COCO JSON",
   annotations_json: "Task JSON — single file",
-  annotations_pertask: "Task JSON — per-task (ZIP)",
-  yolo: "YOLO segmentation (ZIP)",
-  masks_direct: "Masks — direct colour (ZIP)",
-  masks_index: "Masks — index colour (ZIP)",
-  csv: "CSV",
+  annotations_pertask: "Task JSON — per-task",
+  yolo: "YOLO segmentation",
 };
+
+const IMAGE_OUTPUT_LABELS = {
+  none: "no images",
+  original: "original image",
+  annotated: "annotated image",
+  mask_direct: "direct-colour mask",
+  mask_index: "index-colour mask",
+  mask_binary: "binary mask",
+};
+
+// Image outputs that render a mask and warrant the caveat note.
+const MASK_OUTPUTS = new Set(["mask_direct", "mask_index", "mask_binary"]);
 
 function showError(message) {
   const banner = el("errorBanner");
@@ -194,13 +230,15 @@ function getFormData() {
     .map((cb) => cb.value);
 
   const format = root.querySelector('input[name="format"]:checked')?.value || "coco";
+  const imageOutput = root.querySelector('input[name="imageOutput"]:checked')?.value || "none";
 
   return {
     projectId: ctx.projectId,
     format,
+    imageOutput,
     // The backend still accepts an include field; annotations_only is the only
-    // implemented value, and masks are their own formats now rather than an
-    // include variant.
+    // implemented value, and image outputs are their own axis now rather than
+    // an include variant.
     include: "annotations_only",
     statusFilter: statusChecked.length > 0 ? statusChecked : null,
   };
@@ -223,7 +261,12 @@ async function createExport() {
       return;
     }
     const body = await res.json();
-    currentJob = { job_id: body.job_id, status: "pending", format: payload.format };
+    currentJob = {
+      job_id: body.job_id,
+      status: "pending",
+      format: payload.format,
+      imageOutput: payload.imageOutput,
+    };
     showJobSection();
     renderJobStatus();
     startPolling();
@@ -234,15 +277,15 @@ async function createExport() {
 }
 
 function updateMaskNote() {
-  const format = root.querySelector('input[name="format"]:checked')?.value;
+  const imageOutput = root.querySelector('input[name="imageOutput"]:checked')?.value;
   const note = el("maskNote");
-  if (note) note.style.display = format === "masks_direct" || format === "masks_index" ? "" : "none";
+  if (note) note.style.display = MASK_OUTPUTS.has(imageOutput) ? "" : "none";
 }
 
 function bindExportBuilder() {
   el("exportBtn").addEventListener("click", createExport);
-  // Show the mask caveat only when a mask format is selected.
-  root.querySelectorAll('input[name="format"]').forEach((radio) => {
+  // Show the mask caveat only when a mask image output is selected.
+  root.querySelectorAll('input[name="imageOutput"]').forEach((radio) => {
     radio.addEventListener("change", updateMaskNote);
   });
   updateMaskNote();
@@ -290,11 +333,15 @@ function renderJobStatus() {
         </p>
         <ul style="font-size:.82rem; color:var(--muted); margin:4px 0 0 18px;">${items}</ul>`;
     }
+    const fmtLabel = FORMAT_LABELS[currentJob.format] || currentJob.format;
+    const imgOut = currentJob.imageOutput || "none";
+    const imgLabel = IMAGE_OUTPUT_LABELS[imgOut] || imgOut;
+    const imgSuffix = imgOut === "none" ? "" : ` + ${escapeHTML(imgLabel)}`;
     statusEl.innerHTML = `
       <p style="font-size:.9rem; color:var(--accent-dark);">
         ✓ <strong>Export ready</strong> —
         ${currentJob.task_count} task${currentJob.task_count === 1 ? "" : "s"},
-        ${escapeHTML(FORMAT_LABELS[currentJob.format] || currentJob.format)} format.
+        ${escapeHTML(fmtLabel)}${imgSuffix}.
       </p>${skippedHtml}`;
     downloadBtn.disabled = false;
   } else if (currentJob.status === "failed") {
@@ -331,6 +378,7 @@ async function pollJobStatus() {
     if (body.status === "completed") {
       currentJob.task_count = body.task_count;
       currentJob.format = body.format;
+      currentJob.imageOutput = body.image_output || currentJob.imageOutput || "none";
       currentJob.skipped = body.skipped || [];
     } else if (body.status === "failed") {
       currentJob.error = body.error;
@@ -356,15 +404,17 @@ function filenameFromResponse(res) {
   return match ? match[1].trim() : null;
 }
 
-// Extension per format, for the download fallback when the response carries no
-// Content-Disposition. The ZIP formats are everything but COCO and CSV.
-const ZIP_FORMATS = new Set(["annotations_pertask", "yolo", "masks_direct", "masks_index"]);
-
-/** Fallback only — used if the response carries no Content-Disposition. */
+/**
+ * Fallback only — used if the response carries no Content-Disposition.
+ * Mirrors the backend's carve-out: a single-file annotation format with no
+ * image output is a bare .json; everything else is the project-named zip.
+ */
 function localFilename() {
-  if (currentJob.format === "csv") return `export-${ctx.projectId}.csv`;
-  if (ZIP_FORMATS.has(currentJob.format)) return `export-${currentJob.format}-${ctx.projectId}.zip`;
-  return `export-${ctx.projectId}.json`; // coco or annotations_json
+  const singleFile = currentJob.format === "coco" || currentJob.format === "annotations_json";
+  if (singleFile && (currentJob.imageOutput || "none") === "none") {
+    return `export-${ctx.projectId}.json`;
+  }
+  return `export-${ctx.projectId}.zip`;
 }
 
 async function downloadExport() {

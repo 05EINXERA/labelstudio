@@ -33,7 +33,7 @@ param(
     [string]$Dest,
 
     [int]$Keep = 7,
-    [int]$Hour = 2
+    [int]$Hour = 17
 )
 
 $ErrorActionPreference = "Stop"

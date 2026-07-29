@@ -2,6 +2,18 @@
 
 *Produced 2026-07-19 by direct source analysis. No `discovery.md` exists anywhere in the repo (verified by glob over root and `docs/`), so the discovery understanding below was generated from the source itself: entrypoint (`main.py`), ORM models, all eight routers, the Alembic migration, `detector.py`, and the full frontend (`app.js`, `app.html`, `project_details.js`, `dashboard.html`, `sync.js`). Every claim cites the file/line verified. Statements marked "inferred" were not directly traced.*
 
+**Status: point-in-time snapshot, now stale on several specific claims.**
+Since this was produced, `.devnotes/deployment-hardening/` work closed several
+items this doc lists as open: the three-router auth gap (`tasks`, `data`,
+`label_studio` now all require auth), `sync.js` (its `<script>` tag was
+removed — see `docs/GOTCHAS.md` #11), the SQLite-only assumption (the LAN
+deployment now runs Postgres — see CLAUDE.md, `config.IS_SQLITE`), and the
+"no documented backup procedure" claim (`.devnotes/deployment-hardening/`
+06/07 plus `scripts/backup.py`). This doc's annotation-model/review-workflow
+gap analysis (roles, per-annotation rows, import/export) is unaffected and
+still current — treat only the specific items above as resolved, not the
+whole document.
+
 ---
 
 ## 1. Executive Summary
@@ -257,9 +269,9 @@ Incremental remediation throughout — no rewrite is needed; the FastAPI/SQLite/
 | # | Change | Why (spec) | Effort |
 |---|---|---|---|
 | 1.1 | Rotate `.jwt_secret` (`git rm --cached`, gitignore, delete local copy); purge `messt.jpg`/`parsed_content*` | §3 auth integrity; GOTCHAS #1 | S |
-| 1.2 | Add `dependencies=[Depends(get_current_user)]` to `tasks`, `data`, `label_studio` routers | §3; ARCHITECTURE §3.2 | S |
-| 1.3 | Autosave truthfulness: set "Saved" only on 2xx; on failure show a persistent error banner and retry with backoff; on 409 offer "reload their version / keep mine" instead of `currentTask.id = null` | §9.4 no-silent-loss | S |
-| 1.4 | Reject unparseable `updated_at` with 400 (`tasks.py`); replace `datetime.utcnow()` with aware UTC | §9.3 concurrency; GOTCHAS #7/#12 | S |
+| 1.2 | ~~Add `dependencies=[Depends(get_current_user)]` to `tasks`, `data`, `label_studio` routers~~ **done** — all `/api/*` routers now require auth (CLAUDE.md rule 1) | §3; ARCHITECTURE §3.2 | S |
+| 1.3 | Autosave truthfulness: set "Saved" only on 2xx; on failure show a persistent error banner and retry with backoff; on 409 offer "reload their version / keep mine" instead of `currentTask.id = null` — **done**, see `.devnotes/deployment-hardening/04_ANNOTATION_SAVE_LOSS.md` | §9.4 no-silent-loss | S |
+| 1.4 | ~~Reject unparseable `updated_at` with 400 (`tasks.py`); replace `datetime.utcnow()` with aware UTC~~ **done** | §9.3 concurrency; GOTCHAS #7/#12 | S |
 | 1.5 | Move metrics status-write out of the GET (do it in the task-update path) | GOTCHAS #6 | S |
 | 1.6 | Fix COCO export zero-dims: store image width/height server-side at upload (PIL already available) and return them with tasks | §8.2 correctness | S |
 | 1.7 | `requirements.txt` cleanup (dedupe `python-multipart`, drop `passlib`, add `ultralytics`, `transformers` with pins) | §9.1 reproducibility | S |
@@ -272,7 +284,7 @@ Incremental remediation throughout — no rewrite is needed; the FastAPI/SQLite/
 | 2.3 | Users/roles: add `role` to `users`, add `project_members` (user, project, role); replace free-text `assignee`/`creator` with user FKs; merge `team_members` time tracking into users | §3, §4 | M | 2.2 |
 | 2.4 | Project-scope the class table (`project_id` FK, `hotkey`, `is_active`, ordering); add `class_attributes` table (name, type, required, options) | §4, §5.4 | M | 2.2 |
 | 2.5 | Add `images` metadata columns (or table): original filename, sha256 (dedupe base), width/height, batch FK; add `batches` table | §4, §5.2 | M | 2.2 |
-| 2.6 | Retire `sync.js` + `/api/data`: move the workspace-blob reads (dashboard) onto real endpoints, then delete both | Risk #7; ARCHITECTURE §3.6 | M | — |
+| 2.6 | ~~Retire `sync.js` + `/api/data`: move the workspace-blob reads (dashboard) onto real endpoints, then delete both~~ **done** — `sync.js`'s `<script>` tag removed from `app.html`; `/api/data` now requires auth and is scoped per-user, not deleted outright but no longer unauthenticated/shared (`.devnotes/deployment-hardening/tasks.md` T3.1) | Risk #7; ARCHITECTURE §3.6 | M | — |
 
 ### Phase 3 — Team workflow (the biggest missing capability)
 | # | Change | Why | Effort | Depends on |

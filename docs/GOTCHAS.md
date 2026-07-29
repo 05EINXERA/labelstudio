@@ -182,22 +182,30 @@ Real tests go in `tests/` and must run offline against a temp database.
 
 ---
 
-## 11. `sync.js`: monkey-patched localStorage + synchronous XHR
+## 11. `sync.js`: monkey-patched localStorage + synchronous XHR — disconnected, not deleted
 
-**Where:** `frontend/sync.js` — replaces `localStorage.setItem` globally and
-does `xhr.open('GET', '/api/data', false)` (the `false` = synchronous,
-freezing the page until the server answers).
+**Status:** the `<script src="sync.js">` tag was removed from `app.html`
+(`.devnotes/deployment-hardening/tasks.md` T3.1), so this file no longer
+runs. The file itself is still present at `frontend/sync.js` but dead code —
+don't resurrect it or copy its pattern from history.
 
-**Why it's bad:** three stacked problems: (1) synchronous XHR blocks the whole
-page and is deprecated by browsers; (2) patching a built-in API means every
-`localStorage.setItem` anywhere now has a hidden network side effect —
-invisible spooky behavior; (3) the synced blob is one shared value for *all*
-users with no conflict handling — two users overwrite each other, last writer
-wins.
+**Where it used to run from:** `frontend/sync.js` — replaced
+`localStorage.setItem` globally and did `xhr.open('GET', '/api/data',
+false)` (the `false` = synchronous, freezing the page until the server
+answered).
 
-**Do instead:** nothing — this file is legacy (ARCHITECTURE.md § 3.6). Never
-extend `SYNC_KEYS`, never copy the pattern. New features call the API
-explicitly with async `fetch` via `apiFetch`.
+**Why it was bad:** three stacked problems: (1) synchronous XHR blocks the
+whole page and is deprecated by browsers; (2) patching a built-in API means
+every `localStorage.setItem` anywhere had a hidden network side effect —
+invisible spooky behavior; (3) the synced blob was one shared value for *all*
+users with no conflict handling — two users overwrote each other, last
+writer won. `/api/data` itself is no longer unauthenticated/shared either —
+it's now scoped per-user (`owner_id`), per `01_AUDIT.md` A-5a.
+
+**Do instead:** nothing — this pattern is retired (ARCHITECTURE.md § 3.6).
+Never extend `SYNC_KEYS`, never copy the pattern, and don't re-add the
+`<script>` tag. New features call the API explicitly with async `fetch` via
+`apiFetch`.
 
 ---
 

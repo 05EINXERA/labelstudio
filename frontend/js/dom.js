@@ -21,6 +21,12 @@ export const polygonMode = document.querySelector("#polygonMode");
 export const commentMode = document.querySelector("#commentMode");
 export const magicWandMode = document.querySelector("#magicWandMode");
 export const autoDetectButton = document.querySelector("#autoDetectButton");
+// AI section — also gated by toolAvailability.ai in renderControls()
+export const aiSettingsMenuButton = document.querySelector("#aiSettingsMenuButton");
+export const aiSettingsDropdownContainer = document.querySelector("#aiSettingsDropdownContainer");
+export const autoTagButton = document.querySelector("#autoTagButton");
+// Smooth section — also gated by toolAvailability.smooth in renderControls()
+export const fftToolGroup = document.querySelector(".fft-tool-group");
 export const undoButton = document.querySelector("#undoButton");
 export const redoButton = document.querySelector("#redoButton");
 export const deleteButton = document.querySelector("#deleteButton");
@@ -29,3 +35,4 @@ export const clearButton = document.querySelector("#clearButton");
 // project-level operation handled there, not on the canvas.
 export const exportLink = document.querySelector("#exportLink");
 export const shapeHint = document.querySelector("#shapeHint");
+export const saveButton = document.querySelector("#saveButton");

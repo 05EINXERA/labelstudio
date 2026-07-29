@@ -106,7 +106,7 @@ unhandled.**
 
 ### Backend
 
-- **The SQLite database is the single source of truth.** Anything that must survive a restart or be seen by another user lives in a table, accessed through a session from `get_db`.
+- **The database is the single source of truth** (SQLite for dev, Postgres for the LAN deployment — see `config.IS_SQLITE`). Anything that must survive a restart or be seen by another user lives in a table, accessed through a session from `get_db`.
 - **In-memory state (like the `JOBS` dict in `detect.py`) is acceptable only for short-lived, losable data**, and it pins the app to one uvicorn worker. If you add in-memory state, write a comment saying what happens to it on restart, and make sure losing it is OK.
 - **Concurrent edits use optimistic locking:** the client sends the `updated_at` it last saw; the server rejects with 409 if the row changed since. This exists for tasks — extend the same pattern to other user-edited resources rather than inventing a new one.
 - **Datetimes are timezone-aware UTC.** ✅ `datetime.now(timezone.utc)` ❌ `datetime.utcnow()` (deprecated; produces "naive" datetimes that crash or silently mis-compare when mixed with aware ones).
@@ -114,7 +114,7 @@ unhandled.**
 ### Frontend
 
 - **Server data belongs to the server.** Fetch it, render it, send changes back. Don't build a second copy in `localStorage` that can drift.
-  *Override:* `sync.js` currently monkey-patches `localStorage.setItem` to mirror a workspace blob to the server with a synchronous XHR (which freezes the page while it runs). This is legacy: do not extend it, do not add new `SYNC_KEYS`. New features talk to the API directly via `apiFetch`.
+  *Historical note:* `sync.js` used to monkey-patch `localStorage.setItem` to mirror a workspace blob to the server with a synchronous XHR (which froze the page while it ran). Its `<script>` tag has been removed (see `docs/GOTCHAS.md` #11); the file is dead code. Do not resurrect it, do not add `SYNC_KEYS`. New features talk to the API directly via `apiFetch`.
 - `localStorage` is fine for *preferences* (theme, last-selected tool) — things where a stale value is harmless.
 - **Auth truth is the httpOnly cookie**, which JS cannot read. `localStorage['logged_in']` is only a hint so pages can redirect before the first 401. Never gate an action on it.
 

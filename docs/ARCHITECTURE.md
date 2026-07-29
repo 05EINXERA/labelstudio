@@ -20,25 +20,30 @@ Browser (vanilla JS + Canvas, native ES modules — no bundler)
         ▼
 FastAPI (main.py, ONE uvicorn worker)
   ├─ api/auth.py            JWT + bcrypt, get_current_user dependency
-  ├─ api/routers/*          one router per resource
-  │     ├─ projects, tasks, labels, team, data   → SQLAlchemy → SQLite (WAL)
+  ├─ api/routers/*          one router per resource, ALL require auth (see § 3.2)
+  │     ├─ projects, tasks, labels, team, data   → SQLAlchemy → SQLite (dev) or Postgres (LAN deploy)
   │     ├─ detect            → in-process job dict → detector.py (threads)
   │     └─ label_studio      → external Label Studio server (SDK)
   ├─ detector.py            loads YOLO / SAM / CLIP, runs inference
   └─ StaticFiles            serves frontend/ and DATA_DIR/uploads/
         │
         ▼
-Disk (DATA_DIR, default ".")
-  ├─ workspace.db (+ -wal/-shm)   all persistent state
-  ├─ uploads/                     task images (uuid-named)
-  └─ models/detector/, models/wand/   ML weights (auto-downloaded)
+Disk / DB (DATA_DIR, default ".", or a separate Postgres instance)
+  ├─ workspace.db (+ -wal/-shm)       SQLite path — dev only
+  ├─ Postgres database                 LAN-deployment path — see config.IS_SQLITE
+  ├─ uploads/                          task images (uuid-named), always under DATA_DIR
+  └─ models/detector/, models/wand/    ML weights (auto-downloaded), always under DATA_DIR
 ```
+
+Which persistence backend is live is controlled by `config.DATABASE_URL` /
+`config.IS_SQLITE` — see § 4. `uploads/` and the ML weight cache are always
+plain files under `DATA_DIR` regardless of which DB backend is active.
 
 Request flows worth understanding:
 
-- **CRUD:** browser → router → SQLAlchemy session (`get_db`) → SQLite. Responses are hand-built dicts (legacy; new code uses Pydantic `response_model`).
+- **CRUD:** browser → router → SQLAlchemy session (`get_db`) → SQLite or Postgres, chosen by `config.IS_SQLITE`. Responses are hand-built dicts (legacy; new code uses Pydantic `response_model`).
 - **AI inference:** browser POSTs to `/api/detect[/...]` → server returns a `job_id` immediately → the work runs in a FastAPI `BackgroundTasks` thread writing into the module-level `JOBS` dict → browser polls `/api/detect/status/{job_id}` until completed/failed. This exists so a 30-second SAM inference doesn't time out the HTTP request. The result is deleted from `JOBS` on first successful poll.
-- **Concurrency control:** task saves carry the `updated_at` the client last saw; the server 409s if the row is newer (optimistic locking). SQLite WAL mode + a 15 s busy timeout make concurrent reads/writes safe within a single process.
+- **Concurrency control:** task saves carry the `updated_at`/`client_id` the client last saw; the server 409s only on a genuine cross-client conflict (see CLAUDE.md rule 11, `.devnotes/deployment-hardening/04_ANNOTATION_SAVE_LOSS.md`). SQLite WAL mode + a busy timeout, or Postgres's own MVCC, make concurrent reads/writes safe within the single uvicorn worker.
 
 ---
 
@@ -153,16 +158,14 @@ target when someone next touches those areas. New code touching those
 features can extract its module as part of that change; it doesn't need a
 separate cleanup pass first.
 
-### 3.2 Auth is enforced inconsistently — security hole
+### 3.2 Auth coverage — closed
 
-`projects`, `detect`, `labels`, `team` require a login; **`tasks`, `data`, and
-`label_studio` do not**. Anyone who can reach the server can read/modify/delete
-every task and the shared workspace blob without logging in.
-
-**Direction:** add `dependencies=[Depends(get_current_user)]` to the three
-unprotected routers (check the frontend sends credentials on those calls —
-`apiFetch` already handles 401s). This is a small diff and should be done
-immediately.
+**Status: fixed.** Every `/api/*` router now carries
+`dependencies=[Depends(get_current_user)]` except `/api/auth/*` itself — see
+CLAUDE.md rule 1 and `.devnotes/deployment-hardening/01_AUDIT.md` P1-1. This
+section previously described `tasks`, `data`, and `label_studio` as
+unauthenticated; that gap is closed and any new router must include the same
+dependency.
 
 ### 3.3 The flat root should become a package before it grows
 
@@ -190,18 +193,28 @@ model_weights/         # renamed from models/, keeps .pt/.onnx out of the name c
 Don't do this file-by-file across feature PRs — a half-moved layout is worse
 than either endpoint.
 
-### 3.4 The in-process job queue caps the app at one worker
+### 3.4 In-process state caps the app at one worker
 
-`JOBS = {}` in `detect.py` lives in one Python process. Run uvicorn with
-`--workers 2` and polls will land on a worker that has never heard of the
-job_id → spurious 404s. It also leaks: a job whose client never polls (closed
-tab) stays in the dict forever, holding full inference results in memory.
+Three plain Python dicts live in one process and would not be shared across
+workers: `JOBS` (`detect.py` — AI inference job status/results), `_models`
+(`detector.py` — loaded ML model singletons), and `_TASK_LOCKS`
+(`api/routers/tasks.py` — the soft per-task open/heartbeat lock, TTL 60s).
+Run uvicorn with `--workers 2` and, for `JOBS`, polls will land on a worker
+that has never heard of the job_id → spurious 404s; for `_TASK_LOCKS`, two
+workers would each think they own the lock. `JOBS` also leaks: a job whose
+client never polls (closed tab) stays in the dict forever, holding full
+inference results in memory. See CLAUDE.md rule 9 — none of this is
+persisted across a process restart either (a crash or supervised restart
+silently drops all three; annotation data itself is DB-committed and
+unaffected).
 
 **Direction:** acceptable for the current single-worker deployment, but (a)
 add a TTL sweep that evicts finished jobs older than ~10 minutes, and (b) if
-multi-worker or multi-machine scaling is ever needed, replace with jobs stored
-in SQLite (status + result columns) — same polling API, no shared-memory
-assumption. Never "fix" scaling by just adding workers.
+multi-worker or multi-machine scaling is ever needed, replace `JOBS` with
+jobs stored in SQLite/Postgres (status + result columns) — same polling API,
+no shared-memory assumption — and move `_TASK_LOCKS` into the DB too. This is
+tracked as the deferred D3 item in `.devnotes/deployment-hardening/tasks.md`.
+Never "fix" scaling by just adding workers.
 
 ### 3.5 `detector.py` mixes five concerns in 800 lines
 
@@ -214,19 +227,17 @@ one file with six module-level lock/singleton pairs.
 when next doing significant ML work. The router-facing functions
 (`detect_objects`, `segment_point`, `classify_image`) keep their signatures.
 
-### 3.6 Two competing persistence models on the frontend
+### 3.6 Legacy whole-blob sync — removed
 
-Newer pages talk to real endpoints (`/api/projects`, `/api/tasks`). The older
-path (`sync.js`) mirrors a whole-workspace JSON blob from `localStorage` into
-the unauthenticated `/api/data` key-value table — via a monkey-patched
-`localStorage.setItem` and a synchronous XHR that blocks page load. Both
-systems store overlapping data, and the blob is shared by *all* users (last
-writer wins, no locking).
-
-**Direction:** treat `/api/data` + `sync.js` as legacy. Migrate whatever the
-annotation page still reads from the blob onto real endpoints, then delete
-`sync.js` and the `data` router. Until then: never add a new `SYNC_KEYS`
-entry.
+**Status: fixed.** The old `sync.js` path (a whole-workspace JSON blob
+mirrored from `localStorage` into `/api/data` via a monkey-patched
+`localStorage.setItem`) has been removed — `tasks.md` T3.1: the `<script
+src="sync.js">` tag was deleted from `app.html`. `/api/data` itself is no
+longer a shared, unauthenticated, last-writer-wins table either: it now
+requires auth and is scoped per-user (`owner_id`), per `01_AUDIT.md` A-5a and
+`tasks.md` T3.1. This section previously described both as live hazards;
+they are not. Do not reintroduce a whole-blob sync path — new frontend state
+goes through real per-resource endpoints.
 
 ### 3.7 Schema management is split-brain
 
@@ -254,7 +265,7 @@ it.
 
 ## 4. Constraints to respect (not bugs — load-bearing decisions)
 
-- **Single uvicorn worker.** Required by the `JOBS` dict and sensible for SQLite. Don't add `--workers N`.
-- **SQLite is fine at this scale.** WAL mode + short transactions handle a small annotating team. Don't introduce Postgres until there's a measured need — it would complicate the Render deploy and local setup for everyone.
+- **Single uvicorn worker.** Required by the `JOBS` dict. Don't add `--workers N`.
+- **SQLite for local/dev, Postgres for the LAN deployment.** SQLite (WAL mode + short transactions) is fine for a single developer, but the current ~20-25 person LAN deployment runs Postgres on the same box — see CLAUDE.md and `config.IS_SQLITE`. Don't assume SQLite is the production target when reasoning about scale, pooling, or backups.
 - **No frontend build step is deliberate.** Plain ES modules keep setup at "run uvicorn, open browser". Adopting a bundler/framework is a team decision, not something to sneak in with a feature.
 - **`DATA_DIR` indirection matters.** All persistent writes (db, uploads, downloaded weights) must go under `DATA_DIR`, because in production that's the mounted persistent disk — writes anywhere else vanish on redeploy.
