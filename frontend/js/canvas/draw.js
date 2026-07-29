@@ -34,6 +34,7 @@ export function drawImageLayer() {
   const rect = imageCanvas.getBoundingClientRect();
   imageCtx.clearRect(0, 0, rect.width, rect.height);
   if (!view.imageLoaded) return;
+  
   imageCtx.drawImage(view.imageElement, view.imageBox.x, view.imageBox.y, view.imageBox.width, view.imageBox.height);
 }
 

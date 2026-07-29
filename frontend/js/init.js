@@ -80,7 +80,10 @@ window.addEventListener('pagehide', () => {
 
 function resizeCanvas() {
   const rect = stageWrap.getBoundingClientRect();
-  const ratio = window.devicePixelRatio || 1;
+  // Oversample the internal resolution so that when the client zooms in
+  // the page (pinch-zoom or Ctrl++), the canvas remains sharp.
+  const oversample = 3;
+  const ratio = (window.devicePixelRatio || 1) * oversample;
   const w = Math.floor(rect.width * ratio);
   const h = Math.floor(rect.height * ratio);
 
@@ -755,7 +758,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const task = state.gallery && state.galleryIndex >= 0
       ? state.gallery[state.galleryIndex] : null;
     if (task && task.id) {
-      heartbeatTask(task.id, clientId()).catch(() => {});
+      heartbeatTask(task.id, clientId()).catch(() => { });
     }
   }, 30_000);
 
