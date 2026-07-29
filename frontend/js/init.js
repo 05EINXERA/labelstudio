@@ -6,7 +6,7 @@ import {
 import { view } from "./canvas/view.js?v=1";
 import { commentOverlayRefs } from "./comment-overlay.js?v=1";
 import {
-  canvas, ctx, imageCanvas, imageCtx, staticCanvas, staticCtx, stageWrap,
+  canvas, ctx, backgroundImage, staticCanvas, staticCtx, stageWrap,
   emptyState, drawMode, selectMode, boxMode, polygonMode, commentMode, magicWandMode,
   autoDetectButton, undoButton, redoButton, deleteButton, clearButton, exportLink
 } from "./dom.js?v=1";
@@ -87,10 +87,6 @@ function resizeCanvas() {
   const w = Math.floor(rect.width * ratio);
   const h = Math.floor(rect.height * ratio);
 
-  imageCanvas.width = w;
-  imageCanvas.height = h;
-  imageCtx.setTransform(ratio, 0, 0, ratio, 0, 0);
-
   staticCanvas.width = w;
   staticCanvas.height = h;
   staticCtx.setTransform(ratio, 0, 0, ratio, 0, 0);
@@ -135,6 +131,7 @@ function loadImageFromSource(src, name, { autoDetect = false } = {}) {
     if (autoDetect) {
       await autoDetectObjects({ replace: true });
     }
+    backgroundImage.src = src;
     // No save() here. Saving on image load sent a write with whatever
     // updated_at token was in state at that instant — frequently stale —
     // producing a spurious 409 on every task open. Annotation changes

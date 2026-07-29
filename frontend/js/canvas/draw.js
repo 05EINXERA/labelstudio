@@ -1,4 +1,4 @@
-import { canvas, ctx, imageCanvas, imageCtx, staticCanvas, staticCtx } from "../dom.js?v=1";
+import { canvas, ctx, backgroundImage, staticCanvas, staticCtx } from "../dom.js?v=1";
 import { state, handleSize, labelById, isAnnotationHidden } from "../state.js?v=1";
 import { view } from "./view.js?v=1";
 import { annotationPoints, hexToRgba } from "./geometry.js?v=1";
@@ -31,11 +31,11 @@ export function computeImageBox() {
 }
 
 export function drawImageLayer() {
-  const rect = imageCanvas.getBoundingClientRect();
-  imageCtx.clearRect(0, 0, rect.width, rect.height);
   if (!view.imageLoaded) return;
-  
-  imageCtx.drawImage(view.imageElement, view.imageBox.x, view.imageBox.y, view.imageBox.width, view.imageBox.height);
+  backgroundImage.style.left = view.imageBox.x + "px";
+  backgroundImage.style.top = view.imageBox.y + "px";
+  backgroundImage.style.width = view.imageBox.width + "px";
+  backgroundImage.style.height = view.imageBox.height + "px";
 }
 
 export function drawStaticLayer() {

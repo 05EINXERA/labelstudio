@@ -4,8 +4,7 @@
 // separate module needs to see must be exported from somewhere explicit.
 export const canvas = document.querySelector("#annotationCanvas");
 export const ctx = canvas.getContext("2d");
-export const imageCanvas = document.querySelector("#imageCanvas");
-export const imageCtx = imageCanvas.getContext("2d");
+export const backgroundImage = document.querySelector("#backgroundImage");
 export const staticCanvas = document.querySelector("#staticCanvas");
 export const staticCtx = staticCanvas.getContext("2d");
 export const stageWrap = document.querySelector(".stage-wrap");
