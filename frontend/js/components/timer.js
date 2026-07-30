@@ -1,7 +1,10 @@
 import { formatTime, clientId } from "../utils.js?v=1";
 import { apiFetch } from "../api.js?v=1";
-import { timerState } from "../timer-state.js?v=1";
+import { timerState } from "../timer-state.js?v=2";
 import { canvas } from "../dom.js?v=1";
+import {
+  enqueueWrite, discardWrite, noteServerReachable, noteServerUnreachable
+} from "../offline-queue.js?v=1";
 
 // Called when the server reports a genuine cross-client conflict. Registered
 // by the page so timer.js does not have to know how the workspace wants to
@@ -127,6 +130,10 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
       keepalive: useBeacon || undefined
     });
 
+    // A response of any status proves the server answered, so the address is
+    // live. Clearing the failure count here is what retires the offline banner.
+    noteServerReachable();
+
     if (res.status === 409) {
       // A real conflict: another client wrote this task since we last read it.
       //
@@ -148,7 +155,11 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
       return false;
     }
     if (!res.ok) {
-      timerState.taskSessionSeconds += timeDelta;
+      // The server is reachable but refused (5xx, or a transient error). The
+      // write is still unsaved, so queue it for replay — but the seconds now
+      // live in the queue's payload, so they must NOT also go back into the
+      // accumulator or the next successful save would bill them twice.
+      enqueueWrite(payload);
       updateTimerDisplays();
       return false;
     }
@@ -161,10 +172,23 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
     if (data && data.updated_at) {
       task.updated_at = data.updated_at;
     }
+    // This write superseded anything queued for the task: the payload we just
+    // sent carries the complete annotation set, and its time delta included
+    // whatever the queue was holding only if it came from there. Any queued
+    // copy is now stale — and crucially it must go, or replaying it later would
+    // re-add its accumulated seconds on top of the ones just banked.
+    discardWrite(taskId);
     updateTimerDisplays();
     return true;
   } catch (e) {
-    timerState.taskSessionSeconds += timeDelta;
+    // Transport failure — the server did not answer at all. This is the DHCP /
+    // crash case the outbox exists for: queue the write so it replays on
+    // reconnect, and let the UI know the server is unreachable.
+    //
+    // As in the !res.ok branch, the seconds move into the queued payload rather
+    // than back into the accumulator, so they cannot be counted twice.
+    noteServerUnreachable();
+    enqueueWrite(payload);
     updateTimerDisplays();
     return false;
   }

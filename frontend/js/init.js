@@ -2,7 +2,7 @@ import { generateUUID, clamp, round, normalizeClassName, formatTime, clientId } 
 import { apiFetch, pollJob } from "./api.js?v=1";
 import {
   state, snapshot, resetWorkspaceForNewImage
-} from "./state.js?v=1";
+} from "./state.js?v=2";
 import { view } from "./canvas/view.js?v=1";
 import { commentOverlayRefs } from "./comment-overlay.js?v=1";
 import {
@@ -13,21 +13,26 @@ import {
 import { drawAllLayers } from "./canvas/draw.js?v=1";
 import {
   setStatus, syncToBackend, save, loadSaved, saveDraft, restoreDraft,
-  render, manualSaveWithUI
-} from "./components/workspace.js?v=1";
+  render, manualSaveWithUI, refreshSaveStatus, pruneStaleDrafts
+} from "./components/workspace.js?v=2";
+import {
+  configureQueue, startQueue, subscribe as subscribeQueue, drainQueue,
+  enqueueWrite, noteServerReachable, noteServerUnreachable,
+  peekWrite as peekQueuedWrite, discardWrite as discardQueuedWrite
+} from "./offline-queue.js?v=1";
 import { autoDetectObjects, autoTagObjects } from "./ai/detect.js?v=1";
 import {
   syncTaskTime, syncTimeToServer, drainTaskTime, setActiveTaskResolver,
   setConflictHandler, resetSessionForTask, refreshTimerDisplays,
   handleVisibilityChange
-} from "./components/timer.js?v=1";
+} from "./components/timer.js?v=2";
 import {
   finalizePolygon, deleteSelected, undoAction, redoAction, setZoomChangeHandler
 } from "./canvas/interactions.js?v=1";
 import { initContextMenu } from "./canvas/context-menu.js?v=1";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
 import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=1";
-import { claimTask, heartbeatTask, releaseTask } from "./task-lock.js?v=1";
+import { claimTask, heartbeatTask, releaseTask } from "./task-lock.js?v=2";
 import { initFftControls } from "./fft-controls.js?v=1";
 
 if (!localStorage.getItem('logged_in')) {
@@ -173,7 +178,17 @@ async function switchImage(index) {
     prevTask.annotations = [...state.annotations];
     // Drains the accumulator against the outgoing task. Bound to prevTask, so
     // it stays correct even though galleryIndex moves before it resolves.
-    syncTaskTime(prevTask);
+    //
+    // Awaited, and the result checked. Discarding it was gap G2: an annotator
+    // paging through images during an outage left a trail of tasks whose writes
+    // had failed and which nothing would ever retry. drainTaskTime queues the
+    // failed payload itself, so all this needs to do is keep the draft (the
+    // per-task safety net) alive and tell the user.
+    const saved = await syncTaskTime(prevTask);
+    if (saved === false) {
+      saveDraft();
+      refreshSaveStatus();
+    }
     // T2.2 — release the soft lock on the outgoing task.
     releaseTask(prevTask.id, clientId());
   }
@@ -521,6 +536,89 @@ setConflictHandler((task) => {
   }
 });
 
+// --- Offline outbox (.devnotes/offline/01_OFFLINE_RESILIENCE_PLAN.md) --------
+//
+// Teach the queue how to perform a write and what to do with a conflict. Done
+// here rather than inside offline-queue.js so that module stays free of imports
+// from timer.js / workspace.js — timer.js enqueues into it, which would
+// otherwise be a cycle.
+configureQueue({
+  async send(payload) {
+    try {
+      const res = await apiFetch('/api/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      // apiFetch returns undefined after redirecting an unauthenticated user.
+      // Not a transport failure, but not a success either — leave it queued.
+      if (!res) return { ok: false };
+      if (res.status === 409) return { ok: false, conflict: true };
+      if (!res.ok) return { ok: false };
+
+      const data = await res.json().catch(() => null);
+      // Fold the replayed write into the live task object if it is still loaded,
+      // so the Total readout and the concurrency token both stay truthful
+      // without needing a reload.
+      const task = (state.gallery || []).find(t => t && t.id === payload.id);
+      if (task) {
+        if (payload.time_spent_delta) {
+          task.time_spent = (task.time_spent || 0) + payload.time_spent_delta;
+        }
+        if (data && data.updated_at) task.updated_at = data.updated_at;
+      }
+      return { ok: true, updated_at: data && data.updated_at };
+    } catch (e) {
+      return { ok: false };
+    }
+  },
+
+  onConflict(taskId) {
+    // A queued write for a task someone else has since edited. Reuse the same
+    // decision the live path offers, but scoped to the task in question.
+    const task = (state.gallery || []).find(t => t && t.id === taskId);
+    const label = task ? (task.name || `task ${taskId}`) : `task ${taskId}`;
+    const overwrite = confirm(
+      `Your offline work on ${label} conflicts with a change made by someone else.\n\n` +
+      "OK — overwrite with your version.\n" +
+      "Cancel — keep theirs and discard your offline copy for this task."
+    );
+    if (overwrite) {
+      // Null token = deliberate overwrite; the next drain pass will be accepted.
+      const entry = peekQueuedWrite(taskId);
+      if (entry) {
+        entry.payload.updated_at = null;
+        enqueueWrite(entry.payload);
+      }
+      drainQueue();
+    } else {
+      discardQueuedWrite(taskId);
+    }
+  }
+});
+
+// Keep the save indicator and the offline banner in step with the queue.
+const offlineBanner = document.getElementById('offlineBanner');
+const offlineBannerText = document.getElementById('offlineBannerText');
+
+subscribeQueue(({ pending, unreachable }) => {
+  refreshSaveStatus();
+  if (!offlineBanner) return;
+  const show = unreachable || pending > 0;
+  offlineBanner.classList.toggle('is-active', show);
+  if (show && offlineBannerText) {
+    const plural = pending === 1 ? 'change' : 'changes';
+    offlineBannerText.textContent = unreachable
+      ? `Cannot reach the server. ${pending} ${plural} saved on this computer — keep this tab open; they will be sent automatically when the server is back.`
+      : `Retrying ${pending} unsaved ${plural}…`;
+  }
+});
+
+startQueue();
+// Housekeeping: drop drafts that are long past useful and have no pending
+// write, so the localStorage quota stays available to the ones that matter.
+pruneStaleDrafts();
+
 loadSaved();
 resizeCanvas();
 render();
@@ -814,12 +912,24 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // T2.2 — heartbeat: refresh the soft lock every 30 s while a task is open.
+  //
+  // It doubles as a free liveness probe. This used to swallow every failure with
+  // `.catch(() => {})`, throwing away the one signal already on a timer that
+  // could have told a room full of annotators the server had moved
+  // (.devnotes/offline/01_OFFLINE_RESILIENCE_PLAN.md gap G4).
   setInterval(() => {
     const task = state.gallery && state.galleryIndex >= 0
       ? state.gallery[state.galleryIndex] : null;
-    if (task && task.id) {
-      heartbeatTask(task.id, clientId()).catch(() => {});
-    }
+    if (!task || !task.id) return;
+    // claimTask/heartbeatTask deliberately never reject (annotation must not be
+    // blocked by lock errors), so reachability is read from the resolved shape:
+    // a `reachable:false` marker is set by task-lock.js on a transport failure.
+    heartbeatTask(task.id, clientId())
+      .then((result) => {
+        if (result && result.reachable === false) noteServerUnreachable();
+        else noteServerReachable();
+      })
+      .catch(() => noteServerUnreachable());
   }, 30_000);
 
   initWorkspaceContext();

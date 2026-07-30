@@ -10,7 +10,7 @@
  * this only works while the app runs as one uvicorn worker (CLAUDE.md rule 9).
  *
  * Usage:
- *   import { claimTask, heartbeatTask, releaseTask } from './task-lock.js?v=1';
+ *   import { claimTask, heartbeatTask, releaseTask } from './task-lock.js?v=2';
  *
  *   // When a task is opened:
  *   const result = await claimTask(taskId, clientId);
@@ -56,10 +56,16 @@ export async function heartbeatTask(taskId, clientId) {
       { method: 'POST' }
     );
     if (!res) return { status: 'ok' };
-    return await res.json();
+    const data = await res.json();
+    // The server answered, whatever it said about the lock.
+    return { ...data, reachable: true };
   } catch (e) {
     console.warn('[task-lock] heartbeat failed:', e);
-    return { status: 'ok' };
+    // Still resolves — a lock error must never block annotation — but the
+    // caller needs to be able to tell "no answer" from "answered: ok". The
+    // heartbeat is the app's cheapest liveness probe and this is the bit that
+    // makes it usable as one.
+    return { status: 'ok', reachable: false };
   }
 }
 
