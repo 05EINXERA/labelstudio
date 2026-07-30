@@ -437,7 +437,7 @@ export async function preloadMagicWand() {
   
   try {
     const imageSrc = await getImageSrcForAPI();
-    await apiFetch(`${window.location.origin}/api/detect/embed`, {
+    const response = await apiFetch(`${window.location.origin}/api/detect/embed`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -445,7 +445,55 @@ export async function preloadMagicWand() {
         sam_model: localStorage.getItem("ai_sam_model") || "mobile_sam.pt"
       })
     });
+    if (response.ok) {
+      const data = await response.json();
+      if (data.job_id) {
+        await pollJob(data.job_id);
+      }
+    }
   } catch (error) {
     console.error("Magic wand preloading failed:", error);
+  }
+}
+
+export async function preloadDetectAndTag() {
+  if (!view.imageLoaded || detectState.detectionBusy) return;
+  
+  try {
+    const imageSrc = await getImageSrcForAPI();
+    
+    // Preload Detect (YOLO)
+    apiFetch(`${window.location.origin}/api/detect`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        image: imageSrc,
+        model_size: "n",
+        confidence: 0.35,
+        nms_threshold: 0.45
+      })
+    }).then(async res => {
+      if (res.ok) {
+        const data = await res.json();
+        if (data.job_id) pollJob(data.job_id);
+      }
+    }).catch(console.error);
+
+    // Preload Auto-Tag (CLIP)
+    apiFetch(`${window.location.origin}/api/detect/classify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        image: imageSrc
+      })
+    }).then(async res => {
+      if (res.ok) {
+        const data = await res.json();
+        if (data.job_id) pollJob(data.job_id);
+      }
+    }).catch(console.error);
+
+  } catch (error) {
+    console.error("Detect/Tag preloading failed:", error);
   }
 }

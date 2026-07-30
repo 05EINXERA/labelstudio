@@ -88,6 +88,14 @@ class BulkUpdate(BaseModel):
 class TeamMemberModel(BaseModel):
     name: str
 
+class TeamMemberResponse(BaseModel):
+    name: str
+    time_logged: int
+
+class TeamTimeResponse(BaseModel):
+    status: str
+    time_logged: int
+
 class TeamTime(BaseModel):
     name: str
     time_logged: int = Field(..., ge=0, le=MAX_TIME_DELTA_SECONDS)

@@ -1,50 +1,36 @@
-import urllib.parse
-
+from typing import List
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 import models
 from database import get_db, commit_with_retry
-from schemas import TeamMemberModel, TeamTime
+from schemas import TeamTime, TeamMemberResponse, TeamTimeResponse
 from api.auth import get_current_user, require_csrf
 
 router = APIRouter(prefix="/api/team", tags=["team"], dependencies=[Depends(get_current_user), Depends(require_csrf)])
 
-@router.get("")
+@router.get("", response_model=List[TeamMemberResponse])
 def get_team(db: Session = Depends(get_db)):
     team = db.query(models.TeamMember).all()
     return [{"name": t.name, "time_logged": t.time_logged} for t in team]
 
-@router.post("")
-def create_team_member(member: TeamMemberModel, db: Session = Depends(get_db)):
-    existing = db.query(models.TeamMember).filter(models.TeamMember.name == member.name).first()
-    if not existing:
-        new_member = models.TeamMember(name=member.name, time_logged=0)
-        db.add(new_member)
-        commit_with_retry(db)
-    return {"status": "ok"}
-
-@router.delete("/{name}")
-def delete_team_member(name: str, db: Session = Depends(get_db)):
-    name = urllib.parse.unquote(name)
-    db.query(models.TeamMember).filter(models.TeamMember.name == name).delete()
-    commit_with_retry(db)
-    return {"status": "ok"}
-
-@router.post("/time")
+@router.post("/time", response_model=TeamTimeResponse)
 def update_team_time(
     payload: TeamTime,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    # Time is credited to the authenticated user, not to the client-supplied
-    # name, which came from an editable localStorage value and let anyone log
-    # time against anyone. See docs/TIMER_AUDIT.md F7.
-    name = current_user.username
+    # In a shared-login deployment, we must trust the client-supplied name from
+    # localStorage, otherwise all annotators log time against the single shared
+    # account.
+    name = payload.name
+    
+    if not name or name == 'Unknown':
+        return {"status": "ignored", "time_logged": 0}
+
     member = db.query(models.TeamMember).filter(models.TeamMember.name == name).first()
     if not member:
-        # Previously an unknown member meant the delta was accepted and silently
-        # discarded. Create the row so the seconds are never lost.
+        # Create the row so the seconds are never lost.
         member = models.TeamMember(name=name, time_logged=0)
         db.add(member)
 

@@ -4,7 +4,7 @@ import uuid
 
 from detector import DetectionClientError, detect_objects, classify_image
 from schemas import DetectPayload, ClassifyPayload, SegmentPayload, EmbedPayload
-from api.auth import get_current_user
+from api.auth import get_current_user, require_csrf
 
 router = APIRouter(prefix="/api/detect", tags=["detect"], dependencies=[Depends(get_current_user)])
 
@@ -105,7 +105,7 @@ def segment(payload: SegmentPayload, background_tasks: BackgroundTasks):
     background_tasks.add_task(run_segment_job, job_id, payload)
     return {"job_id": job_id}
 
-@router.post("/embed")
+@router.post("/embed", dependencies=[Depends(require_csrf)])
 def embed(payload: EmbedPayload, background_tasks: BackgroundTasks):
     job_id = str(uuid.uuid4())
     JOBS[job_id] = {"status": "pending"}

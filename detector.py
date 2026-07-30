@@ -1,5 +1,7 @@
 import base64
+import hashlib
 import io
+import logging
 import os
 import shutil
 import threading
@@ -37,7 +39,13 @@ _model_lock = threading.RLock()
 
 _clip_model = None
 _clip_processor = None
+_clip_text_features = None
 _clip_model_lock = threading.RLock()
+_clip_cache = {}
+_clip_cache_lock = threading.RLock()
+
+_detect_cache = {}
+_detect_cache_lock = threading.RLock()
 
 _sam_model = None
 _sam_lock = threading.RLock()
@@ -166,7 +174,7 @@ def get_model(model_size='n'):
 
 
 def get_clip_model():
-    global _clip_model, _clip_processor
+    global _clip_model, _clip_processor, _clip_text_features
     if _clip_model is None:
         with _clip_model_lock:
             if _clip_model is None:
@@ -180,7 +188,17 @@ def get_clip_model():
                 device = "cuda" if torch.cuda.is_available() else "cpu"
                 _clip_model = CLIPModel.from_pretrained(CLIP_MODEL_NAME).to(device)
                 _clip_processor = CLIPProcessor.from_pretrained(CLIP_MODEL_NAME)
-    return _clip_model, _clip_processor
+                
+                print("Pre-computing CLIP text embeddings...")
+                prompts = [f"a photo of a {c}" for c in CLIP_CANDIDATE_TAGS]
+                text_inputs = _clip_processor(text=prompts, return_tensors="pt", padding=True).to(device)
+                with torch.no_grad():
+                    features_out = _clip_model.get_text_features(**text_inputs)
+                    # get_text_features returns BaseModelOutputWithPooling where pooler_output is the projected feature
+                    features = features_out.pooler_output if hasattr(features_out, 'pooler_output') else features_out
+                    _clip_text_features = features / features.norm(p=2, dim=-1, keepdim=True)
+                    
+    return _clip_model, _clip_processor, _clip_text_features
 
 
 def get_yolo_world_model():
@@ -434,6 +452,15 @@ def detect_objects(image_data, selection=None, prompts=None, model_size=None, co
     model_size = model_size or "n"
     confidence = confidence or CONFIDENCE
     nms_threshold = nms_threshold or NMS_THRESHOLD
+    
+    if not selection and not prompts:
+        image_hash = _get_image_hash(image_data)
+        if image_hash:
+            cache_key = f"{image_hash}_{model_size}_{confidence}_{nms_threshold}"
+            with _detect_cache_lock:
+                if cache_key in _detect_cache:
+                    return _detect_cache[cache_key]
+
     image = decode_image(image_data)
     original_width, original_height = image.size
     origin_x = 0.0
@@ -549,15 +576,33 @@ def detect_objects(image_data, selection=None, prompts=None, model_size=None, co
                 
             predictions.append(pred_dict)
 
-    return {
+    result = {
         "width": original_width,
         "height": original_height,
         "predictions": predictions,
     }
+    
+    if not selection and not prompts:
+        if image_hash:
+            cache_key = f"{image_hash}_{model_size}_{confidence}_{nms_threshold}"
+            with _detect_cache_lock:
+                _detect_cache[cache_key] = result
+                if len(_detect_cache) > 3:
+                    _detect_cache.pop(next(iter(_detect_cache)))
+                    
+    return result
 
 
 def classify_image(image_data, top_k=5, selection=None):
     import torch  # lazy import: torch is heavy and only needed for CLIP
+    
+    if not selection:
+        image_hash = _get_image_hash(image_data)
+        if image_hash:
+            with _clip_cache_lock:
+                if image_hash in _clip_cache:
+                    return _clip_cache[image_hash]
+                    
     image = decode_image(image_data)
     
     if selection:
@@ -587,18 +632,20 @@ def classify_image(image_data, top_k=5, selection=None):
             except (TypeError, ValueError):
                 pass
     
-    model, processor = get_clip_model()
+    model, processor, text_features = get_clip_model()
     
-    prompts = [f"a photo of a {c}" for c in CLIP_CANDIDATE_TAGS]
-    
-    inputs = processor(text=prompts, images=image, return_tensors="pt", padding=True)
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    inputs = processor(images=image, return_tensors="pt")
     inputs = {k: v.to(device) for k, v in inputs.items() if hasattr(v, 'to')}
     
     with torch.no_grad(), _clip_model_lock:
-        outputs = model(**inputs)
+        image_features_out = model.get_image_features(**inputs)
+        image_features = image_features_out.pooler_output if hasattr(image_features_out, 'pooler_output') else image_features_out
+        image_features = image_features / image_features.norm(p=2, dim=-1, keepdim=True)
         
-    logits_per_image = outputs.logits_per_image
+        logit_scale = model.logit_scale.exp()
+        logits_per_image = logit_scale * image_features @ text_features.t()
+        
     probs = logits_per_image.softmax(dim=1)
     
     probs_list = probs.squeeze().tolist()
@@ -616,21 +663,23 @@ def classify_image(image_data, top_k=5, selection=None):
     results_with_scores.sort(key=lambda x: x["score"], reverse=True)
     results = results_with_scores[:top_k]
     
+    if not selection:
+        if image_hash:
+            with _clip_cache_lock:
+                _clip_cache[image_hash] = results
+                if len(_clip_cache) > 3:
+                    _clip_cache.pop(next(iter(_clip_cache)))
+                    
     return {
         "tags": results
     }
 
 def _get_image_hash(image_data):
-    import hashlib
-    # Only hash first 100kb and length to be fast, or full if small
     if isinstance(image_data, str):
-        data = image_data.encode('utf-8')
+        return hashlib.md5(image_data.encode('utf-8')).hexdigest()
     elif isinstance(image_data, bytes):
-        data = image_data
-    else:
-        return None
-    sample = data[:102400] + str(len(data)).encode('utf-8')
-    return hashlib.md5(sample).hexdigest()
+        return hashlib.md5(image_data).hexdigest()
+    return None
 
 def embed_image(image_data, sam_model=None):
     """Pre-compute and cache SAM embeddings for an image."""
@@ -638,22 +687,13 @@ def embed_image(image_data, sam_model=None):
     if not image_hash:
         return {"status": "skipped"}
         
-    global _sam_embedding_cache, _sam_cache_lock, _sam_lock
-    
     with _sam_cache_lock:
         if image_hash in _sam_embedding_cache:
             return {"status": "cached"}
             
-    # For now, we will simply cache the decoded BGR image and let the predictor
-    # handle it. In a robust setup we'd extract predictor._inference_features,
-    # but since Ultralytics encapsulates it deeply, caching the BGR array prevents 
-    # repeated base64 decoding and PIL image loading on every click.
     image = decode_image(image_data)
     image_bgr = pil_to_bgr(image)
     
-    # Actually, the simplest architectural fix without relying on private APIs
-    # is to prime the active SAM model with this image so it's ready.
-    model_size = "n"
     sam_model_file = resolve_model_path(sam_model or 'mobile_sam.pt', WAND_MODEL_DIR)
     
     if sam_model_file == "facebook/sam2-hiera-large":
@@ -681,8 +721,8 @@ def embed_image(image_data, sam_model=None):
                     "embeddings": image_embeddings,
                     "original_shape": image_bgr.shape[:2]
                 }
-                # Keep cache small (max 10)
-                if len(_sam_embedding_cache) > 10:
+                # Keep cache small (max 3)
+                if len(_sam_embedding_cache) > 3:
                     _sam_embedding_cache.pop(next(iter(_sam_embedding_cache)))
     else:
         # For Ultralytics SAM
@@ -709,12 +749,11 @@ def embed_image(image_data, sam_model=None):
                 active_sam.predictor.set_image(image_bgr)
                 
             with _sam_cache_lock:
-                # We cache the decoded image array to skip base64/PIL on subsequent clicks
+                # Store only the presence of the model features to avoid memory bloat
                 _sam_embedding_cache[image_hash] = {
-                    "type": "mobile_sam",
-                    "image_bgr": image_bgr
+                    "type": "mobile_sam"
                 }
-                if len(_sam_embedding_cache) > 10:
+                if len(_sam_embedding_cache) > 3:
                     _sam_embedding_cache.pop(next(iter(_sam_embedding_cache)))
                     
     return {"status": "embedded"}
@@ -741,13 +780,11 @@ def segment_point(image_data, points=None, labels=None, prompt=None, precision=0
     lbls_array = labels if labels else [1 for _ in points]
     
     image_hash = _get_image_hash(image_data)
-    cached = _sam_embedding_cache.get(image_hash) if image_hash else None
+    with _sam_cache_lock:
+        cached = _sam_embedding_cache.get(image_hash) if image_hash else None
     
-    if cached and cached["type"] == "mobile_sam":
-        image_bgr = cached["image_bgr"]
-    else:
-        image = decode_image(image_data)
-        image_bgr = pil_to_bgr(image)
+    image = decode_image(image_data)
+    image_bgr = pil_to_bgr(image)
     
     if prompt:
         prompt_lower = prompt.lower()
@@ -858,15 +895,16 @@ def segment_point(image_data, points=None, labels=None, prompt=None, precision=0
             # Check if we can use the stateful predictor
             try:
                 if hasattr(active_sam, 'predictor') and active_sam.predictor is not None:
-                    # Initialize predictor if needed
-                    if not getattr(active_sam.predictor, 'features', None):
+                    # Initialize predictor if needed or if features belong to a different image
+                    if getattr(active_sam.predictor, 'features', None) is None or getattr(active_sam, '_cached_hash', None) != image_hash:
                         active_sam.predictor.set_image(image_bgr)
+                        active_sam._cached_hash = image_hash
                     # Try calling predictor directly to bypass re-encoding
                     results = active_sam.predictor(points=[pts_array], labels=[lbls_array])
                 else:
                     results = active_sam(image_bgr, points=[pts_array], labels=[lbls_array], verbose=False)
-            except Exception:
-                # Fallback
+            except Exception as exc:
+                logging.getLogger(__name__).warning("SAM predictor fast path failed, falling back: %s", exc)
                 results = active_sam(image_bgr, points=[pts_array], labels=[lbls_array], verbose=False)
     
     points_res = []

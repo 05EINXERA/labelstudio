@@ -15,7 +15,7 @@ import {
   setStatus, syncToBackend, save, loadSaved, saveDraft, restoreDraft,
   render, manualSaveWithUI
 } from "./components/workspace.js?v=1";
-import { autoDetectObjects, autoTagObjects, preloadMagicWand } from "./ai/detect.js?v=1";
+import { autoDetectObjects, autoTagObjects, preloadMagicWand, preloadDetectAndTag } from "./ai/detect.js?v=1";
 import {
   syncTaskTime, syncTimeToServer, drainTaskTime, setActiveTaskResolver,
   setConflictHandler, resetSessionForTask, refreshTimerDisplays
@@ -131,6 +131,10 @@ function loadImageFromSource(src, name, { autoDetect = false } = {}) {
     if (autoDetect) {
       await autoDetectObjects({ replace: true });
     }
+    if (state.shape === "magicWand") {
+      preloadMagicWand();
+    }
+    preloadDetectAndTag();
     backgroundImage.src = src;
     // No save() here. Saving on image load sent a write with whatever
     // updated_at token was in state at that instant — frequently stale —
