@@ -54,9 +54,16 @@ class Task(Base):
     # client_id skips the check entirely.
     last_client_id = Column(String(64), nullable=True)
 
+class Team(Base):
+    __tablename__ = "teams"
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    name = Column(String, unique=True, index=True)
+    created_at = Column(DateTime, server_default=func.now())
+
 class TeamMember(Base):
     __tablename__ = "team_members"
     name = Column(String, primary_key=True, index=True)
+    team_id = Column(Integer, ForeignKey("teams.id"), nullable=True)
     time_logged = Column(Integer, default=0)
 
 class Label(Base):

@@ -38,7 +38,7 @@ from logging_config import configure_logging
 validate_config()
 configure_logging()
 
-from api.routers import projects, tasks, team, data, detect, label_studio, labels, auth, imports, exports  # noqa: E402
+from api.routers import projects, tasks, labels, team, teams, data, detect, auth, label_studio, exports, imports  # noqa: E402
 from database import engine  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -117,6 +117,7 @@ app.include_router(data.router)
 app.include_router(projects.router)
 app.include_router(tasks.router)
 app.include_router(team.router)
+app.include_router(teams.router)
 app.include_router(detect.router)
 app.include_router(label_studio.router)
 app.include_router(labels.router)

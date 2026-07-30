@@ -108,7 +108,9 @@ function template() {
             </label>
             <label style="display:grid;gap:6px;">
               <span style="font-size:.85rem;color:var(--muted);">Assignee <span style="font-weight:400;font-style:italic;">(optional, advisory only)</span></span>
-              <input type="text" id="editAssignee" placeholder="Enter name…" autocomplete="off" style="padding:9px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink);">
+              <select id="editAssignee" style="padding:9px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink);">
+                <option value="">Unassigned</option>
+              </select>
             </label>
             <label style="display:grid;gap:6px;">
               <span style="font-size:.85rem;color:var(--muted);">Status</span>
@@ -135,7 +137,9 @@ function template() {
           <div class="modal-body">
             <label style="display:grid;gap:6px;">
               <span style="font-size:.85rem;color:var(--muted);">Assignee <span style="font-weight:400;font-style:italic;">(optional, advisory only)</span></span>
-              <input type="text" id="assignInput" placeholder="Enter name, or leave blank to unassign…" autocomplete="off" style="padding:9px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink);">
+              <select id="assignInput" style="padding:9px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink);">
+                <option value="">Unassigned</option>
+              </select>
             </label>
           </div>
           <div style="display:flex;gap:10px;justify-content:flex-end;padding:16px;">
@@ -250,6 +254,55 @@ function bindUpload() {
 }
 
 // --- edit modal ------------------------------------------------------------
+
+async function loadTeamForTasks() {
+  try {
+    const res = await apiFetch("/api/team");
+    if (!res || !res.ok) return;
+    const team = await res.json();
+    
+    const byTeam = {};
+    const unassigned = [];
+    team.forEach((m) => {
+      if (m.team_name) {
+        if (!byTeam[m.team_name]) byTeam[m.team_name] = [];
+        byTeam[m.team_name].push(m);
+      } else {
+        unassigned.push(m);
+      }
+    });
+    
+    const populate = (selectEl) => {
+      for (const [teamName, members] of Object.entries(byTeam)) {
+        const group = document.createElement("optgroup");
+        group.label = teamName;
+        members.forEach((m) => {
+          const opt = document.createElement("option");
+          opt.value = m.name;
+          opt.textContent = m.name;
+          group.appendChild(opt);
+        });
+        selectEl.appendChild(group);
+      }
+      if (unassigned.length > 0) {
+        const group = document.createElement("optgroup");
+        group.label = "Unassigned";
+        unassigned.forEach((m) => {
+          const opt = document.createElement("option");
+          opt.value = m.name;
+          opt.textContent = m.name;
+          group.appendChild(opt);
+        });
+        selectEl.appendChild(group);
+      }
+    };
+    
+    populate(el("editAssignee"));
+    populate(el("assignInput"));
+  } catch (err) {
+    console.error("Failed to load team", err);
+  }
+}
 
 function openEditModal(task) {
   el("editId").value = task.id;
@@ -428,6 +481,8 @@ export async function mount(hostRoot, hostCtx) {
       },
     ],
   });
+
+  loadTeamForTasks();
 
   bindUpload();
   bindEditModal();

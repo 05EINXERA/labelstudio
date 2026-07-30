@@ -125,12 +125,42 @@ async function loadTeam() {
     const res = await apiFetch("/api/team");
     if (!res || !res.ok) return;
     const team = await res.json();
+    
+    // Group by team_name
+    const byTeam = {};
+    const unassigned = [];
     team.forEach((m) => {
-      const opt = document.createElement("option");
-      opt.value = m.name;
-      opt.textContent = m.name;
-      els.fAssignee.appendChild(opt);
+      if (m.team_name) {
+        if (!byTeam[m.team_name]) byTeam[m.team_name] = [];
+        byTeam[m.team_name].push(m);
+      } else {
+        unassigned.push(m);
+      }
     });
+    
+    for (const [teamName, members] of Object.entries(byTeam)) {
+      const group = document.createElement("optgroup");
+      group.label = teamName;
+      members.forEach((m) => {
+        const opt = document.createElement("option");
+        opt.value = m.name;
+        opt.textContent = m.name;
+        group.appendChild(opt);
+      });
+      els.fAssignee.appendChild(group);
+    }
+    
+    if (unassigned.length > 0) {
+      const group = document.createElement("optgroup");
+      group.label = "Unassigned";
+      unassigned.forEach((m) => {
+        const opt = document.createElement("option");
+        opt.value = m.name;
+        opt.textContent = m.name;
+        group.appendChild(opt);
+      });
+      els.fAssignee.appendChild(group);
+    }
   } catch (err) {
     // A missing team list only limits the assignee dropdown; the page is usable.
     console.error("Failed to load team", err);

@@ -88,9 +88,16 @@ class BulkUpdate(BaseModel):
 class TeamMemberModel(BaseModel):
     name: str
 
+class TeamMemberCreate(BaseModel):
+    name: str
+    team_id: Optional[int] = None
+
+
 class TeamMemberResponse(BaseModel):
     name: str
     time_logged: int
+    team_id: Optional[int] = None
+    team_name: Optional[str] = None
 
 class TeamTimeResponse(BaseModel):
     status: str
@@ -99,6 +106,20 @@ class TeamTimeResponse(BaseModel):
 class TeamTime(BaseModel):
     name: str
     time_logged: int = Field(..., ge=0, le=MAX_TIME_DELTA_SECONDS)
+
+class TeamCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+
+class TeamUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+
+class TeamResponse(BaseModel):
+    id: int
+    name: str
+    created_at: datetime
+
+class TeamMemberAssign(BaseModel):
+    team_id: Optional[int] = None
 
 class DetectPayload(BaseModel):
     image: str
