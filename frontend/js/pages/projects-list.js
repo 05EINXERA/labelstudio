@@ -25,7 +25,7 @@ const els = {
   fId: document.getElementById("projectFormId"),
   fName: document.getElementById("projectFormName"),
   fType: document.getElementById("projectFormType"),
-  fAssignee: document.getElementById("projectFormAssignee"),
+  fTeam: document.getElementById("projectFormTeam"),
   fStatus: document.getElementById("projectFormStatus"),
   statusField: document.getElementById("projectStatusField"),
 };
@@ -67,9 +67,9 @@ const table = createDataTable({
     },
     { key: "type", label: "Type", render: (r) => `<span style="color:var(--muted);">${escapeHTML(r.type || "—")}</span>` },
     {
-      key: "assignee",
-      label: "Assignee",
-      render: (r) => r.assignee ? escapeHTML(r.assignee) : `<span style="color:var(--muted);">Unassigned</span>`,
+      key: "team",
+      label: "Team",
+      render: (r) => r.team_name ? escapeHTML(r.team_name) : `<span style="color:var(--muted);">—</span>`,
     },
     { key: "status", label: "Status", render: (r) => statusPill(r.status) },
     {
@@ -122,48 +122,19 @@ async function loadProjects() {
 
 async function loadTeam() {
   try {
-    const res = await apiFetch("/api/team");
-    if (!res || !res.ok) return;
-    const team = await res.json();
-    
-    // Group by team_name
-    const byTeam = {};
-    const unassigned = [];
-    team.forEach((m) => {
-      if (m.team_name) {
-        if (!byTeam[m.team_name]) byTeam[m.team_name] = [];
-        byTeam[m.team_name].push(m);
-      } else {
-        unassigned.push(m);
-      }
-    });
-    
-    for (const [teamName, members] of Object.entries(byTeam)) {
-      const group = document.createElement("optgroup");
-      group.label = teamName;
-      members.forEach((m) => {
+    const teamsRes = await apiFetch("/api/teams");
+    if (teamsRes && teamsRes.ok) {
+      const teams = await teamsRes.json();
+      els.fTeam.innerHTML = '<option value="">No Team</option>';
+      teams.forEach((t) => {
         const opt = document.createElement("option");
-        opt.value = m.name;
-        opt.textContent = m.name;
-        group.appendChild(opt);
+        opt.value = t.id;
+        opt.textContent = t.name;
+        els.fTeam.appendChild(opt);
       });
-      els.fAssignee.appendChild(group);
-    }
-    
-    if (unassigned.length > 0) {
-      const group = document.createElement("optgroup");
-      group.label = "Unassigned";
-      unassigned.forEach((m) => {
-        const opt = document.createElement("option");
-        opt.value = m.name;
-        opt.textContent = m.name;
-        group.appendChild(opt);
-      });
-      els.fAssignee.appendChild(group);
     }
   } catch (err) {
-    // A missing team list only limits the assignee dropdown; the page is usable.
-    console.error("Failed to load team", err);
+    console.error("Failed to load teams", err);
   }
 }
 
@@ -175,7 +146,7 @@ function openModal(project) {
   els.fId.value = isEdit ? project.id : "";
   els.fName.value = isEdit ? (project.name || "") : "";
   els.fType.value = isEdit ? (project.type || "Image - Polygon") : "Image - Polygon";
-  els.fAssignee.value = isEdit ? (project.assignee || "") : "";
+  els.fTeam.value = isEdit ? (project.team_id || "") : "";
   els.fStatus.value = isEdit ? (project.status || "Preparing") : "Preparing";
   // Status is derived from task completion on create, so only expose it on edit.
   els.statusField.style.display = isEdit ? "grid" : "none";
@@ -201,7 +172,7 @@ els.form.addEventListener("submit", async (e) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name,
-          assignee: els.fAssignee.value,
+          team_id: els.fTeam.value ? parseInt(els.fTeam.value, 10) : null,
           status: els.fStatus.value,
         }),
       });
@@ -215,7 +186,7 @@ els.form.addEventListener("submit", async (e) => {
           type: els.fType.value,
           // Ignored by the server, which takes the owner from the token.
           creator: localStorage.getItem("dataset_username") || "",
-          assignee: els.fAssignee.value,
+          team_id: els.fTeam.value ? parseInt(els.fTeam.value, 10) : null,
         }),
       });
     }

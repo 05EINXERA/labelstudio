@@ -263,7 +263,14 @@ async function loadTeamForTasks() {
     
     const byTeam = {};
     const unassigned = [];
+    const projectTeamId = ctx?.project?.team_id;
+
     team.forEach((m) => {
+      // If project belongs to a team, only allow members of that team
+      if (projectTeamId != null && m.team_id !== projectTeamId) {
+        return;
+      }
+      
       if (m.team_name) {
         if (!byTeam[m.team_name]) byTeam[m.team_name] = [];
         byTeam[m.team_name].push(m);

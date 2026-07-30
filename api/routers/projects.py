@@ -121,26 +121,29 @@ def get_projects(db: Session = Depends(get_db), user: models.User = Depends(get_
     Scope comes from the token, never from a client-supplied `creator`.
     """
     # Scope comes from the token, never from a client-supplied `creator`.
-    projects = db.query(models.Project).filter(models.Project.owner_id == user.id).all()
-    if not projects:
+    projects_with_teams = db.query(models.Project, models.Team.name.label("team_name")).outerjoin(
+        models.Team, models.Project.team_id == models.Team.id
+    ).filter(models.Project.owner_id == user.id).all()
+    if not projects_with_teams:
         return []
 
-    project_ids = [p.id for p in projects]
+    project_ids = [p.Project.id for p in projects_with_teams]
     metrics = _aggregate_metrics(project_ids, db)
 
     return [
         ProjectSummary(
-            id=p.id, name=p.name, slug=p.slug, type=p.type, status=p.status,
-            creator=p.creator, assignee=p.assignee, created_at=p.created_at,
-            **metrics[p.id],
+            id=p.Project.id, name=p.Project.name, slug=p.Project.slug, type=p.Project.type, status=p.Project.status,
+            creator=p.Project.creator, created_at=p.Project.created_at,
+            team_id=p.Project.team_id, team_name=p.team_name,
+            **metrics[p.Project.id],
         )
-        for p in projects
+        for p in projects_with_teams
     ]
 
 @router.get("/{project_id}")
 def get_project(project_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     p = get_owned_project(project_id, user, db)
-    return {"id": p.id, "name": p.name, "slug": p.slug, "type": p.type, "status": p.status, "creator": p.creator, "created_at": p.created_at, "assignee": p.assignee}
+    return {"id": p.id, "name": p.name, "slug": p.slug, "type": p.type, "status": p.status, "creator": p.creator, "created_at": p.created_at, "team_id": p.team_id}
 
 @router.get("/{project_id}/metrics", response_model=ProjectMetrics)
 def get_project_metrics(project_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
@@ -157,7 +160,7 @@ def get_project_metrics(project_id: int, db: Session = Depends(get_db), user: mo
 @router.post("")
 def create_project(project: ProjectModel, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     # The owner is the authenticated caller; `creator` is only a display name.
-    db_project = models.Project(name=project.name, slug=project.slug, type=project.type, status="Preparing", creator=user.username, owner_id=user.id, assignee=project.assignee)
+    db_project = models.Project(name=project.name, slug=project.slug, type=project.type, status="Preparing", creator=user.username, owner_id=user.id, team_id=project.team_id)
     db.add(db_project)
     commit_with_retry(db)
     db.refresh(db_project)
@@ -169,8 +172,8 @@ def _apply_project_update(db_project: models.Project, project_update: schemas.Pr
         db_project.slug = project_update.name.lower().replace(" ", "-")
     if project_update.status is not None:
         db_project.status = project_update.status
-    if project_update.assignee is not None:
-        db_project.assignee = project_update.assignee
+    if project_update.team_id is not None:
+        db_project.team_id = project_update.team_id
 
 @router.patch("/{project_id}")
 def patch_project(project_id: int, project_update: schemas.ProjectUpdate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):

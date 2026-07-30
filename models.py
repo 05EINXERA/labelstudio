@@ -26,7 +26,7 @@ class Project(Base):
     creator = Column(String)
     owner_id = Column(Integer, ForeignKey("users.id"), index=True)
     created_at = Column(DateTime, server_default=func.now())
-    assignee = Column(String)
+    team_id = Column(Integer, ForeignKey("teams.id"), nullable=True)
 
 class Task(Base):
     __tablename__ = "tasks"
