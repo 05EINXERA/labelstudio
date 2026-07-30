@@ -3,7 +3,7 @@ import traceback
 import uuid
 
 from detector import DetectionClientError, detect_objects, classify_image
-from schemas import DetectPayload, ClassifyPayload, SegmentPayload
+from schemas import DetectPayload, ClassifyPayload, SegmentPayload, EmbedPayload
 from api.auth import get_current_user
 
 router = APIRouter(prefix="/api/detect", tags=["detect"], dependencies=[Depends(get_current_user)])
@@ -56,6 +56,21 @@ def run_segment_job(job_id: str, payload: SegmentPayload):
         traceback.print_exc()
         JOBS[job_id] = {"status": "failed", "error": "Image segmentation failed."}
 
+def run_embed_job(job_id: str, payload: EmbedPayload):
+    from detector import embed_image
+    try:
+        response = embed_image(
+            payload.image,
+            sam_model=payload.sam_model
+        )
+        JOBS[job_id] = {"status": "completed", "result": response}
+    except DetectionClientError as error:
+        JOBS[job_id] = {"status": "failed", "error": str(error)}
+    except Exception as e:
+        traceback.print_exc()
+        JOBS[job_id] = {"status": "failed", "error": "Image embedding failed."}
+
+
 @router.get("/status/{job_id}")
 def get_job_status(job_id: str):
     if job_id not in JOBS:
@@ -89,3 +104,11 @@ def segment(payload: SegmentPayload, background_tasks: BackgroundTasks):
     JOBS[job_id] = {"status": "pending"}
     background_tasks.add_task(run_segment_job, job_id, payload)
     return {"job_id": job_id}
+
+@router.post("/embed")
+def embed(payload: EmbedPayload, background_tasks: BackgroundTasks):
+    job_id = str(uuid.uuid4())
+    JOBS[job_id] = {"status": "pending"}
+    background_tasks.add_task(run_embed_job, job_id, payload)
+    return {"job_id": job_id}
+

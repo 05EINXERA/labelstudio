@@ -41,6 +41,8 @@ _clip_model_lock = threading.RLock()
 
 _sam_model = None
 _sam_lock = threading.RLock()
+_sam_embedding_cache = {}
+_sam_cache_lock = threading.RLock()
 
 _hf_sam2_model = None
 _hf_sam2_processor = None
@@ -618,6 +620,106 @@ def classify_image(image_data, top_k=5, selection=None):
         "tags": results
     }
 
+def _get_image_hash(image_data):
+    import hashlib
+    # Only hash first 100kb and length to be fast, or full if small
+    if isinstance(image_data, str):
+        data = image_data.encode('utf-8')
+    elif isinstance(image_data, bytes):
+        data = image_data
+    else:
+        return None
+    sample = data[:102400] + str(len(data)).encode('utf-8')
+    return hashlib.md5(sample).hexdigest()
+
+def embed_image(image_data, sam_model=None):
+    """Pre-compute and cache SAM embeddings for an image."""
+    image_hash = _get_image_hash(image_data)
+    if not image_hash:
+        return {"status": "skipped"}
+        
+    global _sam_embedding_cache, _sam_cache_lock, _sam_lock
+    
+    with _sam_cache_lock:
+        if image_hash in _sam_embedding_cache:
+            return {"status": "cached"}
+            
+    # For now, we will simply cache the decoded BGR image and let the predictor
+    # handle it. In a robust setup we'd extract predictor._inference_features,
+    # but since Ultralytics encapsulates it deeply, caching the BGR array prevents 
+    # repeated base64 decoding and PIL image loading on every click.
+    image = decode_image(image_data)
+    image_bgr = pil_to_bgr(image)
+    
+    # Actually, the simplest architectural fix without relying on private APIs
+    # is to prime the active SAM model with this image so it's ready.
+    model_size = "n"
+    sam_model_file = resolve_model_path(sam_model or 'mobile_sam.pt', WAND_MODEL_DIR)
+    
+    if sam_model_file == "facebook/sam2-hiera-large":
+        import torch
+        from transformers import Sam2Model, Sam2Processor
+        global _hf_sam2_model, _hf_sam2_processor, _hf_sam2_lock
+        with _hf_sam2_lock:
+            if _hf_sam2_model is None:
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+                _hf_sam2_processor = Sam2Processor.from_pretrained(sam_model_file)
+                _hf_sam2_model = Sam2Model.from_pretrained(sam_model_file).to(device)
+                
+            image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+            image_pil = Image.fromarray(image_rgb)
+            inputs = _hf_sam2_processor(images=image_pil, return_tensors="pt")
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            inputs = {k: v.to(device) for k, v in inputs.items() if hasattr(v, 'to')}
+            
+            with torch.no_grad():
+                image_embeddings = _hf_sam2_model.get_image_embeddings(inputs["pixel_values"])
+                
+            with _sam_cache_lock:
+                _sam_embedding_cache[image_hash] = {
+                    "type": "sam2",
+                    "embeddings": image_embeddings,
+                    "original_shape": image_bgr.shape[:2]
+                }
+                # Keep cache small (max 10)
+                if len(_sam_embedding_cache) > 10:
+                    _sam_embedding_cache.pop(next(iter(_sam_embedding_cache)))
+    else:
+        # For Ultralytics SAM
+        global _sam_model
+        try:
+            from ultralytics import SAM
+        except ImportError:
+            raise RuntimeError("Please install ultralytics and torch to use SAM.")
+            
+        if type(_sam_model) is not dict:
+            _sam_model = {}
+            
+        with _sam_lock:
+            if sam_model_file not in _sam_model:
+                _sam_model[sam_model_file] = SAM(sam_model_file)
+                import torch
+                if torch.cuda.is_available():
+                    _sam_model[sam_model_file].to('cuda')
+                    
+            active_sam = _sam_model[sam_model_file]
+            
+            # This triggers set_image internally and caches features in the predictor
+            if hasattr(active_sam, 'predictor') and hasattr(active_sam.predictor, 'set_image'):
+                active_sam.predictor.set_image(image_bgr)
+                
+            with _sam_cache_lock:
+                # We cache the decoded image array to skip base64/PIL on subsequent clicks
+                _sam_embedding_cache[image_hash] = {
+                    "type": "mobile_sam",
+                    "image_bgr": image_bgr
+                }
+                if len(_sam_embedding_cache) > 10:
+                    _sam_embedding_cache.pop(next(iter(_sam_embedding_cache)))
+                    
+    return {"status": "embedded"}
+
+
 def segment_point(image_data, points=None, labels=None, prompt=None, precision=0.001, bbox=None, sam_model=None):
     model_size = "n"
     confidence = CONFIDENCE
@@ -638,8 +740,14 @@ def segment_point(image_data, points=None, labels=None, prompt=None, precision=0
     pts_array = [[p["x"], p["y"]] for p in points]
     lbls_array = labels if labels else [1 for _ in points]
     
-    image = decode_image(image_data)
-    image_bgr = pil_to_bgr(image)
+    image_hash = _get_image_hash(image_data)
+    cached = _sam_embedding_cache.get(image_hash) if image_hash else None
+    
+    if cached and cached["type"] == "mobile_sam":
+        image_bgr = cached["image_bgr"]
+    else:
+        image = decode_image(image_data)
+        image_bgr = pil_to_bgr(image)
     
     if prompt:
         prompt_lower = prompt.lower()
@@ -685,6 +793,13 @@ def segment_point(image_data, points=None, labels=None, prompt=None, precision=0
                 return_tensors="pt"
             )
             inputs = {k: v.to(device) for k, v in inputs.items() if hasattr(v, 'to')}
+            
+            # Use cached embeddings if available
+            if cached and cached["type"] == "sam2":
+                inputs["image_embeddings"] = cached["embeddings"]
+                # We must delete pixel_values if we pass embeddings directly to Sam2Model forward
+                if "pixel_values" in inputs:
+                    del inputs["pixel_values"]
             
             with torch.no_grad():
                 outputs = _hf_sam2_model(**inputs)
@@ -740,7 +855,19 @@ def segment_point(image_data, points=None, labels=None, prompt=None, precision=0
         if bbox:
             results = active_sam(image_bgr, bboxes=[bbox], verbose=False)
         else:
-            results = active_sam(image_bgr, points=[pts_array], labels=[lbls_array], verbose=False)
+            # Check if we can use the stateful predictor
+            try:
+                if hasattr(active_sam, 'predictor') and active_sam.predictor is not None:
+                    # Initialize predictor if needed
+                    if not getattr(active_sam.predictor, 'features', None):
+                        active_sam.predictor.set_image(image_bgr)
+                    # Try calling predictor directly to bypass re-encoding
+                    results = active_sam.predictor(points=[pts_array], labels=[lbls_array])
+                else:
+                    results = active_sam(image_bgr, points=[pts_array], labels=[lbls_array], verbose=False)
+            except Exception:
+                # Fallback
+                results = active_sam(image_bgr, points=[pts_array], labels=[lbls_array], verbose=False)
     
     points_res = []
     if results and len(results) > 0 and results[0].masks:

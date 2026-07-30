@@ -117,6 +117,10 @@ class SegmentPayload(BaseModel):
     bbox: Optional[List[float]] = None
     sam_model: Optional[str] = None
 
+class EmbedPayload(BaseModel):
+    image: str
+    sam_model: Optional[str] = None
+
 class LabelStudioPayload(BaseModel):
     projectId: Optional[str] = None
     taskId: Optional[str] = None

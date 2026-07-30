@@ -431,3 +431,21 @@ export async function performMagicWandSegmentation(point, bbox = null, isShift =
     setDetectionBusy(false);
   }
 }
+
+export async function preloadMagicWand() {
+  if (!view.imageLoaded || detectState.detectionBusy) return;
+  
+  try {
+    const imageSrc = await getImageSrcForAPI();
+    await apiFetch(`${window.location.origin}/api/detect/embed`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        image: imageSrc,
+        sam_model: localStorage.getItem("ai_sam_model") || "mobile_sam.pt"
+      })
+    });
+  } catch (error) {
+    console.error("Magic wand preloading failed:", error);
+  }
+}

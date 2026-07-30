@@ -15,7 +15,7 @@ import {
   setStatus, syncToBackend, save, loadSaved, saveDraft, restoreDraft,
   render, manualSaveWithUI
 } from "./components/workspace.js?v=1";
-import { autoDetectObjects, autoTagObjects } from "./ai/detect.js?v=1";
+import { autoDetectObjects, autoTagObjects, preloadMagicWand } from "./ai/detect.js?v=1";
 import {
   syncTaskTime, syncTimeToServer, drainTaskTime, setActiveTaskResolver,
   setConflictHandler, resetSessionForTask, refreshTimerDisplays
@@ -274,6 +274,7 @@ magicWandMode.addEventListener("click", () => {
   }
   state.mode = "draw";
   state.shape = "magicWand";
+  preloadMagicWand();
   render();
 });
 
