@@ -15,6 +15,7 @@ import os
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from sqlalchemy import text
 
@@ -41,6 +42,7 @@ from database import engine  # noqa: E402
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Annotation Workspace")
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
 @app.on_event("startup")

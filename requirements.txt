@@ -3,6 +3,7 @@ opencv-python-headless>=4.8.0
 numpy>=1.26.0
 pillow==12.2.0
 fastapi>=0.111.0
+orjson>=3.9.0
 uvicorn>=0.30.0
 python-multipart>=0.0.9
 sqlalchemy>=2.0.0

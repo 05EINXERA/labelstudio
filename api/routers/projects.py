@@ -69,8 +69,8 @@ def _aggregate_metrics(project_ids: List[int], db: Session) -> dict:
         return metrics
 
     tasks = db.query(
-        models.Task.project_id, models.Task.status,
-        models.Task.annotations, models.Task.time_spent,
+        models.Task.id, models.Task.project_id, models.Task.status,
+        models.Task.time_spent,
     ).filter(models.Task.project_id.in_(project_ids)).all()
 
     for t in tasks:
@@ -80,8 +80,18 @@ def _aggregate_metrics(project_ids: List[int], db: Session) -> dict:
             entry["completed"] += 1
         elif t.status == 'In Progress':
             entry["in_progress"] += 1
-        entry["comments"] += _count_comments(t.annotations)
         entry["total_time"] += t.time_spent or 0
+
+    # Fetch annotations only for tasks that might have comments, saving massive DB I/O
+    comment_tasks = db.query(
+        models.Task.project_id, models.Task.annotations
+    ).filter(
+        models.Task.project_id.in_(project_ids),
+        models.Task.annotations.like('%"comment"%')
+    ).all()
+    
+    for ct in comment_tasks:
+        metrics[ct.project_id]["comments"] += _count_comments(ct.annotations)
 
     label_counts = db.query(
         models.Label.project_id, func.count(models.Label.id),
