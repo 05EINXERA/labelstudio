@@ -1,13 +1,14 @@
 import { generateUUID, normalizeClassName } from "../utils.js?v=1";
 import { apiFetch } from "../api.js?v=1";
 import {
-  state, storageKey, draftKey, colorForName, labelByName, labelById,
+  state, storageKey, draftKey, legacyDraftKey, colorForName, labelByName, labelById,
   labelDisplayName, snapshot, selectedAnnotation
-} from "../state.js?v=1";
+} from "../state.js?v=2";
+import { pendingCount, isServerUnreachable, peekWrite } from "../offline-queue.js?v=1";
 import { annotationPoints, updateAnnotationBounds } from "../canvas/geometry.js?v=1";
 import { view } from "../canvas/view.js?v=1";
-import { drainTaskTime } from "./timer.js?v=1";
-import { detectState } from "../ai/detect-state.js?v=1";
+import { drainTaskTime } from "./timer.js?v=2";
+import { detectState } from "../ai/detect-state.js?v=2";
 import { draw, drawAllLayers } from "../canvas/draw.js?v=1";
 import {
   emptyState, classesList, annotationList, annotationCount, selectedInfo,
@@ -20,12 +21,38 @@ import { commentOverlayRefs } from "../comment-overlay.js?v=1";
 import { toolAvailability } from "../feature-flags.js?v=1";
 
 
+/**
+ * The message the indicator settles on when nothing transient is being shown.
+ *
+ * This used to be the literal string "Saved", unconditionally, 3 seconds after
+ * any message. During the DHCP outage that meant annotators saw a brief error
+ * flash and then a steady, confident "Saved" while every single write was
+ * failing — worse than showing nothing at all
+ * (.devnotes/offline/01_OFFLINE_RESILIENCE_PLAN.md gap G1). The resting state
+ * must reflect whether work is actually on the server.
+ */
+function restingStatus() {
+  const pending = pendingCount();
+  if (pending === 0) return "Saved";
+  const plural = pending === 1 ? "change" : "changes";
+  return isServerUnreachable()
+    ? `⚠ Offline — ${pending} ${plural} held locally`
+    : `${pending} unsaved ${plural} — retrying`;
+}
+
 export function setStatus(text) {
   saveStatus.textContent = text;
   window.clearTimeout(setStatus.timer);
   setStatus.timer = window.setTimeout(() => {
-    saveStatus.textContent = "Saved";
+    saveStatus.textContent = restingStatus();
   }, 3000);
+}
+
+/** Re-render the resting message immediately. Called when the queue changes so
+ *  the count is not stale for up to 3s after a drain. */
+export function refreshSaveStatus() {
+  window.clearTimeout(setStatus.timer);
+  saveStatus.textContent = restingStatus();
 }
 
 export function ensureLabel(className, customColor = null) {
@@ -127,6 +154,53 @@ export function clearDraft(taskId) {
   }
 }
 
+// Drafts older than this with no matching queued write are dropped. A draft's
+// only job is covering work the server has not taken; once the outbox is empty
+// for a task, an old draft is dead weight competing for the ~5 MB quota — and
+// polygon-heavy drafts are not small. saveDraft() only warns on quota failure,
+// so exhausting it silently disarms the safety net.
+const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Drop stale drafts for this origin.
+ *
+ * Deliberately conservative: a draft is only removed when it is both past the
+ * TTL and has no pending write in the outbox. Never touches drafts that
+ * represent unsaved work, however old.
+ */
+export function pruneStaleDrafts() {
+  const prefix = `annotation-draft-v1:${window.location.origin}:`;
+  let removed = 0;
+  try {
+    // Collected before removing: mutating localStorage while indexing it by
+    // position shifts the keys underneath the loop.
+    const candidates = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(prefix)) candidates.push(key);
+    }
+    for (const key of candidates) {
+      const taskId = key.slice(prefix.length);
+      if (peekWrite(taskId)) continue; // unsaved work — keep
+      try {
+        const draft = JSON.parse(localStorage.getItem(key));
+        const savedAt = draft && draft.savedAt;
+        if (typeof savedAt === 'number' && Date.now() - savedAt > DRAFT_TTL_MS) {
+          localStorage.removeItem(key);
+          removed++;
+        }
+      } catch {
+        // Unparseable: it can never be restored, so it is pure waste.
+        localStorage.removeItem(key);
+        removed++;
+      }
+    }
+  } catch (e) {
+    console.warn('Could not prune drafts', e);
+  }
+  return removed;
+}
+
 /**
  * Restore a draft for `task` if it holds work the server does not have.
  *
@@ -139,6 +213,16 @@ export function restoreDraft(task) {
   let raw;
   try {
     raw = localStorage.getItem(draftKey(task.id));
+    if (!raw) {
+      // Fall back to the pre-origin key so a draft left pending across the
+      // upgrade is still recovered, then migrate it forward.
+      const legacy = localStorage.getItem(legacyDraftKey(task.id));
+      if (legacy) {
+        localStorage.setItem(draftKey(task.id), legacy);
+        localStorage.removeItem(legacyDraftKey(task.id));
+        raw = legacy;
+      }
+    }
   } catch {
     return false;
   }
@@ -179,9 +263,12 @@ export function save() {
     // "Saved" is only claimed once the server has actually taken the write.
     // Reporting it on the localStorage write alone told annotators their work
     // was safe while it existed nowhere but their own browser.
+    // On failure the write is now in the outbox, so "retrying" is finally true
+    // rather than aspirational — and refreshSaveStatus() keeps the pending count
+    // on screen instead of reverting to "Saved" three seconds later.
     Promise.resolve(syncToBackend())
-      .then((ok) => setStatus(ok === false ? "Not saved—retrying" : "Saved"))
-      .catch(() => setStatus("Not saved—retrying"));
+      .then((ok) => (ok === false ? refreshSaveStatus() : setStatus("Saved")))
+      .catch(() => refreshSaveStatus());
   }, 1000);
 }
 
@@ -204,22 +291,27 @@ export async function manualSaveWithUI() {
     
     // Sync to backend
     const ok = await syncToBackend();
-    
-    // Update status message
-    const message = ok === false ? "Not saved—retrying" : "Saved Successfully";
-    setStatus(message);
-    
+
+    // A manual save is the one place the user is actively watching, so a
+    // failure must be stated plainly rather than dressed up as success.
+    if (ok === false) {
+      refreshSaveStatus();
+    } else {
+      setStatus("Saved Successfully");
+    }
+
     // Keep the overlay visible for a brief moment, then fade it out
     await new Promise(resolve => setTimeout(resolve, 800));
     
     overlay.classList.remove('is-active');
     
-    // Keep "Saved Successfully" message for 3 seconds, then revert to "Saved"
+    // Then settle on whatever is actually true — "Saved" only if the outbox is
+    // empty, otherwise the pending count.
     await new Promise(resolve => setTimeout(resolve, 3000));
-    setStatus("Saved");
+    refreshSaveStatus();
   } catch (err) {
     console.error('Manual save failed:', err);
-    setStatus("Not saved—retrying");
+    refreshSaveStatus();
     overlay.classList.remove('is-active');
   }
 }

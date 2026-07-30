@@ -2373,3 +2373,44 @@ button.switch[aria-checked="true"] .switch-knob {
     transform: rotate(360deg);
   }
 }
+
+/* --- Offline / unsaved-work banner -----------------------------------------
+   Shown when the outbox holds writes the server has not taken (see
+   .devnotes/offline/01_OFFLINE_RESILIENCE_PLAN.md). Deliberately loud and
+   page-level rather than a corner toast: the failure it reports is silent
+   otherwise, and the whole incident it exists for was annotators not knowing.
+
+   z-index sits below the modal layer (2000) so dialogs still cover it, but
+   above the workspace chrome. Fixed to the top and pushed out of the flow so
+   appearing mid-annotation cannot reflow the canvas under the cursor. */
+.offline-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 10px 44px 10px 16px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 0.85rem;
+  line-height: 1.35;
+  text-align: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  transform: translateY(-100%);
+  visibility: hidden;
+  transition: transform 0.2s ease, visibility 0.2s ease;
+}
+
+.offline-banner.is-active {
+  transform: translateY(0);
+  visibility: visible;
+}
+
+.offline-banner-icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+}

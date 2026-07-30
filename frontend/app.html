@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Image Annotation MVP</title>
   <link rel="icon" type="image/png" href="logo.png">
-  <link rel="stylesheet" href="styles.css?v=23">
+  <link rel="stylesheet" href="styles.css?v=24">
   <!-- sync.js (legacy global annotation-slot sync to /api/data) removed in T3.1.
        Under a shared account the 'image-annotation-mvp-v1' row was last-writer-wins
        across all 25 clients. Per-task localStorage drafts (workspace.js restoreDraft)
@@ -22,6 +22,14 @@
 </head>
 
 <body>
+  <!-- Offline / unsaved-work banner. Hidden until the outbox has something in
+       it or the server stops answering; see js/offline-queue.js. role=status so
+       the message is announced without stealing focus mid-annotation. -->
+  <div class="offline-banner" id="offlineBanner" role="status" aria-live="polite">
+    <span class="offline-banner-icon" aria-hidden="true">⚠</span>
+    <span id="offlineBannerText"></span>
+  </div>
+
   <!-- Mobile sidebar toggle -->
   <button class="sidebar-toggle" id="sidebarToggle" type="button" aria-label="Toggle sidebar">☰</button>
   <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
@@ -506,7 +514,7 @@
     </div>
   </div>
 
-  <script type="module" src="js/init.js?v=1"></script>
+  <script type="module" src="js/init.js?v=3"></script>
 
 </body>
 

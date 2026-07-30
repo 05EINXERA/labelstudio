@@ -10,7 +10,19 @@ export const storageKey = "image-annotation-mvp-v1";
 // by every task, which meant opening a second task — or a second tab firing a
 // cross-tab `storage` event — overwrote the draft of the first with unrelated
 // annotations. See .devnotes/deployment-hardening/04_ANNOTATION_SAVE_LOSS.md.
+// Namespaced by origin: task ids come from a per-server database, so the same
+// id means different work on a different host. Without the origin a draft
+// written against one server would silently be restored over another's task —
+// which is not hypothetical here, since the deployment's address has changed
+// before (.devnotes/offline/01_OFFLINE_RESILIENCE_PLAN.md gap G3).
 export function draftKey(taskId) {
+  return `annotation-draft-v1:${window.location.origin}:${taskId}`;
+}
+
+// Drafts written before the origin was part of the key. Read-only: used to
+// migrate a pre-existing draft on first open so the change does not itself
+// orphan work that was pending during an upgrade.
+export function legacyDraftKey(taskId) {
   return `annotation-draft-v1:${taskId}`;
 }
 export const labelStudioStorageKey = "image-annotation-label-studio-settings";
