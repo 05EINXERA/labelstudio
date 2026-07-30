@@ -2375,5 +2375,6 @@ button.switch[aria-checked="true"] .switch-knob {
 }
 
 #backgroundImage {
-  image-rendering: pixelated;
+  filter: url(#sharpen);
 }
+
