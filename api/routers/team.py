@@ -88,6 +88,8 @@ def add_team_member(payload: TeamMemberCreate, request: Request, db: Session = D
         db.add(member)
     else:
         member = existing
+        if not payload.team_ids:
+            raise HTTPException(status_code=400, detail="User is already registered as a team member")
     
     if payload.team_ids:
         db_teams = db.query(models.Team).filter(models.Team.id.in_(payload.team_ids)).all()
@@ -97,6 +99,9 @@ def add_team_member(payload: TeamMemberCreate, request: Request, db: Session = D
         current_associations = set([a[0] for a in db.query(models.TeamMemberAssociation.team_id).filter(
             models.TeamMemberAssociation.member_name == name
         ).all()])
+            
+        if all(t in current_associations for t in payload.team_ids):
+            raise HTTPException(status_code=400, detail="User is already in the selected team(s)")
             
         for t in db_teams:
             if t.id not in current_associations:
