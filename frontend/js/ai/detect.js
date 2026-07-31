@@ -6,6 +6,7 @@ import { view } from "../canvas/view.js?v=1";
 import { detectState } from "./detect-state.js?v=1";
 import { getImageSrcForAPI } from "./shared.js?v=1";
 import { autoDetectButton } from "../dom.js?v=1";
+import { applyAutoSmooth } from "../fft-controls.js?v=1";
 import {
   setStatus, ensureLabel, save, render
 } from "../components/workspace.js?v=1";
@@ -401,6 +402,7 @@ export async function performMagicWandSegmentation(point, bbox = null, isShift =
       existingAnnotation.points = points;
       existingAnnotation.promptPoints = promptPoints;
       existingAnnotation.promptLabels = promptLabels;
+      applyAutoSmooth(existingAnnotation);
       updateAnnotationBounds(existingAnnotation);
     } else {
       const labelId = state.activeLabelId || ensureLabel("object").id;
@@ -414,6 +416,7 @@ export async function performMagicWandSegmentation(point, bbox = null, isShift =
         promptLabels: promptLabels,
         source: "magic-wand"
       };
+      applyAutoSmooth(annotation);
       updateAnnotationBounds(annotation);
 
       state.annotations.push(annotation);
