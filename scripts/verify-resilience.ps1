@@ -6,7 +6,7 @@
 
 .DESCRIPTION
     install-service.ps1 and schedule-backup.ps1 are "run once as
-    Administrator" setup scripts — nothing in the repo can prove they were
+    Administrator" setup scripts - nothing in the repo can prove they were
     ever actually run on the deployment PC, or that they're still working.
     This script checks the *installed state* directly:
 
@@ -18,7 +18,7 @@
       5. Power plan is High Performance with sleep/hibernate disabled
 
     Run this after first installing the service/backup tasks, and
-    periodically afterward (e.g. monthly) to catch silent drift — a task
+    periodically afterward (e.g. monthly) to catch silent drift - a task
     getting disabled, a share becoming unreachable, etc.
 
 .PARAMETER BackupDest
@@ -39,11 +39,11 @@ function Add-Result([string]$Name, [bool]$Ok, [string]$Detail) {
     $script:results += [pscustomobject]@{ Check = $Name; Ok = $Ok; Detail = $Detail }
 }
 
-# 1 & 2 — scheduled tasks
+# 1 & 2 - scheduled tasks
 foreach ($taskName in @("AnnotationApp", "AnnotationBackup")) {
     $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
     if (-not $task) {
-        Add-Result $taskName $false "Not registered — run the matching install script as Administrator."
+        Add-Result $taskName $false "Not registered - run the matching install script as Administrator."
         continue
     }
     $info = $task | Get-ScheduledTaskInfo
@@ -52,7 +52,7 @@ foreach ($taskName in @("AnnotationApp", "AnnotationBackup")) {
     Add-Result $taskName $ok $detail
 }
 
-# 3 — service wrapper log activity
+# 3 - service wrapper log activity
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $envFile = Join-Path $repoRoot ".env"
 $dataDir = $null
@@ -68,10 +68,10 @@ if (Test-Path $serviceLog) {
     $ok = $age.TotalHours -lt 24
     Add-Result "Service log activity" $ok "Last write: $([math]::Round($age.TotalHours, 1))h ago ($serviceLog)"
 } else {
-    Add-Result "Service log activity" $false "Not found at $serviceLog — is install-service.ps1 actually running the app?"
+    Add-Result "Service log activity" $false "Not found at $serviceLog - is install-service.ps1 actually running the app?"
 }
 
-# 4 — recent backup snapshot
+# 4 - recent backup snapshot
 if ($BackupDest) {
     if (Test-Path $BackupDest) {
         $snapshot = Get-ChildItem $BackupDest -File -ErrorAction SilentlyContinue |
@@ -92,7 +92,7 @@ if ($BackupDest) {
     Add-Result "Recent backup snapshot" $null "Skipped (-BackupDest not provided)"
 }
 
-# 5 — power plan / sleep settings
+# 5 - power plan / sleep settings
 $activeScheme = (powercfg /getactivescheme) 2>$null
 $isHighPerf = $activeScheme -match "High performance"
 Add-Result "Power plan = High Performance" $isHighPerf "$activeScheme"
@@ -103,7 +103,7 @@ Add-Result "Sleep disabled (AC)" $standbyOff "See 'powercfg /query' output for d
 
 # --- Report ---
 Write-Host ""
-Write-Host "Resilience verification — $(Get-Date)" -ForegroundColor Cyan
+Write-Host "Resilience verification - $(Get-Date)" -ForegroundColor Cyan
 Write-Host "================================================"
 $failCount = 0
 foreach ($r in $results) {
@@ -120,6 +120,6 @@ Write-Host "================================================"
 if ($failCount -eq 0) {
     Write-Host "All checks passed." -ForegroundColor Green
 } else {
-    Write-Host "$failCount check(s) FAILED — see .devnotes/deployment-hardening/06_RESILIENCE_PLAN.md P1." -ForegroundColor Yellow
+    Write-Host "$failCount check(s) FAILED - see .devnotes/deployment-hardening/06_RESILIENCE_PLAN.md P1." -ForegroundColor Yellow
 }
 exit $failCount

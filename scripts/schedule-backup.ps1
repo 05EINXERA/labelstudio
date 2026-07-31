@@ -44,7 +44,7 @@ $python   = Join-Path $repoRoot "venv\Scripts\python.exe"
 $script   = Join-Path $repoRoot "scripts\backup.py"
 
 if (-not (Test-Path $python)) {
-    Write-Error "venv not found at $python — run: python -m venv venv && venv\Scripts\pip install -r requirements.txt"
+    Write-Error "venv not found at $python - run: python -m venv venv, then venv\Scripts\pip install -r requirements.txt"
     exit 1
 }
 if (-not (Test-Path $script)) {
@@ -80,7 +80,7 @@ Register-ScheduledTask `
     -Description "Nightly pg_dump + uploads mirror for the annotation workspace" `
     | Out-Null
 
-Write-Host "✓ Scheduled task '$taskName' registered — runs daily at ${Hour}:00."
+Write-Host "[OK] Scheduled task '$taskName' registered - runs daily at ${Hour}:00."
 Write-Host "  Backup destination : $Dest"
 Write-Host "  Snapshots to keep  : $Keep"
 Write-Host ""

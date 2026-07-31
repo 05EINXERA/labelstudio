@@ -5,7 +5,7 @@
 
 .DESCRIPTION
     Minimal visibility for a 20-25 person deployment with no existing
-    alerting infrastructure (06_RESILIENCE_PLAN.md P7) — this does not page
+    alerting infrastructure (06_RESILIENCE_PLAN.md P7) - this does not page
     anyone or send a webhook. It writes last_health_status.json next to the
     app's logs so a human can glance at it (or a future script can), the
     same low-tech pattern backup.py uses for last_backup_status.json.
