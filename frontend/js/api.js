@@ -18,6 +18,10 @@ export async function apiFetch(url, options = {}) {
   }
 
   options.headers = { ...options.headers };
+  const datasetUsername = localStorage.getItem('dataset_username');
+  if (datasetUsername) {
+    options.headers['X-Annotator-Name'] = datasetUsername;
+  }
 
   // State-changing requests must carry the CSRF token; the backend rejects
   // them with 403 otherwise.

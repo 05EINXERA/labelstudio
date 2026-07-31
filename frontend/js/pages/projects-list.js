@@ -94,10 +94,16 @@ const table = createDataTable({
       label: "",
       sortable: false,
       align: "center",
-      render: () => `<div class="row-actions">
-          <button type="button" data-action="edit" title="Edit project">${ICON_EDIT}</button>
-          <button type="button" data-action="delete" class="danger" title="Delete project">${ICON_DELETE}</button>
-        </div>`,
+      render: (r) => {
+          const datasetUsername = localStorage.getItem('dataset_username');
+          if (r.creator === datasetUsername) {
+            return `<div class="row-actions">
+              <button type="button" data-action="edit" title="Edit project">${ICON_EDIT}</button>
+              <button type="button" data-action="delete" class="danger" title="Delete project">${ICON_DELETE}</button>
+            </div>`;
+          }
+          return '';
+      },
     },
   ],
 });

@@ -236,13 +236,12 @@ def test_mask_archive_rejection_is_not_the_generic_message(client, alice):
 def test_class_set_file_is_redirected_to_classes_import(client, alice):
     """The Classes export uploaded to the annotation importer names label
     definitions with no geometry — it belongs in Classes -> Import."""
-    with open(os.path.join(FIXTURES, "..", "..", "..", ".devnotes",
-                           "data-examples", "imports", "classes.json")) as fh:
-        # Fall back to a synthesized class set if the sample is not present.
-        try:
+    try:
+        with open(os.path.join(FIXTURES, "..", "..", "..", ".devnotes",
+                               "data-examples", "imports", "classes.json")) as fh:
             class_set = json.load(fh)
-        except Exception:
-            class_set = None
+    except Exception:
+        class_set = None
     if class_set is None:
         class_set = [{"type": "polygon", "title": "Rust Area", "value": "RustArea", "color": "#D95319"}]
 

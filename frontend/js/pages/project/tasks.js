@@ -267,13 +267,16 @@ async function loadTeamForTasks() {
 
     team.forEach((m) => {
       // If project belongs to a team, only allow members of that team
-      if (projectTeamId != null && m.team_id !== projectTeamId) {
-        return;
+      if (projectTeamId != null) {
+        const belongsToProjectTeam = m.teams && m.teams.some(t => t.id === projectTeamId);
+        if (!belongsToProjectTeam) return;
       }
       
-      if (m.team_name) {
-        if (!byTeam[m.team_name]) byTeam[m.team_name] = [];
-        byTeam[m.team_name].push(m);
+      if (m.teams && m.teams.length > 0) {
+        // Group by the first team for the dropdown, to avoid duplicates
+        const primaryTeamName = m.teams[0].name;
+        if (!byTeam[primaryTeamName]) byTeam[primaryTeamName] = [];
+        byTeam[primaryTeamName].push(m);
       } else {
         unassigned.push(m);
       }

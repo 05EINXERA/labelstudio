@@ -137,6 +137,13 @@ def require_csrf(request: Request) -> None:
             detail="CSRF token mismatch. Reload the page and try again.",
         )
 
+def get_current_annotator(request: Request, db: Session = Depends(get_db)):
+    """Reads the X-Annotator-Name header to return the annotator's TeamMember record."""
+    annotator_name = request.headers.get("X-Annotator-Name")
+    if not annotator_name:
+        return None
+    return db.query(models.TeamMember).filter(models.TeamMember.name == annotator_name).first()
+
 def get_token(request: Request):
     token = request.cookies.get("access_token")
     if token:

@@ -19,7 +19,7 @@ const els = {
   newMemberModalClose: document.getElementById("newMemberModalClose"),
   newMemberForm: document.getElementById("newMemberForm"),
   newMemberFormName: document.getElementById("newMemberFormName"),
-  newMemberFormTeam: document.getElementById("newMemberFormTeam"),
+  newMemberFormTeams: document.getElementById("newMemberFormTeams"),
   newMemberFormCancel: document.getElementById("newMemberFormCancel"),
   
   assignModal: document.getElementById("assignModal"),
@@ -27,8 +27,12 @@ const els = {
   assignForm: document.getElementById("assignForm"),
   assignFormName: document.getElementById("assignFormName"),
   assignMemberName: document.getElementById("assignMemberName"),
-  assignFormTeam: document.getElementById("assignFormTeam"),
+  assignFormTeams: document.getElementById("assignFormTeams"),
   assignFormCancel: document.getElementById("assignFormCancel"),
+  
+  teamModalError: document.getElementById("teamModalError"),
+  newMemberModalError: document.getElementById("newMemberModalError"),
+  assignModalError: document.getElementById("assignModalError"),
   
   teamsMount: document.getElementById("teamsMount"),
   membersMount: document.getElementById("membersMount"),
@@ -59,7 +63,13 @@ function initTables() {
       { key: "name", label: "Name", render: (r) => escapeHTML(r.name) },
       {
         key: "actions", label: "", sortable: false, align: "right", width: "60px",
-        render: () => `<div class="row-actions"><button type="button" data-action="delete" class="danger" title="Delete Team">${ICON_DELETE}</button></div>`,
+        render: (r) => {
+          const datasetUsername = localStorage.getItem('dataset_username');
+          if (r.creator === datasetUsername) {
+            return `<div class="row-actions"><button type="button" data-action="delete" class="danger" title="Delete Team">${ICON_DELETE}</button></div>`;
+          }
+          return '';
+        }
       },
     ],
   });
@@ -81,10 +91,12 @@ function initTables() {
     emptyMessage: "No team members yet.",
     columns: [
       { key: "name", label: "Annotator", render: (r) => escapeHTML(r.name) },
-      { key: "team_name", label: "Team", render: (r) => r.team_name ? escapeHTML(r.team_name) : `<span style="color:var(--muted);">Unassigned</span>` },
+      { key: "team_name", label: "Teams", render: (r) => r.teams && r.teams.length > 0 ? escapeHTML(r.teams.map(t => t.name).join(', ')) : `<span style="color:var(--muted);">Unassigned</span>` },
       {
         key: "actions", label: "", sortable: false, align: "right", width: "60px",
-        render: () => `<div class="row-actions"><button type="button" data-action="assign" title="Assign to Team">${ICON_EDIT}</button></div>`,
+        render: (r) => {
+          return `<div class="row-actions"><button type="button" data-action="assign" title="Assign to Team">${ICON_EDIT}</button></div>`;
+        }
       },
     ],
   });
@@ -116,22 +128,49 @@ async function loadData() {
     teamsTable.setRows(teams);
     membersTable.setRows(members);
     
-    // Update team select dropdown in assign modal
-    els.assignFormTeam.innerHTML = '<option value="">No Team</option>';
+    // Update team checkboxes in assign modal
+    els.assignFormTeams.innerHTML = '';
+    const datasetUsername = localStorage.getItem('dataset_username');
     teams.forEach(t => {
-      const opt = document.createElement('option');
-      opt.value = t.id;
-      opt.textContent = t.name;
-      els.assignFormTeam.appendChild(opt);
+      const label = document.createElement('label');
+      label.style.display = 'flex';
+      label.style.gap = '8px';
+      label.style.alignItems = 'center';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = t.id;
+      if (t.creator !== datasetUsername) {
+        cb.disabled = true;
+        cb.title = "You can only modify teams you created";
+        label.title = "You can only modify teams you created";
+        label.style.opacity = "0.6";
+        label.style.cursor = "not-allowed";
+      }
+      label.appendChild(cb);
+      label.appendChild(document.createTextNode(t.name));
+      els.assignFormTeams.appendChild(label);
     });
     
-    // Update team select dropdown in new member modal
-    els.newMemberFormTeam.innerHTML = '<option value="">No Team</option>';
+    // Update team checkboxes in new member modal
+    els.newMemberFormTeams.innerHTML = '';
     teams.forEach(t => {
-      const opt = document.createElement('option');
-      opt.value = t.id;
-      opt.textContent = t.name;
-      els.newMemberFormTeam.appendChild(opt);
+      const label = document.createElement('label');
+      label.style.display = 'flex';
+      label.style.gap = '8px';
+      label.style.alignItems = 'center';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = t.id;
+      if (t.creator !== datasetUsername) {
+        cb.disabled = true;
+        cb.title = "You can only modify teams you created";
+        label.title = "You can only modify teams you created";
+        label.style.opacity = "0.6";
+        label.style.cursor = "not-allowed";
+      }
+      label.appendChild(cb);
+      label.appendChild(document.createTextNode(t.name));
+      els.newMemberFormTeams.appendChild(label);
     });
     
   } catch (err) {
@@ -144,6 +183,7 @@ async function loadData() {
 
 function openTeamModal() {
   els.teamForm.reset();
+  els.teamModalError.style.display = "none";
   els.teamModal.classList.add("is-active");
   els.teamFormName.focus();
 }
@@ -167,18 +207,21 @@ els.teamForm.addEventListener("submit", async (e) => {
     });
     if (!res.ok) {
       const err = await res.json();
-      alert(err.detail || "Failed to save team");
+      els.teamModalError.textContent = err.detail || "Failed to save team";
+      els.teamModalError.style.display = "block";
       return;
     }
     closeTeamModal();
     loadData();
   } catch (err) {
-    alert("Connection error");
+    els.teamModalError.textContent = "Connection error";
+    els.teamModalError.style.display = "block";
   }
 });
 
 function openNewMemberModal() {
   els.newMemberForm.reset();
+  els.newMemberModalError.style.display = "none";
   els.newMemberModal.classList.add("is-active");
   els.newMemberFormName.focus();
 }
@@ -194,30 +237,35 @@ els.newMemberFormCancel.addEventListener("click", closeNewMemberModal);
 els.newMemberForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const name = els.newMemberFormName.value.trim();
-  const teamId = els.newMemberFormTeam.value ? parseInt(els.newMemberFormTeam.value, 10) : null;
+  const teamIds = Array.from(els.newMemberFormTeams.querySelectorAll('input:checked')).map(cb => parseInt(cb.value, 10));
   try {
     const res = await apiFetch("/api/team", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, team_id: teamId })
+      body: JSON.stringify({ name, team_ids: teamIds })
     });
     if (!res.ok) {
       const err = await res.json();
-      alert(err.detail || "Failed to add team member");
+      els.newMemberModalError.textContent = err.detail || "Failed to add team member";
+      els.newMemberModalError.style.display = "block";
       return;
     }
     closeNewMemberModal();
     loadData();
   } catch (err) {
-    alert("Connection error");
+    els.newMemberModalError.textContent = "Connection error";
+    els.newMemberModalError.style.display = "block";
   }
 });
 
 function openAssignModal(member) {
   els.assignForm.reset();
+  els.assignModalError.style.display = "none";
   els.assignFormName.value = member.name;
   els.assignMemberName.textContent = member.name;
-  els.assignFormTeam.value = member.team_id || "";
+  els.assignFormTeams.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+    cb.checked = member.teams && member.teams.some(t => t.id === parseInt(cb.value, 10));
+  });
   els.assignModal.classList.add("is-active");
 }
 
@@ -231,22 +279,24 @@ els.assignFormCancel.addEventListener("click", closeAssignModal);
 els.assignForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const name = els.assignFormName.value;
-  const teamId = els.assignFormTeam.value ? parseInt(els.assignFormTeam.value, 10) : null;
+  const teamIds = Array.from(els.assignFormTeams.querySelectorAll('input:checked')).map(cb => parseInt(cb.value, 10));
   try {
     const res = await apiFetch(`/api/team/${encodeURIComponent(name)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ team_id: teamId })
+      body: JSON.stringify({ team_ids: teamIds })
     });
     if (!res.ok) {
       const err = await res.json();
-      alert(err.detail || "Failed to assign team");
+      els.assignModalError.textContent = err.detail || "Failed to assign team";
+      els.assignModalError.style.display = "block";
       return;
     }
     closeAssignModal();
     loadData();
   } catch (err) {
-    alert("Connection error");
+    els.assignModalError.textContent = "Connection error";
+    els.assignModalError.style.display = "block";
   }
 });
 

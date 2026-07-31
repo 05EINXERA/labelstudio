@@ -4,7 +4,7 @@ import os
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, UploadFile, File, Query, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, Query, HTTPException, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
@@ -13,7 +13,7 @@ import schemas
 from config import DATA_DIR, MAX_UPLOAD_FILES
 from database import get_db, commit_with_retry
 from schemas import ProjectModel, ProjectMetrics, ProjectSummary
-from api.auth import get_current_user, require_csrf
+from api.auth import get_current_user, require_csrf, get_current_annotator
 from formats.common import measure_image
 
 logger = logging.getLogger(__name__)
@@ -115,15 +115,26 @@ router = APIRouter(
 )
 
 @router.get("", response_model=List[ProjectSummary])
-def get_projects(db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    """Every project the caller owns, with its task metrics merged in.
+def get_projects(db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
+    """Every project the caller's team owns, with its task metrics merged in.
 
-    Scope comes from the token, never from a client-supplied `creator`.
+    Scope comes from the token and the annotator's team.
     """
-    # Scope comes from the token, never from a client-supplied `creator`.
-    projects_with_teams = db.query(models.Project, models.Team.name.label("team_name")).outerjoin(
+    query = db.query(models.Project, models.Team.name.label("team_name")).outerjoin(
         models.Team, models.Project.team_id == models.Team.id
-    ).filter(models.Project.owner_id == user.id).all()
+    ).filter(models.Project.owner_id == user.id)
+    
+    if annotator is not None:
+        annotator_team_ids = [t[0] for t in db.query(models.TeamMemberAssociation.team_id).filter(
+            models.TeamMemberAssociation.member_name == annotator.name
+        ).all()]
+        
+        query = query.filter(
+            (models.Project.team_id.in_(annotator_team_ids)) |
+            (models.Project.creator == annotator.name)
+        )
+            
+    projects_with_teams = query.all()
     if not projects_with_teams:
         return []
 
@@ -158,9 +169,9 @@ def get_project_metrics(project_id: int, db: Session = Depends(get_db), user: mo
     return ProjectMetrics(status=derived or project.status, **m)
 
 @router.post("")
-def create_project(project: ProjectModel, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    # The owner is the authenticated caller; `creator` is only a display name.
-    db_project = models.Project(name=project.name, slug=project.slug, type=project.type, status="Preparing", creator=user.username, owner_id=user.id, team_id=project.team_id)
+def create_project(project: ProjectModel, db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
+    creator_name = annotator.name if annotator else user.username
+    db_project = models.Project(name=project.name, slug=project.slug, type=project.type, status="Preparing", creator=creator_name, owner_id=user.id, team_id=project.team_id)
     db.add(db_project)
     commit_with_retry(db)
     db.refresh(db_project)
@@ -176,15 +187,17 @@ def _apply_project_update(db_project: models.Project, project_update: schemas.Pr
         db_project.team_id = project_update.team_id
 
 @router.patch("/{project_id}")
-def patch_project(project_id: int, project_update: schemas.ProjectUpdate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+def patch_project(project_id: int, project_update: schemas.ProjectUpdate, request: Request, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     db_project = get_owned_project(project_id, user, db)
+    # X-Annotator-Name is used for UI filtering but is not a security boundary.
     _apply_project_update(db_project, project_update)
     commit_with_retry(db)
     return {"status": "ok"}
 
 @router.delete("/{project_id}")
-def delete_project(project_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+def delete_project(project_id: int, request: Request, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     db_project = get_owned_project(project_id, user, db)
+    # X-Annotator-Name is used for UI filtering but is not a security boundary.
     db.query(models.Task).filter(models.Task.project_id == project_id).delete()
     db.query(models.Label).filter(models.Label.project_id == project_id).delete()
     db.delete(db_project)

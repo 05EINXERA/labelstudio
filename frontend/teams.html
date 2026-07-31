@@ -63,6 +63,7 @@
         <h2 id="teamModalTitle">New Team</h2>
         <button class="modal-close" id="teamModalClose" type="button">&times;</button>
       </div>
+      <div id="teamModalError" style="display: none; padding: 10px 16px; background: #ffebee; color: #c62828; font-size: 0.9rem; border-bottom: 1px solid #ffcdd2;"></div>
       <form id="teamForm">
         <div class="modal-body" style="display: grid; gap: 14px;">
           <label style="display: grid; gap: 6px;">
@@ -86,16 +87,15 @@
         <h2 id="assignModalTitle">Assign Team</h2>
         <button class="modal-close" id="assignModalClose" type="button">&times;</button>
       </div>
+      <div id="assignModalError" style="display: none; padding: 10px 16px; background: #ffebee; color: #c62828; font-size: 0.9rem; border-bottom: 1px solid #ffcdd2;"></div>
       <form id="assignForm">
         <input type="hidden" id="assignFormName">
         <div class="modal-body" style="display: grid; gap: 14px;">
           <p style="font-size: .9rem; color: var(--muted);">Assign <strong id="assignMemberName" style="color: var(--ink);"></strong> to a team.</p>
           <label style="display: grid; gap: 6px;">
-            <span style="font-size: .85rem; color: var(--muted);">Team</span>
-            <select id="assignFormTeam"
-              style="padding: 9px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--ink);">
-              <option value="">No Team</option>
-            </select>
+            <span style="font-size: .85rem; color: var(--muted);">Teams</span>
+            <div id="assignFormTeams" style="display: grid; gap: 8px; max-height: 150px; overflow-y: auto; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg);">
+            </div>
           </label>
         </div>
         <div style="display: flex; gap: 10px; justify-content: flex-end; padding: 16px;">
@@ -113,6 +113,7 @@
         <h2 id="newMemberModalTitle">New Member</h2>
         <button class="modal-close" id="newMemberModalClose" type="button">&times;</button>
       </div>
+      <div id="newMemberModalError" style="display: none; padding: 10px 16px; background: #ffebee; color: #c62828; font-size: 0.9rem; border-bottom: 1px solid #ffcdd2;"></div>
       <form id="newMemberForm">
         <div class="modal-body" style="display: grid; gap: 14px;">
           <label style="display: grid; gap: 6px;">
@@ -121,11 +122,9 @@
               style="padding: 9px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--ink);">
           </label>
           <label style="display: grid; gap: 6px;">
-            <span style="font-size: .85rem; color: var(--muted);">Team (Optional)</span>
-            <select id="newMemberFormTeam"
-              style="padding: 9px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--ink);">
-              <option value="">No Team</option>
-            </select>
+            <span style="font-size: .85rem; color: var(--muted);">Teams (Optional)</span>
+            <div id="newMemberFormTeams" style="display: grid; gap: 8px; max-height: 150px; overflow-y: auto; padding: 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg);">
+            </div>
           </label>
         </div>
         <div style="display: flex; gap: 10px; justify-content: flex-end; padding: 16px;">
