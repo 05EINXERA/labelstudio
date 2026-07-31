@@ -8,7 +8,7 @@
     scripts/health-check.ps1 on a repeating interval, writing
     $DATA_DIR/logs/last_health_status.json each time.
 
-    This is intentionally minimal (06_RESILIENCE_PLAN.md P7) — it does not
+    This is intentionally minimal (06_RESILIENCE_PLAN.md P7) - it does not
     page or message anyone. It exists so a FAIL is visible to whoever looks,
     rather than only discoverable by an annotator complaining the app is down.
 
@@ -85,6 +85,6 @@ if (-not (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue)) 
     exit 1
 }
 
-Write-Host "Scheduled task '$taskName' registered — polls every $IntervalMinutes min."
+Write-Host "Scheduled task '$taskName' registered - polls every $IntervalMinutes min."
 Write-Host "Verify with:  Get-ScheduledTask -TaskName '$taskName' | Get-ScheduledTaskInfo"
 Write-Host "Test run  :   Start-ScheduledTask -TaskName '$taskName'"

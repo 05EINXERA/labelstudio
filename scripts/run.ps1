@@ -51,7 +51,7 @@ function Load-EnvFile {
             }
 
             Set-Item -Path "env:$key" -Value $value
-            Write-Host "✓ $key=$($value.Substring(0, [Math]::Min($value.Length, 30)))" -ForegroundColor Green
+            Write-Host "[OK] $key=$($value.Substring(0, [Math]::Min($value.Length, 30)))" -ForegroundColor Green
         }
     }
 }
@@ -71,9 +71,9 @@ Write-Host "  ALLOW_REGISTRATION: $($env:ALLOW_REGISTRATION ?? '1')" -Foreground
 # Remind about JWT_SECRET
 if ($env:APP_ENV -eq "production") {
     if ([string]::IsNullOrWhiteSpace($env:JWT_SECRET) -or $env:JWT_SECRET -eq "<64-hex-chars>") {
-        Write-Host "`n⚠️  WARNING: JWT_SECRET not set properly. Startup will fail." -ForegroundColor Yellow
+        Write-Host "`n!! WARNING: JWT_SECRET not set properly. Startup will fail." -ForegroundColor Yellow
     } elseif ($env:JWT_SECRET.Length -lt 32) {
-        Write-Host "`n⚠️  WARNING: JWT_SECRET is too short (< 32 chars). Startup will fail." -ForegroundColor Yellow
+        Write-Host "`n!! WARNING: JWT_SECRET is too short (< 32 chars). Startup will fail." -ForegroundColor Yellow
     }
 }
 

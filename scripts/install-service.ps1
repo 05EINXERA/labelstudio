@@ -45,7 +45,7 @@ $uvicorn   = Join-Path $repoRoot "venv\Scripts\uvicorn.exe"
 $wrapperPs = Join-Path $repoRoot "scripts\_service-wrapper.ps1"
 
 if (-not (Test-Path $uvicorn)) {
-    Write-Error "venv not found at $uvicorn — run: python -m venv venv && venv\Scripts\pip install -r requirements.txt"
+    Write-Error "venv not found at $uvicorn - run: python -m venv venv, then venv\Scripts\pip install -r requirements.txt"
     exit 1
 }
 
@@ -93,7 +93,7 @@ $logDir = if ($env:DATA_DIR) { "$env:DATA_DIR\logs" } else { "$repoRoot\logs" }
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $log = Join-Path $logDir "service.log"
 
-# Not named 'host' — that is a read-only PowerShell automatic variable.
+# Not named 'host' - that is a read-only PowerShell automatic variable.
 # Always brace-delimit these inside strings, as ${bindHost} and ${port}.
 # Writing them undelimited before a colon makes Windows PowerShell 5.1 read
 # the name-plus-colon as a drive-qualified variable reference, which fails to
@@ -103,7 +103,7 @@ $port     = if ($env:APP_PORT) { $env:APP_PORT } else { "8000" }
 
 # Refuse to start if something else already owns the port. Without this the
 # wrapper restart-loops forever writing "address in use" while a stray
-# process keeps serving — the confusing failure mode of having started
+# process keeps serving - the confusing failure mode of having started
 # uvicorn by hand before installing the service.
 $inUse = Get-NetTCPConnection -LocalPort ([int]$port) -State Listen -ErrorAction SilentlyContinue
 if ($inUse) {
@@ -194,11 +194,24 @@ $trigger  = New-ScheduledTaskTrigger -AtStartup
 # This only covers the wrapper *script* dying; uvicorn crashes are handled far
 # faster by the wrapper's own 5-second restart loop, so a 1-minute floor here
 # costs nothing in practice.
+#
+# BATTERY: the two battery switches are required, not cosmetic. Task Scheduler
+# defaults DisallowStartIfOnBatteries and StopIfGoingOnBatteries to TRUE, so on
+# a laptop the task is KILLED the instant the charger is unplugged - wrapper and
+# uvicorn together. That is invisible in service.log: the wrapper is what writes
+# both "uvicorn exited - restarting in 5s" and the restart loop, so when it dies
+# too the log simply stops mid-request with no exit marker and no traceback, and
+# nothing restarts until the next boot (AtStartup is the only trigger). Postgres
+# is unaffected because it is a real Windows service, which makes it look like
+# an app crash rather than a power event. Diagnosed from four outages whose last
+# log line matched a Kernel-Power 105 "AcOnline=false" to the second.
 $settings = New-ScheduledTaskSettingsSet `
     -ExecutionTimeLimit (New-TimeSpan -Days 365) `
     -RestartCount 3 `
     -RestartInterval (New-TimeSpan -Minutes 1) `
-    -StartWhenAvailable
+    -StartWhenAvailable `
+    -AllowStartIfOnBatteries `
+    -DontStopIfGoingOnBatteries
 
 $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
 
@@ -225,7 +238,7 @@ Register-ScheduledTask `
     -Trigger   $trigger `
     -Settings  $settings `
     -Principal $principal `
-    -Description "Annotation workspace — auto-start + auto-restart on boot" `
+    -Description "Annotation workspace - auto-start + auto-restart on boot" `
     -ErrorAction Stop `
     | Out-Null
 
@@ -236,6 +249,24 @@ if (-not (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue)) 
 }
 
 Write-Host "Service task '$taskName' registered."
+
+# The battery switches above are the difference between "stays up when someone
+# unplugs the charger" and "dies silently mid-shift", so confirm they actually
+# took rather than trusting the switches. Registering with an older/patched
+# Task Scheduler that ignored them would otherwise fail silently.
+$applied = (Get-ScheduledTask -TaskName $taskName).Settings
+if ($applied.DisallowStartIfOnBatteries -or $applied.StopIfGoingOnBatteries) {
+    Write-Warning ("Battery settings did not apply " +
+        "(DisallowStartIfOnBatteries=$($applied.DisallowStartIfOnBatteries), " +
+        "StopIfGoingOnBatteries=$($applied.StopIfGoingOnBatteries)). " +
+        "The app will be killed when this machine is unplugged. Fix with:")
+    Write-Warning "  `$t = Get-ScheduledTask -TaskName '$taskName'"
+    Write-Warning "  `$t.Settings.DisallowStartIfOnBatteries = `$false"
+    Write-Warning "  `$t.Settings.StopIfGoingOnBatteries     = `$false"
+    Write-Warning "  Set-ScheduledTask -TaskName '$taskName' -Settings `$t.Settings"
+} else {
+    Write-Host "Battery settings verified: task survives running on / switching to battery."
+}
 
 # --- No-sleep, on whatever plan is already active -------------------------
 # Earlier versions of this script force-switched the active plan to the
@@ -251,15 +282,23 @@ Write-Host "Service task '$taskName' registered."
 # does not require switching plans or touching processor throttling at all -
 # only the sleep/hibernate timeouts, applied to whichever plan the operator
 # already has active.
+#
+# Both AC *and* DC. An earlier version set only the -ac timeouts, which left
+# the Windows default of standby-timeout-dc = 10 minutes in place: unplug the
+# serving laptop and it sleeps mid-shift, dropping every annotator. If this
+# machine is a desktop the -dc settings are simply inert, so applying them
+# unconditionally costs nothing.
 Write-Host "Disabling sleep/hibernate on the current power plan (no plan switch, no processor throttle change)..."
 try {
     powercfg /change standby-timeout-ac 0
     powercfg /change hibernate-timeout-ac 0
+    powercfg /change standby-timeout-dc 0
+    powercfg /change hibernate-timeout-dc 0
     powercfg /hibernate off
     $current = (powercfg /getactivescheme)
-    Write-Host "Sleep/hibernate disabled on AC power. Active plan unchanged: $current"
+    Write-Host "Sleep/hibernate disabled on AC and battery. Active plan unchanged: $current"
 } catch {
-    Write-Warning "Could not change sleep/hibernate settings: $_  (run manually: powercfg /change standby-timeout-ac 0)"
+    Write-Warning "Could not change sleep/hibernate settings: $_  (run manually: powercfg /change standby-timeout-ac 0; powercfg /change standby-timeout-dc 0)"
 }
 
 Write-Host ""
