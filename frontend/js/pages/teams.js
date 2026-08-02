@@ -137,17 +137,10 @@ function initTables() {
     rowId: (r) => r.name,
     emptyMessage: "No team members found.",
     matches: (row, q) => {
-      const query = q.toLowerCase();
+      const query = q.trim().toLowerCase();
+      if (!query) return true;
       // Match member/annotator name
-      if (String(row.name || "").toLowerCase().includes(query)) return true;
-      // Match assigned team names or creator
-      if (row.teams && row.teams.length > 0) {
-        if (row.teams.some((t) => String(t.name || "").toLowerCase().includes(query))) return true;
-        if (row.teams.some((t) => String(t.creator || "").toLowerCase().includes(query))) return true;
-      } else {
-        if ("unassigned".includes(query)) return true;
-      }
-      return false;
+      return String(row.name || "").toLowerCase().includes(query);
     },
     columns: [
       { key: "name", label: "Annotator", render: (r) => escapeHTML(r.name) },
