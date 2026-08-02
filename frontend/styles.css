@@ -2620,12 +2620,22 @@ button.switch[aria-checked="true"] .switch-knob {
 /* Read-only mode: block the drawing surface as a whole rather than disabling
    each tool by id, which drifts every time a tool is added. Ergonomics only —
    every write is refused server-side regardless. */
-body.is-read-only .tool-palette,
+/* `.tool-group` is the real container for the drawing tools in app.html — the
+   sidebar groups holding Draw/Select/Bbox/Polygon/Comment/Wand and the AI
+   buttons. Targeting the group rather than each button id means a tool added
+   later is disabled automatically instead of silently staying live. */
+body.is-read-only .tool-group,
 body.is-read-only #saveButton,
+/* #completeTaskBtn is not in app.html today — init.js guards for it too. Kept
+   so the rule still holds if that button is reinstated. */
 body.is-read-only #completeTaskBtn,
 body.is-read-only #autoDetectButton,
 body.is-read-only #autoTagButton {
   opacity: .45;
   pointer-events: none;
 }
+/* The canvas itself: drawing is driven by pointer events on the stage, so this
+   is what actually stops a viewer drawing. Ergonomics only — every write is
+   refused server-side regardless. */
 body.is-read-only .stage-wrap { cursor: not-allowed; }
+body.is-read-only #annotationCanvas { pointer-events: none; }
