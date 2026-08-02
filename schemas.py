@@ -92,6 +92,20 @@ class TeamTime(BaseModel):
     name: str
     time_logged: int = Field(..., ge=0, le=MAX_TIME_DELTA_SECONDS)
 
+class TimeLogOut(BaseModel):
+    """One time-log row as returned by /api/time-logs.
+
+    `user_id` is null for historical rows whose free-text name matches no
+    account; the UI shows those as unlinked rather than guessing an owner.
+    """
+    name: str
+    time_logged: int = 0
+    user_id: Optional[int] = None
+
+class TimeLogUpdateResult(BaseModel):
+    status: str
+    time_logged: int
+
 class DetectPayload(BaseModel):
     image: str
     selection: Optional[dict] = None
