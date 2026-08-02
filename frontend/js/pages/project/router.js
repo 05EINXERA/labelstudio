@@ -55,7 +55,7 @@ const ctx = {
 function renderHeader() {
   const p = ctx.project;
   els.name.textContent = p?.name || "Untitled project";
-  document.title = `${p?.name || "Project"} - Dataset Workspace`;
+  document.title = `${p?.name || "Project"} - Label Studio`;
 
   const status = p?.status || "New";
   els.status.textContent = status;
