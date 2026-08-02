@@ -2,7 +2,7 @@ import json
 import logging
 import os
 import datetime
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy import case, func
@@ -10,9 +10,30 @@ from sqlalchemy.orm import Session
 
 import models
 from database import get_db, commit_with_retry
-from schemas import TaskUpdate, BulkDelete, BulkUpdate, TaskDetail
+from schemas import (
+    BulkAssign,
+    BulkAssignResult,
+    BulkDelete,
+    BulkUpdate,
+    ReviewCreate,
+    ReviewOut,
+    ReviewResult,
+    TaskAssignment,
+    TaskAssignmentResult,
+    TaskDetail,
+    TaskUpdate,
+)
 from api.auth import get_current_user, require_csrf
-from api.routers.projects import get_owned_project
+from api.permissions import (
+    ProjectRole,
+    accessible_project_ids,
+    at_least,
+    can_write_task,
+    effective_project_role,
+    rank,
+    require_project,
+    require_task,
+)
 
 router = APIRouter(
     prefix="/api/tasks",
@@ -60,36 +81,93 @@ CONFLICT_TOLERANCE_SECONDS = float(
 )
 
 
+# Statuses that represent a review decision. Moving a task *into* or *out of*
+# either one requires the Reviewer role: un-approving is exactly as privileged
+# as approving (.devnotes/teams/01_DESIGN.md § 4).
+REVIEW_STATUSES = frozenset({"Approved", "Rejected"})
+
+
+def _require_review_role_for_status(
+    db_task: models.Task, new_status: Optional[str], user: models.User, db: Session
+) -> None:
+    """403 unless the caller may make this status transition.
+
+    Only transitions that touch a review state are gated. An annotator moving a
+    task New → In Progress → Completed is ordinary work and stays untouched;
+    this is what keeps the shared-account deployment behaving identically.
+    """
+    if new_status is None or new_status == db_task.status:
+        return
+    if new_status not in REVIEW_STATUSES and db_task.status not in REVIEW_STATUSES:
+        return
+
+    role = effective_project_role(user, db_task.project_id, db)
+    if at_least(role, ProjectRole.REVIEWER):
+        return
+
+    verb = "Approving" if new_status == "Approved" else (
+        "Rejecting" if new_status == "Rejected" else "Changing a reviewed task"
+    )
+    raise HTTPException(
+        status_code=403,
+        detail=f"{verb} requires the Reviewer role on this project.",
+    )
+
+
+def _require_assigned_team_membership(
+    db_task: models.Task, user: models.User, db: Session
+) -> None:
+    """403 when `restrict_to_assigned_team` blocks this writer (E-24).
+
+    A no-op unless the project opted in *and* the task is assigned to a team,
+    so every pre-teams task and every non-opted-in project is unaffected.
+    """
+    role = effective_project_role(user, db_task.project_id, db)
+    if can_write_task(db_task, user, role, db):
+        return
+
+    team = (
+        db.get(models.Team, db_task.assigned_team_id)
+        if db_task.assigned_team_id
+        else None
+    )
+    raise HTTPException(
+        status_code=403,
+        detail=(
+            f"This task is assigned to {team.name}."
+            if team
+            else "You do not have permission to edit this task."
+        ),
+    )
+
+
 def _owned_project_ids(user: models.User, db: Session):
-    """Ids of every project owned by `user`."""
-    return [
-        pid for (pid,) in db.query(models.Project.id)
-        .filter(models.Project.owner_id == user.id).all()
-    ]
+    """DEPRECATED — use `accessible_project_ids`.
+
+    Kept for one release so no call site is silently missed; Phase 5 (F5)
+    deletes it.
+    """
+    return accessible_project_ids(user, db)
 
 
 def _get_owned_task(task_id: int, user: models.User, db: Session) -> models.Task:
-    """Return the task if it belongs to a project `user` owns, else 404."""
-    task = (
-        db.query(models.Task)
-        .join(models.Project, models.Task.project_id == models.Project.id)
-        .filter(models.Task.id == task_id, models.Project.owner_id == user.id)
-        .first()
-    )
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return task
+    """DEPRECATED — use `require_task` with an explicit minimum role.
+
+    Kept for one release as a thin alias; Phase 5 (F5) deletes it. `manager` is
+    the conservative stand-in for the old ownership check.
+    """
+    return require_task(task_id, user, db, minimum=ProjectRole.MANAGER)
 
 @router.get("")
 def get_tasks(projectId: Optional[int] = Query(None), include_annotations: bool = Query(True), db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     if projectId:
-        get_owned_project(projectId, user, db)
+        require_project(projectId, user, db, minimum=ProjectRole.VIEWER)
         query = db.query(models.Task).filter(models.Task.project_id == projectId)
     else:
-        # No project given: return tasks across every project the caller owns,
-        # never the whole table.
+        # No project given: return tasks across every project the caller can
+        # reach, never the whole table.
         query = db.query(models.Task).filter(
-            models.Task.project_id.in_(_owned_project_ids(user, db))
+            models.Task.project_id.in_(accessible_project_ids(user, db))
         )
 
     if not include_annotations:
@@ -126,7 +204,7 @@ def get_task(task_id: int, db: Session = Depends(get_db), user: models.User = De
     initial gallery load stays small. The workspace calls this endpoint once per
     task open to hydrate annotations on demand (T1.1 / T1.3).
     """
-    task = _get_owned_task(task_id, user, db)
+    task = require_task(task_id, user, db, minimum=ProjectRole.VIEWER)
     annotations_data: list = []
     if task.annotations:
         try:
@@ -164,7 +242,8 @@ def claim_task(task_id: int, client_id: str = Query(..., max_length=64),
 
     Single-worker constraint: _TASK_LOCKS is in-process.  Rule 9 applies.
     """
-    _get_owned_task(task_id, user, db)      # 404 if not owned
+    # Annotator minimum: a viewer has nothing to lock, since they cannot write.
+    require_task(task_id, user, db, minimum=ProjectRole.ANNOTATOR)
     now = datetime.datetime.now(datetime.timezone.utc)
     existing = _lock_status(task_id)
     if existing and existing["client_id"] != client_id:
@@ -185,7 +264,7 @@ def heartbeat_task(task_id: int, client_id: str = Query(..., max_length=64),
     re-claims if the lock expired (e.g. the client was backgrounded longer
     than the TTL).
     """
-    _get_owned_task(task_id, user, db)
+    require_task(task_id, user, db, minimum=ProjectRole.ANNOTATOR)
     existing = _lock_status(task_id)
     if existing and existing["client_id"] != client_id:
         # Another client took over the stale lock before this heartbeat arrived.
@@ -201,7 +280,7 @@ def heartbeat_task(task_id: int, client_id: str = Query(..., max_length=64),
 def release_task(task_id: int, client_id: str = Query(..., max_length=64),
                  db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     """Release a claim when the annotator closes or switches away from the task."""
-    _get_owned_task(task_id, user, db)
+    require_task(task_id, user, db, minimum=ProjectRole.ANNOTATOR)
     existing = _TASK_LOCKS.get(task_id)
     if existing and existing["client_id"] == client_id:
         del _TASK_LOCKS[task_id]
@@ -217,7 +296,7 @@ def release_task_beacon(task_id: int, client_id: str = Query(..., max_length=64)
     guaranteed to complete.  The advisory lock will expire via TTL anyway, but
     an explicit release is cleaner UX for the waiting annotator.
     """
-    _get_owned_task(task_id, user, db)
+    require_task(task_id, user, db, minimum=ProjectRole.ANNOTATOR)
     existing = _TASK_LOCKS.get(task_id)
     if existing and existing["client_id"] == client_id:
         del _TASK_LOCKS[task_id]
@@ -228,7 +307,7 @@ def release_task_beacon(task_id: int, client_id: str = Query(..., max_length=64)
 def get_lock_status(task_id: int,
                     db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     """Query the current lock state without claiming.  Used by the task list."""
-    _get_owned_task(task_id, user, db)
+    require_task(task_id, user, db, minimum=ProjectRole.ANNOTATOR)
     lock = _lock_status(task_id)
     if not lock:
         return {"locked": False}
@@ -244,7 +323,20 @@ def get_lock_status(task_id: int,
 @router.post("")
 def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(None), db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     if task.id:
-        db_task = _get_owned_task(task.id, user, db)
+        db_task = require_task(task.id, user, db, minimum=ProjectRole.ANNOTATOR)
+
+        # --- Permission checks -------------------------------------------
+        # These run *before* the conflict detection below, deliberately. A user
+        # who may not write this task must get a 403 explaining why, never a
+        # 409 telling them someone else edited it — that is a confusing,
+        # unactionable message for a permission problem (03_API.md § 4.2).
+        #
+        # None of this touches the conflict logic itself. Rule 11 and
+        # .devnotes/deployment-hardening/04_ANNOTATION_SAVE_LOSS.md apply: the
+        # client_id / last_client_id model below is load-bearing and unchanged.
+        _require_review_role_for_status(db_task, task.status, user, db)
+        _require_assigned_team_membership(db_task, user, db)
+
         # Conflict detection guards one thing: a client overwriting a write it
         # never saw. It deliberately does *not* fire when a client overwrites
         # its own earlier save — one browser tab writes the same task from
@@ -307,11 +399,10 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
         if task.assignee is not None:
             db_task.assignee = task.assignee
         if task.status is not None:
-            # 'Approved' is a review gate the project owner sets. Every
-            # project is single-owner (see REFACTOR_MANAGEMENT.md Q1), and
-            # _get_owned_task above already proved `user` owns this task's
-            # project, so no separate check is needed here today. If projects
-            # ever gain shared members, this is the line that needs one.
+            # The review gate for 'Approved'/'Rejected' is enforced above, in
+            # _require_review_role_for_status, before conflict detection runs.
+            # (This is the line the old comment predicted would need a check
+            # "if projects ever gain shared members" — they now have them.)
             db_task.status = task.status
         if task.description is not None:
             db_task.description = task.description
@@ -325,7 +416,7 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
     else:
         if projectId is None:
             raise HTTPException(status_code=422, detail="Query param 'projectId' is required to create a task.")
-        get_owned_project(projectId, user, db)
+        require_project(projectId, user, db, minimum=ProjectRole.MANAGER)
         db_task = models.Task(
             description=task.description,
             assignee=task.assignee, 
@@ -384,26 +475,40 @@ def patch_task(task_id: int, task: TaskUpdate, db: Session = Depends(get_db), us
 
 @router.delete("/{task_id}")
 def delete_task(task_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    task = _get_owned_task(task_id, user, db)
+    task = require_task(task_id, user, db, minimum=ProjectRole.MANAGER)
     db.delete(task)
     commit_with_retry(db)
     return {"status": "ok"}
 
 
-def _restrict_to_owned(ids, user: models.User, db: Session):
-    """Subset of `ids` the caller owns, and how many were rejected.
+def _restrict_to_owned(ids, user: models.User, db: Session,
+                       minimum: ProjectRole = ProjectRole.MANAGER):
+    """Subset of `ids` the caller may act on at `minimum`, and how many were not.
 
     Bulk routes accept arbitrary ids, so filtering (rather than a single guard)
-    is what stops a caller from mutating another owner's tasks by mixing ids
-    into the payload.
+    is what stops a caller mutating tasks they cannot reach by mixing ids into
+    the payload. Filtering rather than failing the whole batch is deliberate and
+    is the shape every bulk endpoint here follows.
+
+    The role is resolved per *project*, not per task: a batch usually spans one
+    or two projects, so this is a couple of resolves rather than one per id.
     """
-    owned = [
-        tid for (tid,) in db.query(models.Task.id)
-        .join(models.Project, models.Task.project_id == models.Project.id)
-        .filter(models.Task.id.in_(ids), models.Project.owner_id == user.id)
+    rows = (
+        db.query(models.Task.id, models.Task.project_id)
+        .filter(models.Task.id.in_(ids))
         .all()
-    ]
-    return owned, len(set(ids)) - len(owned)
+    )
+
+    permitted_projects = {}
+    allowed = []
+    for task_id, project_id in rows:
+        if project_id not in permitted_projects:
+            role = effective_project_role(user, project_id, db)
+            permitted_projects[project_id] = at_least(role, minimum)
+        if permitted_projects[project_id]:
+            allowed.append(task_id)
+
+    return allowed, len(set(ids)) - len(allowed)
 
 @router.post("/bulk-delete")
 def bulk_delete_tasks(payload: BulkDelete, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
@@ -420,7 +525,16 @@ def bulk_update_tasks(payload: BulkUpdate, db: Session = Depends(get_db), user: 
     if not payload.ids:
         raise HTTPException(status_code=400, detail="No ids provided")
 
-    owned, skipped = _restrict_to_owned(payload.ids, user, db)
+    # E-11: the reviewer gate applies here exactly as it does to PATCH.
+    # Otherwise bulk-update is a one-request bypass for approval — set
+    # status="Approved" on the ids you could not approve individually. This is
+    # the easiest check in the whole feature to forget, which is why it has its
+    # own named test.
+    minimum = ProjectRole.MANAGER
+    if payload.status in REVIEW_STATUSES:
+        minimum = max(minimum, ProjectRole.REVIEWER, key=rank)
+
+    owned, skipped = _restrict_to_owned(payload.ids, user, db, minimum=minimum)
 
     update_data = {}
     if payload.assignee is not None:
@@ -434,3 +548,264 @@ def bulk_update_tasks(payload: BulkUpdate, db: Session = Depends(get_db), user: 
         commit_with_retry(db)
 
     return {"status": "ok", "updated": len(owned) if update_data else 0, "skipped": skipped}
+
+
+# ---------------------------------------------------------------------------
+# Review flow (.devnotes/teams/03_API.md § 4.3)
+#
+# `Task.status` stays the single source of truth for whether a task is approved
+# (01_DESIGN.md § 4.2). `TaskReview` is an append-only *log* of transitions, not
+# a second opinion about the current state — two columns that can disagree about
+# approval is a bug generator.
+# ---------------------------------------------------------------------------
+
+_REVIEW_ACTION_STATUS = {
+    "approved": "Approved",
+    "rejected": "Rejected",
+    # "Reopened" is not a status of its own: sending a task back into the
+    # working vocabulary is what re-opening means.
+    "reopened": "In Progress",
+}
+
+
+def _review_out(review: models.TaskReview, username: Optional[str] = None) -> ReviewOut:
+    return ReviewOut(
+        id=review.id,
+        task_id=review.task_id,
+        reviewer_id=review.reviewer_id,
+        reviewer_username=username,
+        action=review.action,
+        note=review.note,
+        previous_status=review.previous_status,
+        created_at=review.created_at,
+    )
+
+
+@router.post("/{task_id}/review", response_model=ReviewResult)
+def review_task(
+    task_id: int,
+    payload: ReviewCreate,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """Approve, reject, or reopen a task, recording who did it and why.
+
+    The explicit review verb. Setting the status through PATCH still works
+    (§ 4.2) so existing clients keep functioning; this endpoint additionally
+    captures the note and the actor.
+
+    Self-approval is **allowed and recorded** rather than blocked
+    (01_DESIGN.md § 4.1): blocking it breaks the common small-team case where
+    the reviewer is the only person who touched a dataset, and it is trivially
+    defeated by two people approving each other's work. Making it visible in the
+    audit trail beats making it impossible.
+    """
+    task = require_task(task_id, user, db, minimum=ProjectRole.REVIEWER)
+
+    previous_status = task.status
+    task.status = _REVIEW_ACTION_STATUS[payload.action]
+    task.updated_at = datetime.datetime.now(datetime.timezone.utc)
+
+    review = models.TaskReview(
+        task_id=task.id,
+        reviewer_id=user.id,
+        action=payload.action,
+        note=payload.note,
+        previous_status=previous_status,
+    )
+    db.add(review)
+    # One commit, deliberately: the review row and the status change land
+    # together or not at all. A review without its status change (or the
+    # reverse) is worse than neither, because the audit trail would then be
+    # lying about what happened.
+    commit_with_retry(db)
+    db.refresh(review)
+
+    return ReviewResult(
+        status="ok",
+        task_id=task.id,
+        task_status=task.status,
+        review=_review_out(review, user.username),
+    )
+
+
+@router.get("/{task_id}/reviews", response_model=List[ReviewOut])
+def list_task_reviews(
+    task_id: int,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """Review history for a task, newest first. Readable by any project member."""
+    require_task(task_id, user, db, minimum=ProjectRole.VIEWER)
+
+    rows = (
+        db.query(models.TaskReview, models.User.username)
+        .outerjoin(models.User, models.User.id == models.TaskReview.reviewer_id)
+        .filter(models.TaskReview.task_id == task_id)
+        .order_by(models.TaskReview.created_at.desc(), models.TaskReview.id.desc())
+        .all()
+    )
+    return [_review_out(review, username) for review, username in rows]
+
+
+# ---------------------------------------------------------------------------
+# Task assignment (.devnotes/teams/03_API.md § 4.3)
+# ---------------------------------------------------------------------------
+
+
+def _validate_assignment(
+    project_id: int,
+    assigned_team_id: Optional[int],
+    assignee_user_id: Optional[int],
+    db: Session,
+) -> List[str]:
+    """Check an assignment, returning warnings. Raises 422 on a hard error.
+
+    The asymmetry here is deliberate (E-09 vs E-10):
+
+    - Assigning to a team with **no grant** is rejected. A task assigned to a
+      team that cannot see the project is invisible work — the worst kind of
+      silent failure.
+    - Assigning a **user outside** the assigned team is allowed with a warning.
+      Individual assignment is advisory by design (01_DESIGN.md § 3.4), and a
+      legitimate case exists: a reviewer from another team taking one task.
+      Rejecting would make the advisory field behave like an enforced one.
+    """
+    warnings: List[str] = []
+
+    if assigned_team_id is not None:
+        team = db.get(models.Team, assigned_team_id)
+        if team is None:
+            raise HTTPException(status_code=404, detail="Team not found")
+        has_grant = (
+            db.query(models.ProjectGrant)
+            .filter(
+                models.ProjectGrant.project_id == project_id,
+                models.ProjectGrant.team_id == assigned_team_id,
+            )
+            .first()
+        )
+        if has_grant is None:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Team {team.name} does not have access to this project. "
+                    "Grant it access first."
+                ),
+            )
+
+    if assignee_user_id is not None:
+        target = db.get(models.User, assignee_user_id)
+        if target is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        if assigned_team_id is not None:
+            in_team = (
+                db.query(models.TeamMembership)
+                .filter(
+                    models.TeamMembership.team_id == assigned_team_id,
+                    models.TeamMembership.user_id == assignee_user_id,
+                )
+                .first()
+            )
+            if in_team is None:
+                warnings.append(
+                    f"{target.username} is not a member of the assigned team."
+                )
+
+    return warnings
+
+
+@router.patch("/{task_id}/assignment", response_model=TaskAssignmentResult)
+def update_task_assignment(
+    task_id: int,
+    payload: TaskAssignment,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """Assign a task to a team and/or an individual.
+
+    An explicit `null` unassigns, returning the task to the shared pool; an
+    omitted field is left alone. Pydantic cannot tell those apart on its own,
+    hence `model_fields_set`.
+    """
+    task = require_task(task_id, user, db, minimum=ProjectRole.MANAGER)
+
+    sent = payload.model_fields_set
+    new_team = payload.assigned_team_id if "assigned_team_id" in sent else task.assigned_team_id
+    new_user = payload.assignee_user_id if "assignee_user_id" in sent else task.assignee_user_id
+
+    warnings = _validate_assignment(task.project_id, new_team, new_user, db)
+
+    task.assigned_team_id = new_team
+    task.assignee_user_id = new_user
+    commit_with_retry(db)
+
+    return TaskAssignmentResult(
+        status="ok",
+        task_id=task.id,
+        assigned_team_id=task.assigned_team_id,
+        assignee_user_id=task.assignee_user_id,
+        warnings=warnings,
+    )
+
+
+@router.post("/bulk-assign", response_model=BulkAssignResult)
+def bulk_assign_tasks(
+    payload: BulkAssign,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """Assign many tasks at once.
+
+    Follows the filter-don't-fail shape every bulk endpoint here uses: ids the
+    caller cannot manage are counted in `skipped` rather than failing the whole
+    batch, which would make one stray id lose the entire operation.
+    """
+    if not payload.ids:
+        raise HTTPException(status_code=400, detail="No ids provided")
+
+    allowed, skipped = _restrict_to_owned(
+        payload.ids, user, db, minimum=ProjectRole.MANAGER
+    )
+    if not allowed:
+        return BulkAssignResult(status="ok", updated=0, skipped=skipped)
+
+    # Validate once per project rather than per task: the whole batch is being
+    # assigned to the same team, so the grant check has the same answer for
+    # every task in a given project.
+    project_ids = {
+        pid
+        for (pid,) in db.query(models.Task.project_id)
+        .filter(models.Task.id.in_(allowed))
+        .distinct()
+        .all()
+    }
+    warnings: List[str] = []
+    for project_id in project_ids:
+        warnings.extend(
+            _validate_assignment(
+                project_id, payload.assigned_team_id, payload.assignee_user_id, db
+            )
+        )
+
+    sent = payload.model_fields_set
+    update_data = {}
+    if "assigned_team_id" in sent:
+        update_data[models.Task.assigned_team_id] = payload.assigned_team_id
+    if "assignee_user_id" in sent:
+        update_data[models.Task.assignee_user_id] = payload.assignee_user_id
+
+    if update_data:
+        update_data[models.Task.updated_at] = datetime.datetime.now(datetime.timezone.utc)
+        db.query(models.Task).filter(models.Task.id.in_(allowed)).update(
+            update_data, synchronize_session=False
+        )
+        commit_with_retry(db)
+
+    return BulkAssignResult(
+        status="ok",
+        updated=len(allowed) if update_data else 0,
+        skipped=skipped,
+        # Deduplicated: the same warning from three projects is one fact.
+        warnings=sorted(set(warnings)),
+    )

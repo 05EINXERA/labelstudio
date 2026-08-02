@@ -64,6 +64,14 @@ class ProjectSummary(BaseModel):
     classes: int = 0
     total_time: int = 0
     avg_time_per_task: int = 0
+    # The caller's effective role on this project, and whether they own it. The
+    # Phase 4 UI levels every control on these two (04_UI_UX.md). Added fields,
+    # never renames — a cached JS bundle ignores them and behaves as before.
+    # Optional because a client on an older bundle may not send them back, and
+    # because the resolver returns None for "no access" (which cannot appear in
+    # this list, but the type should not lie).
+    my_role: Optional[str] = None
+    is_owner: bool = False
 
 class ProjectMetrics(BaseModel):
     total: int
@@ -164,9 +172,21 @@ class LabelImportResult(BaseModel):
     labels: List[LabelModel] = Field(default_factory=list)
 
 # Fixed task-status vocabulary shared by the export filter and the Tasks view.
-# 'Approved' added in Phase 3 (tracker P3.2): owner-only, enforced by
-# _get_owned_task rather than a separate check (single-owner projects).
-TASK_STATUSES = ["New", "In Progress", "Completed", "Approved"]
+#
+# 'Approved' and 'Rejected' are the two review states. Both are gated on the
+# Reviewer project role — the note that used to sit here, saying the ownership
+# check *was* the review gate, described a single-owner world and collapsed to
+# nothing under a shared login. Teams replaced it with a real check
+# (.devnotes/teams/01_DESIGN.md § 4).
+#
+# 'Rejected' means "sent back for rework". Without it a reviewer's only way to
+# signal a problem is to flip the status back to 'In Progress', which is
+# indistinguishable from an annotator re-opening their own work.
+#
+# Anything added here must also be mapped in formats/common.py's
+# TO_EXTERNAL_STATUS / FROM_EXTERNAL_STATUS — the export filter and the import
+# mapping both consume this vocabulary (E-28).
+TASK_STATUSES = ["New", "In Progress", "Completed", "Approved", "Rejected"]
 
 # Export "include" options actually implemented. Mask rendering and image
 # bundling are explicit TODOs (see REFACTOR_MANAGEMENT.md §3 Phase 4) — the
@@ -364,6 +384,97 @@ class TeamDeleteResult(BaseModel):
     grants_removed: int
     tasks_unassigned: int
     members_removed: int
+
+
+# The project-access vocabulary. Deliberately a different set from the team
+# roles above: `owner` is absent because project ownership is `Project.owner_id`
+# and never a grant row — a grant that could say "owner" would give a project two
+# owners with no tiebreak (.devnotes/teams/02_SCHEMA.md § 4).
+GrantRoleLiteral = Literal["viewer", "annotator", "reviewer", "manager"]
+
+# What `effective_project_role` can return, which *does* include owner.
+ProjectRoleLiteral = Literal["viewer", "annotator", "reviewer", "manager", "owner"]
+
+
+class GrantOut(BaseModel):
+    project_id: int
+    team_id: int
+    team_name: Optional[str] = None
+    team_slug: Optional[str] = None
+    role: GrantRoleLiteral
+    granted_by: Optional[int] = None
+    created_at: Optional[datetime] = None
+
+
+class GrantCreate(BaseModel):
+    team_id: int
+    role: GrantRoleLiteral = "annotator"
+
+
+class GrantRoleUpdate(BaseModel):
+    role: GrantRoleLiteral
+
+
+class GrantRevokeResult(BaseModel):
+    status: str
+    # Revoking access also returns that team's tasks on this project to the
+    # shared pool (E-08); echoed so the UI can report what actually happened.
+    tasks_unassigned: int
+
+
+class TaskAssignment(BaseModel):
+    """Both fields are explicitly nullable: `null` means "unassign", which is
+    different from omitting the field. Pydantic cannot distinguish those on its
+    own, so the endpoint inspects `model_fields_set`."""
+    assigned_team_id: Optional[int] = None
+    assignee_user_id: Optional[int] = None
+
+
+class TaskAssignmentResult(BaseModel):
+    status: str
+    task_id: int
+    assigned_team_id: Optional[int] = None
+    assignee_user_id: Optional[int] = None
+    # E-10: assigning someone outside the assigned team is allowed, because
+    # individual assignment is advisory by design. The caller is told, not
+    # blocked.
+    warnings: List[str] = Field(default_factory=list)
+
+
+class BulkAssign(BaseModel):
+    ids: List[int]
+    assigned_team_id: Optional[int] = None
+    assignee_user_id: Optional[int] = None
+
+
+class BulkAssignResult(BaseModel):
+    status: str
+    updated: int
+    skipped: int
+    warnings: List[str] = Field(default_factory=list)
+
+
+class ReviewCreate(BaseModel):
+    action: Literal["approved", "rejected", "reopened"]
+    note: Optional[str] = Field(default=None, max_length=1000)
+
+
+class ReviewOut(BaseModel):
+    id: int
+    task_id: int
+    reviewer_id: Optional[int] = None
+    reviewer_username: Optional[str] = None
+    action: str
+    note: Optional[str] = None
+    previous_status: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+
+class ReviewResult(BaseModel):
+    status: str
+    task_id: int
+    task_status: str
+    review: ReviewOut
 
 
 class MeTeam(BaseModel):

@@ -4,7 +4,7 @@ import os
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, UploadFile, File, Query, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, Query, HTTPException, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
@@ -14,24 +14,35 @@ from config import DATA_DIR, MAX_UPLOAD_FILES
 from database import get_db, commit_with_retry
 from schemas import ProjectModel, ProjectMetrics, ProjectSummary
 from api.auth import get_current_user, require_csrf
+from api.permissions import (
+    ProjectRole,
+    accessible_project_ids,
+    effective_project_role,
+    require_project,
+)
 from formats.common import measure_image
 
 logger = logging.getLogger(__name__)
 
 
 def get_owned_project(project_id: int, user: models.User, db: Session) -> models.Project:
-    """Return the project if `user` owns it, else raise 404.
+    """DEPRECATED — use `require_project` with an explicit minimum role.
 
-    404 rather than 403 so the API does not confirm the existence of other
-    users' project ids.
+    Kept for one release as a thin alias so no call site can be silently missed
+    during the Teams migration; Phase 5 (F5) deletes it. `manager` is the
+    conservative stand-in for the old ownership check: everything this used to
+    guard was an administrative act.
+
+    New code must call `api.permissions.require_project` directly and state the
+    minimum role the endpoint actually needs — see .devnotes/teams/03_API.md
+    § 4.1 for the per-call-site table.
     """
-    project = db.query(models.Project).filter(
-        models.Project.id == project_id,
-        models.Project.owner_id == user.id,
-    ).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-    return project
+    return require_project(project_id, user, db, minimum=ProjectRole.MANAGER)
+
+
+def _role_value(role) -> Optional[str]:
+    """`ProjectRole` (or None) as the plain string the API exposes."""
+    return role.value if role is not None else None
 
 
 def _count_comments(annotations: Optional[str]) -> int:
@@ -105,36 +116,63 @@ router = APIRouter(
 )
 
 @router.get("", response_model=List[ProjectSummary])
-def get_projects(db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    """Every project the caller owns, with its task metrics merged in.
+def get_projects(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """Every project the caller can reach, with its task metrics merged in.
 
-    Scope comes from the token, never from a client-supplied `creator`.
+    Scope comes from the token, never from a client-supplied `creator`. It is
+    now "reachable" rather than "owned": owned ∪ granted-through-a-team ∪
+    org-visible. Under a shared account with no teams that resolves to exactly
+    the same set as before.
     """
-    # Scope comes from the token, never from a client-supplied `creator`.
-    projects = db.query(models.Project).filter(models.Project.owner_id == user.id).all()
-    if not projects:
+    project_ids = accessible_project_ids(user, db)
+    if not project_ids:
         return []
 
-    project_ids = [p.id for p in projects]
+    projects = (
+        db.query(models.Project).filter(models.Project.id.in_(project_ids)).all()
+    )
     metrics = _aggregate_metrics(project_ids, db)
 
     return [
         ProjectSummary(
             id=p.id, name=p.name, slug=p.slug, type=p.type, status=p.status,
             creator=p.creator, assignee=p.assignee, created_at=p.created_at,
+            my_role=_role_value(effective_project_role(user, p.id, db, request=request)),
+            is_owner=p.owner_id == user.id,
             **metrics[p.id],
         )
         for p in projects
     ]
 
 @router.get("/{project_id}")
-def get_project(project_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    p = get_owned_project(project_id, user, db)
-    return {"id": p.id, "name": p.name, "slug": p.slug, "type": p.type, "status": p.status, "creator": p.creator, "created_at": p.created_at, "assignee": p.assignee}
+def get_project(
+    project_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    p = require_project(project_id, user, db, minimum=ProjectRole.VIEWER, request=request)
+    role = effective_project_role(user, project_id, db, request=request)
+    # my_role/is_owner are *added* fields — the rest of this shape is unchanged
+    # so a cached JS bundle keeps working (03_API.md § 8). The whole Phase 4 UI
+    # levels itself on these two.
+    return {
+        "id": p.id, "name": p.name, "slug": p.slug, "type": p.type,
+        "status": p.status, "creator": p.creator, "created_at": p.created_at,
+        "assignee": p.assignee,
+        "my_role": role.value if role else None,
+        "is_owner": p.owner_id == user.id,
+        "restrict_to_assigned_team": p.restrict_to_assigned_team,
+        "visibility": p.visibility,
+    }
 
 @router.get("/{project_id}/metrics", response_model=ProjectMetrics)
 def get_project_metrics(project_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    project = get_owned_project(project_id, user, db)
+    project = require_project(project_id, user, db, minimum=ProjectRole.VIEWER)
     m = _aggregate_metrics([project_id], db)[project_id]
 
     # This endpoint used to write the derived status back to the project, which
@@ -164,16 +202,25 @@ def _apply_project_update(db_project: models.Project, project_update: schemas.Pr
 
 @router.patch("/{project_id}")
 def patch_project(project_id: int, project_update: schemas.ProjectUpdate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    db_project = get_owned_project(project_id, user, db)
+    db_project = require_project(project_id, user, db, minimum=ProjectRole.MANAGER)
     _apply_project_update(db_project, project_update)
     commit_with_retry(db)
     return {"status": "ok"}
 
 @router.delete("/{project_id}")
 def delete_project(project_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    db_project = get_owned_project(project_id, user, db)
+    # Owner only. Deleting a project destroys everyone's work on it, which is
+    # not something a delegated manager should be able to do.
+    db_project = require_project(project_id, user, db, minimum=ProjectRole.OWNER)
     db.query(models.Task).filter(models.Task.project_id == project_id).delete()
     db.query(models.Label).filter(models.Label.project_id == project_id).delete()
+    # E-12: grants are deleted explicitly alongside tasks and labels rather than
+    # left to ondelete=CASCADE, which SQLite only honours with
+    # PRAGMA foreign_keys=ON. An orphaned grant would keep pointing at a project
+    # that no longer exists.
+    db.query(models.ProjectGrant).filter(
+        models.ProjectGrant.project_id == project_id
+    ).delete()
     db.delete(db_project)
     commit_with_retry(db)
     return {"status": "ok"}
@@ -238,7 +285,7 @@ def upload_files(project_id: int, assignee: Optional[str] = Query(None), file: L
     left on disk with no task row and the client got a 400 with no record of
     what did succeed. Each file is now reported individually.
     """
-    get_owned_project(project_id, user, db)
+    require_project(project_id, user, db, minimum=ProjectRole.MANAGER)
 
     # Bounds the work one request can queue. Each file is streamed to disk while
     # holding a worker thread, so an unbounded batch lets a single request stall

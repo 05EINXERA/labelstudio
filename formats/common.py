@@ -268,15 +268,22 @@ TO_EXTERNAL_STATUS: Dict[str, Tuple[str, str]] = {
     "In Progress": ("in_progress", ""),
     "Completed": ("completed", ""),
     "Approved": ("completed", "approved"),
+    # "Rejected" means "reviewed and sent back for rework", so the base status
+    # is in_progress (there *is* more work to do) with the review outcome in
+    # externalStatus. Exporting it as "completed" would tell a consumer the work
+    # is finished, which is the opposite of what a rejection means.
+    "Rejected": ("in_progress", "rejected"),
 }
 
-# The inverse. externalStatus wins when it says "approved", because that is the
-# only way the interop format distinguishes an approved task from a merely completed one.
+# The inverse. externalStatus wins when it names a review outcome, because that
+# is the only way the interop format distinguishes a reviewed task from an
+# unreviewed one at the same base status.
 FROM_EXTERNAL_STATUS: Dict[str, str] = {
     "registered": "New",
     "in_progress": "In Progress",
     "completed": "Completed",
     "approved": "Approved",
+    "rejected": "Rejected",
 }
 
 
@@ -290,8 +297,13 @@ def to_external_status(status: Optional[str]) -> Tuple[str, str]:
 
 def from_external_status(status: Optional[str], external_status: Optional[str] = None) -> str:
     """the interop (status, externalStatus) -> our status."""
-    if (external_status or "").lower() == "approved":
-        return "Approved"
+    # externalStatus wins over the base status: it is the only field carrying
+    # the review outcome, and both review states share their base status with an
+    # unreviewed task ("completed" for approved, "in_progress" for rejected).
+    # Consulting only the base status would silently discard the review.
+    external_key = (external_status or "").lower()
+    if external_key in ("approved", "rejected"):
+        return FROM_EXTERNAL_STATUS[external_key]
     key = (status or "").lower()
     if key in FROM_EXTERNAL_STATUS:
         return FROM_EXTERNAL_STATUS[key]

@@ -66,7 +66,7 @@ from schemas import (
     resolve_export_request,
 )
 from api.auth import get_current_user, require_csrf
-from api.routers.projects import get_owned_project
+from api.permissions import ProjectRole, require_project
 from formats import annotations_json
 from formats import coco as coco_format
 from formats import images as images_format
@@ -318,7 +318,7 @@ def _run_export_job(job_id: str, req: ExportRequest, project_id: int):
 
 @router.post("")
 def create_export(req: ExportRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    get_owned_project(req.projectId, user, db)
+    require_project(req.projectId, user, db, minimum=ProjectRole.VIEWER)
 
     # Resolve deprecated single-axis codes before validating, so an old client
     # sending format=masks_index or format=json still passes.

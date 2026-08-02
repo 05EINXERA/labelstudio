@@ -51,7 +51,7 @@ import models
 from database import get_db, commit_with_retry
 from api.uploads import read_capped
 from api.auth import get_current_user, require_csrf
-from api.routers.projects import get_owned_project
+from api.permissions import ProjectRole, require_project
 from formats import annotations_json
 from formats import coco as coco_format
 from formats import yolo as yolo_format
@@ -348,7 +348,7 @@ async def preview_annotation_import(
     user: models.User = Depends(get_current_user),
 ):
     """Report what an import would do, without writing anything."""
-    get_owned_project(projectId, user, db)
+    require_project(projectId, user, db, minimum=ProjectRole.MANAGER)
     raw = await read_capped(file)
     try:
         by_filename = _parse_import_file(file.filename or "", raw)
@@ -392,7 +392,7 @@ async def import_annotations(
     """Apply an annotation import. `merge` appends to each matched task's
     existing annotations; `replace` overwrites them.
     """
-    get_owned_project(projectId, user, db)
+    require_project(projectId, user, db, minimum=ProjectRole.MANAGER)
     raw = await read_capped(file)
     try:
         by_filename = _parse_import_file(file.filename or "", raw)

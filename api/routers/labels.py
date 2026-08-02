@@ -14,7 +14,7 @@ from database import get_db, commit_with_retry
 from api.uploads import read_capped
 from schemas import LabelModel, LabelBulkUpsert, LabelBulkDelete, LabelBulkResult, LabelImportResult
 from api.auth import get_current_user, require_csrf
-from api.routers.projects import get_owned_project
+from api.permissions import ProjectRole, require_project
 
 logger = logging.getLogger(__name__)
 
@@ -59,13 +59,13 @@ def purge_annotations_for_labels(project_id: int, label_ids: set, db: Session) -
 
 @router.get("", response_model=List[LabelModel])
 def get_labels(projectId: int = Query(...), db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    get_owned_project(projectId, user, db)
+    require_project(projectId, user, db, minimum=ProjectRole.VIEWER)
     labels = db.query(models.Label).filter(models.Label.project_id == projectId).all()
     return [{"id": l.id, "name": l.name, "color": l.color, "projectId": l.project_id} for l in labels]
 
 @router.post("")
 def create_or_update_label(label: LabelModel, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    get_owned_project(label.projectId, user, db)
+    require_project(label.projectId, user, db, minimum=ProjectRole.MANAGER)
     db_label = db.query(models.Label).filter(
         models.Label.id == label.id, models.Label.project_id == label.projectId
     ).first()
@@ -86,7 +86,7 @@ def bulk_upsert_labels(payload: LabelBulkUpsert, db: Session = Depends(get_db), 
     importer. A label whose projectId does not match `payload.projectId` is
     rejected rather than silently moved between projects.
     """
-    get_owned_project(payload.projectId, user, db)
+    require_project(payload.projectId, user, db, minimum=ProjectRole.MANAGER)
 
     mismatched = [l.id for l in payload.labels if l.projectId != payload.projectId]
     if mismatched:
@@ -113,7 +113,7 @@ def bulk_upsert_labels(payload: LabelBulkUpsert, db: Session = Depends(get_db), 
     return LabelBulkResult(created=created, updated=updated)
 @router.post("/bulk-delete")
 def bulk_delete_labels(payload: LabelBulkDelete, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    get_owned_project(payload.projectId, user, db)
+    require_project(payload.projectId, user, db, minimum=ProjectRole.MANAGER)
     if not payload.ids:
         raise HTTPException(status_code=400, detail="No ids provided")
     existing_ids = {
@@ -197,7 +197,7 @@ def export_labels(
       csv        — id, name, color rows
       txt        — one name per line
     """
-    get_owned_project(projectId, user, db)
+    require_project(projectId, user, db, minimum=ProjectRole.VIEWER)
     labels = db.query(models.Label).filter(models.Label.project_id == projectId).order_by(models.Label.name).all()
 
     if format == "txt":
@@ -292,7 +292,7 @@ async def import_labels(
     Names are deduplicated case-insensitively so re-importing the same file is
     a no-op rather than piling up near-duplicates.
     """
-    get_owned_project(projectId, user, db)
+    require_project(projectId, user, db, minimum=ProjectRole.MANAGER)
 
     raw = await read_capped(file)
     try:
@@ -345,7 +345,7 @@ async def import_labels(
 
 @router.delete("/{label_id}")
 def delete_label(label_id: str, projectId: int = Query(...), db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    get_owned_project(projectId, user, db)
+    require_project(projectId, user, db, minimum=ProjectRole.MANAGER)
     db_label = db.query(models.Label).filter(
         models.Label.id == label_id, models.Label.project_id == projectId
     ).first()
