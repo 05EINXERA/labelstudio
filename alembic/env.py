@@ -37,7 +37,18 @@ target_metadata = models.Base.metadata
 #
 # `%` is escaped because ConfigParser would otherwise treat it as interpolation
 # syntax — Postgres passwords routinely contain percent-encoded characters.
-config.set_main_option("sqlalchemy.url", DATABASE_URL.replace("%", "%%"))
+#
+# An explicit URL set by a programmatic caller wins. `config` is imported at
+# module scope and caches .env, so a caller that sets os.environ["DATABASE_URL"]
+# after that import would otherwise be silently ignored and its migrations sent
+# at whatever .env points to — in practice the live database. That is how
+# tests/test_teams_migrations.py, which must only ever touch a throwaway file,
+# would have run against the deployment's Postgres instance.
+_explicit_url = config.attributes.get("sqlalchemy.url")
+if _explicit_url:
+    config.set_main_option("sqlalchemy.url", _explicit_url.replace("%", "%%"))
+else:
+    config.set_main_option("sqlalchemy.url", DATABASE_URL.replace("%", "%%"))
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:

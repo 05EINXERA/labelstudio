@@ -49,6 +49,16 @@ def upgrade() -> None:
 
     # Rebuild the primary key as (key, owner_id). Batch mode recreates the table
     # on SQLite; on Postgres these are real ALTERs.
+    #
+    # Postgres will not accept a second PRIMARY KEY on a table that already has
+    # one, so the existing single-column key must be dropped first. SQLite's
+    # batch mode rebuilds the table from the new definition and has no
+    # constraint to drop, hence the dialect check. This only bites on a chain
+    # built from empty: production reached the composite key via the old
+    # create_all() and stamped past this revision, so it never ran here.
+    if op.get_bind().dialect.name != 'sqlite':
+        op.drop_constraint('pk_workspace_data', 'workspace_data', type_='primary')
+
     with op.batch_alter_table('workspace_data') as batch_op:
         batch_op.alter_column('owner_id', existing_type=sa.Integer(), nullable=False)
         batch_op.create_primary_key('pk_workspace_data', ['key', 'owner_id'])
