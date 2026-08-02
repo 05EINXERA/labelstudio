@@ -10,13 +10,14 @@ from sqlalchemy.orm import Session
 import models
 from config import ALLOW_REGISTRATION, IS_PRODUCTION, MIN_PASSWORD_LENGTH
 from database import get_db
-from schemas import UserCreate, Token
+from schemas import UserCreate, Token, Me, MeTeam
 from api.auth import (
     get_password_hash,
     verify_password,
     create_access_token,
     issue_session_cookies,
     clear_session_cookies,
+    get_current_user,
     require_csrf,
     ACCESS_TOKEN_EXPIRE_MINUTES,
 )
@@ -102,3 +103,35 @@ def login_for_access_token(
 def logout(response: Response):
     clear_session_cookies(response)
     return {"status": "ok"}
+
+
+@router.get("/me", response_model=Me)
+def me(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """The caller's real identity and team memberships.
+
+    The frontend previously derived identity from
+    `localStorage['dataset_username']` — free text the user typed, so neither
+    trustworthy nor reliably accurate (CLAUDE.md rule 14). Every role-levelled UI
+    decision needs the real thing, which is why this endpoint blocks Phase 4.
+
+    `/api/auth` is the one router without a router-level auth dependency (it has
+    to serve login and registration), so the dependency goes on this function.
+    """
+    teams = (
+        db.query(models.Team, models.TeamMembership.role)
+        .join(
+            models.TeamMembership,
+            models.TeamMembership.team_id == models.Team.id,
+        )
+        .filter(models.TeamMembership.user_id == current_user.id)
+        .order_by(models.Team.name)
+        .all()
+    )
+    return Me(
+        id=current_user.id,
+        username=current_user.username,
+        teams=[MeTeam(id=t.id, name=t.name, role=role) for t, role in teams],
+    )
