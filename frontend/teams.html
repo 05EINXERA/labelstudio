@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Teams - Label Studio</title>
+  <link rel="icon" type="image/png" href="logo.png">
+  <link rel="stylesheet" href="styles.css?v=4">
+</head>
+
+<body style="background: var(--bg);">
+
+  <header class="mgmt-header">
+    <div class="brand">
+      <img src="logo.png" alt="Logo">
+      <h1 id="pageHeading">Teams</h1>
+    </div>
+    <nav class="app-nav" id="appNav" aria-label="Sections"></nav>
+    <div class="spacer"></div>
+    <span class="mgmt-user" id="currentUser"></span>
+    <button class="tool-button" id="logoutBtn" type="button">Log out</button>
+  </header>
+
+  <!--
+    One page serves two levels (04_UI_UX.md § 3):
+      teams.html            → the list  (#listPane)
+      teams.html?id=N#/...  → one team  (#teamPane)
+    Which pane is shown is decided by teams-entry.js from the query string, so a
+    deep link lands in the right place on a cold load.
+  -->
+  <main class="mgmt-main">
+
+    <!-- Level 1: your teams -->
+    <section id="listPane" hidden>
+      <div class="mgmt-title-row">
+        <div>
+          <p class="mgmt-eyebrow">Workspace</p>
+          <h2>Your teams</h2>
+        </div>
+        <button class="primary" id="newTeamBtn" type="button"
+          style="padding: 10px 18px; border-radius: 8px; font-weight: 600;">+ New team</button>
+      </div>
+
+      <div id="errorBanner" class="mgmt-error" style="display: none;"></div>
+
+      <div class="mgmt-toolbar">
+        <input type="search" id="searchInput" placeholder="Search teams…" aria-label="Search teams">
+      </div>
+
+      <div id="tableMount"></div>
+    </section>
+
+    <!-- Level 2: one team -->
+    <section id="teamPane" hidden>
+      <div class="mgmt-title-row">
+        <div>
+          <p class="mgmt-eyebrow"><a class="cell-link" href="teams.html">← All teams</a></p>
+          <h2 id="teamName">Team</h2>
+        </div>
+        <span id="teamRoleBadge"></span>
+      </div>
+
+      <div class="project-shell">
+        <nav class="project-nav" id="teamNav" aria-label="Team sections"></nav>
+        <div class="project-view" id="teamView"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- New team modal -->
+  <div class="modal-overlay" id="teamModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>New team</h2>
+        <button class="modal-close" id="teamModalClose" type="button">&times;</button>
+      </div>
+      <form id="teamForm">
+        <div class="modal-body" style="display: grid; gap: 14px;">
+          <div class="form-field">
+            <label for="teamFormName">Team name</label>
+            <input type="text" id="teamFormName" required maxlength="120" autocomplete="off">
+          </div>
+          <div class="form-field">
+            <label for="teamFormDescription">Description <span class="muted">(optional)</span></label>
+            <input type="text" id="teamFormDescription" maxlength="500" autocomplete="off">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="tool-button" id="teamModalCancel">Cancel</button>
+          <button type="submit" class="primary">Create team</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Add member modal (team shell) -->
+  <div class="modal-overlay" id="memberModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Add member</h2>
+        <button class="modal-close" id="memberModalClose" type="button">&times;</button>
+      </div>
+      <form id="memberForm">
+        <div class="modal-body" style="display: grid; gap: 14px;">
+          <div class="form-field">
+            <label for="memberFormUsername">Username</label>
+            <input type="text" id="memberFormUsername" required maxlength="64" autocomplete="off">
+            <p class="field-hint">Enter their exact username. Ask them to check the
+              top-right of their screen if unsure.</p>
+          </div>
+          <div class="form-field">
+            <label for="memberFormRole">Role</label>
+            <select id="memberFormRole">
+              <option value="member">Member</option>
+              <option value="manager">Manager</option>
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="tool-button" id="memberModalCancel">Cancel</button>
+          <button type="submit" class="primary">Add member</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script type="module" src="js/pages/teams-entry.js?v=1"></script>
+</body>
+
+</html>

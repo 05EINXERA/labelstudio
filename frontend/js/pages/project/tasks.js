@@ -14,6 +14,16 @@
 import { apiFetch } from "../../api.js?v=1";
 import { escapeHTML, formatTime } from "../../utils.js?v=1";
 import { createDataTable } from "../../components/data-table.js?v=1";
+import { fetchMyTeams, fillTeamSelect } from "../../components/team-picker.js?v=1";
+import { canManage, canReview } from "../../permissions.js?v=1";
+import {
+  STATUSES,
+  buildColumns,
+  showsBulkBar,
+  showsSelection,
+  showsUpload,
+  statusPill,
+} from "./task-columns.js?v=1";
 
 let root = null;
 let ctx = null;
@@ -32,28 +42,6 @@ async function _refreshLockCache(tasks) {
       if (res && res.ok) _lockCache[t.id] = await res.json();
     } catch { /* best-effort */ }
   }));
-}
-
-const ICON_EDIT = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></svg>`;
-const ICON_DELETE = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>`;
-
-const STATUSES = ["New", "In Progress", "Completed", "Approved"];
-
-function statusPill(status) {
-  const s = status || "New";
-  const cls = s === "Completed" ? "is-completed" : s === "In Progress" ? "is-progress" : s === "Approved" ? "is-approved" : "";
-  return `<span class="pill ${cls}">${escapeHTML(s)}</span>`;
-}
-
-function countAnnotations(task) {
-  let anns = task.annotations;
-  if (typeof anns === "string") {
-    try { anns = JSON.parse(anns); } catch { anns = []; }
-  }
-  if (!Array.isArray(anns)) return { comments: 0, classes: 0 };
-  const comments = anns.filter((a) => a.type === "comment").length;
-  const classes = new Set(anns.filter((a) => a.labelId).map((a) => a.labelId)).size;
-  return { comments, classes };
 }
 
 function template() {
@@ -79,6 +67,7 @@ function template() {
     <div class="bulk-bar" id="bulkBar">
       <span class="count" id="bulkCount"></span>
       <button type="button" class="tool-button" id="bulkAssignBtn">Bulk assign</button>
+      <button type="button" class="tool-button" id="bulkTeamBtn">Assign team</button>
       <button type="button" class="tool-button" id="bulkDeleteBtn" style="color:#e05260;border-color:rgba(224,82,96,.3);">Bulk delete</button>
     </div>
 
@@ -88,6 +77,7 @@ function template() {
         <option value="All">All statuses</option>
         ${STATUSES.map((s) => `<option value="${s}">${s}</option>`).join("")}
       </select>
+      <select id="teamFilter" aria-label="Filter by team"></select>
     </div>
 
     <div id="tableMount"></div>
@@ -311,6 +301,17 @@ function updateBulkBar(selection) {
 }
 
 function bindBulkActions() {
+  // A reviewer gets the bulk bar (for review actions) but not the
+  // administrative buttons, so those are removed rather than left to 403.
+  if (!canManage(ctx.myRole)) {
+    el("bulkAssignBtn")?.remove();
+    el("bulkTeamBtn")?.remove();
+    el("bulkDeleteBtn")?.remove();
+    return;
+  }
+
+  el("bulkTeamBtn").addEventListener("click", bulkAssignTeam);
+
   el("bulkDeleteBtn").addEventListener("click", async () => {
     const ids = [...table.getSelection()];
     if (!ids.length) return;
@@ -370,6 +371,139 @@ function bindBulkActions() {
   });
 }
 
+// --- teams, reviewers and filters ------------------------------------------
+
+// id → display name, so the Team and Assignee columns can render a name
+// without a request per row. Both are small and change rarely.
+const teamsById = new Map();
+const usersById = new Map();
+
+async function loadLookups() {
+  // Teams granted on *this project*, not the caller's own teams: a task can be
+  // assigned to a team the caller does not belong to, and its name must still
+  // render. Grants are readable by any project member.
+  const res = await apiFetch(`/api/projects/${encodeURIComponent(ctx.projectId)}/grants`);
+  if (res?.ok) {
+    for (const grant of await res.json()) {
+      teamsById.set(grant.team_id, grant.team_name);
+    }
+  }
+
+  // The only usernames reliably resolvable are those of the caller's own team
+  // members. An `assignee_user_id` outside that set falls back to "User N"
+  // rather than triggering a user-directory endpoint, which deliberately does
+  // not exist (01_DESIGN.md § 5.1).
+  const myTeams = await fetchMyTeams();
+  await Promise.allSettled(
+    myTeams.map(async (team) => {
+      const r = await apiFetch(`/api/teams/${encodeURIComponent(team.id)}/members`);
+      if (!r?.ok) return;
+      for (const member of await r.json()) usersById.set(member.user_id, member.username);
+    })
+  );
+
+  const filter = el("teamFilter");
+  if (filter) {
+    fillTeamSelect(filter, [...teamsById].map(([id, name]) => ({ id, name })), {
+      extraOptions: [
+        { value: "All", label: "All teams" },
+        { value: "unassigned", label: "Unassigned" },
+      ],
+    });
+    filter.value = "All";
+  }
+}
+
+/**
+ * The team filter is applied through `setFilter` on a derived key rather than
+ * on `assigned_team_id` directly, because "unassigned" is a null match and the
+ * table's filter compares by equality.
+ */
+function applyTeamFilter(value) {
+  const rows = table.getRows();
+  for (const row of rows) {
+    row._teamFilter = row.assigned_team_id == null ? "unassigned" : String(row.assigned_team_id);
+  }
+  table.setFilter("_teamFilter", value === "All" ? "All" : value);
+}
+
+/**
+ * Bulk assign a team to the selected tasks.
+ *
+ * Uses a prompt rather than a fourth modal: the choice is one value from a
+ * short list the user has just seen in the filter, and a modal here would be
+ * more chrome than decision.
+ */
+async function bulkAssignTeam() {
+  const ids = [...table.getSelection()];
+  if (!ids.length) return;
+
+  const options = [...teamsById].map(([id, name]) => `${id} = ${name}`).join("\n");
+  if (!options) {
+    showError("No teams have access to this project yet. Grant one on the Access tab.");
+    return;
+  }
+  const answer = prompt(
+    `Assign ${ids.length} task(s) to which team?\n\n${options}\n\n` +
+    `Enter a team id, or leave blank to unassign.`
+  );
+  if (answer == null) return;
+
+  const teamId = answer.trim() ? Number(answer.trim()) : null;
+  if (teamId !== null && !teamsById.has(teamId)) {
+    showError("That team id is not in the list above.");
+    return;
+  }
+
+  const res = await apiFetch("/api/tasks/bulk-assign", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids, assigned_team_id: teamId }),
+  });
+  if (!res) return;
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    showError(body?.detail || `Could not assign those tasks (${res.status}).`);
+    return;
+  }
+
+  const result = await res.json();
+  clearError();
+  if (result.skipped) {
+    showError(`${result.updated} task(s) assigned. ${result.skipped} skipped — you cannot manage them.`);
+  }
+  table.clearSelection();
+  await loadTasks();
+}
+
+async function review(row, action) {
+  // A rejection carries a reason: "sent back" with no note is the thing
+  // annotators complain about most.
+  let note = null;
+  if (action === "rejected") {
+    note = prompt(`Why is "${row.description}" being sent back?`);
+    if (note == null) return; // cancelled
+  }
+
+  const res = await apiFetch(`/api/tasks/${encodeURIComponent(row.id)}/review`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action, note: note || null }),
+  });
+  if (!res) return;
+  if (res.status === 403) {
+    const body = await res.json().catch(() => null);
+    showError(body?.detail || "You do not have permission to review this task.");
+    return;
+  }
+  if (!res.ok) {
+    showError(`Could not record that review (${res.status}).`);
+    return;
+  }
+  clearError();
+  await loadTasks();
+}
+
 // --- mount -------------------------------------------------------------
 
 export async function mount(hostRoot, hostCtx) {
@@ -377,67 +511,50 @@ export async function mount(hostRoot, hostCtx) {
   ctx = hostCtx;
   root.innerHTML = template();
 
+  const role = ctx.myRole;
+
   table = createDataTable({
     mount: el("tableMount"),
     rowId: (r) => r.id,
-    selectable: true,
+    // Selection exists only to drive the bulk bar, so a role without one gets
+    // no checkbox column either.
+    selectable: showsSelection(role),
     sortKey: "updated_at",
     sortDesc: true,
     emptyMessage: "No tasks yet. Upload images to get started.",
     onSelectionChange: updateBulkBar,
     matches: (row, q) => String(row.description || "").toLowerCase().includes(q),
-    columns: [
-      {
-        key: "image_path",
-        label: "",
-        sortable: false,
-        width: "56px",
-        render: (r) => r.image_path
-          ? `<img src="/${escapeHTML(String(r.image_path).replace(/\\/g, "/"))}" style="height:40px;border-radius:4px;border:1px solid var(--line);">`
-          : "",
-      },
-      { key: "description", label: "Filename", render: (r) => `<a href="app.html?projectId=${encodeURIComponent(ctx.projectId)}&taskId=${encodeURIComponent(r.id)}" style="max-width:320px;display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle;color:var(--accent);text-decoration:none;cursor:pointer;transition:color 0.2s ease;" onmouseover="this.style.color='var(--accent-dark)';this.style.textDecoration='underline'" onmouseout="this.style.color='var(--accent)';this.style.textDecoration='none'" title="${escapeHTML(r.description || '')}">${escapeHTML(r.description || "")}</a>` },
-      { key: "assignee", label: "Assignee", render: (r) => r.assignee ? escapeHTML(r.assignee) : `<span style="color:var(--muted);">—</span>` },
-      {
-        // T2.2 — show a "busy" badge when another annotator has the task open.
-        key: "_lock", label: "", sortable: false, width: "56px",
-        render: (r) => {
-          const lock = _lockCache[r.id];
-          if (!lock || !lock.locked) return "";
-          return `<span title="In use by another annotator" style="font-size:.75rem;padding:2px 6px;border-radius:10px;background:rgba(239,68,68,.15);color:#ef4444;white-space:nowrap;">● busy</span>`;
-        },
-      },
-      { key: "status", label: "Status", render: (r) => statusPill(r.status) },
-      { key: "time_spent", label: "Time", render: (r) => r.time_spent ? `<span style="font-family:monospace;font-size:.85rem;">${formatTime(r.time_spent)}</span>` : `<span style="color:var(--muted);">—</span>` },
-      {
-        key: "updated_at", label: "Updated",
-        render: (r) => {
-          if (!r.updated_at) return `<span style="color:var(--muted);">—</span>`;
-          const d = new Date(r.updated_at.endsWith("Z") ? r.updated_at : r.updated_at + "Z");
-          return `<span style="font-size:.82rem;color:var(--muted);">${isNaN(d) ? escapeHTML(r.updated_at) : d.toLocaleString()}</span>`;
-        },
-      },
-      { key: "classes", label: "Classes", sortable: false, align: "center", render: (r) => String(countAnnotations(r).classes) },
-      { key: "comments", label: "Comments", sortable: false, align: "center", render: (r) => `💬 ${countAnnotations(r).comments}` },
-      {
-        key: "actions", label: "", sortable: false, align: "center",
-        render: () => `<div class="row-actions">
-            <button type="button" data-action="edit" title="Edit task">${ICON_EDIT}</button>
-            <button type="button" data-action="delete" class="danger" title="Delete task">${ICON_DELETE}</button>
-          </div>`,
-      },
-    ],
+    columns: buildColumns({
+      role,
+      projectId: ctx.projectId,
+      teamsById,
+      usersById,
+      lockCache: _lockCache,
+    }),
   });
 
-  bindUpload();
-  bindEditModal();
-  bindBulkActions();
+  // Upload and bulk controls are removed from the DOM rather than disabled:
+  // a greyed-out button the caller can never use is just clutter, and their
+  // handlers assume permissions the server would refuse anyway.
+  if (!showsUpload(role)) {
+    el("uploadBtn")?.remove();
+    el("dropZone")?.remove();
+  } else {
+    bindUpload();
+  }
+
+  if (canManage(role)) bindEditModal();
+
+  if (showsBulkBar(role)) bindBulkActions();
+  else el("bulkBar")?.remove();
 
   el("searchInput").addEventListener("input", (e) => table.setQuery(e.target.value));
   el("statusFilter").addEventListener("change", (e) => table.setFilter("status", e.target.value));
+  el("teamFilter")?.addEventListener("change", (e) => applyTeamFilter(e.target.value));
 
   table.onAction("edit", (row) => openEditModal(row));
-  table.onAction("delete", async (row) => {    if (!confirm(`Delete "${row.description}"? This cannot be undone.`)) return;
+  table.onAction("delete", async (row) => {
+    if (!confirm(`Delete "${row.description}"? This cannot be undone.`)) return;
     try {
       const res = await apiFetch(`/api/tasks/${row.id}`, { method: "DELETE" });
       if (!res) return;
@@ -452,6 +569,10 @@ export async function mount(hostRoot, hostCtx) {
     }
   });
 
+  table.onAction("approve", (row) => review(row, "approved"));
+  table.onAction("reject", (row) => review(row, "rejected"));
+
+  await loadLookups();
   await loadTasks();
 }
 
@@ -459,4 +580,6 @@ export function unmount() {
   root = null;
   ctx = null;
   table = null;
+  teamsById.clear();
+  usersById.clear();
 }

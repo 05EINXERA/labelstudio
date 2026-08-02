@@ -4,7 +4,7 @@ import { timerState } from "../timer-state.js?v=2";
 import { canvas } from "../dom.js?v=1";
 import {
   enqueueWrite, discardWrite, noteServerReachable, noteServerUnreachable
-} from "../offline-queue.js?v=1";
+} from "../offline-queue.js?v=2";
 
 // Called when the server reports a genuine cross-client conflict. Registered
 // by the page so timer.js does not have to know how the workspace wants to

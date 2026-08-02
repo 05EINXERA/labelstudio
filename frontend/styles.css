@@ -2414,3 +2414,218 @@ button.switch[aria-checked="true"] .switch-knob {
   font-size: 1rem;
   flex-shrink: 0;
 }
+
+/* ===========================================================================
+   Teams, roles and access (Phase 4)
+   ---------------------------------------------------------------------------
+   Everything the Teams feature adds lives in this one block rather than being
+   threaded through the file above, so it can be read — and removed — as a unit.
+   Colours reuse the existing custom properties; no new palette is introduced.
+   =========================================================================== */
+
+/* --- header nav: Projects | Teams --------------------------------------- */
+
+.app-nav {
+  display: flex;
+  gap: 4px;
+  margin-left: 18px;
+}
+
+.app-nav-link {
+  padding: 6px 12px;
+  border-radius: 7px;
+  font-size: .9rem;
+  font-weight: 500;
+  color: var(--muted);
+  text-decoration: none;
+  transition: background .15s ease, color .15s ease;
+}
+
+.app-nav-link:hover { background: var(--panel); color: var(--ink); }
+
+.app-nav-link.is-active {
+  background: var(--panel);
+  color: var(--accent-dark);
+  font-weight: 600;
+}
+
+/* --- role pills ---------------------------------------------------------- */
+
+/* Deliberately distinct hues per level so a roster can be scanned without
+   reading every label. Owner is the warmest, viewer the most neutral. */
+.pill.role-pill { font-size: .74rem; letter-spacing: .01em; }
+
+.pill.is-role-viewer    { background: rgba(100,116,139,.14); color: #475569; border-color: transparent; }
+.pill.is-role-annotator { background: rgba(15,139,141,.12);  color: var(--accent-dark); border-color: transparent; }
+.pill.is-role-reviewer  { background: rgba(59,130,246,.14);  color: #1e5fbf; border-color: transparent; }
+.pill.is-role-manager   { background: rgba(139,92,246,.14);  color: #6d28d9; border-color: transparent; }
+.pill.is-role-owner     { background: rgba(234,179,8,.18);   color: #8a6d0b; border-color: transparent; }
+.pill.is-role-none      { background: rgba(100,116,139,.10); color: var(--muted); border-color: transparent; }
+
+/* The team axis is unrelated to the project axis, so a team `manager` must not
+   look like a project `manager`. Same shape, muted treatment. */
+.pill.is-team-member  { background: rgba(100,116,139,.14); color: #475569; border-color: transparent; }
+.pill.is-team-manager { background: rgba(139,92,246,.14);  color: #6d28d9; border-color: transparent; }
+.pill.is-team-owner   { background: rgba(234,179,8,.18);   color: #8a6d0b; border-color: transparent; }
+
+/* Rejected reads as a warning, deliberately distinct from Approved: "sent back
+   for rework" must not be mistaken for "accepted". */
+.pill.is-rejected { background: rgba(200,76,76,.14); color: var(--danger); border-color: transparent; }
+
+/* --- table cells --------------------------------------------------------- */
+
+.team-chip {
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(15,139,141,.10);
+  color: var(--accent-dark);
+  font-size: .8rem;
+  white-space: nowrap;
+}
+
+/* A legacy free-text assignee matches no account. Italic + muted so it is
+   visibly weaker than a linked username rather than looking equivalent. */
+.legacy-assignee { font-style: italic; color: var(--muted); }
+
+.lock-chip {
+  font-size: .75rem;
+  padding: 2px 6px;
+  border-radius: 10px;
+  background: rgba(239,68,68,.15);
+  color: #ef4444;
+  white-space: nowrap;
+}
+
+.task-thumb { height: 40px; border-radius: 4px; border: 1px solid var(--line); }
+
+.task-filename {
+  max-width: 320px;
+  display: inline-block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+  color: var(--accent);
+  text-decoration: none;
+}
+.task-filename:hover { color: var(--accent-dark); text-decoration: underline; }
+
+.mono-cell  { font-family: monospace; font-size: .85rem; }
+.stamp-cell { font-size: .82rem; color: var(--muted); }
+.muted      { color: var(--muted); }
+
+.inline-code {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  font-family: monospace;
+  font-size: .85em;
+}
+
+.inline-select {
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  font-size: .85rem;
+}
+
+/* --- view chrome --------------------------------------------------------- */
+
+.view-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.view-header h3 { margin: 0; }
+.view-header p  { margin: 0; font-size: .88rem; }
+
+.mgmt-notice {
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: rgba(15,139,141,.10);
+  color: var(--accent-dark);
+  margin-bottom: 14px;
+  font-size: .9rem;
+}
+
+.mgmt-empty-block { padding: 32px; line-height: 1.7; }
+.mgmt-empty-block p { margin: 0 0 10px; }
+
+.field-hint  { margin: 6px 0 0; font-size: .82rem; color: var(--muted); }
+.field-error { margin: 6px 0 0; font-size: .82rem; color: var(--danger); }
+
+.settings-form { display: grid; gap: 14px; max-width: 480px; margin-bottom: 32px; }
+.form-field    { display: grid; gap: 6px; }
+.form-field > label { font-size: .85rem; color: var(--muted); }
+
+/* --- danger zone --------------------------------------------------------- */
+
+.danger-zone {
+  border: 1px solid rgba(200,76,76,.3);
+  border-radius: 10px;
+  padding: 18px;
+  margin-top: 24px;
+}
+.danger-zone h3 { margin: 0 0 14px; color: var(--danger); font-size: 1rem; }
+
+.danger-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+}
+.danger-row:first-of-type { border-top: none; }
+.danger-row p      { margin: 4px 0 0; font-size: .85rem; }
+.danger-action     { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+
+.danger-button {
+  padding: 8px 14px;
+  border-radius: 7px;
+  border: 1px solid rgba(200,76,76,.4);
+  background: transparent;
+  color: var(--danger);
+  cursor: pointer;
+  font-weight: 600;
+}
+.danger-button:hover { background: rgba(200,76,76,.1); }
+
+/* --- access view --------------------------------------------------------- */
+
+.access-grant { margin-top: 28px; }
+.access-grant h4 { margin: 0 0 12px; font-size: .95rem; }
+.access-grant-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.access-owner-note { margin-top: 24px; font-size: .85rem; }
+
+/* --- canvas permission surface ------------------------------------------- */
+
+.permission-banner {
+  padding: 10px 18px;
+  font-size: .9rem;
+  text-align: center;
+  background: rgba(59,130,246,.12);
+  color: #1e5fbf;
+}
+.permission-banner.is-warn { background: rgba(234,179,8,.18); color: #8a6d0b; }
+.permission-banner[hidden]  { display: none; }
+
+.review-controls { display: inline-flex; gap: 6px; margin-left: 12px; }
+
+/* Read-only mode: block the drawing surface as a whole rather than disabling
+   each tool by id, which drifts every time a tool is added. Ergonomics only —
+   every write is refused server-side regardless. */
+body.is-read-only .tool-palette,
+body.is-read-only #saveButton,
+body.is-read-only #completeTaskBtn,
+body.is-read-only #autoDetectButton,
+body.is-read-only #autoTagButton {
+  opacity: .45;
+  pointer-events: none;
+}
+body.is-read-only .stage-wrap { cursor: not-allowed; }

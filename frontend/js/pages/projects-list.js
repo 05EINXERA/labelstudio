@@ -9,6 +9,9 @@
 import { apiFetch } from "../api.js?v=1";
 import { escapeHTML, formatTime } from "../utils.js?v=1";
 import { createDataTable } from "../components/data-table.js?v=1";
+import { renderAppNav, wireLogout } from "../components/app-nav.js?v=1";
+import { getCurrentUser } from "../session.js?v=1";
+import { roleBadge } from "../components/role-badge.js?v=1";
 
 const els = {
   user: document.getElementById("currentUser"),
@@ -72,6 +75,13 @@ const table = createDataTable({
       render: (r) => r.assignee ? escapeHTML(r.assignee) : `<span style="color:var(--muted);">Unassigned</span>`,
     },
     { key: "status", label: "Status", render: (r) => statusPill(r.status) },
+    {
+      // Why a project you do not own is in your list: it was granted to a team
+      // you belong to. Without this column that is invisible and confusing.
+      key: "my_role",
+      label: "Your role",
+      render: (r) => roleBadge(r.my_role),
+    },
     {
       key: "progress",
       label: "Progress",
@@ -232,19 +242,18 @@ table.onAction("delete", async (row) => {
   }
 });
 
-els.logout.addEventListener("click", async () => {
-  try {
-    await apiFetch("/api/auth/logout", { method: "POST" });
-  } catch (err) {
-    console.error("Logout request failed", err);
-  }
-  localStorage.removeItem("logged_in");
-  localStorage.removeItem("dataset_username");
-  window.location.href = "/";
-});
-
 // --- init ------------------------------------------------------------------
 
-els.user.textContent = localStorage.getItem("dataset_username") || "";
-loadTeam();
-loadProjects();
+async function init() {
+  renderAppNav(document.getElementById("appNav"), "projects");
+  wireLogout(els.logout);
+
+  // Real identity rather than the free-text localStorage name (rule 14).
+  const user = await getCurrentUser();
+  els.user.textContent = user?.username || "";
+
+  loadTeam();
+  await loadProjects();
+}
+
+init();

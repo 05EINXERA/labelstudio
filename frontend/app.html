@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Label Studio</title>
   <link rel="icon" type="image/png" href="logo.png">
-  <link rel="stylesheet" href="styles.css?v=24">
+  <link rel="stylesheet" href="styles.css?v=25">
   <!-- sync.js (legacy global annotation-slot sync to /api/data) removed in T3.1.
        Under a shared account the 'image-annotation-mvp-v1' row was last-writer-wins
        across all 25 clients. Per-task localStorage drafts (workspace.js restoreDraft)
@@ -42,6 +42,10 @@
         <span class="breadcrumb-sep">/</span>
         <span class="breadcrumb-image" id="breadcrumbImage">No image</span>
       </span>
+
+      <!-- Approve / Reject, rendered by canvas-permissions.js for reviewer+
+           only. Empty for everyone else. -->
+      <span class="review-controls" id="reviewControls"></span>
 
       <div class="zoom-control" role="group" aria-label="Canvas zoom">
         <button class="icon-button zoom-btn" id="zoomOutButton" type="button" title="Zoom out">&minus;</button>
@@ -514,7 +518,7 @@
     </div>
   </div>
 
-  <script type="module" src="js/init.js?v=3"></script>
+  <script type="module" src="js/init.js?v=2"></script>
 
 </body>
 

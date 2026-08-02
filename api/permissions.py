@@ -16,11 +16,16 @@ than a rewrite.
 `database` and `fastapi` and *nothing* from `api/routers/`. Routers import this;
 never the reverse.
 
-**Client-side mirror:** `frontend/js/permissions.js` duplicates the `_RANK`
-ordering below. The duplication is deliberate — there is no build step to share
-a module across both — and that file is for **rendering only**. This module is
-the security boundary; never remove a server check because the client already
-hides the button.
+**Client-side mirror:** `frontend/js/permissions.js` duplicates the `_RANK` and
+`_TEAM_RANK` orderings below, helper for helper. The duplication is deliberate —
+there is no build step to share a module across both — and that file is for
+**rendering only**: it answers "should I draw this button?", never "is this
+allowed?".
+
+**This module is the security boundary.** Never remove a check here because the
+client already hides the control; a stale JS bundle is a cosmetic bug (E-17),
+a missing server check is a vulnerability. If you change the ranking here,
+change `frontend/js/permissions.js` to match.
 """
 from enum import Enum
 from typing import Optional

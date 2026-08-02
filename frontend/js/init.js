@@ -19,7 +19,7 @@ import {
   configureQueue, startQueue, subscribe as subscribeQueue, drainQueue,
   enqueueWrite, noteServerReachable, noteServerUnreachable,
   peekWrite as peekQueuedWrite, discardWrite as discardQueuedWrite
-} from "./offline-queue.js?v=1";
+} from "./offline-queue.js?v=2";
 import { autoDetectObjects, autoTagObjects } from "./ai/detect.js?v=1";
 import {
   syncTaskTime, syncTimeToServer, drainTaskTime, setActiveTaskResolver,
@@ -30,6 +30,11 @@ import {
   finalizePolygon, deleteSelected, undoAction, redoAction, setZoomChangeHandler
 } from "./canvas/interactions.js?v=1";
 import { initContextMenu } from "./canvas/context-menu.js?v=1";
+import { getCurrentUser } from "./session.js?v=1";
+import {
+  applyReadOnlyMode, isReadOnly, loadProjectPermissions, renderReviewControls,
+  reportSaveForbidden, setMyTeams, updateTaskBanner,
+} from "./canvas-permissions.js?v=1";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
 import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=1";
 import { claimTask, heartbeatTask, releaseTask } from "./task-lock.js?v=2";
@@ -248,6 +253,10 @@ async function switchImage(index) {
   loadImageFromSource(item.url, item.name);
 
   updateGalleryUI();
+  // Re-evaluate the banner and review buttons for the task just opened: both
+  // are per-task, and the assignment banner in particular must be on screen
+  // *before* any drawing happens rather than after the first refused save.
+  refreshTaskPermissionUI();
 }
 
 function updateGalleryUI() {
@@ -338,7 +347,10 @@ commentOverlayRefs.commentOverlayInput.addEventListener("keydown", (e) => {
           id: generateUUID(),
           type: "comment",
           text: text.trim(),
-          author: localStorage.getItem('dataset_username') || "Unknown",
+          // Real identity when we have it. The localStorage value is a name the
+          // user typed into a prompt (rule 14) and is kept only as a fallback
+          // for a cached bundle mid-rollout; Phase 5 (F3) removes it.
+          author: currentUser?.username || localStorage.getItem('dataset_username') || "Unknown",
           x: round(view.pendingCommentPoint.x),
           y: round(view.pendingCommentPoint.y),
           width: 20,
@@ -597,6 +609,9 @@ configureQueue({
     // is restored, the next drain replays it.
     const task = (state.gallery || []).find(t => t && t.id === taskId);
     const label = task ? (task.name || `task ${taskId}`) : `task ${taskId}`;
+    // Banner *and* alert: the banner persists after the alert is dismissed, so
+    // the reason stays on screen instead of vanishing with one click.
+    reportSaveForbidden(detail);
     alert(
       `Your offline work on ${label} could not be saved.\n\n` +
       `${detail || 'You no longer have permission to edit this task.'}\n\n` +
@@ -853,6 +868,58 @@ async function fetchLabels() {
 const urlParams = new URLSearchParams(window.location.search);
 const projectId = urlParams.get('projectId');
 
+// The signed-in user, resolved once at boot. Used for comment authorship and
+// the assignment banner. Null until `initIdentityAndPermissions` resolves, so
+// every read is optional-chained.
+let currentUser = null;
+
+/**
+ * Load identity and this project's role, then apply the permission surface.
+ *
+ * Fire-and-forget from boot: the canvas is fully usable while this resolves,
+ * and blocking the first paint on two requests would make every task open feel
+ * slower for the common case (an owner or annotator, where nothing changes).
+ * The read-only class and the banner appear a moment later; the server refuses
+ * writes regardless, so nothing is unsafe in that window.
+ */
+async function initIdentityAndPermissions() {
+  currentUser = await getCurrentUser();
+  if (currentUser) {
+    setMyTeams(currentUser.teams);
+    const displayUser = document.getElementById("displayUsername");
+    if (displayUser) displayUser.textContent = currentUser.username;
+  }
+
+  if (!projectId) return;
+  const project = await loadProjectPermissions(projectId);
+  if (!project) return;
+
+  applyReadOnlyMode();
+  refreshTaskPermissionUI();
+}
+
+/**
+ * Re-apply the banner and review controls for the task now open.
+ * Called after boot and on every task switch.
+ */
+function refreshTaskPermissionUI() {
+  const task = state.gallery && state.galleryIndex >= 0
+    ? state.gallery[state.galleryIndex]
+    : null;
+  if (!task) return;
+
+  updateTaskBanner(task);
+  renderReviewControls(
+    document.getElementById("reviewControls"),
+    task,
+    (result) => {
+      // Keep the gallery row in step so the status pill and the buttons agree
+      // without a reload.
+      task.status = result.task_status;
+    }
+  );
+}
+
 // Points the back arrow at the project this workspace was opened from, and
 // fills the breadcrumb's project half.
 async function initWorkspaceContext() {
@@ -969,6 +1036,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (projectId) {
     loadWorkspaceTasks();
   }
+  initIdentityAndPermissions();
 
   const completeTaskBtn = document.getElementById('completeTaskBtn');
   if (completeTaskBtn) {

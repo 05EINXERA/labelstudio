@@ -10,9 +10,10 @@
  */
 import { apiFetch } from "../../api.js?v=1";
 import { escapeHTML } from "../../utils.js?v=1";
-import { renderNav, setActive, NAV_ITEMS } from "../../components/project-nav.js?v=1";
+import { renderNav, setActive, visibleNavItems } from "../../components/project-nav.js?v=2";
+import { renderAppNav, wireLogout } from "../../components/app-nav.js?v=1";
+import { getCurrentUser } from "../../session.js?v=1";
 
-const VALID_ROUTES = new Set(NAV_ITEMS.map((i) => i.route));
 const DEFAULT_ROUTE = "home";
 
 const els = {
@@ -31,10 +32,11 @@ const projectId = new URLSearchParams(window.location.search).get("id");
 // it stays statically analysable.
 const VIEWS = {
   home: () => import("./home.js?v=1"),
-  tasks: () => import("./tasks.js?v=1"),
+  tasks: () => import("./tasks.js?v=2"),
   classes: () => import("./classes.js?v=1"),
   imports: () => import("./imports.js?v=1"),
   exports: () => import("./exports.js?v=1"),
+  access: () => import("./access.js?v=1"),
 };
 
 let currentView = null;   // the loaded module, so we can call unmount()
@@ -44,6 +46,10 @@ let loadToken = 0;        // guards against out-of-order async view loads
 const ctx = {
   projectId,
   project: null,
+  // The caller's effective role on this project, and their real identity. Views
+  // level their controls on these rather than guessing from ownership.
+  myRole: null,
+  currentUser: null,
   reloadProject: loadProject,
   navigate(route) {
     window.location.hash = `#/${route}`;
@@ -86,6 +92,7 @@ async function loadProject() {
     return null;
   }
   ctx.project = await res.json();
+  ctx.myRole = ctx.project.my_role;
   renderHeader();
   return ctx.project;
 }
@@ -94,7 +101,12 @@ async function loadProject() {
 
 function routeFromHash() {
   const raw = (window.location.hash || "").replace(/^#\/?/, "").split("?")[0];
-  return VALID_ROUTES.has(raw) ? raw : DEFAULT_ROUTE;
+  // Role-filtered, not just validated: deep-linking to a route above your role
+  // resolves to Home rather than rendering a view whose every request 403s.
+  // Hiding the nav item is not enough — a URL is typeable and bookmarkable, and
+  // a role can be revoked after the link was saved (04_UI_UX.md § 6.1).
+  const allowed = new Set(visibleNavItems(ctx.myRole).map((i) => i.route));
+  return allowed.has(raw) ? raw : DEFAULT_ROUTE;
 }
 
 async function renderRoute() {
@@ -134,7 +146,8 @@ async function renderRoute() {
 // --- init ------------------------------------------------------------------
 
 async function init() {
-  els.user.textContent = localStorage.getItem("dataset_username") || "";
+  renderAppNav(document.getElementById("appNav"), "projects");
+  wireLogout(els.logout);
 
   if (!projectId || !/^\d+$/.test(projectId)) {
     els.name.textContent = "No project selected";
@@ -146,27 +159,28 @@ async function init() {
     window.location.href = `app.html?projectId=${encodeURIComponent(projectId)}`;
   });
 
-  els.logout.addEventListener("click", async () => {
-    try {
-      await apiFetch("/api/auth/logout", { method: "POST" });
-    } catch (err) {
-      console.error("Logout request failed", err);
-    }
-    localStorage.removeItem("logged_in");
-    localStorage.removeItem("dataset_username");
-    window.location.href = "/";
-  });
-
-  renderNav(els.nav, routeFromHash());
-
-  // Normalise a bare/unknown hash so the address bar always shows the real
-  // route and a reload lands in the same place.
-  if (!window.location.hash || !VALID_ROUTES.has((window.location.hash || "").replace(/^#\/?/, ""))) {
-    history.replaceState(null, "", `${window.location.pathname}${window.location.search}#/${DEFAULT_ROUTE}`);
-  }
-
-  const project = await loadProject();
+  // Identity and the project are both needed before anything role-dependent is
+  // drawn, and neither depends on the other, so they overlap.
+  const [user, project] = await Promise.all([getCurrentUser(), loadProject()]);
+  ctx.currentUser = user;
+  els.user.textContent = user?.username || "";
   if (!project) return; // fatal already rendered
+
+  // Nav renders *after* the role is known — rendering it first would flash tabs
+  // the caller cannot open, and `routeFromHash` needs `ctx.myRole` to resolve.
+  renderNav(els.nav, routeFromHash(), ctx.myRole);
+
+  // Normalise the hash so the address bar always shows the route actually being
+  // displayed. Done after the role check, so a viewer who deep-linked to
+  // #/access sees #/home rather than a URL that lies about where they are.
+  const resolved = routeFromHash();
+  if ((window.location.hash || "").replace(/^#\/?/, "").split("?")[0] !== resolved) {
+    history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${window.location.search}#/${resolved}`
+    );
+  }
 
   window.addEventListener("hashchange", renderRoute);
   await renderRoute();
