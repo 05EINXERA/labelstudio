@@ -22,6 +22,8 @@ import { escapeHTML } from "../utils.js?v=1";
  * @param {number}  [opts.pageSize]
  * @param {(row:object, q:string)=>boolean} [opts.matches]  custom search predicate
  * @param {string}  [opts.emptyMessage]
+ * @param {(row:object)=>string} [opts.rowClass]  custom CSS class for row
+ * @param {(row:object, event:MouseEvent)=>void} [opts.onRowClick] handler for clicking a row
  * @param {(ids:Set)=>void} [opts.onSelectionChange]
  */
 export function createDataTable(opts) {
@@ -32,6 +34,8 @@ export function createDataTable(opts) {
     selectable = false,
     matches,
     emptyMessage = "No rows match your filters.",
+    rowClass,
+    onRowClick,
     onSelectionChange,
   } = opts;
 
@@ -123,7 +127,8 @@ export function createDataTable(opts) {
             const box = selectable
               ? `<td style="text-align:center;"><input type="checkbox" data-role="row" data-id="${escapeHTML(id)}" ${checked}></td>`
               : "";
-            return `<tr data-id="${escapeHTML(id)}">${box}${cells}</tr>`;
+            const extraClass = rowClass ? ` ${rowClass(row)}` : "";
+            return `<tr data-id="${escapeHTML(id)}" class="${extraClass.trim()}">${box}${cells}</tr>`;
           })
           .join("")
       : `<tr><td colspan="${columns.length + (selectable ? 1 : 0)}" style="text-align:center;color:var(--muted);padding:24px;">${escapeHTML(emptyMessage)}</td></tr>`;
@@ -148,6 +153,16 @@ export function createDataTable(opts) {
   }
 
   function bind(slice) {
+    if (onRowClick) {
+      mount.querySelectorAll("tbody tr[data-id]").forEach((tr) => {
+        tr.style.cursor = "pointer";
+        tr.addEventListener("click", (e) => {
+          if (e.target.closest("button, a, input, select, textarea, [data-action]")) return;
+          const row = slice.find((r) => String(rowId(r)) === tr.dataset.id);
+          if (row) onRowClick(row, e);
+        });
+      });
+    }
     mount.querySelectorAll("th.is-sortable").forEach((th) => {
       th.addEventListener("click", () => {
         const key = th.dataset.sort;

@@ -220,3 +220,36 @@ def test_metrics_reports_class_count(client, alice):
     m = client.get(f"/api/projects/{pid}/metrics", headers=alice).json()
     assert m["classes"] == 2
     assert m["in_progress"] == 0
+
+
+def test_patch_project_team_id_and_clear(client, alice):
+    headers = {**alice, "X-Annotator-Name": "alice_annotator"}
+    team_res = client.post("/api/teams", json={"name": "Alpha Team"}, headers=headers)
+    assert team_res.status_code == 200
+    team_id = team_res.json()["id"]
+
+    res = client.post("/api/projects", json={"name": "team-proj", "slug": "team-proj", "creator": "alice_annotator"}, headers=headers)
+    assert res.status_code == 200
+    pid = res.json()["id"]
+
+    # Assign team
+    patch_res = client.patch(f"/api/projects/{pid}", json={"team_id": team_id}, headers=headers)
+    assert patch_res.status_code == 200
+
+    proj = client.get(f"/api/projects/{pid}", headers=headers).json()
+    assert proj["team_id"] == team_id
+
+    row = next(p for p in client.get("/api/projects", headers=headers).json() if p["id"] == pid)
+    assert row["team_id"] == team_id
+    assert row["team_name"] == "Alpha Team"
+
+    # Clear team (No Team)
+    patch_clear = client.patch(f"/api/projects/{pid}", json={"team_id": None}, headers=headers)
+    assert patch_clear.status_code == 200
+
+    proj = client.get(f"/api/projects/{pid}", headers=headers).json()
+    assert proj["team_id"] is None
+
+    row = next(p for p in client.get("/api/projects", headers=headers).json() if p["id"] == pid)
+    assert row["team_id"] is None
+    assert row["team_name"] is None

@@ -50,7 +50,7 @@ from sqlalchemy.orm import Session
 import models
 from database import get_db, commit_with_retry
 from api.uploads import read_capped
-from api.auth import get_current_user, require_csrf
+from api.auth import get_current_user, require_csrf, get_current_annotator
 from api.routers.projects import get_owned_project
 from formats import annotations_json
 from formats import coco as coco_format
@@ -332,7 +332,7 @@ def _resolve_label_ids(by_filename: Dict[str, List[dict]], project_id: int, db: 
             id=uuid.uuid4().hex,
             name=label_data["name"],
             color=label_data["color"],
-            project_id=project_id
+            project_id=project_id,
         )
         db.add(new_label)
         existing[key] = new_label.id
@@ -346,9 +346,10 @@ async def preview_annotation_import(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     user: models.User = Depends(get_current_user),
+    annotator: Optional[models.TeamMember] = Depends(get_current_annotator),
 ):
     """Report what an import would do, without writing anything."""
-    get_owned_project(projectId, user, db)
+    get_owned_project(projectId, user, db, annotator)
     raw = await read_capped(file)
     try:
         by_filename = _parse_import_file(file.filename or "", raw)
@@ -388,11 +389,12 @@ async def import_annotations(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     user: models.User = Depends(get_current_user),
+    annotator: Optional[models.TeamMember] = Depends(get_current_annotator),
 ):
     """Apply an annotation import. `merge` appends to each matched task's
     existing annotations; `replace` overwrites them.
     """
-    get_owned_project(projectId, user, db)
+    get_owned_project(projectId, user, db, annotator)
     raw = await read_capped(file)
     try:
         by_filename = _parse_import_file(file.filename or "", raw)

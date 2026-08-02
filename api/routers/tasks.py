@@ -5,14 +5,14 @@ import datetime
 from typing import Dict, Optional
 
 from fastapi import APIRouter, Depends, Query, HTTPException
-from sqlalchemy import case, func
+from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session
 
 import models
 from database import get_db, commit_with_retry
 from schemas import TaskUpdate, BulkDelete, BulkUpdate, TaskDetail
-from api.auth import get_current_user, require_csrf
-from api.routers.projects import get_owned_project
+from api.auth import get_current_user, require_csrf, get_current_annotator
+from api.routers.projects import get_owned_project, get_user_accessible_team_ids
 
 router = APIRouter(
     prefix="/api/tasks",
@@ -60,20 +60,38 @@ CONFLICT_TOLERANCE_SECONDS = float(
 )
 
 
-def _owned_project_ids(user: models.User, db: Session):
-    """Ids of every project owned by `user`."""
+def _accessible_project_ids(user: models.User, db: Session, annotator: Optional[models.TeamMember] = None):
+    """Ids of every project accessible to `user` (owned, created, via team, or assigned task)."""
+    team_ids = get_user_accessible_team_ids(user, db, annotator)
+    names = {user.username}
+    if annotator and annotator.name:
+        names.add(annotator.name)
+    conditions = [
+        models.Project.owner_id == user.id,
+        models.Project.creator.in_(names),
+    ]
+    if team_ids:
+        conditions.append(models.Project.team_id.in_(team_ids))
+
+    task_pids = [
+        t[0] for t in db.query(models.Task.project_id).filter(
+            models.Task.assignee.in_(names)
+        ).all()
+    ]
+    if task_pids:
+        conditions.append(models.Project.id.in_(task_pids))
+
     return [
-        pid for (pid,) in db.query(models.Project.id)
-        .filter(models.Project.owner_id == user.id).all()
+        pid for (pid,) in db.query(models.Project.id).filter(or_(*conditions)).all()
     ]
 
 
-def _get_owned_task(task_id: int, user: models.User, db: Session) -> models.Task:
-    """Return the task if it belongs to a project `user` owns, else 404."""
+def _get_owned_task(task_id: int, user: models.User, db: Session, annotator: Optional[models.TeamMember] = None) -> models.Task:
+    """Return the task if it belongs to a project `user` can access, else 404."""
+    proj_ids = _accessible_project_ids(user, db, annotator)
     task = (
         db.query(models.Task)
-        .join(models.Project, models.Task.project_id == models.Project.id)
-        .filter(models.Task.id == task_id, models.Project.owner_id == user.id)
+        .filter(models.Task.id == task_id, models.Task.project_id.in_(proj_ids))
         .first()
     )
     if not task:
@@ -81,15 +99,15 @@ def _get_owned_task(task_id: int, user: models.User, db: Session) -> models.Task
     return task
 
 @router.get("")
-def get_tasks(projectId: Optional[int] = Query(None), include_annotations: bool = Query(True), db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+def get_tasks(projectId: Optional[int] = Query(None), include_annotations: bool = Query(True), db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
     if projectId:
-        get_owned_project(projectId, user, db)
+        get_owned_project(projectId, user, db, annotator)
         query = db.query(models.Task).filter(models.Task.project_id == projectId)
     else:
-        # No project given: return tasks across every project the caller owns,
+        # No project given: return tasks across every project the caller can access,
         # never the whole table.
         query = db.query(models.Task).filter(
-            models.Task.project_id.in_(_owned_project_ids(user, db))
+            models.Task.project_id.in_(_accessible_project_ids(user, db, annotator))
         )
 
     if not include_annotations:
@@ -119,14 +137,14 @@ def get_tasks(projectId: Optional[int] = Query(None), include_annotations: bool 
     return result
 
 @router.get("/{task_id}", response_model=TaskDetail)
-def get_task(task_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+def get_task(task_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
     """Return a single task with its full annotations blob.
 
     The list endpoint (GET /api/tasks) intentionally omits annotations so the
     initial gallery load stays small. The workspace calls this endpoint once per
     task open to hydrate annotations on demand (T1.1 / T1.3).
     """
-    task = _get_owned_task(task_id, user, db)
+    task = _get_owned_task(task_id, user, db, annotator)
     annotations_data: list = []
     if task.annotations:
         try:
@@ -151,7 +169,7 @@ def get_task(task_id: int, db: Session = Depends(get_db), user: models.User = De
 
 @router.post("/{task_id}/claim")
 def claim_task(task_id: int, client_id: str = Query(..., max_length=64),
-               db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+               db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
     """Claim a task for editing, or refresh an existing claim.
 
     Returns {"status": "ok"} when the claim is granted.
@@ -164,7 +182,7 @@ def claim_task(task_id: int, client_id: str = Query(..., max_length=64),
 
     Single-worker constraint: _TASK_LOCKS is in-process.  Rule 9 applies.
     """
-    _get_owned_task(task_id, user, db)      # 404 if not owned
+    _get_owned_task(task_id, user, db, annotator)      # 404 if not owned/accessible
     now = datetime.datetime.now(datetime.timezone.utc)
     existing = _lock_status(task_id)
     if existing and existing["client_id"] != client_id:
@@ -178,14 +196,14 @@ def claim_task(task_id: int, client_id: str = Query(..., max_length=64),
 
 @router.post("/{task_id}/heartbeat")
 def heartbeat_task(task_id: int, client_id: str = Query(..., max_length=64),
-                   db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+                   db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
     """Refresh the TTL on an existing claim.
 
     Called on a timer cadence (every ~30 s) while the task is open.  Silently
     re-claims if the lock expired (e.g. the client was backgrounded longer
     than the TTL).
     """
-    _get_owned_task(task_id, user, db)
+    _get_owned_task(task_id, user, db, annotator)
     existing = _lock_status(task_id)
     if existing and existing["client_id"] != client_id:
         # Another client took over the stale lock before this heartbeat arrived.
@@ -199,9 +217,9 @@ def heartbeat_task(task_id: int, client_id: str = Query(..., max_length=64),
 
 @router.delete("/{task_id}/claim")
 def release_task(task_id: int, client_id: str = Query(..., max_length=64),
-                 db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+                 db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
     """Release a claim when the annotator closes or switches away from the task."""
-    _get_owned_task(task_id, user, db)
+    _get_owned_task(task_id, user, db, annotator)
     existing = _TASK_LOCKS.get(task_id)
     if existing and existing["client_id"] == client_id:
         del _TASK_LOCKS[task_id]
@@ -210,14 +228,14 @@ def release_task(task_id: int, client_id: str = Query(..., max_length=64),
 
 @router.post("/{task_id}/release-beacon")
 def release_task_beacon(task_id: int, client_id: str = Query(..., max_length=64),
-                        db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+                        db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
     """POST variant of release for sendBeacon (which cannot send DELETE).
 
     sendBeacon is used on pagehide/visibilitychange where a real fetch is not
     guaranteed to complete.  The advisory lock will expire via TTL anyway, but
     an explicit release is cleaner UX for the waiting annotator.
     """
-    _get_owned_task(task_id, user, db)
+    _get_owned_task(task_id, user, db, annotator)
     existing = _TASK_LOCKS.get(task_id)
     if existing and existing["client_id"] == client_id:
         del _TASK_LOCKS[task_id]
@@ -226,9 +244,9 @@ def release_task_beacon(task_id: int, client_id: str = Query(..., max_length=64)
 
 @router.get("/{task_id}/lock-status")
 def get_lock_status(task_id: int,
-                    db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+                    db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
     """Query the current lock state without claiming.  Used by the task list."""
-    _get_owned_task(task_id, user, db)
+    _get_owned_task(task_id, user, db, annotator)
     lock = _lock_status(task_id)
     if not lock:
         return {"locked": False}
@@ -242,9 +260,9 @@ def get_lock_status(task_id: int,
 
 
 @router.post("")
-def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(None), db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(None), db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
     if task.id:
-        db_task = _get_owned_task(task.id, user, db)
+        db_task = _get_owned_task(task.id, user, db, annotator)
         # Conflict detection guards one thing: a client overwriting a write it
         # never saw. It deliberately does *not* fire when a client overwrites
         # its own earlier save — one browser tab writes the same task from
@@ -307,11 +325,6 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
         if task.assignee is not None:
             db_task.assignee = task.assignee
         if task.status is not None:
-            # 'Approved' is a review gate the project owner sets. Every
-            # project is single-owner (see REFACTOR_MANAGEMENT.md Q1), and
-            # _get_owned_task above already proved `user` owns this task's
-            # project, so no separate check is needed here today. If projects
-            # ever gain shared members, this is the line that needs one.
             db_task.status = task.status
         if task.description is not None:
             db_task.description = task.description
@@ -325,7 +338,7 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
     else:
         if projectId is None:
             raise HTTPException(status_code=422, detail="Query param 'projectId' is required to create a task.")
-        get_owned_project(projectId, user, db)
+        get_owned_project(projectId, user, db, annotator)
         db_task = models.Task(
             description=task.description,
             assignee=task.assignee, 
@@ -372,7 +385,7 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
     return {"id": task_id, "status": "ok", "updated_at": new_updated_at.isoformat()}
 
 @router.patch("/{task_id}")
-def patch_task(task_id: int, task: TaskUpdate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+def patch_task(task_id: int, task: TaskUpdate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
     """CLAUDE.md rule 5 shape for POST /api/tasks's update branch.
 
     Delegates to update_or_create_task rather than duplicating the timer /
@@ -380,47 +393,47 @@ def patch_task(task_id: int, task: TaskUpdate, db: Session = Depends(get_db), us
     F10/F13) a second time.
     """
     task.id = task_id
-    return update_or_create_task(task, projectId=None, db=db, user=user)
+    return update_or_create_task(task, projectId=None, db=db, user=user, annotator=annotator)
 
 @router.delete("/{task_id}")
-def delete_task(task_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    task = _get_owned_task(task_id, user, db)
+def delete_task(task_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
+    task = _get_owned_task(task_id, user, db, annotator)
     db.delete(task)
     commit_with_retry(db)
     return {"status": "ok"}
 
 
-def _restrict_to_owned(ids, user: models.User, db: Session):
-    """Subset of `ids` the caller owns, and how many were rejected.
+def _restrict_to_owned(ids, user: models.User, db: Session, annotator: Optional[models.TeamMember] = None):
+    """Subset of `ids` the caller has access to, and how many were rejected.
 
     Bulk routes accept arbitrary ids, so filtering (rather than a single guard)
     is what stops a caller from mutating another owner's tasks by mixing ids
     into the payload.
     """
+    proj_ids = _accessible_project_ids(user, db, annotator)
     owned = [
         tid for (tid,) in db.query(models.Task.id)
-        .join(models.Project, models.Task.project_id == models.Project.id)
-        .filter(models.Task.id.in_(ids), models.Project.owner_id == user.id)
+        .filter(models.Task.id.in_(ids), models.Task.project_id.in_(proj_ids))
         .all()
     ]
     return owned, len(set(ids)) - len(owned)
 
 @router.post("/bulk-delete")
-def bulk_delete_tasks(payload: BulkDelete, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+def bulk_delete_tasks(payload: BulkDelete, db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
     if not payload.ids:
         raise HTTPException(status_code=400, detail="No ids provided")
-    owned, skipped = _restrict_to_owned(payload.ids, user, db)
+    owned, skipped = _restrict_to_owned(payload.ids, user, db, annotator)
     if owned:
         db.query(models.Task).filter(models.Task.id.in_(owned)).delete(synchronize_session=False)
         commit_with_retry(db)
     return {"status": "ok", "deleted": len(owned), "skipped": skipped}
 
 @router.post("/bulk-update")
-def bulk_update_tasks(payload: BulkUpdate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+def bulk_update_tasks(payload: BulkUpdate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
     if not payload.ids:
         raise HTTPException(status_code=400, detail="No ids provided")
 
-    owned, skipped = _restrict_to_owned(payload.ids, user, db)
+    owned, skipped = _restrict_to_owned(payload.ids, user, db, annotator)
 
     update_data = {}
     if payload.assignee is not None:

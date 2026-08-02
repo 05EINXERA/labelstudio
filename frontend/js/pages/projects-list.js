@@ -146,16 +146,20 @@ async function loadTeam() {
 
 // --- modal -----------------------------------------------------------------
 
-function openModal(project) {
+async function openModal(project) {
   const isEdit = Boolean(project);
   els.modalTitle.textContent = isEdit ? "Edit project" : "New project";
   els.fId.value = isEdit ? project.id : "";
   els.fName.value = isEdit ? (project.name || "") : "";
   els.fType.value = isEdit ? (project.type || "Image - Polygon") : "Image - Polygon";
-  els.fTeam.value = isEdit ? (project.team_id || "") : "";
   els.fStatus.value = isEdit ? (project.status || "Preparing") : "Preparing";
   // Status is derived from task completion on create, so only expose it on edit.
   els.statusField.style.display = isEdit ? "grid" : "none";
+
+  // Always refresh team options so newly created or assigned teams are available
+  await loadTeam();
+  els.fTeam.value = isEdit ? (project.team_id || "") : "";
+
   els.modal.classList.add("is-active");
   els.fName.focus();
 }
@@ -255,3 +259,24 @@ els.logout.addEventListener("click", async () => {
 els.user.textContent = localStorage.getItem("dataset_username") || "";
 loadTeam();
 loadProjects();
+
+// Poll every 30 s so LAN peers see project and team updates promptly.
+const POLL_INTERVAL_MS = 30_000;
+setInterval(async () => {
+  try {
+    await Promise.all([loadProjects(), loadTeam()]);
+  } catch { /* best-effort */ }
+}, POLL_INTERVAL_MS);
+
+// Refresh immediately when returning to the tab
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") {
+    loadProjects();
+    loadTeam();
+  }
+});
+
+window.addEventListener("pageshow", () => {
+  loadProjects();
+  loadTeam();
+});

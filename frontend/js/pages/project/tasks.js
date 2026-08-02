@@ -18,6 +18,11 @@ import { createDataTable } from "../../components/data-table.js?v=1";
 let root = null;
 let ctx = null;
 let table = null;
+let _pollTimer = null;
+
+// How often to silently re-fetch the task list so that assignee/status changes
+// made on another machine on the LAN appear without a manual refresh.
+const POLL_INTERVAL_MS = 30_000;
 
 // T2.2 — lock status cache: {taskId: {locked: bool, locked_by: str}}
 // Populated asynchronously after the task list renders.
@@ -283,6 +288,7 @@ async function loadTeamForTasks() {
     });
     
     const populate = (selectEl) => {
+      selectEl.innerHTML = '<option value="">Unassigned</option>';
       for (const [teamName, members] of Object.entries(byTeam)) {
         const group = document.createElement("optgroup");
         group.label = teamName;
@@ -518,9 +524,18 @@ export async function mount(hostRoot, hostCtx) {
   });
 
   await loadTasks();
+
+  // Poll every 30 s so LAN peers see assignee/status changes promptly.
+  _pollTimer = setInterval(async () => {
+    try { await loadTasks(); } catch { /* best-effort */ }
+  }, POLL_INTERVAL_MS);
 }
 
 export function unmount() {
+  if (_pollTimer !== null) {
+    clearInterval(_pollTimer);
+    _pollTimer = null;
+  }
   root = null;
   ctx = null;
   table = null;

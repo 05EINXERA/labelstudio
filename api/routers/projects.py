@@ -6,7 +6,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, UploadFile, File, Query, HTTPException, Request
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 import models
 import schemas
@@ -19,15 +19,52 @@ from formats.common import measure_image
 logger = logging.getLogger(__name__)
 
 
-def get_owned_project(project_id: int, user: models.User, db: Session) -> models.Project:
-    """Return the project if `user` owns it, else raise 404.
+def get_user_accessible_team_ids(user: models.User, db: Session, annotator: Optional[models.TeamMember] = None) -> List[int]:
+    """Return all team IDs where user is either a member or the creator."""
+    names = {user.username}
+    if annotator and annotator.name:
+        names.add(annotator.name)
+
+    member_teams = db.query(models.TeamMemberAssociation.team_id).filter(
+        models.TeamMemberAssociation.member_name.in_(names)
+    ).all()
+    creator_teams = db.query(models.Team.id).filter(
+        models.Team.creator.in_(names)
+    ).all()
+    return list(set([t[0] for t in member_teams] + [t[0] for t in creator_teams]))
+
+
+def get_owned_project(project_id: int, user: models.User, db: Session, annotator: Optional[models.TeamMember] = None) -> models.Project:
+    """Return the project if `user` owns it, created it, is in its team, or has tasks assigned, else raise 404.
 
     404 rather than 403 so the API does not confirm the existence of other
     users' project ids.
     """
+    team_ids = get_user_accessible_team_ids(user, db, annotator)
+    names = {user.username}
+    if annotator and annotator.name:
+        names.add(annotator.name)
+
+    conditions = [
+        models.Project.owner_id == user.id,
+        models.Project.creator.in_(names),
+    ]
+    if team_ids:
+        conditions.append(models.Project.team_id.in_(team_ids))
+
+    # Also allow access if the user has an assigned task in this project
+    task_pids = [
+        t[0] for t in db.query(models.Task.project_id).filter(
+            models.Task.project_id == project_id,
+            models.Task.assignee.in_(names)
+        ).all()
+    ]
+    if task_pids:
+        conditions.append(models.Project.id.in_(task_pids))
+
     project = db.query(models.Project).filter(
         models.Project.id == project_id,
-        models.Project.owner_id == user.id,
+        or_(*conditions),
     ).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -116,25 +153,32 @@ router = APIRouter(
 
 @router.get("", response_model=List[ProjectSummary])
 def get_projects(db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
-    """Every project the caller's team owns, with its task metrics merged in.
+    """Every project the caller owns, created, or shares via a team/task assignment."""
+    team_ids = get_user_accessible_team_ids(user, db, annotator)
+    names = {user.username}
+    if annotator and annotator.name:
+        names.add(annotator.name)
 
-    Scope comes from the token and the annotator's team.
-    """
+    conditions = [
+        models.Project.owner_id == user.id,
+        models.Project.creator.in_(names),
+    ]
+    if team_ids:
+        conditions.append(models.Project.team_id.in_(team_ids))
+
+    task_pids = [
+        t[0] for t in db.query(models.Task.project_id).filter(
+            models.Task.assignee.in_(names)
+        ).all()
+    ]
+    if task_pids:
+        conditions.append(models.Project.id.in_(task_pids))
+
     query = db.query(models.Project, models.Team.name.label("team_name")).outerjoin(
         models.Team, models.Project.team_id == models.Team.id
-    ).filter(models.Project.owner_id == user.id)
-    
-    if annotator is not None:
-        annotator_team_ids = [t[0] for t in db.query(models.TeamMemberAssociation.team_id).filter(
-            models.TeamMemberAssociation.member_name == annotator.name
-        ).all()]
-        
-        query = query.filter(
-            (models.Project.team_id.in_(annotator_team_ids)) |
-            (models.Project.creator == annotator.name)
-        )
+    ).filter(or_(*conditions))
             
-    projects_with_teams = query.all()
+    projects_with_teams = query.order_by(models.Project.created_at.desc()).all()
     if not projects_with_teams:
         return []
 
@@ -152,13 +196,13 @@ def get_projects(db: Session = Depends(get_db), user: models.User = Depends(get_
     ]
 
 @router.get("/{project_id}")
-def get_project(project_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    p = get_owned_project(project_id, user, db)
+def get_project(project_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
+    p = get_owned_project(project_id, user, db, annotator)
     return {"id": p.id, "name": p.name, "slug": p.slug, "type": p.type, "status": p.status, "creator": p.creator, "created_at": p.created_at, "team_id": p.team_id}
 
 @router.get("/{project_id}/metrics", response_model=ProjectMetrics)
-def get_project_metrics(project_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    project = get_owned_project(project_id, user, db)
+def get_project_metrics(project_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
+    project = get_owned_project(project_id, user, db, annotator)
     m = _aggregate_metrics([project_id], db)[project_id]
 
     # This endpoint used to write the derived status back to the project, which
@@ -178,25 +222,28 @@ def create_project(project: ProjectModel, db: Session = Depends(get_db), user: m
     return {"id": db_project.id, "status": "ok"}
 
 def _apply_project_update(db_project: models.Project, project_update: schemas.ProjectUpdate) -> None:
+    fields_set = getattr(project_update, "model_fields_set", None)
+    if fields_set is None:
+        fields_set = getattr(project_update, "__fields_set__", set())
     if project_update.name is not None:
         db_project.name = project_update.name
         db_project.slug = project_update.name.lower().replace(" ", "-")
     if project_update.status is not None:
         db_project.status = project_update.status
-    if project_update.team_id is not None:
+    if "team_id" in fields_set or project_update.team_id is not None:
         db_project.team_id = project_update.team_id
 
 @router.patch("/{project_id}")
-def patch_project(project_id: int, project_update: schemas.ProjectUpdate, request: Request, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    db_project = get_owned_project(project_id, user, db)
+def patch_project(project_id: int, project_update: schemas.ProjectUpdate, request: Request, db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
+    db_project = get_owned_project(project_id, user, db, annotator)
     # X-Annotator-Name is used for UI filtering but is not a security boundary.
     _apply_project_update(db_project, project_update)
     commit_with_retry(db)
     return {"status": "ok"}
 
 @router.delete("/{project_id}")
-def delete_project(project_id: int, request: Request, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    db_project = get_owned_project(project_id, user, db)
+def delete_project(project_id: int, request: Request, db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
+    db_project = get_owned_project(project_id, user, db, annotator)
     # X-Annotator-Name is used for UI filtering but is not a security boundary.
     db.query(models.Task).filter(models.Task.project_id == project_id).delete()
     db.query(models.Label).filter(models.Label.project_id == project_id).delete()
@@ -232,16 +279,14 @@ def _save_upload(f: UploadFile, uploads_dir: str) -> str:
                     break
                 written += len(chunk)
                 if written > MAX_UPLOAD_BYTES:
-                    raise ValueError(
-                        f"File exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit."
-                    )
+                    raise ValueError(f"File exceeds the 25 MB limit.")
                 out_file.write(chunk)
     except Exception:
-        # Never leave a partial or oversized file behind.
-        try:
-            os.remove(filepath)
-        except OSError as exc:
-            logger.warning("Could not remove partial upload %s: %s", filepath, exc)
+        if os.path.exists(filepath):
+            try:
+                os.remove(filepath)
+            except OSError:
+                pass
         raise
 
     if written == 0:
@@ -257,14 +302,14 @@ def _save_upload(f: UploadFile, uploads_dir: str) -> str:
 
 
 @router.post("/{project_id}/upload")
-def upload_files(project_id: int, assignee: Optional[str] = Query(None), file: List[UploadFile] = File(...), db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+def upload_files(project_id: int, assignee: Optional[str] = Query(None), file: List[UploadFile] = File(...), db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
     """Bulk image upload. One bad file no longer aborts the whole batch.
 
     Previously any disallowed extension raised mid-loop, so earlier files were
     left on disk with no task row and the client got a 400 with no record of
     what did succeed. Each file is now reported individually.
     """
-    get_owned_project(project_id, user, db)
+    get_owned_project(project_id, user, db, annotator)
 
     # Bounds the work one request can queue. Each file is streamed to disk while
     # holding a worker thread, so an unbounded batch lets a single request stall

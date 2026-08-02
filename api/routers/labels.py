@@ -13,7 +13,7 @@ import models
 from database import get_db, commit_with_retry
 from api.uploads import read_capped
 from schemas import LabelModel, LabelBulkUpsert, LabelBulkDelete, LabelBulkResult, LabelImportResult
-from api.auth import get_current_user, require_csrf
+from api.auth import get_current_user, require_csrf, get_current_annotator
 from api.routers.projects import get_owned_project
 
 logger = logging.getLogger(__name__)
@@ -58,14 +58,14 @@ def purge_annotations_for_labels(project_id: int, label_ids: set, db: Session) -
 
 
 @router.get("", response_model=List[LabelModel])
-def get_labels(projectId: int = Query(...), db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    get_owned_project(projectId, user, db)
+def get_labels(projectId: int = Query(...), db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
+    get_owned_project(projectId, user, db, annotator)
     labels = db.query(models.Label).filter(models.Label.project_id == projectId).all()
     return [{"id": l.id, "name": l.name, "color": l.color, "projectId": l.project_id} for l in labels]
 
 @router.post("")
-def create_or_update_label(label: LabelModel, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    get_owned_project(label.projectId, user, db)
+def create_or_update_label(label: LabelModel, db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
+    get_owned_project(label.projectId, user, db, annotator)
     db_label = db.query(models.Label).filter(
         models.Label.id == label.id, models.Label.project_id == label.projectId
     ).first()
@@ -79,14 +79,14 @@ def create_or_update_label(label: LabelModel, db: Session = Depends(get_db), use
     return {"status": "ok", "id": db_label.id}
 
 @router.post("/bulk", response_model=LabelBulkResult)
-def bulk_upsert_labels(payload: LabelBulkUpsert, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+def bulk_upsert_labels(payload: LabelBulkUpsert, db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
     """Upsert many labels in one transaction (tracker P3.3 / G4).
 
     Used by the Classes view's inline bulk-color-edit and by the class-set
     importer. A label whose projectId does not match `payload.projectId` is
     rejected rather than silently moved between projects.
     """
-    get_owned_project(payload.projectId, user, db)
+    get_owned_project(payload.projectId, user, db, annotator)
 
     mismatched = [l.id for l in payload.labels if l.projectId != payload.projectId]
     if mismatched:
@@ -112,8 +112,8 @@ def bulk_upsert_labels(payload: LabelBulkUpsert, db: Session = Depends(get_db), 
     commit_with_retry(db)
     return LabelBulkResult(created=created, updated=updated)
 @router.post("/bulk-delete")
-def bulk_delete_labels(payload: LabelBulkDelete, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    get_owned_project(payload.projectId, user, db)
+def bulk_delete_labels(payload: LabelBulkDelete, db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
+    get_owned_project(payload.projectId, user, db, annotator)
     if not payload.ids:
         raise HTTPException(status_code=400, detail="No ids provided")
     existing_ids = {
@@ -187,6 +187,7 @@ def export_labels(
     format: str = Query("json", pattern="^(json|csv|txt|fastlabel)$"),
     db: Session = Depends(get_db),
     user: models.User = Depends(get_current_user),
+    annotator: Optional[models.TeamMember] = Depends(get_current_annotator),
 ):
     """Export this project's class set (tracker P3.3 / G4, enhanced T2.1).
 
@@ -197,7 +198,7 @@ def export_labels(
       csv        — id, name, color rows
       txt        — one name per line
     """
-    get_owned_project(projectId, user, db)
+    get_owned_project(projectId, user, db, annotator)
     labels = db.query(models.Label).filter(models.Label.project_id == projectId).order_by(models.Label.name).all()
 
     if format == "txt":
@@ -284,6 +285,7 @@ async def import_labels(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     user: models.User = Depends(get_current_user),
+    annotator: Optional[models.TeamMember] = Depends(get_current_annotator),
 ):
     """Import a class set from JSON, CSV, or a newline-delimited .txt file.
 
@@ -292,7 +294,7 @@ async def import_labels(
     Names are deduplicated case-insensitively so re-importing the same file is
     a no-op rather than piling up near-duplicates.
     """
-    get_owned_project(projectId, user, db)
+    get_owned_project(projectId, user, db, annotator)
 
     raw = await read_capped(file)
     try:
@@ -344,8 +346,8 @@ async def import_labels(
 
 
 @router.delete("/{label_id}")
-def delete_label(label_id: str, projectId: int = Query(...), db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    get_owned_project(projectId, user, db)
+def delete_label(label_id: str, projectId: int = Query(...), db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
+    get_owned_project(projectId, user, db, annotator)
     db_label = db.query(models.Label).filter(
         models.Label.id == label_id, models.Label.project_id == projectId
     ).first()

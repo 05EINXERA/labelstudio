@@ -36,6 +36,7 @@ const els = {
   
   teamsMount: document.getElementById("teamsMount"),
   membersMount: document.getElementById("membersMount"),
+  teamSearchInput: document.getElementById("teamSearchInput"),
   memberSearchInput: document.getElementById("memberSearchInput"),
   selectedTeamBadge: document.getElementById("selectedTeamBadge"),
   selectedTeamName: document.getElementById("selectedTeamName"),
@@ -57,10 +58,26 @@ function clearError() {
   els.error.style.display = "none";
 }
 
+function selectOrToggleTeam(team) {
+  if (selectedTeam && selectedTeam.id === team.id) {
+    selectedTeam = null;
+  } else {
+    selectedTeam = team;
+  }
+  updateTeamFilterUI();
+  renderMembers();
+  teamsTable.render();
+}
+
 function updateTeamFilterUI() {
   if (selectedTeam) {
+    const memberCount = membersCache.filter(
+      (m) => m.teams && m.teams.some((t) => t.id === selectedTeam.id)
+    ).length;
     if (els.selectedTeamBadge) els.selectedTeamBadge.style.display = "inline-flex";
-    if (els.selectedTeamName) els.selectedTeamName.textContent = selectedTeam.name;
+    if (els.selectedTeamName) {
+      els.selectedTeamName.textContent = `${selectedTeam.name} (${memberCount} member${memberCount === 1 ? "" : "s"})`;
+    }
   } else {
     if (els.selectedTeamBadge) els.selectedTeamBadge.style.display = "none";
   }
@@ -82,20 +99,28 @@ function initTables() {
     mount: els.teamsMount,
     rowId: (r) => r.id,
     emptyMessage: "No teams created yet.",
+    rowClass: (r) => (selectedTeam && selectedTeam.id === r.id ? "selected-team-row is-selected-row" : ""),
+    onRowClick: (row) => {
+      selectOrToggleTeam(row);
+    },
     columns: [
       {
         key: "name",
-        label: "Name",
+        label: "Team Name",
         render: (r) => {
           const isSelected = selectedTeam && selectedTeam.id === r.id;
-          return `<button type="button" class="cell-link team-name-btn" data-action="filter-team" title="Click to view members of ${escapeHTML(r.name)}" style="background:none;border:none;padding:0;cursor:pointer;font-weight:${isSelected ? '700' : '600'};color:${isSelected ? 'var(--accent)' : 'var(--accent-dark)'};text-decoration:${isSelected ? 'underline' : 'none'};text-align:left;display:inline-flex;align-items:center;gap:6px;">
-            ${escapeHTML(r.name)}
-            ${isSelected ? '<span class="pill is-completed" style="font-size:0.7rem;padding:1px 6px;">Active</span>' : ''}
-          </button>`;
+          const memberCount = membersCache.filter((m) => m.teams && m.teams.some((t) => t.id === r.id)).length;
+          return `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+            <button type="button" class="cell-link team-name-btn" data-action="filter-team" title="Click to view members of ${escapeHTML(r.name)}" style="background:none;border:none;padding:0;cursor:pointer;font-weight:${isSelected ? '700' : '600'};color:${isSelected ? 'var(--accent)' : 'var(--accent-dark)'};text-decoration:${isSelected ? 'underline' : 'none'};text-align:left;display:inline-flex;align-items:center;gap:6px;">
+              ${escapeHTML(r.name)}
+              ${isSelected ? '<span class="pill is-completed" style="font-size:0.7rem;padding:1px 6px;">Active</span>' : ''}
+            </button>
+            <span class="pill" style="font-size:0.75rem;padding:2px 7px;color:var(--muted);">${memberCount} member${memberCount === 1 ? '' : 's'}</span>
+          </div>`;
         }
       },
       {
-        key: "actions", label: "", sortable: false, align: "right", width: "60px",
+        key: "actions", label: "", sortable: false, align: "right", width: "50px",
         render: (r) => {
           const datasetUsername = localStorage.getItem('dataset_username');
           if (r.creator === datasetUsername) {
@@ -108,14 +133,7 @@ function initTables() {
   });
 
   teamsTable.onAction("filter-team", (row) => {
-    if (selectedTeam && selectedTeam.id === row.id) {
-      selectedTeam = null;
-    } else {
-      selectedTeam = row;
-    }
-    updateTeamFilterUI();
-    renderMembers();
-    teamsTable.render();
+    selectOrToggleTeam(row);
   });
 
   teamsTable.onAction("delete", async (row) => {
@@ -139,11 +157,13 @@ function initTables() {
     matches: (row, q) => {
       const query = q.trim().toLowerCase();
       if (!query) return true;
-      // Match member/annotator name
-      return String(row.name || "").toLowerCase().includes(query);
+      const memberName = String(row.name || "").toLowerCase();
+      const teamNames = (row.teams || []).map((t) => String(t.name || "").toLowerCase()).join(" ");
+      // Match member/annotator name as well as team names
+      return memberName.includes(query) || teamNames.includes(query);
     },
     columns: [
-      { key: "name", label: "Annotator", render: (r) => escapeHTML(r.name) },
+      { key: "name", label: "Annotator", render: (r) => `<strong style="color:var(--ink);">${escapeHTML(r.name)}</strong>` },
       {
         key: "team_name",
         label: "Teams",
@@ -154,13 +174,13 @@ function initTables() {
           return r.teams
             .map((t) => {
               const isSelected = selectedTeam && selectedTeam.id === t.id;
-              return `<button type="button" class="pill ${isSelected ? 'is-completed' : ''}" data-action="filter-team-by-id" data-team-id="${t.id}" title="Filter by ${escapeHTML(t.name)}" style="cursor:pointer;border:1px solid ${isSelected ? 'transparent' : 'var(--line)'};">${escapeHTML(t.name)}</button>`;
+              return `<button type="button" class="pill ${isSelected ? 'is-completed' : ''}" data-action="filter-team-by-id" data-team-id="${t.id}" title="Filter by ${escapeHTML(t.name)}" style="cursor:pointer;border:1px solid ${isSelected ? 'transparent' : 'var(--line)'};font-weight:${isSelected ? '700' : '500'};">${escapeHTML(t.name)}</button>`;
             })
             .join(" ");
         }
       },
       {
-        key: "actions", label: "", sortable: false, align: "right", width: "60px",
+        key: "actions", label: "", sortable: false, align: "right", width: "50px",
         render: (r) => {
           return `<div class="row-actions"><button type="button" data-action="assign" title="Assign to Team">${ICON_EDIT}</button></div>`;
         }
@@ -176,14 +196,7 @@ function initTables() {
     const teamId = parseInt(btn.dataset.teamId, 10);
     const team = teamsCache.find((t) => t.id === teamId);
     if (team) {
-      if (selectedTeam && selectedTeam.id === team.id) {
-        selectedTeam = null;
-      } else {
-        selectedTeam = team;
-      }
-      updateTeamFilterUI();
-      renderMembers();
-      teamsTable.render();
+      selectOrToggleTeam(team);
     }
   });
 
@@ -193,6 +206,12 @@ function initTables() {
       updateTeamFilterUI();
       renderMembers();
       teamsTable.render();
+    });
+  }
+
+  if (els.teamSearchInput) {
+    els.teamSearchInput.addEventListener("input", (e) => {
+      teamsTable.setQuery(e.target.value);
     });
   }
 
