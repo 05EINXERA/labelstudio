@@ -36,11 +36,17 @@ const els = {
   
   teamsMount: document.getElementById("teamsMount"),
   membersMount: document.getElementById("membersMount"),
+  memberSearchInput: document.getElementById("memberSearchInput"),
+  selectedTeamBadge: document.getElementById("selectedTeamBadge"),
+  selectedTeamName: document.getElementById("selectedTeamName"),
+  clearTeamFilterBtn: document.getElementById("clearTeamFilterBtn"),
 };
 
 let teamsTable;
 let membersTable;
 let teamsCache = [];
+let membersCache = [];
+let selectedTeam = null;
 
 function showError(msg) {
   els.error.textContent = msg;
@@ -49,6 +55,23 @@ function showError(msg) {
 
 function clearError() {
   els.error.style.display = "none";
+}
+
+function updateTeamFilterUI() {
+  if (selectedTeam) {
+    if (els.selectedTeamBadge) els.selectedTeamBadge.style.display = "inline-flex";
+    if (els.selectedTeamName) els.selectedTeamName.textContent = selectedTeam.name;
+  } else {
+    if (els.selectedTeamBadge) els.selectedTeamBadge.style.display = "none";
+  }
+}
+
+function renderMembers() {
+  let rows = membersCache;
+  if (selectedTeam) {
+    rows = rows.filter((r) => r.teams && r.teams.some((t) => t.id === selectedTeam.id));
+  }
+  membersTable.setRows(rows);
 }
 
 const ICON_DELETE = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>`;
@@ -60,7 +83,17 @@ function initTables() {
     rowId: (r) => r.id,
     emptyMessage: "No teams created yet.",
     columns: [
-      { key: "name", label: "Name", render: (r) => escapeHTML(r.name) },
+      {
+        key: "name",
+        label: "Name",
+        render: (r) => {
+          const isSelected = selectedTeam && selectedTeam.id === r.id;
+          return `<button type="button" class="cell-link team-name-btn" data-action="filter-team" title="Click to view members of ${escapeHTML(r.name)}" style="background:none;border:none;padding:0;cursor:pointer;font-weight:${isSelected ? '700' : '600'};color:${isSelected ? 'var(--accent)' : 'var(--accent-dark)'};text-decoration:${isSelected ? 'underline' : 'none'};text-align:left;display:inline-flex;align-items:center;gap:6px;">
+            ${escapeHTML(r.name)}
+            ${isSelected ? '<span class="pill is-completed" style="font-size:0.7rem;padding:1px 6px;">Active</span>' : ''}
+          </button>`;
+        }
+      },
       {
         key: "actions", label: "", sortable: false, align: "right", width: "60px",
         render: (r) => {
@@ -74,11 +107,25 @@ function initTables() {
     ],
   });
 
+  teamsTable.onAction("filter-team", (row) => {
+    if (selectedTeam && selectedTeam.id === row.id) {
+      selectedTeam = null;
+    } else {
+      selectedTeam = row;
+    }
+    updateTeamFilterUI();
+    renderMembers();
+    teamsTable.render();
+  });
+
   teamsTable.onAction("delete", async (row) => {
       if (!confirm(`Delete team "${row.name}"? Members will be unassigned.`)) return;
       try {
         const res = await apiFetch(`/api/teams/${row.id}`, { method: "DELETE" });
         if (!res.ok) throw new Error(await res.text());
+        if (selectedTeam && selectedTeam.id === row.id) {
+          selectedTeam = null;
+        }
         loadData();
       } catch (err) {
         showError("Failed to delete team: " + err.message);
@@ -88,10 +135,37 @@ function initTables() {
   membersTable = createDataTable({
     mount: els.membersMount,
     rowId: (r) => r.name,
-    emptyMessage: "No team members yet.",
+    emptyMessage: "No team members found.",
+    matches: (row, q) => {
+      const query = q.toLowerCase();
+      // Match member/annotator name
+      if (String(row.name || "").toLowerCase().includes(query)) return true;
+      // Match assigned team names or creator
+      if (row.teams && row.teams.length > 0) {
+        if (row.teams.some((t) => String(t.name || "").toLowerCase().includes(query))) return true;
+        if (row.teams.some((t) => String(t.creator || "").toLowerCase().includes(query))) return true;
+      } else {
+        if ("unassigned".includes(query)) return true;
+      }
+      return false;
+    },
     columns: [
       { key: "name", label: "Annotator", render: (r) => escapeHTML(r.name) },
-      { key: "team_name", label: "Teams", render: (r) => r.teams && r.teams.length > 0 ? escapeHTML(r.teams.map(t => t.name).join(', ')) : `<span style="color:var(--muted);">Unassigned</span>` },
+      {
+        key: "team_name",
+        label: "Teams",
+        render: (r) => {
+          if (!r.teams || r.teams.length === 0) {
+            return `<span style="color:var(--muted);">Unassigned</span>`;
+          }
+          return r.teams
+            .map((t) => {
+              const isSelected = selectedTeam && selectedTeam.id === t.id;
+              return `<button type="button" class="pill ${isSelected ? 'is-completed' : ''}" data-action="filter-team-by-id" data-team-id="${t.id}" title="Filter by ${escapeHTML(t.name)}" style="cursor:pointer;border:1px solid ${isSelected ? 'transparent' : 'var(--line)'};">${escapeHTML(t.name)}</button>`;
+            })
+            .join(" ");
+        }
+      },
       {
         key: "actions", label: "", sortable: false, align: "right", width: "60px",
         render: (r) => {
@@ -104,6 +178,36 @@ function initTables() {
   membersTable.onAction("assign", (row) => {
     openAssignModal(row);
   });
+
+  membersTable.onAction("filter-team-by-id", (row, btn) => {
+    const teamId = parseInt(btn.dataset.teamId, 10);
+    const team = teamsCache.find((t) => t.id === teamId);
+    if (team) {
+      if (selectedTeam && selectedTeam.id === team.id) {
+        selectedTeam = null;
+      } else {
+        selectedTeam = team;
+      }
+      updateTeamFilterUI();
+      renderMembers();
+      teamsTable.render();
+    }
+  });
+
+  if (els.clearTeamFilterBtn) {
+    els.clearTeamFilterBtn.addEventListener("click", () => {
+      selectedTeam = null;
+      updateTeamFilterUI();
+      renderMembers();
+      teamsTable.render();
+    });
+  }
+
+  if (els.memberSearchInput) {
+    els.memberSearchInput.addEventListener("input", (e) => {
+      membersTable.setQuery(e.target.value);
+    });
+  }
 }
 
 async function loadData() {
@@ -125,8 +229,15 @@ async function loadData() {
     const members = await resMembers.json();
     
     teamsCache = teams;
+    membersCache = members;
+
+    if (selectedTeam && !teams.some((t) => t.id === selectedTeam.id)) {
+      selectedTeam = null;
+    }
+
+    updateTeamFilterUI();
     teamsTable.setRows(teams);
-    membersTable.setRows(members);
+    renderMembers();
     
     // Update team checkboxes in assign modal
     els.assignFormTeams.innerHTML = '';
