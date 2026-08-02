@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal
 from pydantic import BaseModel, Field, field_validator
 
 # Upper bound on a single reported time delta. Clients sync far more often than
@@ -265,6 +265,124 @@ class TaskDetail(BaseModel):
     time_spent: Optional[int] = None
     updated_at: Optional[datetime] = None
     annotations: List[Any] = Field(default_factory=list)
+
+
+# --- Teams -------------------------------------------------------------------
+#
+# Roles are `Literal`, not `str`: an invalid role is then a 422 at the boundary
+# and can never reach the database as a bad row. The team axis and the project
+# axis are separate vocabularies (.devnotes/teams/01_DESIGN.md § 2) and are
+# deliberately not unified into one enum.
+
+TeamRoleLiteral = Literal["owner", "manager", "member"]
+
+
+class TeamMemberOut(BaseModel):
+    """One roster entry.
+
+    Exposes **only** `user_id` and `username` from the users table — never the
+    password hash, the account's created_at, or anything else. Team membership
+    is not a reason to learn more about someone's account
+    (.devnotes/teams/03_API.md § 2.1).
+    """
+    user_id: int
+    username: str
+    role: TeamRoleLiteral
+    added_by: Optional[int] = None
+    created_at: Optional[datetime] = None
+
+
+class TeamSummary(BaseModel):
+    """A team as it appears in the caller's team list."""
+    id: int
+    name: str
+    slug: str
+    description: Optional[str] = None
+    # The caller's own role, which is what the UI levels its controls on.
+    my_role: TeamRoleLiteral
+    is_owner: bool
+    member_count: int = 0
+    project_count: int = 0
+    created_at: Optional[datetime] = None
+
+
+class TeamProjectOut(BaseModel):
+    """A project this team can reach, and what the grant lets it do.
+
+    `role` is the *grant* role (viewer/annotator/reviewer/manager), a different
+    vocabulary from the team roles above.
+    """
+    project_id: int
+    name: Optional[str] = None
+    slug: Optional[str] = None
+    role: str
+
+
+class TeamDetail(TeamSummary):
+    members: List[TeamMemberOut] = Field(default_factory=list)
+    projects: List[TeamProjectOut] = Field(default_factory=list)
+
+
+class TeamCreate(BaseModel):
+    # The slug is derived server-side from the name, never accepted from the
+    # client: it is a uniqueness key, so letting callers set it invites
+    # collisions the user did not cause and cannot fix.
+    name: str = Field(min_length=1, max_length=120)
+    description: Optional[str] = Field(default=None, max_length=500)
+
+
+class TeamUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    description: Optional[str] = Field(default=None, max_length=500)
+
+
+class TeamMemberAdd(BaseModel):
+    """Onboarding is by exact username (.devnotes/teams/01_DESIGN.md § 5.1).
+
+    There is deliberately no user-search endpoint to pair with this, and the
+    endpoint is rate limited — together those are what make the username
+    disclosure an accepted, scoped trade rather than an open oracle (E-14).
+    """
+    username: str = Field(min_length=1, max_length=64)
+    # "owner" is absent by design: ownership moves by transfer only, so that a
+    # team can never end up with two owners and no tiebreak.
+    role: Literal["manager", "member"] = "member"
+
+
+class TeamMemberRoleUpdate(BaseModel):
+    role: Literal["manager", "member"] = "member"
+
+
+class TransferOwnership(BaseModel):
+    username: str = Field(min_length=1, max_length=64)
+
+
+class TeamDeleteResult(BaseModel):
+    """What the delete actually removed, echoed back so the UI can confirm it
+    matches the counts it warned about (E-06)."""
+    status: str
+    grants_removed: int
+    tasks_unassigned: int
+    members_removed: int
+
+
+class MeTeam(BaseModel):
+    id: int
+    name: str
+    role: TeamRoleLiteral
+
+
+class Me(BaseModel):
+    """Identity for the frontend.
+
+    The client previously read its identity from
+    `localStorage['dataset_username']`, free text the user typed — not
+    trustworthy and often not even accurate (CLAUDE.md rule 14). Every levelled
+    UI decision needs the real thing.
+    """
+    id: int
+    username: str
+    teams: List[MeTeam] = Field(default_factory=list)
 
 
 class UserCreate(BaseModel):

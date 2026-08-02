@@ -35,7 +35,7 @@ from logging_config import configure_logging
 validate_config()
 configure_logging()
 
-from api.routers import projects, tasks, team, time_logs, data, detect, label_studio, labels, auth, imports, exports  # noqa: E402
+from api.routers import projects, tasks, team, teams, time_logs, data, detect, label_studio, labels, auth, imports, exports  # noqa: E402
 from database import engine  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -107,6 +107,7 @@ else:
 app.include_router(data.router)
 app.include_router(projects.router)
 app.include_router(tasks.router)
+app.include_router(teams.router)
 app.include_router(time_logs.router)
 # Deprecated alias for /api/time-logs, kept one release for cached JS bundles.
 app.include_router(team.router)

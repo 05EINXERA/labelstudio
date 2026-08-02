@@ -134,6 +134,20 @@ CORS_ORIGINS = [o.strip() for o in _raw_cors.split(",") if o.strip()] if _raw_co
 MAX_UPLOAD_FILES = int(os.environ.get("MAX_UPLOAD_FILES", "200"))
 MAX_IMPORT_BYTES = int(os.environ.get("MAX_IMPORT_BYTES", str(300 * 1024 * 1024)))
 
+# --- Teams ----------------------------------------------------------------
+# Cap on teams one user may own, so a compromised or buggy client cannot fill
+# the table. Same reasoning as MAX_UPLOAD_FILES; 50 is far above any legitimate
+# use on a single-org deployment. See .devnotes/teams/01_DESIGN.md § 5.
+MAX_TEAMS_PER_USER = int(os.environ.get("MAX_TEAMS_PER_USER", "50"))
+
+# Add-member is rate limited per user because it discloses whether a username
+# exists (.devnotes/teams/01_DESIGN.md § 5.1). The limit stops it being driven
+# as a bulk enumeration oracle; it is not meant to constrain honest use.
+ADD_MEMBER_RATE_LIMIT = int(os.environ.get("ADD_MEMBER_RATE_LIMIT", "30"))
+ADD_MEMBER_RATE_WINDOW_SECONDS = int(
+    os.environ.get("ADD_MEMBER_RATE_WINDOW_SECONDS", "60")
+)
+
 # --- Logging --------------------------------------------------------------
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").strip().upper()
 # `or` rather than a plain default: an explicitly empty LOG_DIR="" in .env is
