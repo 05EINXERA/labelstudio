@@ -406,9 +406,15 @@ els.assignForm.addEventListener("submit", async (e) => {
 
 // --- Boot ---
 els.user.textContent = localStorage.getItem("dataset_username") || "Annotator";
-els.logout.addEventListener("click", () => {
+els.logout.addEventListener("click", async () => {
+  try {
+    await apiFetch("/api/auth/logout", { method: "POST" });
+  } catch (_) {
+    /* best effort */
+  }
   localStorage.removeItem("logged_in");
-  window.location.href = "/";
+  localStorage.removeItem("dataset_username");
+  window.location.replace("/");
 });
 
 initTables();

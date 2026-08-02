@@ -290,6 +290,9 @@ class UserCreate(BaseModel):
     username: str = Field(min_length=1, max_length=64)
     password: str
 
+class UserResponse(BaseModel):
+    username: str
+
 class Token(BaseModel):
     access_token: str
     token_type: str

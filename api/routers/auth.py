@@ -10,13 +10,14 @@ from sqlalchemy.orm import Session
 import models
 from config import ALLOW_REGISTRATION, IS_PRODUCTION, MIN_PASSWORD_LENGTH
 from database import get_db
-from schemas import UserCreate, Token
+from schemas import UserCreate, Token, UserResponse
 from api.auth import (
     get_password_hash,
     verify_password,
     create_access_token,
     issue_session_cookies,
     clear_session_cookies,
+    get_current_user,
     require_csrf,
     ACCESS_TOKEN_EXPIRE_MINUTES,
 )
@@ -97,6 +98,10 @@ def login_for_access_token(
     )
     csrf_token = issue_session_cookies(response, access_token)
     return {"access_token": access_token, "token_type": "bearer", "csrf_token": csrf_token}
+
+@router.get("/me", response_model=UserResponse)
+def get_me(user: models.User = Depends(get_current_user)):
+    return {"username": user.username}
 
 @router.post("/logout")
 def logout(response: Response):

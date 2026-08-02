@@ -18,6 +18,14 @@
     window.addEventListener('unhandledrejection', function(e) {
       alert("JS Promise Error: " + e.reason);
     });
+    if (!localStorage.getItem('logged_in')) {
+      window.location.replace('/');
+    }
+    window.addEventListener('pageshow', function () {
+      if (!localStorage.getItem('logged_in')) {
+        window.location.replace('/');
+      }
+    });
   </script>
 </head>
 

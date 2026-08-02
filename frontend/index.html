@@ -7,6 +7,16 @@
   <title>Login - Dataset Workspace</title>
   <link rel="icon" type="image/png" href="logo.png">
   <link rel="stylesheet" href="login.css">
+  <script>
+    if (localStorage.getItem('logged_in') === 'true') {
+      window.location.replace('projects.html');
+    }
+    window.addEventListener('pageshow', function () {
+      if (localStorage.getItem('logged_in') === 'true') {
+        window.location.replace('projects.html');
+      }
+    });
+  </script>
   <script src="sync.js"></script>
 </head>
 
@@ -113,9 +123,8 @@
         localStorage.setItem('logged_in', 'true');
         localStorage.removeItem('image-annotation-mvp-v1');
         
-        // Land on the projects list, not the canvas: a user picks a project
-        // before annotating. See .devnotes/ui/dashboard/REFACTOR_MANAGEMENT.md
-        window.location.href = 'projects.html';
+        // Land on the projects list, replacing login in the history stack
+        window.location.replace('projects.html');
       } catch (err) {
         errorMsg.textContent = err.message;
         errorMsg.style.display = 'block';

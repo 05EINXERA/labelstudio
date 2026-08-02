@@ -13,7 +13,7 @@ function readCookie(name) {
 export async function apiFetch(url, options = {}) {
   const logged_in = localStorage.getItem('logged_in');
   if (!logged_in) {
-    window.location.href = '/';
+    window.location.replace('/');
     return;
   }
 
@@ -36,7 +36,7 @@ export async function apiFetch(url, options = {}) {
   if (res.status === 401) {
     localStorage.removeItem('logged_in');
     localStorage.removeItem('dataset_username');
-    window.location.href = '/';
+    window.location.replace('/');
     return res;
   }
 
@@ -53,7 +53,7 @@ export async function apiFetch(url, options = {}) {
     }
     if (detail.toLowerCase().includes('csrf')) {
       localStorage.removeItem('logged_in');
-      window.location.href = '/';
+      window.location.replace('/');
     }
   }
 

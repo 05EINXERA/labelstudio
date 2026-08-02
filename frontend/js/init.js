@@ -30,7 +30,7 @@ import { claimTask, heartbeatTask, releaseTask } from "./task-lock.js?v=1";
 import { initFftControls } from "./fft-controls.js?v=1";
 
 if (!localStorage.getItem('logged_in')) {
-  window.location.href = '/';
+  window.location.replace('/');
 }
 
 const breadcrumbProject = document.querySelector("#breadcrumbProject");
@@ -110,7 +110,7 @@ if (logoutBtnApp) {
     localStorage.removeItem("dataset_username");
     localStorage.removeItem("image-annotation-mvp-v1");
     localStorage.removeItem("logged_in");
-    window.location.href = "index.html";
+    window.location.replace("/");
   });
 }
 

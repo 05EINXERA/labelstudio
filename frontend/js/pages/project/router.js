@@ -154,7 +154,7 @@ async function init() {
     }
     localStorage.removeItem("logged_in");
     localStorage.removeItem("dataset_username");
-    window.location.href = "/";
+    window.location.replace("/");
   });
 
   renderNav(els.nav, routeFromHash());

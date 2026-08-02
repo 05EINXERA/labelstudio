@@ -247,7 +247,7 @@ els.logout.addEventListener("click", async () => {
   }
   localStorage.removeItem("logged_in");
   localStorage.removeItem("dataset_username");
-  window.location.href = "/";
+  window.location.replace("/");
 });
 
 // --- init ------------------------------------------------------------------
