@@ -30,7 +30,6 @@ from api.permissions import (
     at_least,
     can_write_task,
     effective_project_role,
-    rank,
     require_project,
     require_task,
 )
@@ -530,9 +529,16 @@ def bulk_update_tasks(payload: BulkUpdate, db: Session = Depends(get_db), user: 
     # status="Approved" on the ids you could not approve individually. This is
     # the easiest check in the whole feature to forget, which is why it has its
     # own named test.
-    minimum = ProjectRole.MANAGER
-    if payload.status in REVIEW_STATUSES:
-        minimum = max(minimum, ProjectRole.REVIEWER, key=rank)
+    #
+    # A review-status change *is* the reviewer's job, so REVIEWER is the
+    # minimum for that case rather than an additional requirement on top of
+    # MANAGER — a reviewer who cannot bulk-approve would have to click through
+    # a thousand tasks one at a time. Setting any other field (or a
+    # non-review status) remains an administrative bulk edit at MANAGER.
+    if payload.status in REVIEW_STATUSES and payload.assignee is None:
+        minimum = ProjectRole.REVIEWER
+    else:
+        minimum = ProjectRole.MANAGER
 
     owned, skipped = _restrict_to_owned(payload.ids, user, db, minimum=minimum)
 

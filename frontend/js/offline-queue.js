@@ -40,17 +40,23 @@ const MAX_REPLAY_AGE_MS = 24 * 60 * 60 * 1000;
  *  layer (which would be circular: timer.js enqueues into here). */
 let sendWrite = null;
 let onConflict = null;
+let onForbidden = null;
 
 /**
  * @param {object} hooks
- * @param {(payload:object)=>Promise<{ok:boolean, conflict?:boolean, updated_at?:string}>} hooks.send
+ * @param {(payload:object)=>Promise<{ok:boolean, conflict?:boolean, forbidden?:boolean, detail?:string, updated_at?:string}>} hooks.send
  *        Performs one write. Must resolve — never reject — with `conflict:true`
- *        for a 409 and `ok:false` for anything else.
+ *        for a 409, `forbidden:true` for a 403, and `ok:false` for anything
+ *        else. The 403 case is distinguished because it is not retryable: the
+ *        server is healthy and the answer will not change without someone
+ *        altering a grant (E-27).
  * @param {(taskId:number, payload:object)=>void} [hooks.onConflict]
+ * @param {(taskId:number, payload:object, detail:string)=>void} [hooks.onForbidden]
  */
-export function configureQueue({ send, onConflict: conflictHandler } = {}) {
+export function configureQueue({ send, onConflict: conflictHandler, onForbidden: forbiddenHandler } = {}) {
   if (typeof send === 'function') sendWrite = send;
   if (typeof conflictHandler === 'function') onConflict = conflictHandler;
+  if (typeof forbiddenHandler === 'function') onForbidden = forbiddenHandler;
 }
 
 // ── storage ─────────────────────────────────────────────────────────────────
@@ -198,6 +204,9 @@ export function enqueueWrite(payload) {
     queuedAt: existing?.queuedAt || Date.now(),
     lastAttemptAt: Date.now(),
     attempts: (existing?.attempts || 0) + 1,
+    // The entry is rebuilt rather than merged, so any `conflicted` / `forbidden`
+    // flag from a previous attempt is deliberately dropped: re-queuing is how
+    // the overwrite path (and a user who regained access) says "try again".
   };
 
   writeQueue(queue);
@@ -278,6 +287,13 @@ export async function drainQueue() {
       continue;
     }
 
+    // Already answered on the merits by a live server, and waiting on a human:
+    // a conflict needs the user's overwrite/discard decision, a 403 needs
+    // someone to change a grant. Re-sending either just repeats the same
+    // refusal. Both stay queued — re-queuing the payload (which enqueueWrite
+    // does for the overwrite path) clears the flag and resumes retrying.
+    if (entry.forbidden || entry.conflicted) continue;
+
     let result;
     try {
       result = await sendWrite(entry.payload);
@@ -291,6 +307,29 @@ export async function drainQueue() {
       delete queue[taskId];
       flushed += 1;
       consecutiveFailures = 0;
+      continue;
+    }
+
+    if (result && result.forbidden) {
+      // E-27: the server is alive and said no. Retrying cannot help — a grant
+      // has to change — and hammering it would hold the offline banner open
+      // against a healthy server.
+      //
+      // The payload is deliberately **kept**. A permission error must never
+      // destroy unsaved work (E-08, E-24); the annotator may regain access, or
+      // may want to copy the work elsewhere. `forbidden` marks it so the retry
+      // loop skips it, exactly as `conflicted` does.
+      consecutiveFailures = 0;
+      entry.forbidden = true;
+      entry.forbiddenDetail = result.detail || '';
+      entry.lastAttemptAt = Date.now();
+      if (onForbidden) {
+        try {
+          onForbidden(Number(taskId), entry.payload, result.detail || '');
+        } catch (e) {
+          console.error('[offline-queue] forbidden handler failed', e);
+        }
+      }
       continue;
     }
 
@@ -339,7 +378,12 @@ export async function drainQueue() {
   notify();
 
   // Anything left that is still worth retrying gets another pass.
-  if (Object.keys(readQueue()).some((id) => !readQueue()[id].conflicted)) {
+  // A forbidden entry is as un-retryable as a conflicted one: both are waiting
+  // on a human decision, not on the network.
+  if (Object.keys(readQueue()).some((id) => {
+    const e = readQueue()[id];
+    return !e.conflicted && !e.forbidden;
+  })) {
     scheduleDrain();
   }
 

@@ -554,6 +554,20 @@ configureQueue({
       // Not a transport failure, but not a success either — leave it queued.
       if (!res) return { ok: false };
       if (res.status === 409) return { ok: false, conflict: true };
+      // E-27: a permission failure is not a transport failure. Retrying it
+      // forever pins the offline banner open against a server that is answering
+      // perfectly well, and the answer will never change on its own — someone
+      // has to grant access. Surfaced like a conflict (reported once, retries
+      // stopped) and, critically, the payload stays queued: a permission error
+      // must never cost the annotator their work.
+      if (res.status === 403) {
+        const body = await res.json().catch(() => null);
+        return {
+          ok: false,
+          forbidden: true,
+          detail: (body && body.detail) || 'You no longer have permission to edit this task.',
+        };
+      }
       if (!res.ok) return { ok: false };
 
       const data = await res.json().catch(() => null);
@@ -571,6 +585,24 @@ configureQueue({
     } catch (e) {
       return { ok: false };
     }
+  },
+
+  onForbidden(taskId, payload, detail) {
+    // E-27: a queued write the server refused on permission grounds. Unlike a
+    // conflict there is no choice to offer — overwriting is not an option the
+    // user has — so this only informs them.
+    //
+    // The queued payload and the per-task draft are both left in place
+    // (rule 18): a permission error must never destroy unsaved work. If access
+    // is restored, the next drain replays it.
+    const task = (state.gallery || []).find(t => t && t.id === taskId);
+    const label = task ? (task.name || `task ${taskId}`) : `task ${taskId}`;
+    alert(
+      `Your offline work on ${label} could not be saved.\n\n` +
+      `${detail || 'You no longer have permission to edit this task.'}\n\n` +
+      "Your work is still stored in this browser. Ask a project owner for access, " +
+      "then reload to retry."
+    );
   },
 
   onConflict(taskId) {

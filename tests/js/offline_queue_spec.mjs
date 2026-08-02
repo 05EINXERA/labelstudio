@@ -133,5 +133,51 @@ store.clear();
      accepted.every(p => p.client_id === 'browser-A'));
 }
 
+// 9. E-27: a queued write that 403s on replay.
+//    Teams made this reachable — a grant can be revoked while work sits in the
+//    outbox. A 403 is a real answer from a healthy server, so it must not be
+//    retried like a network failure, and it must never cost the annotator their
+//    work. See .devnotes/teams/06_EDGE_CASES.md E-27.
+store.clear();
+{
+  let attempts = 0;
+  const reported = [];
+  q.configureQueue({
+    send: async () => {
+      attempts += 1;
+      return { ok: false, forbidden: true, detail: 'This task is assigned to Alpha.' };
+    },
+    onConflict: () => { throw new Error('a 403 must not be routed to the conflict handler'); },
+    onForbidden: (taskId, payload, detail) => reported.push({ taskId, detail }),
+  });
+
+  q.enqueueWrite({
+    id: 21,
+    time_spent_delta: 40,
+    annotations: JSON.stringify([{ id: 'a21' }]),
+    client_id: 'browser-A',
+  });
+
+  await q.drainQueue();
+
+  ok('403: the draft is retained, not dropped', q.pendingCount() === 1);
+  ok('403: reported to the user once', reported.length === 1);
+  ok('403: the server message is passed through', reported[0].detail === 'This task is assigned to Alpha.');
+
+  const persisted = JSON.parse(store.get('pending-writes-v1'));
+  ok('403: marked so the retry loop skips it', persisted['21'].forbidden === true);
+  ok('403: the payload itself is intact', JSON.parse(persisted['21'].payload.annotations).length === 1);
+  ok('403: work is not silently lost', persisted['21'].payload.time_spent_delta === 40);
+
+  // A second drain must not hammer a server that already said no.
+  const attemptsAfterFirst = attempts;
+  await q.drainQueue();
+  ok('403: not retried forever', attempts === attemptsAfterFirst);
+
+  // ...and it must not be mistaken for the server being unreachable, which
+  // would show the offline banner against a perfectly healthy server.
+  ok('403: does not mark the server unreachable', q.isServerUnreachable() === false);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail?1:0);
