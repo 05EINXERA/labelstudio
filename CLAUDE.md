@@ -26,6 +26,15 @@ list; Phases 0–4 done — see `05_LOAD_TEST.md` for load-test results),
 makes concurrent editing safe), `06_RESILIENCE_PLAN.md` (crash/power-loss/
 backup robustness for the single-PC deployment).
 
+**Teams, roles and project access live in `.devnotes/teams/`** — read it before
+touching authorization, `api/permissions.py`, grants, task assignment or the
+review flow: `01_DESIGN.md` (the model — §2 the two role axes, §6 the resolver),
+`02_SCHEMA.md` (columns, cascades, migrations), `03_API.md` (endpoints and the
+minimum role for every call site), `04_UI_UX.md` (what each role sees),
+`06_EDGE_CASES.md` (30 numbered cases), `PLAN.md` §8 (deviations actually made).
+Phases 1–5 are complete; `07_PHASING.md` lists the F1–F9 follow-ups that are
+deliberately **not** built.
+
 Read `docs/ARCHITECTURE.md` before moving code between modules,
 `docs/CONVENTIONS.md` before writing new code, and `docs/GOTCHAS.md` before
 copying any existing pattern — several existing patterns are known mistakes.
@@ -40,6 +49,8 @@ old pattern into new code.
 
 1. **All `/api/*` routes require auth** via `dependencies=[Depends(get_current_user)]` on the router — except `/api/auth/*`. This now holds across every router (the old `tasks.py`/`data.py`/`label_studio.py` gaps are closed). Any new router must include the auth dependency.
 1a. **State-changing routers also require CSRF** via `Depends(require_csrf)` (see `api/auth.py`): a double-submit token check exempting pure `Authorization: Bearer` clients. Routers that mutate (e.g. `tasks.py`, `labels.py`) carry it; new mutating routers must too.
+1b. **Authorization goes through `api/permissions.py`, never `owner_id` directly.** Use `require_project(pid, user, db, minimum=ProjectRole.X)` / `require_task(...)` with the minimum role the endpoint actually needs, and `accessible_project_ids(user, db)` for list endpoints. `get_owned_project` / `_get_owned_task` / `_owned_project_ids` survive only as deprecated aliases and are deleted in Phase 5 F5 — do not call them from new code. The per-call-site minimums are tabulated in `.devnotes/teams/03_API.md` §4.1; two that look wrong are deliberate (**exports at `viewer`** — an export is a read; **imports at `manager`** — a replace-mode import wipes labels for everyone). Contract: **404** when the caller has no role at all (identical to a nonexistent id, so ids cannot be enumerated), **403** when they have a role but not a high enough one, with a message naming the role required.
+1c. **Permission checks run before conflict detection**, always. A 403 must never surface as a 409 — a user who lacks permission needs an actionable message, not "someone else edited this". See `api/routers/tasks.py`'s update branch for the required ordering.
 2. **Imports go at the top of the file.** Existing code has `import json` inside functions and `import schemas` mid-file — do not copy that.
 3. **No bare `except:` and no silent `pass`.** Catch the specific exception, and either handle it meaningfully or log it. See CONVENTIONS.md § Errors.
 4. **GET endpoints must not write to the database.**
@@ -60,6 +71,10 @@ old pattern into new code.
 16. All backend calls from authenticated pages go through the `apiFetch` wrapper (handles 401 → redirect), not raw `fetch`.
 17. **Per-task annotation loading.** The gallery list is fetched annotation-free (`include_annotations=false`); annotations hydrate per task on open via `GET /api/tasks/{id}`. Do not go back to loading every task's annotations up front.
 18. **Unsaved work is protected by a per-task localStorage draft** (`draftKey(taskId)` in `state.js`), restored on task open and cleared only on server-confirmed save. There is deliberately no cross-tab `storage` listener reloading annotations, and no single global draft slot. See 04_ANNOTATION_SAVE_LOSS.md.
+18a. **A permission error never destroys unsaved work.** No code path may clear a draft or drop an offline-queue item on a 403. The queue marks such an entry `forbidden`, reports it once and stops retrying (a 403 is not a retryable network error, and the server is answering fine) — but *keeps* the payload. See `.devnotes/teams/06_EDGE_CASES.md` E-08, E-24, E-27.
+18b. **Client-side role checks are for rendering only.** `frontend/js/permissions.js` mirrors `api/permissions.py`'s ranking because there is no build step to share one definition; both files carry a comment pointing at the other. Never remove a server check because the client hides the control — a stale bundle is a cosmetic bug (E-17), a missing server check is a vulnerability. `tests/js/permissions_spec.mjs` guards the two copies against drift.
+18c. **Identity comes from `GET /api/auth/me`** (via `frontend/js/session.js`), never from `localStorage['dataset_username']` — that is free text the user typed into a prompt and is frequently wrong. It survives only as a display fallback for cached bundles mid-rollout and is removed in Phase 5 F3.
+18d. **Role-gated routes are checked in the router, not just hidden in the nav.** A hidden tab does nothing about a typed, bookmarked or shared URL, and a role can be revoked after a link was saved. Both hash routers (`pages/project/router.js`, `pages/team/router.js`) resolve a disallowed route to the default one and normalise the address bar to match.
 
 ### Repo hygiene
 
@@ -86,12 +101,22 @@ old pattern into new code.
 | `models.py` | SQLAlchemy ORM models (database tables) |
 | `schemas.py` | Pydantic request/response schemas (`TaskDetail`, etc.) |
 | `api/auth.py` | JWT creation/validation, password hashing, `get_current_user`, `require_csrf`, session/CSRF cookies |
-| `api/routers/` | One router per resource (projects, tasks, labels, team, data, detect, auth, label_studio, exports, imports). `tasks.py` also holds the per-task detail endpoint and the in-process soft lock (`_TASK_LOCKS`) |
+| `api/permissions.py` | **The authorization resolver.** `ProjectRole`/`TeamRole`, `effective_project_role`, `require_project`, `require_task`, `require_team`, `accessible_project_ids`, `can_write_task`. Imports only `models`/`database`/`fastapi` — never a router |
+| `api/rate_limit.py` | In-process sliding-window limiter (single-worker only, rule 9); used by add-member |
+| `api/routers/` | One router per resource (projects, tasks, labels, teams, grants, time_logs, data, detect, auth, label_studio, exports, imports). `tasks.py` also holds the per-task detail endpoint, the review/assignment endpoints, and the in-process soft lock (`_TASK_LOCKS`). `team.py` is a deprecated alias for `time_logs.py` (F6) |
+| `api/routers/teams.py` | Team CRUD and rosters — the *team* axis (who is in a team). Says nothing about project access |
+| `api/routers/grants.py` | `/api/projects/{id}/grants` — the *access* axis (what a team may do on one project). Owner-only |
 | `formats/` | Import/export format logic (COCO, task JSON, YOLO, masks), one module per format; pure, testable without a server. See docs/ARCHITECTURE.md § 2.1 |
 | `detector.py` | ML model loading + inference (YOLO, SAM, CLIP) |
 | `frontend/app.html` + `app.js` | The annotation canvas page (the monolith) |
 | `frontend/js/` | Shared ES modules — new frontend code goes here (`utils.js`, `state.js`, `task-lock.js`, `components/`, `pages/`) |
+| `frontend/js/permissions.js` | Client-side role ranking. Deliberate mirror of `api/permissions.py`; **rendering only**, never a security boundary (rule 18b) |
+| `frontend/js/session.js` | `getCurrentUser()` — real identity from `/api/auth/me`, cached per page load (rule 18c) |
+| `frontend/js/canvas-permissions.js` | The canvas's whole permission surface: read-only mode, assignment banner, Approve/Reject. Keeps `init.js` from growing |
+| `frontend/teams.html` + `js/pages/teams-list.js`, `js/pages/team/` | Teams list and the per-team shell (members / projects / settings) |
+| `frontend/js/pages/project/access.js` | Project `#/access` — grant management, owner only |
 | `scripts/` | Ops + one-off tooling: `migrate_sqlite_to_postgres.py`, `backup.py`, `schedule-backup.ps1`, `install-service.ps1`, `run.ps1`, `restore_drill.py`, `verify-resilience.ps1`, `health-check.ps1`, `schedule-health-check.ps1` |
 | `.devnotes/deployment-hardening/` | Deployment audit, phased task list, the annotation-save-loss postmortem, and the resilience plan/implementation record (`06_RESILIENCE_PLAN.md`, `07_RESILIENCE_IMPLEMENTATION.md`) |
+| `.devnotes/teams/` | The Teams feature: design, schema, API/permission map, UI spec, 30 edge cases, phasing and the deviations actually made (`PLAN.md` §8) |
 | `models/` | ML weight files (gitignored) — *not* Python code; `models.py` is the DB models |
 | `alembic/` | Database migrations |
