@@ -71,6 +71,21 @@ def get_owned_project(project_id: int, user: models.User, db: Session, annotator
     return project
 
 
+def is_project_creator(project: models.Project, user: models.User, annotator: Optional[models.TeamMember] = None) -> bool:
+    """Return True if user or annotator is the creator/owner of the project."""
+    names = set()
+    if annotator and annotator.name:
+        names.add(annotator.name)
+    else:
+        names.add(user.username)
+        
+    if project.creator in names:
+        return True
+    if project.owner_id == user.id and (not annotator or annotator.name == user.username):
+        return True
+    return False
+
+
 def _count_comments(annotations: Optional[str]) -> int:
     """Number of comment annotations in a task's serialized annotation blob."""
     if not annotations or '"comment"' not in annotations:
@@ -309,7 +324,9 @@ def upload_files(project_id: int, assignee: Optional[str] = Query(None), file: L
     left on disk with no task row and the client got a 400 with no record of
     what did succeed. Each file is now reported individually.
     """
-    get_owned_project(project_id, user, db, annotator)
+    db_project = get_owned_project(project_id, user, db, annotator)
+    if not is_project_creator(db_project, user, annotator):
+        raise HTTPException(status_code=403, detail="Only the project creator can upload tasks to this project.")
 
     # Bounds the work one request can queue. Each file is streamed to disk while
     # holding a worker thread, so an unbounded batch lets a single request stall

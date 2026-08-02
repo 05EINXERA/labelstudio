@@ -61,31 +61,34 @@ function countAnnotations(task) {
   return { comments, classes };
 }
 
-function template() {
+function template(isCreator) {
   return `
     <div class="mgmt-title-row">
       <div>
         <p class="mgmt-eyebrow">Project</p>
         <h2>Tasks</h2>
       </div>
+      ${isCreator ? `
       <div style="display:flex; gap:10px;">
         <button type="button" class="primary" id="uploadBtn" style="padding:9px 16px;border-radius:8px;font-weight:600;">+ Upload images</button>
         <input type="file" id="uploadInput" accept="image/png,image/jpeg,image/gif,image/webp" multiple style="display:none;">
-      </div>
+      </div>` : ""}
     </div>
 
+    ${isCreator ? `
     <div id="dropZone" class="mgmt-empty" style="border:2px dashed var(--line); border-radius:10px; margin-bottom:16px; cursor:pointer;">
       <p>Drag &amp; drop images here, or click "Upload images"</p>
-    </div>
+    </div>` : ""}
 
     <div id="uploadSummary"></div>
     <div id="errorBanner" class="mgmt-error" style="display:none;"></div>
 
+    ${isCreator ? `
     <div class="bulk-bar" id="bulkBar">
       <span class="count" id="bulkCount"></span>
       <button type="button" class="tool-button" id="bulkAssignBtn">Bulk assign</button>
       <button type="button" class="tool-button" id="bulkDeleteBtn" style="color:#e05260;border-color:rgba(224,82,96,.3);">Bulk delete</button>
-    </div>
+    </div>` : ""}
 
     <div class="mgmt-toolbar">
       <input type="search" id="searchInput" placeholder="Search filename…" aria-label="Search tasks">
@@ -238,6 +241,7 @@ function bindUpload() {
   const btn = el("uploadBtn");
   const input = el("uploadInput");
   const zone = el("dropZone");
+  if (!btn || !input || !zone) return;
 
   btn.addEventListener("click", () => input.click());
   zone.addEventListener("click", () => input.click());
@@ -375,12 +379,18 @@ function bindEditModal() {
 
 function updateBulkBar(selection) {
   const bar = el("bulkBar");
+  if (!bar) return;
   bar.classList.toggle("is-active", selection.size > 0);
-  el("bulkCount").textContent = `${selection.size} selected`;
+  const countEl = el("bulkCount");
+  if (countEl) countEl.textContent = `${selection.size} selected`;
 }
 
 function bindBulkActions() {
-  el("bulkDeleteBtn").addEventListener("click", async () => {
+  const deleteBtn = el("bulkDeleteBtn");
+  const assignBtn = el("bulkAssignBtn");
+  if (!deleteBtn || !assignBtn) return;
+
+  deleteBtn.addEventListener("click", async () => {
     const ids = [...table.getSelection()];
     if (!ids.length) return;
     if (!confirm(`Delete ${ids.length} task${ids.length === 1 ? "" : "s"}? This cannot be undone.`)) return;
@@ -403,7 +413,7 @@ function bindBulkActions() {
     }
   });
 
-  el("bulkAssignBtn").addEventListener("click", () => {
+  assignBtn.addEventListener("click", () => {
     if (table.getSelection().size === 0) return;
     el("assignInput").value = "";
     el("assignModal").classList.add("is-active");
@@ -444,12 +454,16 @@ function bindBulkActions() {
 export async function mount(hostRoot, hostCtx) {
   root = hostRoot;
   ctx = hostCtx;
-  root.innerHTML = template();
+
+  const datasetUsername = localStorage.getItem("dataset_username") || "";
+  const isCreator = Boolean(ctx?.project?.creator && ctx.project.creator === datasetUsername);
+
+  root.innerHTML = template(isCreator);
 
   table = createDataTable({
     mount: el("tableMount"),
     rowId: (r) => r.id,
-    selectable: true,
+    selectable: isCreator,
     sortKey: "updated_at",
     sortDesc: true,
     emptyMessage: "No tasks yet. Upload images to get started.",
@@ -490,10 +504,13 @@ export async function mount(hostRoot, hostCtx) {
       { key: "comments", label: "Comments", sortable: false, align: "center", render: (r) => `💬 ${countAnnotations(r).comments}` },
       {
         key: "actions", label: "", sortable: false, align: "center",
-        render: () => `<div class="row-actions">
+        render: () => {
+          if (!isCreator) return "";
+          return `<div class="row-actions">
             <button type="button" data-action="edit" title="Edit task">${ICON_EDIT}</button>
             <button type="button" data-action="delete" class="danger" title="Delete task">${ICON_DELETE}</button>
-          </div>`,
+          </div>`;
+        },
       },
     ],
   });
@@ -507,8 +524,13 @@ export async function mount(hostRoot, hostCtx) {
   el("searchInput").addEventListener("input", (e) => table.setQuery(e.target.value));
   el("statusFilter").addEventListener("change", (e) => table.setFilter("status", e.target.value));
 
-  table.onAction("edit", (row) => openEditModal(row));
-  table.onAction("delete", async (row) => {    if (!confirm(`Delete "${row.description}"? This cannot be undone.`)) return;
+  table.onAction("edit", (row) => {
+    if (!isCreator) return;
+    openEditModal(row);
+  });
+  table.onAction("delete", async (row) => {
+    if (!isCreator) return;
+    if (!confirm(`Delete "${row.description}"? This cannot be undone.`)) return;
     try {
       const res = await apiFetch(`/api/tasks/${row.id}`, { method: "DELETE" });
       if (!res) return;

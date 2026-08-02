@@ -12,7 +12,7 @@ import models
 from database import get_db, commit_with_retry
 from schemas import TaskUpdate, BulkDelete, BulkUpdate, TaskDetail
 from api.auth import get_current_user, require_csrf, get_current_annotator
-from api.routers.projects import get_owned_project, get_user_accessible_team_ids
+from api.routers.projects import get_owned_project, get_user_accessible_team_ids, is_project_creator
 
 router = APIRouter(
     prefix="/api/tasks",
@@ -80,6 +80,25 @@ def _accessible_project_ids(user: models.User, db: Session, annotator: Optional[
     ]
     if task_pids:
         conditions.append(models.Project.id.in_(task_pids))
+
+    return [
+        pid for (pid,) in db.query(models.Project.id).filter(or_(*conditions)).all()
+    ]
+
+
+def _creator_project_ids(user: models.User, db: Session, annotator: Optional[models.TeamMember] = None):
+    """Ids of every project created or owned by the caller."""
+    names = set()
+    if annotator and annotator.name:
+        names.add(annotator.name)
+    else:
+        names.add(user.username)
+
+    conditions = [
+        models.Project.creator.in_(names),
+    ]
+    if not annotator or (annotator and annotator.name == user.username):
+        conditions.append(models.Project.owner_id == user.id)
 
     return [
         pid for (pid,) in db.query(models.Project.id).filter(or_(*conditions)).all()
@@ -338,7 +357,9 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
     else:
         if projectId is None:
             raise HTTPException(status_code=422, detail="Query param 'projectId' is required to create a task.")
-        get_owned_project(projectId, user, db, annotator)
+        db_project = get_owned_project(projectId, user, db, annotator)
+        if not is_project_creator(db_project, user, annotator):
+            raise HTTPException(status_code=403, detail="Only the project creator can add tasks to this project.")
         db_task = models.Task(
             description=task.description,
             assignee=task.assignee, 
@@ -392,25 +413,32 @@ def patch_task(task_id: int, task: TaskUpdate, db: Session = Depends(get_db), us
     optimistic-concurrency / status-derivation logic (docs/TIMER_AUDIT.md
     F10/F13) a second time.
     """
+    db_task = _get_owned_task(task_id, user, db, annotator)
+    project = db.query(models.Project).filter(models.Project.id == db_task.project_id).first()
+    if not project or not is_project_creator(project, user, annotator):
+        raise HTTPException(status_code=403, detail="Only the project creator can edit tasks.")
     task.id = task_id
     return update_or_create_task(task, projectId=None, db=db, user=user, annotator=annotator)
 
 @router.delete("/{task_id}")
 def delete_task(task_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
     task = _get_owned_task(task_id, user, db, annotator)
+    project = db.query(models.Project).filter(models.Project.id == task.project_id).first()
+    if not project or not is_project_creator(project, user, annotator):
+        raise HTTPException(status_code=403, detail="Only the project creator can delete tasks.")
     db.delete(task)
     commit_with_retry(db)
     return {"status": "ok"}
 
 
-def _restrict_to_owned(ids, user: models.User, db: Session, annotator: Optional[models.TeamMember] = None):
-    """Subset of `ids` the caller has access to, and how many were rejected.
+def _restrict_to_creator(ids, user: models.User, db: Session, annotator: Optional[models.TeamMember] = None):
+    """Subset of `ids` belonging to projects created by the caller, and how many were rejected.
 
     Bulk routes accept arbitrary ids, so filtering (rather than a single guard)
     is what stops a caller from mutating another owner's tasks by mixing ids
     into the payload.
     """
-    proj_ids = _accessible_project_ids(user, db, annotator)
+    proj_ids = _creator_project_ids(user, db, annotator)
     owned = [
         tid for (tid,) in db.query(models.Task.id)
         .filter(models.Task.id.in_(ids), models.Task.project_id.in_(proj_ids))
@@ -422,7 +450,7 @@ def _restrict_to_owned(ids, user: models.User, db: Session, annotator: Optional[
 def bulk_delete_tasks(payload: BulkDelete, db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
     if not payload.ids:
         raise HTTPException(status_code=400, detail="No ids provided")
-    owned, skipped = _restrict_to_owned(payload.ids, user, db, annotator)
+    owned, skipped = _restrict_to_creator(payload.ids, user, db, annotator)
     if owned:
         db.query(models.Task).filter(models.Task.id.in_(owned)).delete(synchronize_session=False)
         commit_with_retry(db)
@@ -433,7 +461,7 @@ def bulk_update_tasks(payload: BulkUpdate, db: Session = Depends(get_db), user: 
     if not payload.ids:
         raise HTTPException(status_code=400, detail="No ids provided")
 
-    owned, skipped = _restrict_to_owned(payload.ids, user, db, annotator)
+    owned, skipped = _restrict_to_creator(payload.ids, user, db, annotator)
 
     update_data = {}
     if payload.assignee is not None:

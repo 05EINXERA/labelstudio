@@ -253,3 +253,80 @@ def test_patch_project_team_id_and_clear(client, alice):
     row = next(p for p in client.get("/api/projects", headers=headers).json() if p["id"] == pid)
     assert row["team_id"] is None
     assert row["team_name"] is None
+
+
+def test_team_member_cannot_edit_or_delete_task_if_not_creator(client, alice):
+    from database import SessionLocal
+    import models
+    import uuid
+
+    db = SessionLocal()
+    try:
+        alice_name = f"alice_{uuid.uuid4().hex[:6]}"
+        bob_name = f"bob_{uuid.uuid4().hex[:6]}"
+
+        # Create team Shared Team created by alice_name
+        team = models.Team(name=f"Shared Team {uuid.uuid4().hex[:6]}", creator=alice_name)
+        db.add(team)
+        db.commit()
+        db.refresh(team)
+
+        # Add alice_name and bob_name to the team
+        db.add(models.TeamMember(name=alice_name, time_logged=0))
+        db.add(models.TeamMember(name=bob_name, time_logged=0))
+        db.add(models.TeamMemberAssociation(member_name=alice_name, team_id=team.id))
+        db.add(models.TeamMemberAssociation(member_name=bob_name, team_id=team.id))
+        db.commit()
+
+        alice_headers = {**alice, "X-Annotator-Name": alice_name}
+        bob_headers = {**alice, "X-Annotator-Name": bob_name}
+
+        # Alice creates project assigned to Shared Team
+        proj_res = client.post(
+            "/api/projects",
+            json={"name": "alice-team-proj", "slug": f"alice-team-proj-{uuid.uuid4().hex[:6]}", "creator": alice_name, "team_id": team.id},
+            headers=alice_headers
+        )
+        assert proj_res.status_code == 200
+        pid = proj_res.json()["id"]
+
+        # Alice creates a task
+        t_res = client.post("/api/tasks", json={"description": "task-1"}, params={"projectId": pid}, headers=alice_headers)
+        assert t_res.status_code == 200
+        tid = t_res.json()["id"]
+
+        # Bob can view the task list and task details
+        assert client.get(f"/api/tasks?projectId={pid}", headers=bob_headers).status_code == 200
+        assert client.get(f"/api/tasks/{tid}", headers=bob_headers).status_code == 200
+
+        # Bob cannot edit (patch) the task
+        patch_res = client.patch(f"/api/tasks/{tid}", json={"description": "bob-edit"}, headers=bob_headers)
+        assert patch_res.status_code == 403
+
+        # Bob cannot delete the task
+        del_res = client.delete(f"/api/tasks/{tid}", headers=bob_headers)
+        assert del_res.status_code == 403
+
+        # Bob cannot bulk delete or bulk update
+        bulk_del_res = client.post("/api/tasks/bulk-delete", json={"ids": [tid]}, headers=bob_headers)
+        assert bulk_del_res.status_code == 200
+        assert bulk_del_res.json()["deleted"] == 0
+        assert bulk_del_res.json()["skipped"] == 1
+
+        bulk_up_res = client.post("/api/tasks/bulk-update", json={"ids": [tid], "status": "Completed"}, headers=bob_headers)
+        assert bulk_up_res.status_code == 200
+        assert bulk_up_res.json()["updated"] == 0
+        assert bulk_up_res.json()["skipped"] == 1
+
+        # Task is still intact with Alice
+        task_after = client.get(f"/api/tasks/{tid}", headers=alice_headers).json()
+        assert task_after["description"] == "task-1"
+        assert task_after["status"] != "Completed"
+
+        # Alice (creator) CAN edit and delete the task
+        assert client.patch(f"/api/tasks/{tid}", json={"description": "alice-updated"}, headers=alice_headers).status_code == 200
+        assert client.delete(f"/api/tasks/{tid}", headers=alice_headers).status_code == 200
+    finally:
+        db.close()
+
+
