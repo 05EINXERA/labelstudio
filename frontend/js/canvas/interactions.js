@@ -1,6 +1,13 @@
 import { generateUUID, clamp, round } from "../utils.js?v=1";
 import { state, snapshot, isAnnotationHidden } from "../state.js?v=1";
-import { annotationPoints, updateAnnotationBounds, pointInPolygon } from "./geometry.js?v=1";
+import {
+  annotationPoints,
+  updateAnnotationBounds,
+  pointInPolygon,
+  addPolygonPointResolvingIntersections,
+  resolvePolygonClosingIntersections,
+  resolveClosedPolygonIntersections
+} from "./geometry.js?v=1";
 import { view } from "./view.js?v=1";
 import { draw, drawAllLayers } from "./draw.js?v=1";
 import { canvas, undoButton } from "../dom.js?v=1";
@@ -159,6 +166,17 @@ export function finalizePolygon() {
     render();
     save();
     return;
+  }
+  // Clean up any closing edge self-intersections
+  if (annotation.points && annotation.points.length >= 4) {
+    annotation.points = resolvePolygonClosingIntersections(annotation.points);
+    if (annotation.points.length < 3) {
+      state.annotations = state.annotations.filter((item) => item.id !== annotation.id);
+      state.selectedId = null;
+      render();
+      save();
+      return;
+    }
   }
   // Auto-smooth: apply FFT low-pass filter when the toggle is enabled.
   // Called before updateAnnotationBounds so the bounds reflect the smoothed points.
@@ -811,8 +829,12 @@ canvas.addEventListener("pointerdown", (event) => {
 
         const lastPoint = pts[pts.length - 1];
         if (!lastPoint || Math.hypot(lastPoint.x - pointInImage.x, lastPoint.y - pointInImage.y) > 1) {
-          annotation.points.push({ x: round(pointInImage.x), y: round(pointInImage.y) });
+          const oldLen = pts.length;
+          annotation.points = addPolygonPointResolvingIntersections(pts, pointInImage);
           updateAnnotationBounds(annotation);
+          if (annotation.points.length < oldLen) {
+            setStatus("Intersected sides removed");
+          }
           // A genuinely new vertex invalidates whatever was parked by prior
           // point-level undos — there is no longer a consistent "redo" path
           // back to points that came after a different vertex.
@@ -917,7 +939,7 @@ canvas.addEventListener("pointermove", (event) => {
         // proportionally finer detail without retuning the setting.
         const threshold = annotationSettings.freehandPointSpacing / view.imageBox.scale;
         if (lastPoint && Math.hypot(lastPoint.x - end.x, lastPoint.y - end.y) > threshold) {
-          annotation.points.push({ x: round(end.x), y: round(end.y) });
+          annotation.points = addPolygonPointResolvingIntersections(pts, end);
           updateAnnotationBounds(annotation);
           view.drag.needsSave = true;
           if (view.drag.undonePoints) view.drag.undonePoints = [];
@@ -1024,7 +1046,18 @@ canvas.addEventListener("pointerup", (e) => {
     return;
   }
   if (view.drag?.type === "move-point") {
+    const annotation = state.annotations.find((item) => item.id === view.drag.annotationId);
+    const pointIdx = view.drag.pointIndex;
     view.drag = null;
+    if (annotation && annotation.points && annotation.points.length >= 4) {
+      const oldLen = annotation.points.length;
+      annotation.points = resolveClosedPolygonIntersections(annotation.points, pointIdx);
+      updateAnnotationBounds(annotation);
+      if (annotation.points.length !== oldLen) {
+        setStatus("Intersected sides removed");
+      }
+      render();
+    }
     save();
     return;
   }
