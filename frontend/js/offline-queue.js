@@ -127,6 +127,19 @@ export function pendingCount() {
   return Object.keys(readQueue()).length;
 }
 
+/**
+ * Entries that are queued AND still being retried — i.e. excluding forbidden
+ * (permission-denied) and conflicted (waiting on a human decision) entries.
+ *
+ * This is the number that belongs in "Retrying N unsaved changes…": a forbidden
+ * entry will never be retried and must not keep the banner open forever against
+ * a healthy server (E-27).
+ */
+export function retryablePendingCount() {
+  const queue = readQueue();
+  return Object.values(queue).filter((e) => !e.forbidden && !e.conflicted).length;
+}
+
 /** True once failures have crossed the threshold at which the UI stops treating
  *  them as a transient blip and tells the user. */
 export function isServerUnreachable() {

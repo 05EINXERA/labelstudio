@@ -97,7 +97,21 @@
            a canvas-side export could only ever see the loaded gallery, which
            silently differs from the project's task set. -->
       <a class="tool-button save-button" id="exportLink" href="#" title="Export this project's annotations" style="background: var(--accent); color: white; text-decoration: none; display: inline-flex; align-items: center; justify-content: center;">Export</a>
-      <button class="tool-button primary save-button" id="saveButton" type="button" title="Save annotations">Save</button>
+
+      <!-- Split save button: left half = plain Save, right half = ▾ opens
+           a small action menu. Wired by canvas-permissions.js. -->
+      <div class="save-split-group" id="saveSplitGroup">
+        <button class="tool-button primary save-button save-split-main" id="saveButton" type="button" title="Save annotations">Save</button>
+        <button class="tool-button primary save-split-chevron" id="saveChevronBtn" type="button"
+          title="Save options" aria-haspopup="true" aria-expanded="false" aria-label="Save options">▾</button>
+        <div class="save-split-menu" id="saveSplitMenu" hidden>
+          <!-- Options injected by canvas-permissions.js based on role -->
+        </div>
+      </div>
+
+      <!-- Task status pill — live status of the open task. Updated by
+           canvas-permissions.js on every task switch. -->
+      <span class="status-pill task-status-pill" id="taskStatusPill" hidden></span>
     </div>
   </nav>
 
@@ -430,26 +444,6 @@
     </div>
   </div>
 
-  <!-- Annotator name prompt (T3.2 — advisory only, no server validation).
-       Under the shared-account deployment all annotators use the same login;
-       this name is stored locally and used purely for display / assignee
-       labelling. It is NOT verified against /api/team. -->
-  <div id="teamValidationModal" class="modal-overlay" style="z-index: 9999;">
-    <div class="modal-content" style="max-width: 400px; text-align: center;">
-      <div class="modal-header">
-        <h2 style="margin: 0; font-size: 1.2rem; color: var(--ink);">👤 Start Annotation Session</h2>
-      </div>
-      <div class="modal-body" style="padding: 24px;">
-        <p style="margin-top: 0; margin-bottom: 4px; color: var(--ink-light);">Enter your name so tasks can show who is working on what.</p>
-        <p style="margin-top: 0; margin-bottom: 16px; font-size: 0.8rem; color: var(--muted);">This is advisory only — stored in your browser, not verified server-side.</p>
-        <form id="teamValidationForm" style="display: flex; flex-direction: column; gap: 12px;">
-          <input type="text" id="teamValidationName" placeholder="Enter your name" required
-            style="padding: 10px; border-radius: 6px; border: 1px solid var(--line);">
-          <button type="submit" class="primary" style="padding: 12px; margin-top: 8px;">Start Session</button>
-        </form>
-      </div>
-    </div>
-  </div>
 
   <script>
     // Load and display username if present
@@ -518,7 +512,7 @@
     </div>
   </div>
 
-  <script type="module" src="js/init.js?v=2"></script>
+  <script type="module" src="js/init.js?v=6"></script>
 
 </body>
 

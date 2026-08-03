@@ -4,7 +4,7 @@ import {
   state, storageKey, draftKey, legacyDraftKey, colorForName, labelByName, labelById,
   labelDisplayName, snapshot, selectedAnnotation
 } from "../state.js?v=2";
-import { pendingCount, isServerUnreachable, peekWrite } from "../offline-queue.js?v=2";
+import { pendingCount, retryablePendingCount, isServerUnreachable, peekWrite } from "../offline-queue.js?v=3";
 import { annotationPoints, updateAnnotationBounds } from "../canvas/geometry.js?v=1";
 import { view } from "../canvas/view.js?v=1";
 import { drainTaskTime } from "./timer.js?v=2";
@@ -34,10 +34,17 @@ import { toolAvailability } from "../feature-flags.js?v=1";
 function restingStatus() {
   const pending = pendingCount();
   if (pending === 0) return "Saved";
-  const plural = pending === 1 ? "change" : "changes";
+  // Only count entries that are actually being retried. Forbidden (permission-
+  // denied) and conflicted (waiting on a human) entries will never go away on
+  // their own, so showing a "retrying" spinner for them is misleading and
+  // creates a permanent "unsaved changes" badge on tasks the user IS allowed to
+  // annotate (E-27).
+  const retryable = retryablePendingCount();
+  if (retryable === 0) return "Saved";
+  const plural = retryable === 1 ? "change" : "changes";
   return isServerUnreachable()
-    ? `⚠ Offline — ${pending} ${plural} held locally`
-    : `${pending} unsaved ${plural} — retrying`;
+    ? `⚠ Offline — ${retryable} ${plural} held locally`
+    : `${retryable} unsaved ${plural} — retrying`;
 }
 
 export function setStatus(text) {
@@ -90,13 +97,31 @@ export function repairLabelsFromAnnotations() {
   });
 }
 
-export function syncToBackend({ useBeacon = false } = {}) {
+export function syncToBackend({ useBeacon = false, keepStatus = false } = {}) {
   if (typeof state === 'undefined' || state.galleryIndex < 0 || !state.gallery || !state.gallery[state.galleryIndex]) return;
   const currentTask = state.gallery[state.galleryIndex];
   if (!currentTask.id) return;
 
+  // Only touch status when this user can actually write the task. A read-only
+  // viewer opening a New task must not silently flip it to In Progress — that
+  // write would 403, the status change would still appear in the client, and
+  // the next real annotator would see a confusing "In Progress" with no work.
+  const canWrite = currentTask.can_write !== false;
+
   let taskStatus = currentTask.status;
-  if (taskStatus === 'New') taskStatus = 'In Progress';
+
+  if (canWrite && !keepStatus) {
+    // Opening a New task and doing any work naturally starts it.
+    if (taskStatus === 'New') taskStatus = 'In Progress';
+
+    // Saving while Completed means the annotator revised their work — flip back
+    // to In Progress so a reviewer re-reviews it rather than silently passing
+    // amended annotations as already-approved.
+    // NOTE: keepStatus=true bypasses this so "Save as Complete" can lock the
+    // status in place rather than having syncToBackend immediately revert it.
+    if (taskStatus === 'Completed') taskStatus = 'In Progress';
+  }
+
   currentTask.status = taskStatus;
   currentTask.annotations = [...state.annotations];
 

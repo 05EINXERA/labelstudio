@@ -34,6 +34,20 @@ export function statusPill(status) {
   return `<span class="pill ${cls}">${escapeHTML(s)}</span>`;
 }
 
+/**
+ * CSS modifier class for the inline status <select>, keyed by status string.
+ * Exported so tasks.js can swap the class on `change` without a full re-render.
+ */
+export function statusSelectClass(status) {
+  switch (status) {
+    case 'In Progress': return 'status-inprogress';
+    case 'Completed':   return 'status-completed';
+    case 'Approved':    return 'status-approved';
+    case 'Rejected':    return 'status-rejected';
+    default:            return 'status-new';
+  }
+}
+
 export function countAnnotations(task) {
   let anns = task.annotations;
   if (typeof anns === "string") {
@@ -63,20 +77,28 @@ function teamCell(row, teamsById) {
 /**
  * The Assignee cell.
  *
- * Prefers the linked account (`assignee_user_id`) and falls back to the legacy
- * free-text `assignee`, shown in italics with a tooltip. The legacy string was
- * typed into a prompt and matches no account, so presenting the two identically
- * would imply an accountability that is not there (04_UI_UX.md § 6.3).
+ * Three states:
+ *   - Individual assigned: show their name.
+ *   - Team assigned, no individual: "Anyone in team" — the task is in the
+ *     team pool and any member may take it.
+ *   - Neither: "— Unassigned" — matches the Team column treatment and makes
+ *     it clear a manager still needs to distribute this task.
  */
 function assigneeCell(row, usersById) {
   if (row.assignee_user_id) {
-    const name = usersById.get(row.assignee_user_id) || `User ${row.assignee_user_id}`;
-    return escapeHTML(name);
+    const name = usersById.get(row.assignee_user_id);
+    // If the user isn't in the project's assignable-members map they have been
+    // removed from their team; the server will have cleared assignee_user_id,
+    // so this only fires transiently before the next table reload.
+    return name
+      ? escapeHTML(name)
+      : `<span class="muted" title="This user has been removed from the team.">— Unassigned</span>`;
   }
-  if (row.assignee) {
-    return `<span class="legacy-assignee" title="Legacy name, not a linked account">${escapeHTML(row.assignee)}</span>`;
+  if (row.assigned_team_id) {
+    // Team assigned but no specific person — anyone on the team may work it.
+    return `<span class="muted" title="Any member of the assigned team can work on this task.">Anyone in team</span>`;
   }
-  return `<span class="muted">—</span>`;
+  return `<span class="muted" title="No one has been assigned yet.">— Unassigned</span>`;
 }
 
 /**
@@ -121,8 +143,12 @@ function actionsCell(row, role) {
  * @param {Map} opts.teamsById       id → team name
  * @param {Map} opts.usersById       id → username
  * @param {object} opts.lockCache    taskId → { locked, locked_by }
+ * @param {object} opts.currentUser  the signed-in user object (for assignee check)
  */
-export function buildColumns({ role, projectId, teamsById, usersById, lockCache }) {
+export function buildColumns({ role, projectId, teamsById, usersById, lockCache, currentUser }) {
+  const isReviewer = canReview(role);
+  const isAnnotatorOnly = canAnnotate(role) && !isReviewer;
+
   return [
     {
       key: "image_path",
@@ -153,7 +179,48 @@ export function buildColumns({ role, projectId, teamsById, usersById, lockCache 
         return `<span class="lock-chip" title="In use by another annotator">● busy</span>`;
       },
     },
-    { key: "status", label: "Status", render: (r) => statusPill(r.status) },
+    {
+      key: "status",
+      label: "Status",
+      render: (r) => {
+        // Reviewers+ see a select with all status options so they can Approve /
+        // Reject directly from the table without opening each task.
+        if (isReviewer) {
+          const opts = ['New', 'In Progress', 'Completed', 'Approved', 'Rejected']
+            .map((s) => `<option value="${s}"${r.status === s ? ' selected' : ''}>${s}</option>`)
+            .join('');
+          return `<select class="status-select ${statusSelectClass(r.status)}" data-task-id="${r.id}" data-original="${escapeHTML(r.status || '')}" aria-label="Task status">${opts}</select>`;
+        }
+
+        // Annotators assigned to this task can move it between their own states
+        // (New / In Progress / Completed) and re-open it from a reviewer state
+        // (Approved / Rejected → In Progress). The select always shows the real
+        // current status so the displayed value is never wrong.
+        const assignedToMe = currentUser && r.assignee_user_id === currentUser.id;
+        if (isAnnotatorOnly && assignedToMe) {
+          // Base options the annotator can set.
+          const writableStatuses = ['In Progress', 'Completed'];
+          // If the task is currently in a reviewer state, add it as a
+          // display-only option (so the select shows the right label) and
+          // allow In Progress to re-open it.
+          const inReviewState = r.status === 'Approved' || r.status === 'Rejected';
+          const displayStatuses = inReviewState
+            ? [r.status, ...writableStatuses]
+            : ['New', ...writableStatuses];
+          const annotatorOpts = displayStatuses
+            .map((s) => {
+              // The current reviewer-set status is shown but not selectable
+              // — the annotator can only move away from it, not re-approve.
+              const disabled = inReviewState && s === r.status ? ' disabled' : '';
+              return `<option value="${s}"${r.status === s ? ' selected' : ''}${disabled}>${s}</option>`;
+            })
+            .join('');
+          return `<select class="status-select ${statusSelectClass(r.status)}" data-task-id="${r.id}" data-original="${escapeHTML(r.status || '')}" aria-label="Task status">${annotatorOpts}</select>`;
+        }
+
+        return statusPill(r.status);
+      },
+    },
     {
       key: "time_spent",
       label: "Time",

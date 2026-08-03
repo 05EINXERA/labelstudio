@@ -14,12 +14,12 @@ import { drawAllLayers } from "./canvas/draw.js?v=1";
 import {
   setStatus, syncToBackend, save, loadSaved, saveDraft, restoreDraft,
   render, manualSaveWithUI, refreshSaveStatus, pruneStaleDrafts
-} from "./components/workspace.js?v=2";
+} from "./components/workspace.js?v=4";
 import {
   configureQueue, startQueue, subscribe as subscribeQueue, drainQueue,
-  enqueueWrite, noteServerReachable, noteServerUnreachable,
+  enqueueWrite, retryablePendingCount, noteServerReachable, noteServerUnreachable,
   peekWrite as peekQueuedWrite, discardWrite as discardQueuedWrite
-} from "./offline-queue.js?v=2";
+} from "./offline-queue.js?v=3";
 import { autoDetectObjects, autoTagObjects } from "./ai/detect.js?v=1";
 import {
   syncTaskTime, syncTimeToServer, drainTaskTime, setActiveTaskResolver,
@@ -33,8 +33,9 @@ import { initContextMenu } from "./canvas/context-menu.js?v=1";
 import { getCurrentUser } from "./session.js?v=1";
 import {
   applyReadOnlyMode, isReadOnly, loadProjectPermissions, renderReviewControls,
-  reportSaveForbidden, setMyTeams, updateTaskBanner,
-} from "./canvas-permissions.js?v=1";
+  reportSaveForbidden, setMyTeams, setMyUserId, updateTaskBanner,
+  renderStatusDropdown, renderSaveSplitMenu, updateTaskStatusPill,
+} from "./canvas-permissions.js?v=4";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
 import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=1";
 import { claimTask, heartbeatTask, releaseTask } from "./task-lock.js?v=2";
@@ -224,6 +225,14 @@ async function switchImage(index) {
         // omitting this was the root of the annotation-loss bug.
         if (detail.updated_at) item.updated_at = detail.updated_at;
         if (detail.time_spent != null) item.time_spent = detail.time_spent;
+        // Refresh assignment fields and the authoritative can_write flag so
+        // the permission banner is always accurate for the task just opened —
+        // including mid-session reassignments.
+        item.assignee_user_id   = detail.assignee_user_id   ?? null;
+        item.assignee_name      = detail.assignee_name      ?? null;
+        item.assigned_team_id   = detail.assigned_team_id   ?? null;
+        item.assigned_team_name = detail.assigned_team_name ?? null;
+        item.can_write          = detail.can_write          ?? null;
       }
     } catch (e) {
       console.error("Failed to hydrate task annotations:", e);
@@ -609,14 +618,12 @@ configureQueue({
     // is restored, the next drain replays it.
     const task = (state.gallery || []).find(t => t && t.id === taskId);
     const label = task ? (task.name || `task ${taskId}`) : `task ${taskId}`;
-    // Banner *and* alert: the banner persists after the alert is dismissed, so
-    // the reason stays on screen instead of vanishing with one click.
-    reportSaveForbidden(detail);
-    alert(
-      `Your offline work on ${label} could not be saved.\n\n` +
-      `${detail || 'You no longer have permission to edit this task.'}\n\n` +
-      "Your work is still stored in this browser. Ask a project owner for access, " +
-      "then reload to retry."
+    // Use the permission banner rather than a native alert: the banner stays
+    // visible while the annotator keeps working, and a blocking dialog mid-
+    // session is disruptive (and unexpected when they're on their own task).
+    reportSaveForbidden(
+      `Your offline work on "${label}" could not be saved. ` +
+      (detail || 'You no longer have permission to edit this task.')
     );
   },
 
@@ -651,13 +658,17 @@ const offlineBannerText = document.getElementById('offlineBannerText');
 subscribeQueue(({ pending, unreachable }) => {
   refreshSaveStatus();
   if (!offlineBanner) return;
-  const show = unreachable || pending > 0;
+  // Only count entries that are still being retried. A forbidden (403) or
+  // conflicted entry is deliberately not retried — showing "Retrying N unsaved
+  // changes" for it pins a scary banner on tasks the user CAN annotate (E-27).
+  const retryable = retryablePendingCount();
+  const show = unreachable || retryable > 0;
   offlineBanner.classList.toggle('is-active', show);
   if (show && offlineBannerText) {
-    const plural = pending === 1 ? 'change' : 'changes';
+    const plural = retryable === 1 ? 'change' : 'changes';
     offlineBannerText.textContent = unreachable
-      ? `Cannot reach the server. ${pending} ${plural} saved on this computer — keep this tab open; they will be sent automatically when the server is back.`
-      : `Retrying ${pending} unsaved ${plural}…`;
+      ? `Cannot reach the server. ${retryable} ${plural} saved on this computer — keep this tab open; they will be sent automatically when the server is back.`
+      : `Retrying ${retryable} unsaved ${plural}…`;
   }
 });
 
@@ -822,27 +833,7 @@ if (clearDataBtn) {
   });
 }
 
-// T3.2 — Annotator name prompt: advisory free-text, no server validation.
-// Under the shared account we can't verify names against /api/team because
-// everyone logs in as the same user; the name is purely a local label used
-// for display and assignment convention.
-const teamValidationForm = document.getElementById("teamValidationForm");
-if (teamValidationForm) {
-  teamValidationForm.addEventListener("submit", (e) => {
-    e.preventDefault();
-    const nameInput = document.getElementById("teamValidationName").value.trim();
-    if (!nameInput) return;
 
-    localStorage.setItem('dataset_username', nameInput);
-
-    const displayUser = document.getElementById("displayUsername");
-    if (displayUser) displayUser.textContent = nameInput;
-
-    document.getElementById("teamValidationModal").classList.remove("is-active");
-    const userPanel = document.getElementById("userPanel");
-    if (userPanel) userPanel.style.display = "block";
-  });
-}
 
 
 async function fetchLabels() {
@@ -886,6 +877,7 @@ async function initIdentityAndPermissions() {
   currentUser = await getCurrentUser();
   if (currentUser) {
     setMyTeams(currentUser.teams);
+    setMyUserId(currentUser.id);
     const displayUser = document.getElementById("displayUsername");
     if (displayUser) displayUser.textContent = currentUser.username;
   }
@@ -909,15 +901,66 @@ function refreshTaskPermissionUI() {
   if (!task) return;
 
   updateTaskBanner(task);
-  renderReviewControls(
-    document.getElementById("reviewControls"),
-    task,
-    (result) => {
-      // Keep the gallery row in step so the status pill and the buttons agree
-      // without a reload.
-      task.status = result.task_status;
+
+  // Wire the save split-button menu (chevron + action options + task status pill).
+  renderSaveSplitMenu(task, saveAndComplete, (newStatus) => {
+    task.status = newStatus;
+    updateTaskStatusPill(task);
+  });
+
+  // Keep the legacy reviewControls host empty.
+  const reviewHost = document.getElementById("reviewControls");
+  if (reviewHost) reviewHost.innerHTML = "";
+}
+
+/**
+ * Save annotations then change the task status in a single coordinated action.
+ *
+ * Used by "Save as Complete", "Save as In Progress", etc. The annotations save
+ * goes through the normal path (which auto-reverts Completed→InProgress on a
+ * plain save), so we patch the status separately afterwards rather than letting
+ * syncToBackend auto-revert what the user just asked for.
+ */
+async function saveAndComplete(targetStatus) {
+  const task = state.gallery && state.galleryIndex >= 0
+    ? state.gallery[state.galleryIndex]
+    : null;
+  if (!task || !task.id) return;
+
+  // Force the target status onto the task object before syncing so
+  // syncToBackend sends it (it reads currentTask.status).
+  const previousStatus = task.status;
+  task.status = targetStatus;
+
+  // saveDraft then sync.
+  saveDraft();
+  setStatus('Saving…');
+
+  if (window.backendSyncTimeout) {
+    clearTimeout(window.backendSyncTimeout);
+    window.backendSyncTimeout = null;
+  }
+
+  try {
+    const ok = await Promise.resolve(syncToBackend({ keepStatus: true }));
+    if (ok === false) {
+      // Sync failed — restore the previous status so the client isn't lying.
+      task.status = previousStatus;
+      refreshSaveStatus();
+    } else {
+      setStatus(`Saved as ${targetStatus}`);
+      // Re-render the menu so options update (e.g. now Completed → show Approve/Reject).
+      updateTaskStatusPill(task);
+      const menuTask = task;
+      renderSaveSplitMenu(menuTask, saveAndComplete, (newStatus) => {
+        menuTask.status = newStatus;
+        updateTaskStatusPill(menuTask);
+      });
     }
-  );
+  } catch (e) {
+    task.status = previousStatus;
+    refreshSaveStatus();
+  }
 }
 
 // Points the back arrow at the project this workspace was opened from, and
@@ -967,6 +1010,13 @@ async function loadWorkspaceTasks() {
         height: 0,
         status: t.status,
         assignee: t.assignee,
+        // Assignment fields — needed by the permission banner before the
+        // per-task detail fetch completes. The server returns all four on the
+        // list endpoint (include_annotations=false path in tasks.py).
+        assignee_user_id: t.assignee_user_id ?? null,
+        assignee_name: t.assignee_name ?? null,
+        assigned_team_id: t.assigned_team_id ?? null,
+        assigned_team_name: t.assigned_team_name ?? null,
         // Persisted per-task total; the workspace "Total" readout is scoped to
         // the open task, so it needs this as its base.
         time_spent: t.time_spent || 0,
