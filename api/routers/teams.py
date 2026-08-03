@@ -446,6 +446,10 @@ def leave_team(
     acceptable (.devnotes/teams/01_DESIGN.md § 5.2): nobody is trapped in a team.
     The owner is the exception and must transfer first — a team always has
     exactly one owner.
+
+    Individual task assignments on this team's projects are cleared for the same
+    reason as in remove_member: work should not stay locked to a user who is
+    no longer a member.
     """
     require_team(team_id, user, db, minimum=TeamRole.MEMBER)
     membership = _get_membership(db, team_id, user.id)
@@ -457,6 +461,21 @@ def leave_team(
         )
 
     db.delete(membership)
+
+    # Hard-clear both the individual assignment AND the team assignment on every
+    # task this user was specifically assigned to. Clearing only assignee_user_id
+    # leaves assigned_team_id in place, which makes the task appear as "Anyone
+    # in team" — silently dropping it into the team pool without a manager's
+    # deliberate act. A task handed to a specific person who is now gone should
+    # be fully unassigned so a manager must consciously re-distribute it.
+    # Annotations are never touched.
+    db.query(models.Task).filter(
+        models.Task.assignee_user_id == user.id,
+    ).update(
+        {models.Task.assignee_user_id: None, models.Task.assigned_team_id: None},
+        synchronize_session=False,
+    )
+
     commit_with_retry(db)
     return {"status": "ok"}
 
@@ -469,7 +488,13 @@ def remove_member(
     user: models.User = Depends(get_current_user),
 ):
     """Remove someone else from the team. Managers are peers and may remove
-    each other (E-04); only the owner is protected."""
+    each other (E-04); only the owner is protected.
+
+    Any task individually assigned to the removed user (on any project this
+    team has a grant on) is cleared back to team-only assignment, so it
+    re-enters the pool for a manager to re-assign rather than sitting locked
+    to a user who is no longer a member.
+    """
     require_team(team_id, user, db, minimum=TeamRole.MANAGER)
     membership = _get_membership(db, team_id, user_id)
 
@@ -480,6 +505,21 @@ def remove_member(
         )
 
     db.delete(membership)
+
+    # Hard-clear both the individual assignment AND the team assignment on every
+    # task this user was specifically assigned to. Clearing only assignee_user_id
+    # leaves assigned_team_id in place, which makes the task appear as "Anyone
+    # in team" — silently dropping it into the team pool without a manager's
+    # deliberate act. A task handed to a specific person who is now gone should
+    # be fully unassigned so a manager must consciously re-distribute it.
+    # Annotations are never touched.
+    db.query(models.Task).filter(
+        models.Task.assignee_user_id == user_id,
+    ).update(
+        {models.Task.assignee_user_id: None, models.Task.assigned_team_id: None},
+        synchronize_session=False,
+    )
+
     commit_with_retry(db)
     return {"status": "ok"}
 

@@ -365,27 +365,28 @@ def can_write_task(
     The rule, in order:
 
     - Below ANNOTATOR: never.
-    - **Assigned to a specific person: only that person** (or a project
-      manager/owner). See the note below.
-    - Project has not opted in to `restrict_to_assigned_team`, or the task is
-      unassigned (the shared pool, § 3.3): anyone annotate-capable. This is the
-      path every pre-teams task and every non-opted-in project takes, which is
-      what makes the feature behaviour-neutral on migration.
-    - Otherwise the writer must be in the assigned team, or be a project manager
-      or owner.
+    - Manager or owner: always, and never partitioned by assignment.
+    - **Assigned to a specific person: only that person.**
+    - **Unassigned: nobody below manager.** Work has to be handed to someone
+      before it can be started.
+    - Otherwise the writer must be a member of the assigned team.
 
-    **Individual assignment is enforced, not advisory.**
-    .devnotes/teams/01_DESIGN.md § 3.4 originally made it advisory on the
-    grounds that enforcing it produces a permission matrix nobody can reason
-    about. That was reconsidered: the whole point of handing one annotator a
-    task is that the others leave it alone, and a filter they can switch off
-    does not deliver that. Recorded as a deviation in PLAN.md § 8.
+    **Assignment is enforced, not advisory — including the unassigned case.**
+    .devnotes/teams/01_DESIGN.md § 3.4 made individual assignment advisory, and
+    § 3.3 made unassigned tasks a shared pool open to every annotator. Both were
+    reconsidered: the point of handing someone a task is that the others leave
+    it alone, and a shared pool means an annotator can start work nobody asked
+    them to do, on a task a manager is about to assign elsewhere. Recorded as a
+    deviation in PLAN.md § 8.
 
-    The escape hatch is deliberate and unchanged: a project manager or owner can
-    always write, so a sick-day handover is a reassignment away rather than a
-    lockout. Note this needs no `restrict_to_assigned_team` opt-in — that flag
-    governs *team* partitioning, and naming an individual is a stricter,
-    per-task statement that stands on its own.
+    Note this no longer consults `restrict_to_assigned_team`. That flag made
+    team partitioning opt-in and defaulted to false with no UI to set it, so in
+    practice it disabled the entire feature everywhere. Team assignment is now
+    unconditional; the column survives only until a migration drops it (F10).
+
+    The escape hatch is deliberate: a project manager or owner can always write,
+    so a sick-day handover is a reassignment away rather than a lockout, and
+    someone can always get at an unassigned task to triage it.
     """
     if not at_least(role, ProjectRole.ANNOTATOR):
         return False
@@ -395,15 +396,21 @@ def can_write_task(
     if at_least(role, ProjectRole.MANAGER):
         return True
 
-    if task.assignee_user_id is not None and task.assignee_user_id != user.id:
-        return False
+    # Reviewers need write access to annotate tasks they are reviewing — they
+    # cannot give meaningful feedback on work they cannot interact with. They
+    # are not partitioned by individual/team assignment for the same reason as
+    # managers: a reviewer may be asked to review any task in the project.
+    if at_least(role, ProjectRole.REVIEWER):
+        return True
 
+    if task.assignee_user_id is not None:
+        return task.assignee_user_id == user.id
+
+    # Unassigned is no longer a shared pool: an annotator writes only what has
+    # been handed to them. Work nobody has been given is work nobody below
+    # manager may start.
     if task.assigned_team_id is None:
-        return True
-
-    project = db.get(models.Project, task.project_id)
-    if project is None or not project.restrict_to_assigned_team:
-        return True
+        return False
 
     membership = (
         db.query(models.TeamMembership)

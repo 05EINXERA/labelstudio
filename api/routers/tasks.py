@@ -91,35 +91,41 @@ def _require_review_role_for_status(
 ) -> None:
     """403 unless the caller may make this status transition.
 
-    Only transitions that touch a review state are gated. An annotator moving a
-    task New → In Progress → Completed is ordinary work and stays untouched;
-    this is what keeps the shared-account deployment behaving identically.
+    Rules:
+    - Setting Approved or Rejected always requires Reviewer role.
+    - Moving *away* from a review status (e.g. Approved → In Progress to
+      re-open for rework) is allowed for any annotator-capable user — the
+      annotator who was assigned the task must be able to act on feedback and
+      re-submit without needing a reviewer to manually reset the state first.
+    - Any other transition (New ↔ In Progress ↔ Completed) is unrestricted.
     """
     if new_status is None or new_status == db_task.status:
         return
-    if new_status not in REVIEW_STATUSES and db_task.status not in REVIEW_STATUSES:
+
+    # Setting a review status always needs reviewer role.
+    if new_status in REVIEW_STATUSES:
+        role = effective_project_role(user, db_task.project_id, db)
+        if not at_least(role, ProjectRole.REVIEWER):
+            verb = "Approving" if new_status == "Approved" else "Rejecting"
+            raise HTTPException(
+                status_code=403,
+                detail=f"{verb} requires the Reviewer role on this project.",
+            )
         return
 
-    role = effective_project_role(user, db_task.project_id, db)
-    if at_least(role, ProjectRole.REVIEWER):
-        return
-
-    verb = "Approving" if new_status == "Approved" else (
-        "Rejecting" if new_status == "Rejected" else "Changing a reviewed task"
-    )
-    raise HTTPException(
-        status_code=403,
-        detail=f"{verb} requires the Reviewer role on this project.",
-    )
+    # Moving away from a review status (e.g. Approved → In Progress) is
+    # allowed for any write-capable user — covered by the assignment check
+    # elsewhere, so no extra gate needed here.
 
 
 def _require_assigned_team_membership(
     db_task: models.Task, user: models.User, db: Session
 ) -> None:
-    """403 when `restrict_to_assigned_team` blocks this writer (E-24).
+    """403 when assignment blocks this writer (E-24).
 
-    A no-op unless the project opted in *and* the task is assigned to a team,
-    so every pre-teams task and every non-opted-in project is unaffected.
+    Blocks three ways: the task is reserved for another person, it belongs to a
+    team the writer is not in, or it has not been assigned to anyone at all.
+    Managers and owners are never blocked.
     """
     role = effective_project_role(user, db_task.project_id, db)
     if can_write_task(db_task, user, role, db):
@@ -140,15 +146,23 @@ def _require_assigned_team_membership(
             ),
         )
 
-    team = (
-        db.get(models.Team, db_task.assigned_team_id)
-        if db_task.assigned_team_id
-        else None
-    )
+    # Unassigned is its own refusal, not a generic one. "Nobody has been given
+    # this yet" tells the reader to ask for it; "you lack permission" invites
+    # them to conclude the app is broken.
+    if db_task.assigned_team_id is None:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "This task has not been assigned to anyone yet. "
+                "Ask a project manager to assign it to you or your team."
+            ),
+        )
+
+    team = db.get(models.Team, db_task.assigned_team_id)
     raise HTTPException(
         status_code=403,
         detail=(
-            f"This task is assigned to {team.name}."
+            f"This task is assigned to {team.name}, which you are not a member of."
             if team
             else "You do not have permission to edit this task."
         ),
@@ -172,6 +186,37 @@ def _get_owned_task(task_id: int, user: models.User, db: Session) -> models.Task
     """
     return require_task(task_id, user, db, minimum=ProjectRole.MANAGER)
 
+def _assignment_names(tasks, db: Session) -> tuple[dict, dict]:
+    """Resolve team and user ids on a task list to display names.
+
+    Two batched queries rather than a lookup per row: the canvas needs the names
+    to say *who* a task is reserved for, and a per-task `db.get` would be an N+1
+    across a gallery of several hundred.
+    """
+    team_ids = {t.assigned_team_id for t in tasks if t.assigned_team_id is not None}
+    user_ids = {t.assignee_user_id for t in tasks if t.assignee_user_id is not None}
+
+    teams = (
+        dict(
+            db.query(models.Team.id, models.Team.name)
+            .filter(models.Team.id.in_(team_ids))
+            .all()
+        )
+        if team_ids
+        else {}
+    )
+    users = (
+        dict(
+            db.query(models.User.id, models.User.username)
+            .filter(models.User.id.in_(user_ids))
+            .all()
+        )
+        if user_ids
+        else {}
+    )
+    return teams, users
+
+
 @router.get("")
 def get_tasks(projectId: Optional[int] = Query(None), include_annotations: bool = Query(True), db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     if projectId:
@@ -192,14 +237,18 @@ def get_tasks(projectId: Optional[int] = Query(None), include_annotations: bool 
             models.Task.assigned_team_id, models.Task.assignee_user_id,
         )
         tasks = query.all()
+        team_names, user_names = _assignment_names(tasks, db)
         return [{"id": t.id, "description": t.description, "assignee": t.assignee,
                  "image_path": t.image_path, "status": t.status, "time_spent": t.time_spent,
                  "updated_at": t.updated_at,
                  "assigned_team_id": t.assigned_team_id,
                  "assignee_user_id": t.assignee_user_id,
+                 "assigned_team_name": team_names.get(t.assigned_team_id),
+                 "assignee_name": user_names.get(t.assignee_user_id),
                  "annotations": []} for t in tasks]
 
     tasks = query.all()
+    team_names, user_names = _assignment_names(tasks, db)
     result = []
     for t in tasks:
         annotations_data = []
@@ -217,6 +266,8 @@ def get_tasks(projectId: Optional[int] = Query(None), include_annotations: bool 
             # absence here is why the Team column always read "Unassigned".
             "assigned_team_id": t.assigned_team_id,
             "assignee_user_id": t.assignee_user_id,
+            "assigned_team_name": team_names.get(t.assigned_team_id),
+            "assignee_name": user_names.get(t.assignee_user_id),
             "annotations": annotations_data
         })
     return result
@@ -236,6 +287,19 @@ def get_task(task_id: int, db: Session = Depends(get_db), user: models.User = De
             annotations_data = json.loads(task.annotations)
         except (ValueError, TypeError) as exc:
             logger.warning("Task %s has unparseable annotations: %s", task.id, exc)
+
+    team = (
+        db.get(models.Team, task.assigned_team_id)
+        if task.assigned_team_id is not None
+        else None
+    )
+    assignee_user = (
+        db.get(models.User, task.assignee_user_id)
+        if task.assignee_user_id is not None
+        else None
+    )
+    role = effective_project_role(user, task.project_id, db)
+
     return TaskDetail(
         id=task.id,
         description=task.description,
@@ -245,6 +309,13 @@ def get_task(task_id: int, db: Session = Depends(get_db), user: models.User = De
         time_spent=task.time_spent,
         updated_at=task.updated_at,
         annotations=annotations_data,
+        assigned_team_id=task.assigned_team_id,
+        assignee_user_id=task.assignee_user_id,
+        assigned_team_name=team.name if team else None,
+        assignee_name=assignee_user.username if assignee_user else None,
+        # The same call the save path makes, so the canvas cannot believe it may
+        # write something the server will refuse.
+        can_write=can_write_task(task, user, role, db),
     )
 
 

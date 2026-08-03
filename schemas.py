@@ -286,6 +286,18 @@ class TaskDetail(BaseModel):
     updated_at: Optional[datetime] = None
     annotations: List[Any] = Field(default_factory=list)
 
+    # Assignment, plus the resolved display names. The canvas decides read-only
+    # mode from these before the annotator draws anything, so omitting them here
+    # is what made a task assigned elsewhere look editable until Save failed.
+    assigned_team_id: Optional[int] = None
+    assignee_user_id: Optional[int] = None
+    assigned_team_name: Optional[str] = None
+    assignee_name: Optional[str] = None
+    # Authoritative answer to "may I write this?", computed server-side by the
+    # same function that enforces it. The client mirrors the rule for instant
+    # feedback, but this is the value that cannot drift.
+    can_write: bool = True
+
 
 # --- Teams -------------------------------------------------------------------
 #
