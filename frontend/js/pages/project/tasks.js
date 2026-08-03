@@ -31,6 +31,18 @@ let root = null;
 let ctx = null;
 let table = null;
 
+// Active filter values — kept here so loadTasks() can re-apply derived-key
+// filters (_assigneeFilter, _teamFilter) after setRows() replaces all rows.
+// The derived keys are written onto row objects by applyAssigneeFilter /
+// applyTeamFilter; a plain setRows() call produces rows without those keys,
+// so any active derived filter would make the table appear empty until the
+// user touches the dropdown again.
+const _activeFilters = {
+  assignee: "All",   // the value last passed to applyAssigneeFilter
+  team: "All",       // the value last passed to applyTeamFilter
+  status: "All",     // directly used as the "status" filter key
+};
+
 // T2.2 — lock status cache: {taskId: {locked: bool, locked_by: str}}
 // Populated asynchronously after the task list renders.
 const _lockCache = {};
@@ -146,8 +158,18 @@ async function loadTasks() {
   clearError();
   const tasks = await res.json();
   table.setRows(tasks);
+
+  // Re-apply derived-key filters. setRows() replaces all row objects, so the
+  // _assigneeFilter and _teamFilter keys that applyAssigneeFilter /
+  // applyTeamFilter write onto rows are gone. Without this, an active "My
+  // tasks" filter makes the table appear empty after every reload.
+  _reapplyFilters();
+
   // T2.2 — refresh lock badges after the table renders (async, non-blocking).
-  _refreshLockCache(tasks).then(() => table.setRows(tasks));
+  _refreshLockCache(tasks).then(() => {
+    table.setRows(tasks);
+    _reapplyFilters();
+  });
 }
 
 // --- upload --------------------------------------------------------------
@@ -373,7 +395,24 @@ async function loadLookups() {
  * back to "Everyone" shows other people's tasks but does not make them
  * writable.
  */
+/**
+ * Re-apply all active filters after setRows() replaces row objects.
+ *
+ * Derived-key filters (_assigneeFilter, _teamFilter) are not stored on the
+ * data-table — they are written directly onto each row object by
+ * applyAssigneeFilter / applyTeamFilter. setRows() produces a fresh set of
+ * plain server rows with none of those keys, so the table falls back to
+ * undefined !== "mine" and shows empty. Re-applying them writes the keys back.
+ */
+function _reapplyFilters() {
+  if (_activeFilters.assignee !== "All") applyAssigneeFilter(_activeFilters.assignee);
+  if (_activeFilters.team     !== "All") applyTeamFilter(_activeFilters.team);
+  // The status filter acts on the "status" column directly (no derived key),
+  // so data-table preserves it across setRows; no re-application needed.
+}
+
 function applyAssigneeFilter(value) {
+  _activeFilters.assignee = value;
   const myId = ctx.currentUser?.id;
   for (const row of table.getRows()) {
     row._assigneeFilter =
@@ -385,6 +424,7 @@ function applyAssigneeFilter(value) {
 }
 
 function applyTeamFilter(value) {
+  _activeFilters.team = value;
   const rows = table.getRows();
   for (const row of rows) {
     row._teamFilter = row.assigned_team_id == null ? "unassigned" : String(row.assigned_team_id);
@@ -531,7 +571,10 @@ export async function mount(hostRoot, hostCtx) {
   else el("bulkBar")?.remove();
 
   el("searchInput").addEventListener("input", (e) => table.setQuery(e.target.value));
-  el("statusFilter").addEventListener("change", (e) => table.setFilter("status", e.target.value));
+  el("statusFilter").addEventListener("change", (e) => {
+    _activeFilters.status = e.target.value;
+    table.setFilter("status", e.target.value);
+  });
   el("teamFilter")?.addEventListener("change", (e) => applyTeamFilter(e.target.value));
   el("assigneeFilter")?.addEventListener("change", (e) => applyAssigneeFilter(e.target.value));
 
