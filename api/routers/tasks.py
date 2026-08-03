@@ -36,6 +36,19 @@ TASK_LOCK_TTL_SECONDS = int(os.environ.get("TASK_LOCK_TTL_SECONDS", "60"))
 _TASK_LOCKS: Dict[int, dict] = {}
 
 
+def _sweep_stale_locks(ttl_seconds: int = TASK_LOCK_TTL_SECONDS) -> int:
+    """Proactively evict expired task locks to prevent memory growth over long uptimes."""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    stale_ids = [
+        tid
+        for tid, lock in _TASK_LOCKS.items()
+        if (now - lock["claimed_at"]).total_seconds() > ttl_seconds
+    ]
+    for tid in stale_ids:
+        _TASK_LOCKS.pop(tid, None)
+    return len(stale_ids)
+
+
 def _lock_status(task_id: int) -> Optional[dict]:
     """Return the active lock for task_id, or None if absent/stale."""
     lock = _TASK_LOCKS.get(task_id)
@@ -202,6 +215,7 @@ def claim_task(task_id: int, client_id: str = Query(..., max_length=64),
     Single-worker constraint: _TASK_LOCKS is in-process.  Rule 9 applies.
     """
     _get_owned_task(task_id, user, db, annotator)      # 404 if not owned/accessible
+    _sweep_stale_locks()
     now = datetime.datetime.now(datetime.timezone.utc)
     existing = _lock_status(task_id)
     if existing and existing["client_id"] != client_id:

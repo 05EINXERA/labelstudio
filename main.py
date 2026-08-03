@@ -38,29 +38,22 @@ from logging_config import configure_logging
 validate_config()
 configure_logging()
 
+from contextlib import asynccontextmanager
+
 from api.routers import projects, tasks, labels, team, teams, data, detect, auth, label_studio, exports, imports  # noqa: E402
 from database import engine  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Annotation Workspace")
-app.add_middleware(GZipMiddleware, minimum_size=1000)
 
-@app.exception_handler(Exception)
-async def custom_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Unhandled exception on {request.url.path}: {exc}", exc_info=exc)
-    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
-
-
-@app.on_event("startup")
-async def _set_threadpool_capacity() -> None:
-    """Pin the anyio threadpool cap that carries sync route handlers.
-
-    Sized in config.THREADPOOL_CAP to match the DB pool ceiling so a burst
-    queues on threads (which free in tens of ms) rather than on pool_timeout.
-    Set here, inside the running event loop, because the limiter is loop-bound.
-    See .devnotes/deployment-hardening/05_LOAD_TEST.md.
-    """
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """FastAPI lifespan context manager for startup configuration and graceful shutdown."""
+    # Startup: Pin the anyio threadpool cap that carries sync route handlers.
+    # Sized in config.THREADPOOL_CAP to match the DB pool ceiling so a burst
+    # queues on threads (which free in tens of ms) rather than on pool_timeout.
+    # Set here, inside the running event loop, because the limiter is loop-bound.
+    # See .devnotes/deployment-hardening/05_LOAD_TEST.md.
     try:
         from anyio import to_thread
         limiter = to_thread.current_default_thread_limiter()
@@ -68,6 +61,24 @@ async def _set_threadpool_capacity() -> None:
         logger.info("Request threadpool cap set to %d", THREADPOOL_CAP)
     except Exception as exc:  # pragma: no cover - never worth failing startup
         logger.warning("Could not set threadpool cap (%s); using anyio default", exc)
+
+    yield
+
+    # Shutdown: cleanly dispose of SQLAlchemy connection pool
+    try:
+        engine.dispose()
+        logger.info("Database engine connection pool disposed cleanly")
+    except Exception as exc:  # pragma: no cover
+        logger.warning("Could not dispose database engine: %s", exc)
+
+
+app = FastAPI(title="Annotation Workspace", lifespan=lifespan)
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+@app.exception_handler(Exception)
+async def custom_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled exception on {request.url.path}: {exc}", exc_info=exc)
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
 @app.middleware("http")
