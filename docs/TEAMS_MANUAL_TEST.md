@@ -198,6 +198,12 @@ permission problem never surfaces as a 409, which would be unactionable
 
 **Expect:** ✓ and ✗ buttons on that row.
 
+**A task must reach `Completed` first.** On a `New` or `In Progress` row a
+reviewer sees no ✓/✗ at all, and that is intended: review means "the annotator
+says this is done, is it?", so there is nothing to review until they say so. If
+your reviewer sees no buttons anywhere, check the task's status before
+suspecting the role — on a fresh project almost everything is still `New`.
+
 | Do | Expect |
 |---|---|
 | Click ✓ Approve | Status → **Approved** |
@@ -218,19 +224,68 @@ cannot.
 
 ---
 
-## 8. Task assignment
+## 8. Task assignment — team, then person
 
-As `owner_test` on the **Tasks** tab:
+This is the workflow the Tasks tab is built around: give a team the work, then
+hand individual images to individual people.
+
+### 8.1 Assign a team
+
+**Do:** as `owner_test` on the **Tasks** tab, click the 👤+ icon on a row (or
+select several rows and click **Assign…** in the bulk bar). Pick `QA Team`,
+leave "Assign to" as *— Anyone in the team —*, Apply.
+
+**Expect:** the **Team** column now shows a `QA Team` chip. Both `ann_test` and
+`rev_test` can open and save that task.
+
+**Why:** a team assignment distributes work without reserving it. Anyone in the
+team may pick it up — that is the shared-pool behaviour.
+
+> If the Team column still says "— Unassigned" after this, you are on a stale
+> bundle or a stale server. See §0.
+
+### 8.2 Assign a person
+
+**Do:** click 👤+ on the same row again. The **Assign to** dropdown is now
+populated with that team's members — pick `ann_test`, Apply.
+
+**Expect:**
+- The **Assignee** column shows `ann_test`.
+- `ann_test` can still save it.
+- **`rev_test` gets a 403 naming the assignee** — *"This task is assigned to
+  ann_test."*
+- `owner_test` can still save it.
+
+**Why:** naming a person **reserves** the task. That is the point of handing it
+to someone: the rest of the team leaves it alone. The manager/owner escape hatch
+is deliberate — a sick day is handled by reassigning, not by a database edit.
+
+**Note this needs no project flag.** `restrict_to_assigned_team` governs *team*
+partitioning; naming an individual is a stricter, per-task statement that
+applies on its own.
+
+### 8.3 The "My tasks" filter
+
+**Do:** as `ann_test`, open the Tasks tab and set the assignee filter to
+**My tasks**.
+
+**Expect:** only tasks assigned to them.
+
+**Why:** this is presentation, not security. Switching back to **Everyone**
+shows other people's tasks — they are visible but **not writable**. Seeing what
+your colleagues are working on is useful; editing it is not.
+
+### 8.4 Validation
 
 | Do | Expect | Why |
 |---|---|---|
-| Assign a task to a team **with** a grant | Team chip appears in the Team column | — |
 | Assign to a team with **no** grant | **422**, "does not have access… grant it first" | A task assigned to a team that cannot see the project is invisible work (E-09) |
-| Leave a task unassigned | Shows *"— Unassigned"* in muted text | That is the shared pool, not an error — anyone annotate-capable may work it |
-| Bulk-assign a mix of your tasks and someone else's ids | `updated` counts yours, `skipped` counts the rest | Filter-don't-fail: one stray id must not lose the batch |
+| Clear the team (select *— Unassigned —*) | The person clears too | A named assignee with no team is a dangling reservation nobody can see |
+| Bulk-assign a mix of your tasks and another owner's ids | `updated` counts yours, `skipped` the rest | Filter-don't-fail: one stray id must not lose the batch |
 
-**`restrict_to_assigned_team` (opt-in enforcement).** There is no UI toggle yet,
-so set it directly:
+### 8.5 `restrict_to_assigned_team` (team-level opt-in)
+
+Separate from the above, and still opt-in. There is no UI toggle yet:
 
 ```sql
 UPDATE projects SET restrict_to_assigned_team = true WHERE id = <PROJECT_ID>;
@@ -243,7 +298,6 @@ can view it but not save changes."* — and a 403 on save.
 
 **Why:** the banner appears on task open, not after the first rejected save.
 Discovering ten minutes of work cannot be saved is the failure this prevents.
-Default is `false`, so nothing changes unless a project opts in.
 
 ---
 
@@ -316,6 +370,7 @@ Do not report these as bugs (`.devnotes/teams/07_PHASING.md` F1–F9):
 - **No username autocomplete** — deliberate (E-14).
 - **No invitation/accept flow** — a manager adds you and you are in; the safety
   valve is that you can always leave.
-- **No UI toggle for `restrict_to_assigned_team`** yet — SQL only.
+- **No UI toggle for `restrict_to_assigned_team`** yet — SQL only. (Per-person
+  assignment does *not* need it; see §8.2.)
 - **Images at `/uploads/*` are served unauthenticated** — pre-existing, on a
   trusted LAN (E-20).
