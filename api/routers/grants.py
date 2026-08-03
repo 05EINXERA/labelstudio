@@ -25,7 +25,13 @@ from api.auth import get_current_user, require_csrf
 from api.permissions import ProjectRole, require_project, require_team
 from api.permissions import TeamRole
 from database import commit_with_retry, get_db
-from schemas import GrantCreate, GrantOut, GrantRevokeResult, GrantRoleUpdate
+from schemas import (
+    AssignableMember,
+    GrantCreate,
+    GrantOut,
+    GrantRevokeResult,
+    GrantRoleUpdate,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -217,3 +223,66 @@ def revoke_grant(
     commit_with_retry(db)
 
     return GrantRevokeResult(status="ok", tasks_unassigned=tasks_unassigned)
+
+
+@router.get("/{project_id}/assignable-members", response_model=List[AssignableMember])
+def list_assignable_members(
+    project_id: int,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """Everyone who can be assigned a task on this project.
+
+    That is: the members of every team holding a grant here, deduplicated —
+    someone in two granted teams is one person. Each row carries the team they
+    were reached through so the Tasks view can group the picker by team, and so
+    assigning "a member of Team Alpha" is a visible choice rather than a flat
+    list of names.
+
+    **Why this endpoint exists rather than reusing `/api/teams/{id}/members`:**
+    the caller assigning work is the project owner or a project manager, who is
+    not necessarily a member of the teams they are distributing to — and
+    `/api/teams/{id}/members` deliberately 404s for non-members (E-16). Scoping
+    the disclosure to "people already granted access to a project you manage"
+    keeps that anti-enumeration property intact while making assignment
+    possible.
+
+    Readable at `viewer` so the Tasks view can render an Assignee column with
+    real names for everyone, not just managers.
+    """
+    require_project(project_id, user, db, minimum=ProjectRole.VIEWER)
+
+    rows = (
+        db.query(
+            models.User.id,
+            models.User.username,
+            models.Team.id,
+            models.Team.name,
+            models.TeamMembership.role,
+        )
+        .join(models.TeamMembership, models.TeamMembership.user_id == models.User.id)
+        .join(models.Team, models.Team.id == models.TeamMembership.team_id)
+        .join(models.ProjectGrant, models.ProjectGrant.team_id == models.Team.id)
+        .filter(models.ProjectGrant.project_id == project_id)
+        .order_by(models.Team.name, models.User.username)
+        .all()
+    )
+
+    # Deduplicate on user id, keeping the first team encountered. A person in
+    # two granted teams should appear once; which team is shown is cosmetic.
+    seen = set()
+    members = []
+    for user_id, username, team_id, team_name, team_role in rows:
+        if user_id in seen:
+            continue
+        seen.add(user_id)
+        members.append(
+            AssignableMember(
+                user_id=user_id,
+                username=username,
+                team_id=team_id,
+                team_name=team_name,
+                team_role=team_role,
+            )
+        )
+    return members

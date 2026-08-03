@@ -422,6 +422,20 @@ class GrantRevokeResult(BaseModel):
     tasks_unassigned: int
 
 
+class AssignableMember(BaseModel):
+    """Someone who can be handed a task on a given project.
+
+    Reached through a team that holds a grant. `team_name` is carried so the
+    picker can group by team — assigning "someone from Team Alpha" is a more
+    meaningful choice than picking a name off a flat list.
+    """
+    user_id: int
+    username: str
+    team_id: int
+    team_name: str
+    team_role: TeamRoleLiteral
+
+
 class TaskAssignment(BaseModel):
     """Both fields are explicitly nullable: `null` means "unassign", which is
     different from omitting the field. Pydantic cannot distinguish those on its

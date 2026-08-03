@@ -68,6 +68,17 @@ def bob(client):
     return _register(client, "bob")
 
 
+@pytest.fixture
+def carol(client):
+    """A third account.
+
+    Needed wherever "someone else" must be distinct from both the actor and the
+    owner — e.g. checking that an annotator cannot write a task assigned to a
+    *different* annotator, which two users cannot express.
+    """
+    return _register(client, "carol")
+
+
 def unique_label_id(prefix="lbl"):
     """A globally unique label id for tests.
 

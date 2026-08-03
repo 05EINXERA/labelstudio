@@ -125,6 +125,21 @@ def _require_assigned_team_membership(
     if can_write_task(db_task, user, role, db):
         return
 
+    # Name whoever the task is actually reserved for, so the message is
+    # actionable: "ask Priya" or "ask a manager to reassign it" beats a bare
+    # refusal. The individual takes precedence over the team, because that is
+    # the narrower claim and the one that blocked this writer.
+    if db_task.assignee_user_id and db_task.assignee_user_id != user.id:
+        assignee = db.get(models.User, db_task.assignee_user_id)
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"This task is assigned to {assignee.username}."
+                if assignee
+                else "This task is assigned to someone else."
+            ),
+        )
+
     team = (
         db.get(models.Team, db_task.assigned_team_id)
         if db_task.assigned_team_id
@@ -172,12 +187,17 @@ def get_tasks(projectId: Optional[int] = Query(None), include_annotations: bool 
     if not include_annotations:
         query = query.with_entities(
             models.Task.id, models.Task.description, models.Task.assignee,
-            models.Task.image_path, models.Task.status, models.Task.time_spent, models.Task.updated_at
+            models.Task.image_path, models.Task.status, models.Task.time_spent,
+            models.Task.updated_at,
+            models.Task.assigned_team_id, models.Task.assignee_user_id,
         )
         tasks = query.all()
-        return [{"id": t.id, "description": t.description, "assignee": t.assignee, 
-                 "image_path": t.image_path, "status": t.status, "time_spent": t.time_spent, 
-                 "updated_at": t.updated_at, "annotations": []} for t in tasks]
+        return [{"id": t.id, "description": t.description, "assignee": t.assignee,
+                 "image_path": t.image_path, "status": t.status, "time_spent": t.time_spent,
+                 "updated_at": t.updated_at,
+                 "assigned_team_id": t.assigned_team_id,
+                 "assignee_user_id": t.assignee_user_id,
+                 "annotations": []} for t in tasks]
 
     tasks = query.all()
     result = []
@@ -189,9 +209,15 @@ def get_tasks(projectId: Optional[int] = Query(None), include_annotations: bool 
             except (ValueError, TypeError) as exc:
                 logger.warning("Task %s has unparseable annotations: %s", t.id, exc)
         result.append({
-            "id": t.id, "description": t.description, "assignee": t.assignee, 
-            "image_path": t.image_path, "status": t.status, "time_spent": t.time_spent, 
-            "updated_at": t.updated_at, "annotations": annotations_data
+            "id": t.id, "description": t.description, "assignee": t.assignee,
+            "image_path": t.image_path, "status": t.status, "time_spent": t.time_spent,
+            "updated_at": t.updated_at,
+            # Both assignment fields ship on every task row: the Tasks view's
+            # Team and Assignee columns cannot render without them, and their
+            # absence here is why the Team column always read "Unassigned".
+            "assigned_team_id": t.assigned_team_id,
+            "assignee_user_id": t.assignee_user_id,
+            "annotations": annotations_data
         })
     return result
 

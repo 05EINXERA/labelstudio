@@ -5,8 +5,18 @@ Edge cases: E-09, E-10, E-24.
 
 Two separate things are under test and they are deliberately different:
 **project grants** decide what you can reach at all, while **task assignment**
-distributes work inside a project both teams already reach. Assignment only
-restricts writes when the project opts in.
+distributes work inside a project both teams already reach.
+
+Assignment restricts writes at two different strengths:
+
+- **Team assignment** is opt-in per project (`restrict_to_assigned_team`,
+  default off), so migrating changes nothing.
+- **Individual assignment is always enforced** — naming a person is a stricter,
+  per-task statement that does not wait for a project flag. This reverses
+  01_DESIGN.md § 3.4's original "advisory" decision; see PLAN.md § 8.
+
+In both cases a project manager or owner can still write, so a handover is a
+reassignment rather than a lockout.
 """
 import models
 from database import SessionLocal
@@ -112,9 +122,14 @@ def test_assign_team_without_grant_422(client, alice):
 
 
 def test_assign_user_outside_team_warns_not_rejects(client, alice, bob):
-    """E-10: individual assignment is advisory by design. A reviewer from
-    another team taking one task is legitimate; rejecting it would make the
-    advisory field behave like an enforced one."""
+    """E-10: assigning someone outside the team is a warning, not a rejection.
+
+    Note this is about *who may be named*, which is still permissive — a
+    reviewer from another team taking one task is legitimate. What the task
+    then permits is a separate question, and since the deviation recorded in
+    PLAN.md § 8 that part **is** enforced: see the tests at the bottom of this
+    file.
+    """
     project_id = _project(client, alice)
     team = _team_with_grant(client, alice, project_id, "Alpha")
     task_id = _task(client, alice, project_id)
@@ -334,3 +349,197 @@ def test_bulk_assign_empty_ids_is_400(client, alice):
     )
 
     assert res.status_code == 400
+
+
+# --- individual assignment is enforced --------------------------------------
+#
+# 01_DESIGN.md § 3.4 originally made individual assignment advisory. That was
+# reconsidered (PLAN.md § 8): the point of handing one annotator a task is that
+# the others leave it alone, and a filter they can switch off does not deliver
+# it. These tests pin the new rule.
+
+
+def test_assigned_user_can_write_their_own_task(client, alice, bob):
+    project_id = _project(client, alice)
+    team = _team_with_grant(client, alice, project_id, "Alpha", members=[bob])
+    task_id = _task(client, alice, project_id)
+    client.patch(
+        f"/api/tasks/{task_id}/assignment",
+        json={"assigned_team_id": team["id"], "assignee_user_id": _me(client, bob)["id"]},
+        headers=alice,
+    )
+
+    res = client.post(
+        "/api/tasks", json={"id": task_id, "status": "In Progress"}, headers=bob
+    )
+
+    assert res.status_code == 200
+
+
+def test_other_annotator_blocked_from_an_assigned_task(client, alice, bob, carol):
+    """The whole point: someone else's task is off-limits."""
+    project_id = _project(client, alice)
+    team = _team_with_grant(client, alice, project_id, "Alpha", members=[bob, carol])
+    task_id = _task(client, alice, project_id)
+    client.patch(
+        f"/api/tasks/{task_id}/assignment",
+        json={"assigned_team_id": team["id"], "assignee_user_id": _me(client, bob)["id"]},
+        headers=alice,
+    )
+
+    res = client.post(
+        "/api/tasks", json={"id": task_id, "status": "In Progress"}, headers=carol
+    )
+
+    assert res.status_code == 403
+    # The message names who holds it, so the reader knows who to ask.
+    assert _me(client, bob)["username"] in res.json()["detail"]
+
+
+def test_enforcement_needs_no_restrict_flag(client, alice, bob, carol):
+    """Naming an individual stands on its own.
+
+    `restrict_to_assigned_team` governs *team* partitioning; a per-person
+    assignment is a stricter, per-task statement and does not wait for the
+    project to opt in.
+    """
+    project_id = _project(client, alice)
+    team = _team_with_grant(client, alice, project_id, "Alpha", members=[bob, carol])
+    task_id = _task(client, alice, project_id)
+    client.patch(
+        f"/api/tasks/{task_id}/assignment",
+        json={"assigned_team_id": team["id"], "assignee_user_id": _me(client, bob)["id"]},
+        headers=alice,
+    )
+    _set_restrict(project_id, False)
+
+    res = client.post(
+        "/api/tasks", json={"id": task_id, "status": "In Progress"}, headers=carol
+    )
+
+    assert res.status_code == 403
+
+
+def test_manager_can_always_write_an_assigned_task(client, alice, bob):
+    """The handover escape hatch: a sick day must not need a schema change."""
+    project_id = _project(client, alice)
+    team = _team_with_grant(client, alice, project_id, "Alpha", members=[bob])
+    task_id = _task(client, alice, project_id)
+    client.patch(
+        f"/api/tasks/{task_id}/assignment",
+        json={"assigned_team_id": team["id"], "assignee_user_id": _me(client, bob)["id"]},
+        headers=alice,
+    )
+
+    # alice is the project owner and was never the assignee.
+    res = client.post(
+        "/api/tasks", json={"id": task_id, "status": "In Progress"}, headers=alice
+    )
+
+    assert res.status_code == 200
+
+
+def test_unassigned_task_stays_open_to_the_team(client, alice, bob):
+    """Clearing the assignee returns the task to the team pool."""
+    project_id = _project(client, alice)
+    team = _team_with_grant(client, alice, project_id, "Alpha", members=[bob])
+    task_id = _task(client, alice, project_id)
+    client.patch(
+        f"/api/tasks/{task_id}/assignment",
+        json={"assigned_team_id": team["id"], "assignee_user_id": None},
+        headers=alice,
+    )
+
+    res = client.post(
+        "/api/tasks", json={"id": task_id, "status": "In Progress"}, headers=bob
+    )
+
+    assert res.status_code == 200
+
+
+# --- the task list carries the assignment fields ----------------------------
+
+
+def test_task_list_returns_assignment_fields(client, alice, bob):
+    """Regression: both fields were missing from GET /api/tasks entirely, so the
+    Tasks view's Team column could never render anything but "Unassigned"."""
+    project_id = _project(client, alice)
+    team = _team_with_grant(client, alice, project_id, "Alpha", members=[bob])
+    task_id = _task(client, alice, project_id)
+    bob_id = _me(client, bob)["id"]
+    client.patch(
+        f"/api/tasks/{task_id}/assignment",
+        json={"assigned_team_id": team["id"], "assignee_user_id": bob_id},
+        headers=alice,
+    )
+
+    listed = client.get(f"/api/tasks?projectId={project_id}", headers=alice).json()
+    row = next(t for t in listed if t["id"] == task_id)
+
+    assert row["assigned_team_id"] == team["id"]
+    assert row["assignee_user_id"] == bob_id
+
+    # The annotation-free variant the gallery uses must carry them too.
+    lean = client.get(
+        f"/api/tasks?projectId={project_id}&include_annotations=false", headers=alice
+    ).json()
+    lean_row = next(t for t in lean if t["id"] == task_id)
+    assert lean_row["assigned_team_id"] == team["id"]
+    assert lean_row["assignee_user_id"] == bob_id
+
+
+# --- assignable members -----------------------------------------------------
+
+
+def test_assignable_members_lists_granted_teams_members(client, alice, bob):
+    project_id = _project(client, alice)
+    team = _team_with_grant(client, alice, project_id, "Alpha", members=[bob])
+
+    res = client.get(f"/api/projects/{project_id}/assignable-members", headers=alice)
+
+    assert res.status_code == 200
+    names = {m["username"] for m in res.json()}
+    assert _me(client, bob)["username"] in names
+    assert all(m["team_id"] == team["id"] for m in res.json())
+
+
+def test_assignable_members_excludes_ungranted_teams(client, alice, bob, carol):
+    """Only teams with a grant contribute — otherwise this would leak the
+    roster of every team the caller happens to own."""
+    project_id = _project(client, alice)
+    _team_with_grant(client, alice, project_id, "Granted", members=[bob])
+    ungranted = client.post("/api/teams", json={"name": "Ungranted"}, headers=alice).json()
+    client.post(
+        f"/api/teams/{ungranted['id']}/members",
+        json={"username": _me(client, carol)["username"], "role": "member"},
+        headers=alice,
+    )
+
+    names = {m["username"] for m in client.get(
+        f"/api/projects/{project_id}/assignable-members", headers=alice
+    ).json()}
+
+    assert _me(client, bob)["username"] in names
+    assert _me(client, carol)["username"] not in names
+
+
+def test_assignable_members_deduplicates_across_teams(client, alice, bob):
+    """Someone in two granted teams is one person, listed once."""
+    project_id = _project(client, alice)
+    _team_with_grant(client, alice, project_id, "First", members=[bob])
+    _team_with_grant(client, alice, project_id, "Second", members=[bob])
+
+    rows = client.get(
+        f"/api/projects/{project_id}/assignable-members", headers=alice
+    ).json()
+
+    bob_name = _me(client, bob)["username"]
+    assert len([m for m in rows if m["username"] == bob_name]) == 1
+
+
+def test_assignable_members_requires_project_access(client, alice, bob):
+    project_id = _project(client, alice)
+
+    res = client.get(f"/api/projects/{project_id}/assignable-members", headers=bob)
+
+    assert res.status_code == 404

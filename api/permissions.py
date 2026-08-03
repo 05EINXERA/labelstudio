@@ -357,22 +357,45 @@ def can_write_task(
     role: Optional[ProjectRole],
     db: Session,
 ) -> bool:
-    """Whether `user` may save this task under `restrict_to_assigned_team`.
+    """Whether `user` may save this task.
 
-    Implements .devnotes/teams/01_DESIGN.md § 3.4. Returns a bool rather than
-    raising so the caller can attach the team name to its own 403 message.
+    Returns a bool rather than raising so the caller can attach the team or
+    assignee name to its own 403 message.
 
     The rule, in order:
 
     - Below ANNOTATOR: never.
-    - Project has not opted in, or the task is unassigned (the shared pool,
-      § 3.3): anyone annotate-capable. This is the path every pre-teams task and
-      every non-opted-in project takes, which is what makes the feature
-      behaviour-neutral on migration.
+    - **Assigned to a specific person: only that person** (or a project
+      manager/owner). See the note below.
+    - Project has not opted in to `restrict_to_assigned_team`, or the task is
+      unassigned (the shared pool, § 3.3): anyone annotate-capable. This is the
+      path every pre-teams task and every non-opted-in project takes, which is
+      what makes the feature behaviour-neutral on migration.
     - Otherwise the writer must be in the assigned team, or be a project manager
       or owner.
+
+    **Individual assignment is enforced, not advisory.**
+    .devnotes/teams/01_DESIGN.md § 3.4 originally made it advisory on the
+    grounds that enforcing it produces a permission matrix nobody can reason
+    about. That was reconsidered: the whole point of handing one annotator a
+    task is that the others leave it alone, and a filter they can switch off
+    does not deliver that. Recorded as a deviation in PLAN.md § 8.
+
+    The escape hatch is deliberate and unchanged: a project manager or owner can
+    always write, so a sick-day handover is a reassignment away rather than a
+    lockout. Note this needs no `restrict_to_assigned_team` opt-in — that flag
+    governs *team* partitioning, and naming an individual is a stricter,
+    per-task statement that stands on its own.
     """
     if not at_least(role, ProjectRole.ANNOTATOR):
+        return False
+
+    # Managers and owners are never partitioned by assignment, so this check
+    # comes first and covers every branch below it.
+    if at_least(role, ProjectRole.MANAGER):
+        return True
+
+    if task.assignee_user_id is not None and task.assignee_user_id != user.id:
         return False
 
     if task.assigned_team_id is None:
@@ -380,9 +403,6 @@ def can_write_task(
 
     project = db.get(models.Project, task.project_id)
     if project is None or not project.restrict_to_assigned_team:
-        return True
-
-    if at_least(role, ProjectRole.MANAGER):
         return True
 
     membership = (

@@ -14,8 +14,9 @@
 import { apiFetch } from "../../api.js?v=1";
 import { escapeHTML, formatTime } from "../../utils.js?v=1";
 import { createDataTable } from "../../components/data-table.js?v=1";
-import { fetchMyTeams, fillTeamSelect } from "../../components/team-picker.js?v=1";
+import { fillTeamSelect } from "../../components/team-picker.js?v=1";
 import { canManage, canReview } from "../../permissions.js?v=1";
+import { openAssignDialog } from "./assign-modal.js?v=1";
 import {
   STATUSES,
   buildColumns,
@@ -23,7 +24,7 @@ import {
   showsSelection,
   showsUpload,
   statusPill,
-} from "./task-columns.js?v=1";
+} from "./task-columns.js?v=2";
 
 let root = null;
 let ctx = null;
@@ -66,8 +67,13 @@ function template() {
 
     <div class="bulk-bar" id="bulkBar">
       <span class="count" id="bulkCount"></span>
-      <button type="button" class="tool-button" id="bulkAssignBtn">Bulk assign</button>
-      <button type="button" class="tool-button" id="bulkTeamBtn">Assign team</button>
+      <!-- Two assign buttons, deliberately. "Assign" writes the real
+           team/user FKs and is what everyone should use. "Set name (legacy)"
+           writes the free-text `assignee` column that predates Teams; it is
+           kept only because existing projects still carry those strings and
+           removing the editor would strand them. Phase 5 F2 deletes it. -->
+      <button type="button" class="tool-button" id="bulkTeamBtn">Assign…</button>
+      <button type="button" class="tool-button" id="bulkAssignBtn" title="Legacy free-text name, not a linked account">Set name (legacy)</button>
       <button type="button" class="tool-button" id="bulkDeleteBtn" style="color:#e05260;border-color:rgba(224,82,96,.3);">Bulk delete</button>
     </div>
 
@@ -78,6 +84,11 @@ function template() {
         ${STATUSES.map((s) => `<option value="${s}">${s}</option>`).join("")}
       </select>
       <select id="teamFilter" aria-label="Filter by team"></select>
+      <select id="assigneeFilter" aria-label="Filter by assignee">
+        <option value="All">Everyone</option>
+        <option value="mine">My tasks</option>
+        <option value="unassigned">Nobody specific</option>
+      </select>
     </div>
 
     <div id="tableMount"></div>
@@ -310,7 +321,7 @@ function bindBulkActions() {
     return;
   }
 
-  el("bulkTeamBtn").addEventListener("click", bulkAssignTeam);
+  el("bulkTeamBtn").addEventListener("click", () => assignTasks(null));
 
   el("bulkDeleteBtn").addEventListener("click", async () => {
     const ids = [...table.getSelection()];
@@ -377,6 +388,9 @@ function bindBulkActions() {
 // without a request per row. Both are small and change rarely.
 const teamsById = new Map();
 const usersById = new Map();
+// Full roster of everyone assignable on this project, carrying the team each
+// was reached through so the dialog can narrow the list once a team is picked.
+let assignableMembers = [];
 
 async function loadLookups() {
   // Teams granted on *this project*, not the caller's own teams: a task can be
@@ -389,18 +403,16 @@ async function loadLookups() {
     }
   }
 
-  // The only usernames reliably resolvable are those of the caller's own team
-  // members. An `assignee_user_id` outside that set falls back to "User N"
-  // rather than triggering a user-directory endpoint, which deliberately does
-  // not exist (01_DESIGN.md § 5.1).
-  const myTeams = await fetchMyTeams();
-  await Promise.allSettled(
-    myTeams.map(async (team) => {
-      const r = await apiFetch(`/api/teams/${encodeURIComponent(team.id)}/members`);
-      if (!r?.ok) return;
-      for (const member of await r.json()) usersById.set(member.user_id, member.username);
-    })
+  // One project-scoped request instead of walking every team's roster: the
+  // caller assigning work is often not a member of the teams they distribute
+  // to, and /api/teams/{id}/members deliberately 404s for non-members (E-16).
+  const membersRes = await apiFetch(
+    `/api/projects/${encodeURIComponent(ctx.projectId)}/assignable-members`
   );
+  if (membersRes?.ok) {
+    assignableMembers = await membersRes.json();
+    for (const m of assignableMembers) usersById.set(m.user_id, m.username);
+  }
 
   const filter = el("teamFilter");
   if (filter) {
@@ -419,6 +431,26 @@ async function loadLookups() {
  * on `assigned_team_id` directly, because "unassigned" is a null match and the
  * table's filter compares by equality.
  */
+/**
+ * Filter by who a task is reserved for.
+ *
+ * "My tasks" is the one annotators live in: once work is distributed, the
+ * default view is everything, and they need one click to see only what is
+ * theirs. This is presentation — the *enforcement* is server-side, so switching
+ * back to "Everyone" shows other people's tasks but does not make them
+ * writable.
+ */
+function applyAssigneeFilter(value) {
+  const myId = ctx.currentUser?.id;
+  for (const row of table.getRows()) {
+    row._assigneeFilter =
+      row.assignee_user_id == null
+        ? "unassigned"
+        : (row.assignee_user_id === myId ? "mine" : `user-${row.assignee_user_id}`);
+  }
+  table.setFilter("_assigneeFilter", value === "All" ? "All" : value);
+}
+
 function applyTeamFilter(value) {
   const rows = table.getRows();
   for (const row of rows) {
@@ -434,33 +466,47 @@ function applyTeamFilter(value) {
  * short list the user has just seen in the filter, and a modal here would be
  * more chrome than decision.
  */
-async function bulkAssignTeam() {
-  const ids = [...table.getSelection()];
+/**
+ * Assign one task, or every selected task, to a team and optionally a person.
+ *
+ * Both entry points share this function: the question is identical and only the
+ * id list differs. `row` is null for the bulk case.
+ */
+async function assignTasks(row) {
+  const ids = row ? [row.id] : [...table.getSelection()];
   if (!ids.length) return;
 
-  const options = [...teamsById].map(([id, name]) => `${id} = ${name}`).join("\n");
-  if (!options) {
+  const teams = [...teamsById].map(([id, name]) => ({ id, name }));
+  if (!teams.length) {
     showError("No teams have access to this project yet. Grant one on the Access tab.");
     return;
   }
-  const answer = prompt(
-    `Assign ${ids.length} task(s) to which team?\n\n${options}\n\n` +
-    `Enter a team id, or leave blank to unassign.`
-  );
-  if (answer == null) return;
 
-  const teamId = answer.trim() ? Number(answer.trim()) : null;
-  if (teamId !== null && !teamsById.has(teamId)) {
-    showError("That team id is not in the list above.");
-    return;
-  }
-
-  const res = await apiFetch("/api/tasks/bulk-assign", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ids, assigned_team_id: teamId }),
+  const choice = await openAssignDialog({
+    title: row ? `Assign "${row.description || "task"}"` : `Assign ${ids.length} task(s)`,
+    teams,
+    members: assignableMembers,
+    // Pre-select what the row already has, so opening the dialog on an assigned
+    // task shows its current state rather than resetting it.
+    current: row ? { teamId: row.assigned_team_id, userId: row.assignee_user_id } : {},
   });
+  if (!choice) return; // cancelled
+
+  // One task goes through the per-task endpoint so its warnings (E-10) surface
+  // verbatim; many go through bulk-assign, which reports updated/skipped.
+  const res = row
+    ? await apiFetch(`/api/tasks/${encodeURIComponent(row.id)}/assignment`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(choice),
+      })
+    : await apiFetch("/api/tasks/bulk-assign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids, ...choice }),
+      });
   if (!res) return;
+
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     showError(body?.detail || `Could not assign those tasks (${res.status}).`);
@@ -469,10 +515,12 @@ async function bulkAssignTeam() {
 
   const result = await res.json();
   clearError();
-  if (result.skipped) {
-    showError(`${result.updated} task(s) assigned. ${result.skipped} skipped — you cannot manage them.`);
-  }
-  table.clearSelection();
+  const notes = [];
+  if (result.skipped) notes.push(`${result.skipped} skipped — you cannot manage them.`);
+  if (result.warnings?.length) notes.push(result.warnings.join(" "));
+  if (notes.length) showError(notes.join(" "));
+
+  if (!row) table.clearSelection();
   await loadTasks();
 }
 
@@ -551,6 +599,7 @@ export async function mount(hostRoot, hostCtx) {
   el("searchInput").addEventListener("input", (e) => table.setQuery(e.target.value));
   el("statusFilter").addEventListener("change", (e) => table.setFilter("status", e.target.value));
   el("teamFilter")?.addEventListener("change", (e) => applyTeamFilter(e.target.value));
+  el("assigneeFilter")?.addEventListener("change", (e) => applyAssigneeFilter(e.target.value));
 
   table.onAction("edit", (row) => openEditModal(row));
   table.onAction("delete", async (row) => {
@@ -569,6 +618,7 @@ export async function mount(hostRoot, hostCtx) {
     }
   });
 
+  table.onAction("assign", (row) => assignTasks(row));
   table.onAction("approve", (row) => review(row, "approved"));
   table.onAction("reject", (row) => review(row, "rejected"));
 
