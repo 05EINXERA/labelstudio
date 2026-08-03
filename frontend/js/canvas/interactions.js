@@ -598,11 +598,11 @@ canvas.addEventListener("pointerdown", (event) => {
     }
   }
 
-  // Left-click on a polygon edge to add a vertex.
+  // Left-click on a polygon edge to add a vertex (select mode only).
   // Skipped while drawing: hitTestLine treats the shape as already closed, so it
   // reports a phantom edge from the last vertex back to the first. Splitting it
   // would start a move-point view.drag and silently end the in-progress polygon.
-  if (state.selectedId && event.button === 0 && !event.altKey && view.drag?.type !== "draw-polygon") {
+  if (state.mode === "select" && state.selectedId && event.button === 0 && !event.altKey && view.drag?.type !== "draw-polygon") {
     const selected = state.annotations.find(a => a.id === state.selectedId);
     if (selected && selected.points && selected.points.length >= 3) {
       // Prioritize point hit test so we don't accidentally split a line when clicking a point
@@ -630,9 +630,9 @@ canvas.addEventListener("pointerdown", (event) => {
       }
     }
   }
-  // Vertex/edge deletion — also skipped while drawing, so an Alt+click cannot
+  // Vertex/edge deletion (select mode only) — also skipped while drawing, so an Alt+click cannot
   // remove points from the polygon currently being placed.
-  if (state.selectedId && (event.altKey || event.button === 2) && view.drag?.type !== "draw-polygon") {
+  if (state.mode === "select" && state.selectedId && (event.altKey || event.button === 2) && view.drag?.type !== "draw-polygon") {
     const selected = state.annotations.find(a => a.id === state.selectedId);
     if (selected && selected.points && selected.points.length > 3) {
       const ptIndex = hitTestPoint(point, selected);
@@ -674,7 +674,7 @@ canvas.addEventListener("pointerdown", (event) => {
             finalizePolygon();
             return;
           }
-        } else {
+        } else if (state.mode === "select") {
           snapshot();
           view.drag = {
             type: "move-point",
@@ -888,8 +888,8 @@ canvas.addEventListener("pointermove", (event) => {
   const point = canvasPoint(event);
   updateCanvasCursor(point);
 
-  // Detect line hover on selected polygon (even when no view.drag)
-  if (state.selectedId && !view.drag) {
+  // Detect line hover on selected polygon (select mode only, even when no view.drag)
+  if (state.mode === "select" && state.selectedId && !view.drag) {
     const selected = state.annotations.find(a => a.id === state.selectedId);
     if (selected && selected.points && selected.points.length >= 3) {
       const ptIndex = hitTestPoint(point, selected);
@@ -1021,7 +1021,7 @@ canvas.addEventListener("pointermove", (event) => {
 canvas.addEventListener("dblclick", (event) => {
   // Polygon finalizing via double-click has been removed as per user request
 
-  if (state.selectedId) {
+  if (state.mode === "select" && state.selectedId) {
     const point = canvasPoint(event);
     const selected = state.annotations.find(a => a.id === state.selectedId);
     if (selected && selected.points && selected.points.length > 3) {
@@ -1186,7 +1186,7 @@ window.addEventListener("keydown", (event) => {
 
   if (event.key === "Delete" || event.key === "Backspace") {
     event.preventDefault();
-    if (state.selectedId) {
+    if (state.mode === "select" && state.selectedId) {
       // If hovering over a vertex, delete just that vertex
       if (view.hoveredPointIndex !== -1) {
         const selected = state.annotations.find(a => a.id === state.selectedId);
@@ -1276,6 +1276,8 @@ window.addEventListener("keydown", (event) => {
       render();
     } else {
       state.mode = "draw";
+      state.selectedId = null;
+      state.selectedIds.clear();
       render();
     }
   }

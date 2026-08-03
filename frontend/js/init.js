@@ -237,6 +237,8 @@ drawMode.addEventListener("click", () => {
     return;
   }
   state.mode = "draw";
+  state.selectedId = null;
+  state.selectedIds.clear();
   render();
 });
 
@@ -254,12 +256,16 @@ boxMode.addEventListener("click", () => {
   }
   state.mode = "draw";
   state.shape = "box";
+  state.selectedId = null;
+  state.selectedIds.clear();
   render();
 });
 
 polygonMode.addEventListener("click", () => {
   state.mode = "draw";
   state.shape = "polygon";
+  state.selectedId = null;
+  state.selectedIds.clear();
   render();
 });
 
@@ -269,6 +275,8 @@ commentMode.addEventListener("click", () => {
   }
   state.mode = "draw";
   state.shape = "comment";
+  state.selectedId = null;
+  state.selectedIds.clear();
   render();
 });
 
@@ -278,6 +286,8 @@ magicWandMode.addEventListener("click", () => {
   }
   state.mode = "draw";
   state.shape = "magicWand";
+  state.selectedId = null;
+  state.selectedIds.clear();
   preloadMagicWand();
   render();
 });
