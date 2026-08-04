@@ -318,7 +318,10 @@ def _run_export_job(job_id: str, req: ExportRequest, project_id: int):
 
 @router.post("")
 def create_export(req: ExportRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    require_project(req.projectId, user, db, minimum=ProjectRole.VIEWER)
+    # Reviewer+, matching the frontend nav gate (project-nav.js) — a one-click
+    # full-dataset download is not meant for annotators. See
+    # .devnotes/teams/03_API.md § 4.1.
+    require_project(req.projectId, user, db, minimum=ProjectRole.REVIEWER)
 
     # Resolve deprecated single-axis codes before validating, so an old client
     # sending format=masks_index or format=json still passes.

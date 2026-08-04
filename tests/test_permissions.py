@@ -456,27 +456,32 @@ def test_viewer_cannot_write_task(db):
     assert can_write_task(task, owner, ProjectRole.VIEWER, db) is False
 
 
-def test_unassigned_task_is_the_shared_pool(db):
-    """§ 3.3: a task with no team is writable by any annotate-capable member,
-    even with the restrict flag on. Every pre-teams task is in this state, which
-    is what makes the migration behaviour-neutral."""
+def test_unassigned_task_is_not_writable_by_annotators(db):
+    """Superseded 2026-08-03 (PLAN.md § 8, `95234a8`): an unassigned task is no
+    longer a shared pool. An annotate-level member must be handed the task (via
+    team or individual assignment) before they may write it; a manager/owner
+    can always write it in the meantime."""
     owner = make_user(db, "owner")
     member = make_user(db, "member")
     project = make_project(db, owner, restrict=True)
     task = make_task(db, project, assigned_team=None)
 
-    assert can_write_task(task, member, ProjectRole.ANNOTATOR, db) is True
+    assert can_write_task(task, member, ProjectRole.ANNOTATOR, db) is False
+    assert can_write_task(task, owner, ProjectRole.MANAGER, db) is True
 
 
-def test_restrict_flag_off_allows_any_annotator(db):
-    """Default false = today's behaviour: assignment is advisory."""
+def test_restrict_flag_no_longer_consulted(db):
+    """Superseded 2026-08-03 (PLAN.md § 8, `95234a8`): team-assignment
+    enforcement is unconditional now — `restrict_to_assigned_team=False` no
+    longer means advisory. An annotator outside the assigned team is refused
+    regardless of the flag."""
     owner = make_user(db, "owner")
     outsider = make_user(db, "outsider")
     project = make_project(db, owner, restrict=False)
     team = make_team(db, owner)
     task = make_task(db, project, assigned_team=team)
 
-    assert can_write_task(task, outsider, ProjectRole.ANNOTATOR, db) is True
+    assert can_write_task(task, outsider, ProjectRole.ANNOTATOR, db) is False
 
 
 def test_restrict_flag_blocks_other_team(db):

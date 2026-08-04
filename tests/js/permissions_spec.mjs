@@ -77,20 +77,22 @@ ok('a project manager is not a team manager',
 // 6. Nav filtering per the 04_UI_UX.md § 6.1 table.
 const routesFor = (role) => nav.visibleNavItems(role).map((i) => i.route);
 
-ok('viewer sees home/tasks/classes/exports',
-   JSON.stringify(routesFor('viewer')) === JSON.stringify(['home', 'tasks', 'classes', 'exports']));
+ok('viewer sees home/tasks/classes',
+   JSON.stringify(routesFor('viewer')) === JSON.stringify(['home', 'tasks', 'classes']));
 ok('viewer does not see imports', !routesFor('viewer').includes('imports'));
 ok('viewer does not see access', !routesFor('viewer').includes('access'));
 ok('annotator still does not see imports', !routesFor('annotator').includes('imports'));
+ok('annotator does not see exports', !routesFor('annotator').includes('exports'));
 ok('reviewer still does not see imports', !routesFor('reviewer').includes('imports'));
+ok('reviewer sees exports', routesFor('reviewer').includes('exports'));
 ok('manager sees imports', routesFor('manager').includes('imports'));
 ok('manager does not see access', !routesFor('manager').includes('access'));
 ok('owner sees access', routesFor('owner').includes('access'));
 ok('owner sees every item', routesFor('owner').length === nav.NAV_ITEMS.length);
 
-// Exports stay at viewer and imports at manager — the two minimums that look
-// wrong and are deliberate (03_API.md § 4.1).
-ok('exports readable by a viewer', routesFor('viewer').includes('exports'));
+// Exports are reviewer+ (revised 2026-08-04, was viewer+) and imports are
+// manager+ — the two minimums that look like they could be lower and are
+// deliberate (03_API.md § 4.1).
 ok('imports withheld from a reviewer', !routesFor('reviewer').includes('imports'));
 
 // 7. A user with no role sees nothing. The router falls back to Home, but the

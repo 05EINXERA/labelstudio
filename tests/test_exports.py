@@ -121,6 +121,25 @@ def test_export_requires_ownership(client, alice, bob):
     assert res.status_code == 404
 
 
+def test_export_requires_reviewer_not_just_viewer(client, alice, bob):
+    """Exports are reviewer+ (03_API.md § 4.1), matching the frontend nav gate
+    in project-nav.js — an annotator must not be able to reach the full-dataset
+    download via the API even though the UI hides the tab and disables the
+    button."""
+    pid = _new_project(client, alice)
+    team = client.post("/api/teams", json={"name": "T"}, headers=alice).json()
+    bob_username = client.get("/api/auth/me", headers=bob).json()["username"]
+    client.post(f"/api/teams/{team['id']}/members", json={"username": bob_username, "role": "member"}, headers=alice)
+
+    client.post(f"/api/projects/{pid}/grants", json={"team_id": team["id"], "role": "annotator"}, headers=alice)
+    res = client.post("/api/exports", json={"projectId": pid, "format": "json"}, headers=bob)
+    assert res.status_code == 403
+
+    client.patch(f"/api/projects/{pid}/grants/{team['id']}", json={"role": "reviewer"}, headers=alice)
+    res = client.post("/api/exports", json={"projectId": pid, "format": "json"}, headers=bob)
+    assert res.status_code == 200
+
+
 def test_download_is_one_shot(client, alice):
     pid = _new_project(client, alice)
     _new_task(client, alice, pid, "a.png")

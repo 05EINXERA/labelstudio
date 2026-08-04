@@ -252,17 +252,25 @@ populated with that team's members — pick `ann_test`, Apply.
 **Expect:**
 - The **Assignee** column shows `ann_test`.
 - `ann_test` can still save it.
-- **`rev_test` gets a 403 naming the assignee** — *"This task is assigned to
-  ann_test."*
 - `owner_test` can still save it.
+- **`rev_test` can *also* still save it — this is correct, not a bug.**
+  `can_write_task` grants reviewer+ unconditional write access regardless of
+  who the task is assigned to (`95234a8`, `api/permissions.py`): a reviewer
+  must be able to interact with any task in the project in order to review it.
+  Assignment reservation only bites an **annotator** who is not the named
+  assignee. To see the 403, repeat this step with a *second annotator*
+  (not `rev_test`) who is in the team but not the chosen assignee — they get
+  **"This task is assigned to ann_test."**
 
-**Why:** naming a person **reserves** the task. That is the point of handing it
-to someone: the rest of the team leaves it alone. The manager/owner escape hatch
-is deliberate — a sick day is handled by reassigning, not by a database edit.
+**Why:** naming a person **reserves** the task for annotators. That is the
+point of handing it to someone: other annotators leave it alone. The
+manager/owner/reviewer escape hatches are deliberate — a sick day is handled by
+reassigning, not by a database edit, and a reviewer's job requires touching
+any task regardless of who annotated it.
 
-**Note this needs no project flag.** `restrict_to_assigned_team` governs *team*
-partitioning; naming an individual is a stricter, per-task statement that
-applies on its own.
+**Note this needs no project flag.** Team assignment is unconditionally
+enforced (§ 8.5) — there is no opt-in anymore. Naming an individual is a
+stricter, per-task statement that applies on its own.
 
 ### 8.3 The "My tasks" filter
 
@@ -283,18 +291,26 @@ your colleagues are working on is useful; editing it is not.
 | Clear the team (select *— Unassigned —*) | The person clears too | A named assignee with no team is a dangling reservation nobody can see |
 | Bulk-assign a mix of your tasks and another owner's ids | `updated` counts yours, `skipped` the rest | Filter-don't-fail: one stray id must not lose the batch |
 
-### 8.5 `restrict_to_assigned_team` (team-level opt-in)
+### 8.5 Team partitioning is now unconditional (no flag)
 
-Separate from the above, and still opt-in. There is no UI toggle yet:
+**As of `95234a8` (2026-08-03) this is no longer opt-in.** `can_write_task` no
+longer consults `restrict_to_assigned_team` at all — team assignment is always
+enforced. (The column still exists on `Project` for now; it is dead. Do not set
+it expecting a behaviour change.)
 
-```sql
-UPDATE projects SET restrict_to_assigned_team = true WHERE id = <PROJECT_ID>;
-```
-
-Assign a task to a team `ann_test` is **not** in, then have them open it.
+**Do:** assign a task to a team `ann_test` is **not** in, then have them open
+it.
 
 **Expect:** a banner *before they draw* — *"This task is assigned to <Team>. You
 can view it but not save changes."* — and a 403 on save.
+
+**Also verify the unassigned case (changed 2026-08-03, `95234a8`):** as
+`ann_test`, open a task with **no** team and **no** individual assignee.
+
+**Expect:** a 403 on save — an unassigned task is *not* a shared pool anymore.
+Only a manager/owner, or whoever it gets assigned to, may write it. If
+`ann_test` can save an unassigned task, the enforcement has regressed to the
+original (superseded) design.
 
 **Why:** the banner appears on task open, not after the first rejected save.
 Discovering ten minutes of work cannot be saved is the failure this prevents.
@@ -370,7 +386,32 @@ Do not report these as bugs (`.devnotes/teams/07_PHASING.md` F1–F9):
 - **No username autocomplete** — deliberate (E-14).
 - **No invitation/accept flow** — a manager adds you and you are in; the safety
   valve is that you can always leave.
-- **No UI toggle for `restrict_to_assigned_team`** yet — SQL only. (Per-person
-  assignment does *not* need it; see §8.2.)
 - **Images at `/uploads/*` are served unauthenticated** — pre-existing, on a
   trusted LAN (E-20).
+- **`Project.restrict_to_assigned_team` still exists as a column and API field
+  but does nothing** — team-assignment enforcement became unconditional on
+  2026-08-03; the flag is dead weight pending a cleanup migration (F10). Do not
+  expect toggling it to change behaviour either way.
+
+## Behaviour changed after initial ship (read before testing §3/§8)
+
+Three checks in this doc describe behaviour that shipped differently from the
+original design and was later revised. If you're comparing against an old
+memory of how Teams worked, these are the differences:
+
+- **Unassigned tasks are no longer a shared pool** (§8, `95234a8`). An
+  annotate-level user gets a 403 on a task with no team and no individual
+  assignee — only manager/owner (or whoever it gets assigned to) may write it.
+- **Individual assignment (`assignee_user_id`) is enforced, not advisory**
+  (§8.2, `071cff3`+`95234a8`). Only the named person, or manager/owner/reviewer,
+  may write.
+- **Reviewers are never partitioned by assignment** (§8.2, `95234a8`) — a
+  reviewer can always write any task in the project, regardless of team or
+  individual assignment, because they need to be able to review it.
+- **Exports require Reviewer+ on the backend, not just Viewer** (fixed
+  2026-08-04, `.devnotes/teams/03_API.md` § 4.1). The frontend restriction
+  shipped in `55ef518`; the backend endpoint was not updated to match until
+  this audit. If you're testing an older deployed build, verify
+  `POST /api/exports` actually 403s an annotator before trusting the UI
+  restriction — add a check for this after §6's role table if you're walking
+  through by hand.

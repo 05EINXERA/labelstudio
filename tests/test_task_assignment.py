@@ -193,10 +193,11 @@ def test_null_unassigns_and_omitted_leaves_alone(client, alice, bob):
 # --- restrict_to_assigned_team ----------------------------------------------
 
 
-def test_unassigned_task_writable_by_any_annotator(client, alice, bob):
-    """§ 3.3: a task with no team is the shared pool, even with the flag on.
-    Every pre-teams task is in this state, which is what makes the migration
-    behaviour-neutral."""
+def test_unassigned_task_not_writable_by_annotator(client, alice, bob):
+    """Superseded 2026-08-03 (PLAN.md § 8, `95234a8`): a task with no team and
+    no individual assignee is no longer the shared pool. An annotate-level
+    member gets a 403 until a manager/owner hands them (or their team) the
+    task."""
     project_id = _project(client, alice)
     _team_with_grant(client, alice, project_id, "Alpha", members=[bob])
     task_id = _task(client, alice, project_id)
@@ -206,11 +207,14 @@ def test_unassigned_task_writable_by_any_annotator(client, alice, bob):
         "/api/tasks", json={"id": task_id, "status": "In Progress"}, headers=bob
     )
 
-    assert res.status_code == 200
+    assert res.status_code == 403
 
 
-def test_restrict_flag_off_allows_all(client, alice, bob):
-    """Default false = today's behaviour: assignment is purely advisory."""
+def test_restrict_flag_no_longer_gates_team_enforcement(client, alice, bob):
+    """Superseded 2026-08-03 (PLAN.md § 8, `95234a8`): team-assignment
+    enforcement is unconditional now, so leaving `restrict_to_assigned_team`
+    at its default `False` does not make assignment advisory anymore. bob is
+    in "Beta", the task is assigned to "Alpha" — he must be refused."""
     project_id = _project(client, alice)
     alpha = _team_with_grant(client, alice, project_id, "Alpha")
     _team_with_grant(client, alice, project_id, "Beta", members=[bob])
@@ -225,7 +229,7 @@ def test_restrict_flag_off_allows_all(client, alice, bob):
         "/api/tasks", json={"id": task_id, "status": "In Progress"}, headers=bob
     )
 
-    assert res.status_code == 200
+    assert res.status_code == 403
 
 
 def test_restrict_flag_blocks_other_team(client, alice, bob):

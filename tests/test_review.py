@@ -72,17 +72,33 @@ def test_annotator_cannot_approve(client, alice, bob):
 
 
 def test_annotator_can_still_do_ordinary_work(client, alice, bob):
-    """The gate covers review transitions only. New → In Progress → Completed is
-    ordinary annotation and must stay untouched — this is what keeps the shared
-    deployment behaving identically."""
+    """The review-status gate covers review transitions only — New → In
+    Progress → Completed never needed reviewer role and still doesn't.
+
+    Superseded 2026-08-03 (PLAN.md § 8, `95234a8`): this no longer means an
+    annotator can touch *any* task in the project. An unassigned task is not a
+    shared pool — bob must be handed this task (individually or via his team)
+    before he can do ordinary work on it, same as for a review transition."""
     project_id = _project(client, alice)
     _member_with_role(client, alice, bob, project_id, "annotator")
     task_id = _task(client, alice, project_id, status="New")
 
+    # Unassigned: even ordinary annotation is refused now.
     res = client.post(
         "/api/tasks", json={"id": task_id, "status": "Completed"}, headers=bob
     )
+    assert res.status_code == 403
 
+    # Once assigned to him, ordinary work proceeds exactly as before.
+    bob_id = client.get("/api/auth/me", headers=bob).json()["id"]
+    client.patch(
+        f"/api/tasks/{task_id}/assignment",
+        json={"assignee_user_id": bob_id},
+        headers=alice,
+    )
+    res = client.post(
+        "/api/tasks", json={"id": task_id, "status": "Completed"}, headers=bob
+    )
     assert res.status_code == 200
 
 

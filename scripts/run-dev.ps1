@@ -91,7 +91,7 @@ try {
     $devHost = $env:APP_HOST
     if ([string]::IsNullOrWhiteSpace($devHost)) { $devHost = "127.0.0.1" }
 
-    if ($devHost -notin @("127.0.0.1", "localhost", "::1")) {
+    if ($devHost -notin @("127.0.0.1", "localhost","192.168.1.150", "::1")) {
         Write-Fail "APP_HOST is '$devHost' - the dev instance must bind loopback only."
         Write-Info ""
         Write-Info "Binding anything else publishes unfinished code to the LAN, where"
