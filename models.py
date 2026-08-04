@@ -85,3 +85,18 @@ class User(Base):
     username = Column(String, unique=True, index=True)
     hashed_password = Column(String)
     created_at = Column(DateTime, server_default=func.now())
+
+class TaskLock(Base):
+    __tablename__ = "task_locks"
+    task_id = Column(Integer, ForeignKey("tasks.id", ondelete="CASCADE"), primary_key=True, index=True)
+    client_id = Column(String(64), nullable=False)
+    claimed_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+class AIJob(Base):
+    __tablename__ = "ai_jobs"
+    id = Column(String(36), primary_key=True, index=True)
+    status = Column(String(32), default="pending", nullable=False)
+    result = Column(Text, nullable=True)
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+

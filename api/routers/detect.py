@@ -1,11 +1,16 @@
+import datetime
+import json
 import logging
 import time
 import uuid
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from sqlalchemy.orm import Session
 
+import models
 from api.auth import get_current_user, require_csrf
+from database import SessionLocal, commit_with_retry, get_db
 from detector import (
     DetectionClientError,
     classify_image,
@@ -23,34 +28,50 @@ router = APIRouter(
     dependencies=[Depends(get_current_user), Depends(require_csrf)],
 )
 
-# Maximum age (in seconds) for unpolled jobs before they are automatically evicted from memory.
+# Maximum age (in seconds) for unpolled jobs before they are automatically evicted from storage.
 JOB_TTL_SECONDS = 600.0  # 10 minutes
 
-# In-process dict: {job_id: {"status": str, "result": ..., "error": ..., "created_at": float}}
-JOBS: Dict[str, Dict[str, Any]] = {}
+
+def _cleanup_stale_jobs(db: Optional[Session] = None, max_age_seconds: float = JOB_TTL_SECONDS) -> int:
+    """Evict jobs older than max_age_seconds to prevent database bloat from abandoned polls."""
+    close_on_exit = False
+    if db is None:
+        db = SessionLocal()
+        close_on_exit = True
+    try:
+        cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=max_age_seconds)
+        deleted = db.query(models.AIJob).filter(models.AIJob.created_at < cutoff).delete(synchronize_session=False)
+        if deleted:
+            commit_with_retry(db)
+        return deleted
+    finally:
+        if close_on_exit:
+            db.close()
 
 
-def _cleanup_stale_jobs(max_age_seconds: float = JOB_TTL_SECONDS) -> int:
-    """Evict jobs older than max_age_seconds to prevent memory leaks from abandoned polls."""
-    now = time.time()
-    stale_ids = [
-        jid
-        for jid, info in JOBS.items()
-        if (now - info.get("created_at", now)) > max_age_seconds
-    ]
-    for jid in stale_ids:
-        JOBS.pop(jid, None)
-    return len(stale_ids)
-
-
-def _create_job() -> str:
-    _cleanup_stale_jobs()
-    job_id = str(uuid.uuid4())
-    JOBS[job_id] = {"status": "pending", "created_at": time.time()}
-    return job_id
+def _create_job(db: Optional[Session] = None) -> str:
+    close_on_exit = False
+    if db is None:
+        db = SessionLocal()
+        close_on_exit = True
+    try:
+        _cleanup_stale_jobs(db)
+        job_id = str(uuid.uuid4())
+        job = models.AIJob(
+            id=job_id,
+            status="pending",
+            created_at=datetime.datetime.now(datetime.timezone.utc),
+        )
+        db.add(job)
+        commit_with_retry(db)
+        return job_id
+    finally:
+        if close_on_exit:
+            db.close()
 
 
 def run_detect_job(job_id: str, payload: DetectPayload):
+    db = SessionLocal()
     try:
         response = detect_objects(
             payload.image,
@@ -60,38 +81,56 @@ def run_detect_job(job_id: str, payload: DetectPayload):
             confidence=payload.confidence,
             nms_threshold=payload.nms_threshold,
         )
-        if job_id in JOBS:
-            JOBS[job_id]["status"] = "completed"
-            JOBS[job_id]["result"] = response
+        job = db.query(models.AIJob).filter(models.AIJob.id == job_id).first()
+        if job:
+            job.status = "completed"
+            job.result = json.dumps(response)
+            commit_with_retry(db)
     except DetectionClientError as error:
-        if job_id in JOBS:
-            JOBS[job_id]["status"] = "failed"
-            JOBS[job_id]["error"] = str(error)
+        job = db.query(models.AIJob).filter(models.AIJob.id == job_id).first()
+        if job:
+            job.status = "failed"
+            job.error = str(error)
+            commit_with_retry(db)
     except Exception as e:
         logger.error("Object detection job %s failed: %s", job_id, e, exc_info=True)
-        if job_id in JOBS:
-            JOBS[job_id]["status"] = "failed"
-            JOBS[job_id]["error"] = "Object detection failed."
+        job = db.query(models.AIJob).filter(models.AIJob.id == job_id).first()
+        if job:
+            job.status = "failed"
+            job.error = "Object detection failed."
+            commit_with_retry(db)
+    finally:
+        db.close()
 
 
 def run_classify_job(job_id: str, payload: ClassifyPayload):
+    db = SessionLocal()
     try:
         response = classify_image(payload.image, selection=payload.selection)
-        if job_id in JOBS:
-            JOBS[job_id]["status"] = "completed"
-            JOBS[job_id]["result"] = response
+        job = db.query(models.AIJob).filter(models.AIJob.id == job_id).first()
+        if job:
+            job.status = "completed"
+            job.result = json.dumps(response)
+            commit_with_retry(db)
     except DetectionClientError as error:
-        if job_id in JOBS:
-            JOBS[job_id]["status"] = "failed"
-            JOBS[job_id]["error"] = str(error)
+        job = db.query(models.AIJob).filter(models.AIJob.id == job_id).first()
+        if job:
+            job.status = "failed"
+            job.error = str(error)
+            commit_with_retry(db)
     except Exception as e:
         logger.error("Image classification job %s failed: %s", job_id, e, exc_info=True)
-        if job_id in JOBS:
-            JOBS[job_id]["status"] = "failed"
-            JOBS[job_id]["error"] = "Image classification failed."
+        job = db.query(models.AIJob).filter(models.AIJob.id == job_id).first()
+        if job:
+            job.status = "failed"
+            job.error = "Image classification failed."
+            commit_with_retry(db)
+    finally:
+        db.close()
 
 
 def run_segment_job(job_id: str, payload: SegmentPayload):
+    db = SessionLocal()
     try:
         response = segment_point(
             payload.image,
@@ -102,79 +141,105 @@ def run_segment_job(job_id: str, payload: SegmentPayload):
             bbox=payload.bbox,
             sam_model=payload.sam_model,
         )
-        if job_id in JOBS:
-            JOBS[job_id]["status"] = "completed"
-            JOBS[job_id]["result"] = response
+        job = db.query(models.AIJob).filter(models.AIJob.id == job_id).first()
+        if job:
+            job.status = "completed"
+            job.result = json.dumps(response)
+            commit_with_retry(db)
     except DetectionClientError as error:
-        if job_id in JOBS:
-            JOBS[job_id]["status"] = "failed"
-            JOBS[job_id]["error"] = str(error)
+        job = db.query(models.AIJob).filter(models.AIJob.id == job_id).first()
+        if job:
+            job.status = "failed"
+            job.error = str(error)
+            commit_with_retry(db)
     except Exception as e:
         logger.error("Image segmentation job %s failed: %s", job_id, e, exc_info=True)
-        if job_id in JOBS:
-            JOBS[job_id]["status"] = "failed"
-            JOBS[job_id]["error"] = "Image segmentation failed."
+        job = db.query(models.AIJob).filter(models.AIJob.id == job_id).first()
+        if job:
+            job.status = "failed"
+            job.error = "Image segmentation failed."
+            commit_with_retry(db)
+    finally:
+        db.close()
 
 
 def run_embed_job(job_id: str, payload: EmbedPayload):
+    db = SessionLocal()
     try:
         response = embed_image(
             payload.image,
             sam_model=payload.sam_model,
         )
-        if job_id in JOBS:
-            JOBS[job_id]["status"] = "completed"
-            JOBS[job_id]["result"] = response
+        job = db.query(models.AIJob).filter(models.AIJob.id == job_id).first()
+        if job:
+            job.status = "completed"
+            job.result = json.dumps(response)
+            commit_with_retry(db)
     except DetectionClientError as error:
-        if job_id in JOBS:
-            JOBS[job_id]["status"] = "failed"
-            JOBS[job_id]["error"] = str(error)
+        job = db.query(models.AIJob).filter(models.AIJob.id == job_id).first()
+        if job:
+            job.status = "failed"
+            job.error = str(error)
+            commit_with_retry(db)
     except Exception as e:
         logger.error("Image embedding job %s failed: %s", job_id, e, exc_info=True)
-        if job_id in JOBS:
-            JOBS[job_id]["status"] = "failed"
-            JOBS[job_id]["error"] = "Image embedding failed."
+        job = db.query(models.AIJob).filter(models.AIJob.id == job_id).first()
+        if job:
+            job.status = "failed"
+            job.error = "Image embedding failed."
+            commit_with_retry(db)
+    finally:
+        db.close()
 
 
 @router.get("/status/{job_id}")
-def get_job_status(job_id: str):
-    _cleanup_stale_jobs()
-    if job_id not in JOBS:
+def get_job_status(job_id: str, db: Session = Depends(get_db)):
+    _cleanup_stale_jobs(db)
+    job = db.query(models.AIJob).filter(models.AIJob.id == job_id).first()
+    if not job:
         raise HTTPException(status_code=404, detail="Job not found or expired")
 
-    job = JOBS[job_id]
-    if job["status"] in ["completed", "failed"]:
-        result = {k: v for k, v in job.items() if k != "created_at"}
-        del JOBS[job_id]
-        return result
+    if job.status in ["completed", "failed"]:
+        result_payload = {"status": job.status}
+        if job.result:
+            try:
+                result_payload["result"] = json.loads(job.result)
+            except Exception:
+                result_payload["result"] = job.result
+        if job.error:
+            result_payload["error"] = job.error
+        db.delete(job)
+        commit_with_retry(db)
+        return result_payload
 
     return {"status": "pending"}
 
 
 @router.post("")
-def detect(payload: DetectPayload, background_tasks: BackgroundTasks):
-    job_id = _create_job()
+def detect(payload: DetectPayload, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    job_id = _create_job(db)
     background_tasks.add_task(run_detect_job, job_id, payload)
     return {"job_id": job_id}
 
 
 @router.post("/classify")
-def classify(payload: ClassifyPayload, background_tasks: BackgroundTasks):
-    job_id = _create_job()
+def classify(payload: ClassifyPayload, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    job_id = _create_job(db)
     background_tasks.add_task(run_classify_job, job_id, payload)
     return {"job_id": job_id}
 
 
 @router.post("/segment")
-def segment(payload: SegmentPayload, background_tasks: BackgroundTasks):
-    job_id = _create_job()
+def segment(payload: SegmentPayload, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    job_id = _create_job(db)
     background_tasks.add_task(run_segment_job, job_id, payload)
     return {"job_id": job_id}
 
 
 @router.post("/embed")
-def embed(payload: EmbedPayload, background_tasks: BackgroundTasks):
-    job_id = _create_job()
+def embed(payload: EmbedPayload, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    job_id = _create_job(db)
     background_tasks.add_task(run_embed_job, job_id, payload)
     return {"job_id": job_id}
+
 

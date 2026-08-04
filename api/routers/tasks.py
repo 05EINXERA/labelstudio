@@ -23,40 +23,46 @@ router = APIRouter(
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Soft task lock (T2.1)
+# Soft task lock (T2.1 / D3)
 #
-# In-process dict keyed by task_id → {client_id, claimed_at}.
-# Single-worker constraint applies (CLAUDE.md rule 9 / D3): do not use this
-# across multiple workers.  TTL = 60 s — a claim not refreshed within that
-# window is stale and any other annotator may take it.
+# Database-backed lock in `task_locks` table keyed by task_id → (client_id, claimed_at).
+# Safe across multiple Uvicorn workers and process restarts.
+# TTL = 60 s — a claim not refreshed within that window is stale and any other
+# annotator may take it.
 # ---------------------------------------------------------------------------
 TASK_LOCK_TTL_SECONDS = int(os.environ.get("TASK_LOCK_TTL_SECONDS", "60"))
 
-# {task_id: {"client_id": str, "claimed_at": datetime}}
-_TASK_LOCKS: Dict[int, dict] = {}
+
+def _sweep_stale_locks(db: Optional[Session] = None, ttl_seconds: int = TASK_LOCK_TTL_SECONDS) -> int:
+    """Proactively evict expired task locks to prevent table growth over long uptimes."""
+    close_on_exit = False
+    if db is None:
+        from database import SessionLocal
+        db = SessionLocal()
+        close_on_exit = True
+    try:
+        cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=ttl_seconds)
+        deleted = db.query(models.TaskLock).filter(models.TaskLock.claimed_at < cutoff).delete(synchronize_session=False)
+        if deleted:
+            commit_with_retry(db)
+        return deleted
+    finally:
+        if close_on_exit:
+            db.close()
 
 
-def _sweep_stale_locks(ttl_seconds: int = TASK_LOCK_TTL_SECONDS) -> int:
-    """Proactively evict expired task locks to prevent memory growth over long uptimes."""
-    now = datetime.datetime.now(datetime.timezone.utc)
-    stale_ids = [
-        tid
-        for tid, lock in _TASK_LOCKS.items()
-        if (now - lock["claimed_at"]).total_seconds() > ttl_seconds
-    ]
-    for tid in stale_ids:
-        _TASK_LOCKS.pop(tid, None)
-    return len(stale_ids)
-
-
-def _lock_status(task_id: int) -> Optional[dict]:
-    """Return the active lock for task_id, or None if absent/stale."""
-    lock = _TASK_LOCKS.get(task_id)
+def _lock_status(task_id: int, db: Session) -> Optional[models.TaskLock]:
+    """Return the active TaskLock for task_id, or None if absent/stale."""
+    lock = db.query(models.TaskLock).filter(models.TaskLock.task_id == task_id).first()
     if not lock:
         return None
-    age = (datetime.datetime.now(datetime.timezone.utc) - lock["claimed_at"]).total_seconds()
+    claimed_at = lock.claimed_at
+    if claimed_at.tzinfo is None:
+        claimed_at = claimed_at.replace(tzinfo=datetime.timezone.utc)
+    age = (datetime.datetime.now(datetime.timezone.utc) - claimed_at).total_seconds()
     if age > TASK_LOCK_TTL_SECONDS:
-        _TASK_LOCKS.pop(task_id, None)
+        db.delete(lock)
+        commit_with_retry(db)
         return None
     return lock
 
@@ -196,7 +202,8 @@ def get_task(task_id: int, db: Session = Depends(get_db), user: models.User = De
 
 
 # ---------------------------------------------------------------------------
-# Soft lock endpoints (T2.1)
+# ---------------------------------------------------------------------------
+# Soft lock endpoints (T2.1 / D3)
 # ---------------------------------------------------------------------------
 
 @router.post("/{task_id}/claim")
@@ -205,25 +212,31 @@ def claim_task(task_id: int, client_id: str = Query(..., max_length=64),
     """Claim a task for editing, or refresh an existing claim.
 
     Returns {"status": "ok"} when the claim is granted.
-    Returns HTTP 409 with a "locked" status when the task is held by a
-    *different* client that is still within its TTL.
+    Returns HTTP 200 with {"status": "locked", "locked_by": ...} when the task
+    is held by a *different* client that is still within its TTL.
 
-    The lock is advisory — the save path does not enforce it.  Its purpose is
+    The lock is advisory — the save path does not enforce it. Its purpose is
     to warn a second annotator before they invest time on a task someone else
     is already editing, not to block them outright.
-
-    Single-worker constraint: _TASK_LOCKS is in-process.  Rule 9 applies.
     """
     _get_owned_task(task_id, user, db, annotator)      # 404 if not owned/accessible
-    _sweep_stale_locks()
+    _sweep_stale_locks(db)
     now = datetime.datetime.now(datetime.timezone.utc)
-    existing = _lock_status(task_id)
-    if existing and existing["client_id"] != client_id:
-        age = (now - existing["claimed_at"]).total_seconds()
+    existing = _lock_status(task_id, db)
+    if existing and existing.client_id != client_id:
+        claimed_at = existing.claimed_at
+        if claimed_at.tzinfo is None:
+            claimed_at = claimed_at.replace(tzinfo=datetime.timezone.utc)
+        age = (now - claimed_at).total_seconds()
         return {"status": "locked",
-                "locked_by": existing["client_id"],
+                "locked_by": existing.client_id,
                 "seconds_remaining": max(0, TASK_LOCK_TTL_SECONDS - int(age))}
-    _TASK_LOCKS[task_id] = {"client_id": client_id, "claimed_at": now}
+    if existing:
+        existing.claimed_at = now
+    else:
+        new_lock = models.TaskLock(task_id=task_id, client_id=client_id, claimed_at=now)
+        db.add(new_lock)
+    commit_with_retry(db)
     return {"status": "ok", "ttl": TASK_LOCK_TTL_SECONDS}
 
 
@@ -232,19 +245,22 @@ def heartbeat_task(task_id: int, client_id: str = Query(..., max_length=64),
                    db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
     """Refresh the TTL on an existing claim.
 
-    Called on a timer cadence (every ~30 s) while the task is open.  Silently
+    Called on a timer cadence (every ~30 s) while the task is open. Silently
     re-claims if the lock expired (e.g. the client was backgrounded longer
     than the TTL).
     """
     _get_owned_task(task_id, user, db, annotator)
-    existing = _lock_status(task_id)
-    if existing and existing["client_id"] != client_id:
+    existing = _lock_status(task_id, db)
+    if existing and existing.client_id != client_id:
         # Another client took over the stale lock before this heartbeat arrived.
         return {"status": "lost"}
-    _TASK_LOCKS[task_id] = {
-        "client_id": client_id,
-        "claimed_at": datetime.datetime.now(datetime.timezone.utc),
-    }
+    now = datetime.datetime.now(datetime.timezone.utc)
+    if existing:
+        existing.claimed_at = now
+    else:
+        new_lock = models.TaskLock(task_id=task_id, client_id=client_id, claimed_at=now)
+        db.add(new_lock)
+    commit_with_retry(db)
     return {"status": "ok", "ttl": TASK_LOCK_TTL_SECONDS}
 
 
@@ -253,9 +269,12 @@ def release_task(task_id: int, client_id: str = Query(..., max_length=64),
                  db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
     """Release a claim when the annotator closes or switches away from the task."""
     _get_owned_task(task_id, user, db, annotator)
-    existing = _TASK_LOCKS.get(task_id)
-    if existing and existing["client_id"] == client_id:
-        del _TASK_LOCKS[task_id]
+    deleted = db.query(models.TaskLock).filter(
+        models.TaskLock.task_id == task_id,
+        models.TaskLock.client_id == client_id,
+    ).delete(synchronize_session=False)
+    if deleted:
+        commit_with_retry(db)
     return {"status": "ok"}
 
 
@@ -265,29 +284,35 @@ def release_task_beacon(task_id: int, client_id: str = Query(..., max_length=64)
     """POST variant of release for sendBeacon (which cannot send DELETE).
 
     sendBeacon is used on pagehide/visibilitychange where a real fetch is not
-    guaranteed to complete.  The advisory lock will expire via TTL anyway, but
+    guaranteed to complete. The advisory lock will expire via TTL anyway, but
     an explicit release is cleaner UX for the waiting annotator.
     """
     _get_owned_task(task_id, user, db, annotator)
-    existing = _TASK_LOCKS.get(task_id)
-    if existing and existing["client_id"] == client_id:
-        del _TASK_LOCKS[task_id]
+    deleted = db.query(models.TaskLock).filter(
+        models.TaskLock.task_id == task_id,
+        models.TaskLock.client_id == client_id,
+    ).delete(synchronize_session=False)
+    if deleted:
+        commit_with_retry(db)
     return {"status": "ok"}
 
 
 @router.get("/{task_id}/lock-status")
 def get_lock_status(task_id: int,
                     db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
-    """Query the current lock state without claiming.  Used by the task list."""
+    """Query the current lock state without claiming. Used by the task list."""
     _get_owned_task(task_id, user, db, annotator)
-    lock = _lock_status(task_id)
+    lock = _lock_status(task_id, db)
     if not lock:
         return {"locked": False}
     now = datetime.datetime.now(datetime.timezone.utc)
-    age = (now - lock["claimed_at"]).total_seconds()
+    claimed_at = lock.claimed_at
+    if claimed_at.tzinfo is None:
+        claimed_at = claimed_at.replace(tzinfo=datetime.timezone.utc)
+    age = (now - claimed_at).total_seconds()
     return {
         "locked": True,
-        "locked_by": lock["client_id"],
+        "locked_by": lock.client_id,
         "seconds_remaining": max(0, TASK_LOCK_TTL_SECONDS - int(age)),
     }
 

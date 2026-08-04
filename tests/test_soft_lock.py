@@ -216,23 +216,31 @@ def test_lock_status_after_release(client, alice):
 # Stale-takeover test (monkeypatched TTL so the test doesn't sleep)
 # ---------------------------------------------------------------------------
 
-def test_stale_claim_is_reclaimable(client, alice, monkeypatch):
+def test_stale_claim_is_reclaimable(client, alice):
     """A claim older than the TTL must be treated as gone."""
-    import api.routers.tasks as tasks_router
+    from database import SessionLocal
+    import models
 
     pid = _project(client, alice)
     tid = _task(client, alice, pid)
 
     _claim(client, alice, tid, "tab-A")
 
-    # Wind the claimed_at back past the TTL.
-    lock = tasks_router._TASK_LOCKS[tid]
-    lock["claimed_at"] = lock["claimed_at"].replace(
-        year=lock["claimed_at"].year - 1  # definitely stale
-    )
+    # Wind the claimed_at back past the TTL in the database.
+    db = SessionLocal()
+    try:
+        lock = db.query(models.TaskLock).filter(models.TaskLock.task_id == tid).first()
+        assert lock is not None
+        lock.claimed_at = lock.claimed_at.replace(
+            year=lock.claimed_at.year - 1  # definitely stale
+        )
+        db.commit()
+    finally:
+        db.close()
 
     # tab-B should now be able to claim.
     res = _claim(client, alice, tid, "tab-B")
     assert res.json()["status"] == "ok", (
         "A stale claim must be reclaimable by a different client"
     )
+

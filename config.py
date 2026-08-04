@@ -101,9 +101,9 @@ THREADPOOL_CAP = int(os.environ.get("THREADPOOL_CAP", "40"))
 # Postgres max_connections must be >= pool ceiling + admin headroom
 # (40 + 5 = 45 minimum; default Postgres is 100, which is fine).
 #
-# NOTE — multi-worker gate (D3): the app must stay a single uvicorn worker
-#   because JOBS, _models, and _TASK_LOCKS are in-process state (CLAUDE.md
-#   rule 9). Do not add --workers N until that state is moved out of process.
+# NOTE — multi-worker support (D3): JOBS and _TASK_LOCKS are now externalized
+#   to Postgres/SQLite tables (ai_jobs, task_locks). Multiple Uvicorn workers
+#   (--workers N) are now supported for increased LAN concurrency.
 DB_POOL_SIZE = int(os.environ.get("DB_POOL_SIZE", "20"))
 DB_MAX_OVERFLOW = int(os.environ.get("DB_MAX_OVERFLOW", "20"))
 DB_POOL_TIMEOUT = int(os.environ.get("DB_POOL_TIMEOUT", "30"))
