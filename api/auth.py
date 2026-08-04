@@ -18,7 +18,7 @@ from config import (
     IS_PRODUCTION,
     JWT_SECRET,
 )
-from database import get_db
+from database import get_db, commit_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -142,7 +142,18 @@ def get_current_annotator(request: Request, db: Session = Depends(get_db)):
     annotator_name = request.headers.get("X-Annotator-Name")
     if not annotator_name:
         return None
-    return db.query(models.TeamMember).filter(models.TeamMember.name == annotator_name).first()
+    member = db.query(models.TeamMember).filter(models.TeamMember.name == annotator_name).first()
+    if member:
+        now = datetime.now(timezone.utc)
+        if member.last_active_at is None:
+            member.last_active_at = now
+            commit_with_retry(db)
+        else:
+            last_utc = member.last_active_at if member.last_active_at.tzinfo else member.last_active_at.replace(tzinfo=timezone.utc)
+            if (now - last_utc).total_seconds() >= 20:
+                member.last_active_at = now
+                commit_with_retry(db)
+    return member
 
 def get_token(request: Request):
     token = request.cookies.get("access_token")

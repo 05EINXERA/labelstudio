@@ -1,6 +1,7 @@
 import logging
-from datetime import timedelta
+from datetime import datetime, timezone, timedelta
 from typing import Optional
+from jose import jwt
 
 from fastapi import APIRouter, Depends, HTTPException, status, Response, Request, Query
 from sqlalchemy.exc import IntegrityError
@@ -9,7 +10,7 @@ from sqlalchemy.orm import Session
 
 import models
 from config import ALLOW_REGISTRATION, IS_PRODUCTION, MIN_PASSWORD_LENGTH
-from database import get_db
+from database import get_db, commit_with_retry
 from schemas import UserCreate, Token, UserResponse
 from api.auth import (
     get_password_hash,
@@ -19,6 +20,9 @@ from api.auth import (
     clear_session_cookies,
     get_current_user,
     require_csrf,
+    get_token,
+    SECRET_KEY,
+    ALGORITHM,
     ACCESS_TOKEN_EXPIRE_MINUTES,
 )
 
@@ -56,7 +60,13 @@ def register(user: UserCreate, response: Response, db: Session = Depends(get_db)
     new_user = models.User(username=user.username, hashed_password=hashed_password)
     try:
         db.add(new_user)
-        db.commit()
+        # Also ensure TeamMember exists and update last_active_at
+        member = db.query(models.TeamMember).filter(models.TeamMember.name == user.username).first()
+        if not member:
+            member = models.TeamMember(name=user.username, time_logged=0)
+            db.add(member)
+        member.last_active_at = datetime.now(timezone.utc)
+        commit_with_retry(db)
         db.refresh(new_user)
     except IntegrityError:
         db.rollback()
@@ -92,6 +102,15 @@ def login_for_access_token(
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    
+    # Update TeamMember presence on login
+    member = db.query(models.TeamMember).filter(models.TeamMember.name == user.username).first()
+    if not member:
+        member = models.TeamMember(name=user.username, time_logged=0)
+        db.add(member)
+    member.last_active_at = datetime.now(timezone.utc)
+    commit_with_retry(db)
+
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": user.username}, expires_delta=access_token_expires
@@ -104,6 +123,20 @@ def get_me(user: models.User = Depends(get_current_user)):
     return {"username": user.username}
 
 @router.post("/logout")
-def logout(response: Response):
+def logout(request: Request, response: Response, db: Session = Depends(get_db)):
     clear_session_cookies(response)
+    username = request.headers.get("X-Annotator-Name")
+    if not username:
+        token = get_token(request)
+        if token:
+            try:
+                payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+                username = payload.get("sub")
+            except Exception:
+                pass
+    if username:
+        member = db.query(models.TeamMember).filter(models.TeamMember.name == username).first()
+        if member:
+            member.last_active_at = None
+            commit_with_retry(db)
     return {"status": "ok"}

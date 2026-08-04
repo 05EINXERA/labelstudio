@@ -41,6 +41,11 @@ const els = {
   selectedTeamBadge: document.getElementById("selectedTeamBadge"),
   selectedTeamName: document.getElementById("selectedTeamName"),
   clearTeamFilterBtn: document.getElementById("clearTeamFilterBtn"),
+
+  memberTasksModal: document.getElementById("memberTasksModal"),
+  memberTasksModalClose: document.getElementById("memberTasksModalClose"),
+  memberTasksName: document.getElementById("memberTasksName"),
+  memberTasksModalBody: document.getElementById("memberTasksModalBody"),
 };
 
 let teamsTable;
@@ -48,6 +53,7 @@ let membersTable;
 let teamsCache = [];
 let membersCache = [];
 let selectedTeam = null;
+let myCreatedTeamIds = new Set();
 
 function showError(msg) {
   els.error.textContent = msg;
@@ -165,6 +171,30 @@ function initTables() {
     columns: [
       { key: "name", label: "Annotator", render: (r) => `<strong style="color:var(--ink);">${escapeHTML(r.name)}</strong>` },
       {
+        key: "status",
+        label: "Status",
+        width: "110px",
+        render: (r) => {
+          if (r.is_logged_in === true) {
+            return `<span class="pill is-completed" style="display:inline-flex;align-items:center;gap:6px;font-size:0.75rem;padding:2px 8px;font-weight:600;"><span style="width:7px;height:7px;border-radius:50%;background:#2e7d32;display:inline-block;box-shadow:0 0 0 2px rgba(46,125,50,0.2);"></span>Logged in</span>`;
+          }
+          return `<span class="pill" style="display:inline-flex;align-items:center;gap:6px;font-size:0.75rem;padding:2px 8px;color:var(--muted);background:rgba(128,128,128,0.08);"><span style="width:7px;height:7px;border-radius:50%;background:var(--muted);display:inline-block;"></span>Offline</span>`;
+        }
+      },
+      {
+        key: "tasks",
+        label: "Tasks",
+        width: "80px",
+        sortable: false,
+        render: (r) => {
+          // Only show task count button to the team creator
+          const memberTeamIds = (r.teams || []).map(t => t.id);
+          const isOwner = memberTeamIds.some(id => myCreatedTeamIds.has(id));
+          if (!isOwner) return `<span style="color:var(--muted);font-size:0.8rem;">—</span>`;
+          return `<button type="button" data-action="view-tasks" class="pill" style="cursor:pointer;font-size:0.75rem;padding:2px 10px;border:1px solid var(--line);" title="View tasks assigned to ${escapeHTML(r.name)}">View tasks</button>`;
+        }
+      },
+      {
         key: "team_name",
         label: "Teams",
         render: (r) => {
@@ -190,6 +220,10 @@ function initTables() {
 
   membersTable.onAction("assign", (row) => {
     openAssignModal(row);
+  });
+
+  membersTable.onAction("view-tasks", (row) => {
+    openMemberTasksModal(row);
   });
 
   membersTable.onAction("filter-team-by-id", (row, btn) => {
@@ -242,6 +276,12 @@ async function loadData() {
     
     teamsCache = teams;
     membersCache = members;
+
+    // Track which teams I created so the Tasks column renders correctly
+    const datasetUsernameForCreator = localStorage.getItem('dataset_username');
+    myCreatedTeamIds = new Set(
+      teams.filter(t => t.creator === datasetUsernameForCreator).map(t => t.id)
+    );
 
     if (selectedTeam && !teams.some((t) => t.id === selectedTeam.id)) {
       selectedTeam = null;
@@ -396,6 +436,73 @@ function closeAssignModal() {
   els.assignModal.classList.remove("is-active");
 }
 
+// --- Member Tasks Modal ---
+
+function statusBadge(status) {
+  const s = (status || "").toLowerCase();
+  if (s === "completed" || s === "done") {
+    return `<span class="pill is-completed" style="font-size:0.72rem;padding:1px 7px;">${escapeHTML(status)}</span>`;
+  }
+  if (s === "in progress" || s === "in_progress") {
+    return `<span class="pill" style="font-size:0.72rem;padding:1px 7px;background:rgba(37,99,235,0.08);color:#1d4ed8;border:1px solid rgba(37,99,235,0.2);">${escapeHTML(status)}</span>`;
+  }
+  return `<span class="pill" style="font-size:0.72rem;padding:1px 7px;color:var(--muted);">${escapeHTML(status || "New")}</span>`;
+}
+
+async function openMemberTasksModal(member) {
+  els.memberTasksName.textContent = member.name;
+  els.memberTasksModalBody.innerHTML = `<p style="color:var(--muted);font-size:0.9rem;text-align:center;">Loading…</p>`;
+  els.memberTasksModal.classList.add("is-active");
+
+  try {
+    const res = await apiFetch(`/api/team/${encodeURIComponent(member.name)}/tasks`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      els.memberTasksModalBody.innerHTML = `<p style="color:#c62828;text-align:center;">${escapeHTML(err.detail || "Failed to load tasks")}</p>`;
+      return;
+    }
+    const tasks = await res.json();
+    if (!tasks.length) {
+      els.memberTasksModalBody.innerHTML = `<p style="color:var(--muted);font-size:0.9rem;text-align:center;">No tasks assigned to ${escapeHTML(member.name)}.</p>`;
+      return;
+    }
+    els.memberTasksModalBody.innerHTML = `
+      <table style="width:100%;border-collapse:collapse;font-size:0.87rem;">
+        <thead>
+          <tr style="border-bottom:2px solid var(--line);">
+            <th style="text-align:left;padding:6px 8px;color:var(--muted);font-weight:600;">Task</th>
+            <th style="text-align:left;padding:6px 8px;color:var(--muted);font-weight:600;">Project</th>
+            <th style="text-align:left;padding:6px 8px;color:var(--muted);font-weight:600;width:100px;">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${tasks.map(t => `
+            <tr style="border-bottom:1px solid var(--line);">
+              <td style="padding:7px 8px;color:var(--ink);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHTML(t.description || 'Task #' + t.id)}">
+                ${escapeHTML(t.description || "Task #" + t.id)}
+              </td>
+              <td style="padding:7px 8px;color:var(--ink-light);">${escapeHTML(t.project_name || "")}</td>
+              <td style="padding:7px 8px;">${statusBadge(t.status)}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+      <p style="margin-top:10px;font-size:0.8rem;color:var(--muted);text-align:right;">${tasks.length} task${tasks.length === 1 ? "" : "s"} total</p>
+    `;
+  } catch (err) {
+    els.memberTasksModalBody.innerHTML = `<p style="color:#c62828;text-align:center;">Connection error</p>`;
+  }
+}
+
+function closeMemberTasksModal() {
+  els.memberTasksModal.classList.remove("is-active");
+}
+
+els.memberTasksModalClose.addEventListener("click", closeMemberTasksModal);
+els.memberTasksModal.addEventListener("click", (e) => {
+  if (e.target === els.memberTasksModal) closeMemberTasksModal();
+});
+
 els.assignModalClose.addEventListener("click", closeAssignModal);
 els.assignFormCancel.addEventListener("click", closeAssignModal);
 
@@ -438,3 +545,16 @@ els.logout.addEventListener("click", async () => {
 
 initTables();
 loadData();
+
+// Auto-refresh team & member data periodically so creators see real-time presence changes
+setInterval(() => {
+  if (document.visibilityState === "visible") {
+    loadData();
+  }
+}, 15000);
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") {
+    loadData();
+  }
+});

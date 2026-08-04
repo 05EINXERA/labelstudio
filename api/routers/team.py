@@ -1,5 +1,6 @@
-from typing import List
-from fastapi import APIRouter, Depends, HTTPException, Request
+from datetime import datetime, timezone, timedelta
+from typing import List, Optional
+from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from sqlalchemy.orm import Session
 
 import models
@@ -10,23 +11,34 @@ from api.auth import get_current_user, require_csrf, get_current_annotator
 router = APIRouter(prefix="/api/team", tags=["team"], dependencies=[Depends(get_current_user)])
 
 @router.get("", response_model=List[TeamMemberResponse])
-def get_team(db: Session = Depends(get_db), annotator = Depends(get_current_annotator)):
-    if annotator is None:
-        return []
+def get_team(
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+    annotator = Depends(get_current_annotator),
+):
+    names = [user.username]
+    if annotator:
+        names.append(annotator.name)
+    names = list(set(names))
         
     members_query = db.query(models.TeamMember)
     
     annotator_teams = db.query(models.TeamMemberAssociation.team_id).filter(
-        models.TeamMemberAssociation.member_name == annotator.name
+        models.TeamMemberAssociation.member_name.in_(names)
     ).all()
     annotator_team_ids = [t[0] for t in annotator_teams]
     
-    if not annotator_team_ids:
+    # Also find teams created by the annotator or user
+    created_teams = db.query(models.Team.id).filter(models.Team.creator.in_(names)).all()
+    created_team_ids = {t[0] for t in created_teams}
+    
+    all_accessible_team_ids = list(set(annotator_team_ids) | created_team_ids)
+    if not all_accessible_team_ids:
         return []
         
     # User can only see his team members
     visible_member_names = db.query(models.TeamMemberAssociation.member_name).filter(
-        models.TeamMemberAssociation.team_id.in_(annotator_team_ids)
+        models.TeamMemberAssociation.team_id.in_(all_accessible_team_ids)
     ).subquery()
     
     members = members_query.filter(
@@ -52,13 +64,115 @@ def get_team(db: Session = Depends(get_db), annotator = Depends(get_current_anno
             "created_at": team.created_at
         })
         
-    return [
-        {
+    now = datetime.now(timezone.utc)
+    PRESENCE_TIMEOUT_SECONDS = 120  # 2 minutes threshold for active presence
+
+    results = []
+    for m in members:
+        member_team_ids = {t["id"] for t in teams_by_member[m.name]}
+        is_in_creator_team = bool(member_team_ids & created_team_ids)
+
+        is_logged_in = None
+        last_active = None
+        if is_in_creator_team or created_team_ids:
+            if m.last_active_at is not None:
+                last_active_utc = m.last_active_at if m.last_active_at.tzinfo else m.last_active_at.replace(tzinfo=timezone.utc)
+                is_logged_in = (now - last_active_utc).total_seconds() <= PRESENCE_TIMEOUT_SECONDS
+                last_active = last_active_utc
+            else:
+                is_logged_in = False
+
+        results.append({
             "name": m.name, 
             "time_logged": m.time_logged,
-            "teams": teams_by_member[m.name]
-        } 
-        for m in members
+            "teams": teams_by_member[m.name],
+            "is_logged_in": is_logged_in,
+            "last_active_at": last_active
+        })
+
+    return results
+
+@router.post("/ping", dependencies=[Depends(require_csrf)])
+def ping_presence(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+    annotator = Depends(get_current_annotator)
+):
+    annotator_name = request.headers.get("X-Annotator-Name") or (annotator.name if annotator else current_user.username)
+    if annotator_name:
+        member = db.query(models.TeamMember).filter(models.TeamMember.name == annotator_name).first()
+        if not member:
+            member = models.TeamMember(name=annotator_name, time_logged=0)
+            db.add(member)
+        member.last_active_at = datetime.now(timezone.utc)
+        commit_with_retry(db)
+    return {"status": "ok"}
+
+@router.get("/{name}/tasks")
+def get_member_tasks(
+    name: str,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+    annotator = Depends(get_current_annotator),
+):
+    """Return tasks assigned to a team member.
+    Only team owners (creators) can see tasks for their team members.
+    """
+    caller_names = [user.username]
+    if annotator:
+        caller_names.append(annotator.name)
+    caller_names = list(set(caller_names))
+
+    # Verify the target member exists
+    member = db.query(models.TeamMember).filter(models.TeamMember.name == name).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Team member not found")
+
+    # Find teams where the caller is the creator
+    created_team_ids = {
+        t[0] for t in db.query(models.Team.id).filter(models.Team.creator.in_(caller_names)).all()
+    }
+    if not created_team_ids:
+        raise HTTPException(status_code=403, detail="You do not own any teams")
+
+    # Check the target member belongs to at least one of the caller's teams
+    member_team_ids = {
+        a[0] for a in db.query(models.TeamMemberAssociation.team_id).filter(
+            models.TeamMemberAssociation.member_name == name
+        ).all()
+    }
+    if not (member_team_ids & created_team_ids):
+        raise HTTPException(status_code=403, detail="This member is not in any of your teams")
+
+    # Fetch tasks assigned to the member with project info
+    tasks = (
+        db.query(
+            models.Task.id,
+            models.Task.description,
+            models.Task.status,
+            models.Task.image_path,
+            models.Task.project_id,
+            models.Task.updated_at,
+            models.Project.name.label("project_name"),
+        )
+        .join(models.Project, models.Task.project_id == models.Project.id)
+        .filter(models.Task.assignee == name)
+        .order_by(models.Task.updated_at.desc())
+        .all()
+    )
+
+    return [
+        {
+            "id": t.id,
+            "description": t.description,
+            "status": t.status,
+            "image_path": t.image_path,
+            "project_id": t.project_id,
+            "project_name": t.project_name,
+            "updated_at": t.updated_at,
+        }
+        for t in tasks
     ]
 
 @router.post("", response_model=TeamMemberResponse, dependencies=[Depends(require_csrf)])

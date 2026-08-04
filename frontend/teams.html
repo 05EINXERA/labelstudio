@@ -162,7 +162,20 @@
     </div>
   </div>
 
-  <script type="module" src="js/pages/teams.js?v=4"></script>
+  <!-- Member Tasks modal -->
+  <div class="modal-overlay" id="memberTasksModal">
+    <div class="modal-content" style="max-width: 600px; width: 92vw;">
+      <div class="modal-header">
+        <h2 id="memberTasksModalTitle" style="font-size:1.05rem;">Tasks for <span id="memberTasksName" style="color:var(--accent);"></span></h2>
+        <button class="modal-close" id="memberTasksModalClose" type="button">&times;</button>
+      </div>
+      <div id="memberTasksModalBody" style="padding: 16px; max-height: 60vh; overflow-y: auto;">
+        <p style="color:var(--muted);font-size:0.9rem;text-align:center;">Loading…</p>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="js/pages/teams.js?v=7"></script>
 </body>
 
 </html>

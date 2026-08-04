@@ -109,6 +109,8 @@ class TeamMemberResponse(BaseModel):
     name: str
     time_logged: int
     teams: List[TeamResponse] = Field(default_factory=list)
+    is_logged_in: Optional[bool] = None
+    last_active_at: Optional[datetime] = None
 
 class TeamTimeResponse(BaseModel):
     status: str

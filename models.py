@@ -65,6 +65,7 @@ class TeamMember(Base):
     __tablename__ = "team_members"
     name = Column(String, primary_key=True, index=True)
     time_logged = Column(Integer, default=0)
+    last_active_at = Column(DateTime, nullable=True)
 
 class TeamMemberAssociation(Base):
     __tablename__ = "team_member_associations"

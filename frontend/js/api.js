@@ -74,3 +74,30 @@ export async function pollJob(jobId, controller) {
     await new Promise(r => setTimeout(r, 1000));
   }
 }
+
+let presenceInterval = null;
+
+export function initPresenceHeartbeat(intervalMs = 30000) {
+  if (presenceInterval) return;
+  const sendPing = async () => {
+    if (!localStorage.getItem('logged_in')) return;
+    try {
+      await apiFetch('/api/team/ping', { method: 'POST' });
+    } catch (_) {
+      // best-effort presence heartbeat
+    }
+  };
+
+  sendPing();
+  presenceInterval = setInterval(sendPing, intervalMs);
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      sendPing();
+    }
+  });
+}
+
+if (typeof window !== 'undefined' && localStorage.getItem('logged_in')) {
+  initPresenceHeartbeat();
+}
