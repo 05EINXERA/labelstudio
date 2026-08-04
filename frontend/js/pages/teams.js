@@ -546,7 +546,7 @@ els.logout.addEventListener("click", async () => {
 initTables();
 loadData();
 
-// Auto-refresh team & member data periodically so creators see real-time presence changes
+// Auto-refresh team & member data periodically so team members see real-time presence changes
 setInterval(() => {
   if (document.visibilityState === "visible") {
     loadData();

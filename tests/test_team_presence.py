@@ -67,7 +67,7 @@ def test_team_creator_sees_offline_status_for_inactive_members(client, alice):
         db.close()
 
 
-def test_non_creator_cannot_see_presence_status(client, alice, bob):
+def test_any_team_member_sees_presence_status_of_other_members(client, alice, bob):
     db = SessionLocal()
     try:
         alice_name = f"alice_{uuid.uuid4().hex[:6]}"
@@ -86,7 +86,7 @@ def test_non_creator_cannot_see_presence_status(client, alice, bob):
         db.add(models.TeamMemberAssociation(member_name=bob_name, team_id=team.id))
         db.commit()
 
-        # Bob (not creator) queries team list
+        # Bob (not creator, regular member) queries team list
         bob_headers = {**bob, "X-Annotator-Name": bob_name}
         res = client.get("/api/team", headers=bob_headers)
         assert res.status_code == 200
@@ -94,8 +94,9 @@ def test_non_creator_cannot_see_presence_status(client, alice, bob):
 
         alice_entry = next((m for m in data if m["name"] == alice_name), None)
         assert alice_entry is not None
-        # Bob did not create the team, so is_logged_in is None
-        assert alice_entry["is_logged_in"] is None
+        # Any team member can see whether other members are logged in
+        assert alice_entry["is_logged_in"] is True
+        assert alice_entry["last_active_at"] is not None
     finally:
         db.close()
 

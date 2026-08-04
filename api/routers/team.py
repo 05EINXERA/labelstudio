@@ -69,18 +69,12 @@ def get_team(
 
     results = []
     for m in members:
-        member_team_ids = {t["id"] for t in teams_by_member[m.name]}
-        is_in_creator_team = bool(member_team_ids & created_team_ids)
-
-        is_logged_in = None
+        is_logged_in = False
         last_active = None
-        if is_in_creator_team or created_team_ids:
-            if m.last_active_at is not None:
-                last_active_utc = m.last_active_at if m.last_active_at.tzinfo else m.last_active_at.replace(tzinfo=timezone.utc)
-                is_logged_in = (now - last_active_utc).total_seconds() <= PRESENCE_TIMEOUT_SECONDS
-                last_active = last_active_utc
-            else:
-                is_logged_in = False
+        if m.last_active_at is not None:
+            last_active_utc = m.last_active_at if m.last_active_at.tzinfo else m.last_active_at.replace(tzinfo=timezone.utc)
+            is_logged_in = (now - last_active_utc).total_seconds() <= PRESENCE_TIMEOUT_SECONDS
+            last_active = last_active_utc
 
         results.append({
             "name": m.name, 
