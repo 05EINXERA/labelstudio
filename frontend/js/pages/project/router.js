@@ -10,7 +10,7 @@
  */
 import { apiFetch } from "../../api.js?v=1";
 import { escapeHTML } from "../../utils.js?v=1";
-import { renderNav, setActive, visibleNavItems } from "../../components/project-nav.js?v=2";
+import { renderNav, setActive, visibleNavItems } from "../../components/project-nav.js?v=3";
 import { renderAppNav, wireLogout } from "../../components/app-nav.js?v=1";
 import { getCurrentUser } from "../../session.js?v=1";
 
@@ -32,7 +32,7 @@ const projectId = new URLSearchParams(window.location.search).get("id");
 // it stays statically analysable.
 const VIEWS = {
   home: () => import("./home.js?v=1"),
-  tasks: () => import("./tasks.js?v=3"),
+  tasks: () => import("./tasks.js?v=4"),
   classes: () => import("./classes.js?v=1"),
   imports: () => import("./imports.js?v=1"),
   exports: () => import("./exports.js?v=1"),

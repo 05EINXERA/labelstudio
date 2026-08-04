@@ -31,10 +31,11 @@ import {
 } from "./canvas/interactions.js?v=1";
 import { initContextMenu } from "./canvas/context-menu.js?v=1";
 import { getCurrentUser } from "./session.js?v=1";
+import { canReview } from "./permissions.js?v=1";
 import {
   applyReadOnlyMode, isReadOnly, loadProjectPermissions, renderReviewControls,
   reportSaveForbidden, setMyTeams, setMyUserId, updateTaskBanner,
-  renderStatusDropdown, renderSaveSplitMenu, updateTaskStatusPill,
+  renderStatusDropdown, renderSaveSplitMenu, updateTaskStatusPill, currentRole,
 } from "./canvas-permissions.js?v=4";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
 import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=1";
@@ -888,6 +889,25 @@ async function initIdentityAndPermissions() {
 
   applyReadOnlyMode();
   refreshTaskPermissionUI();
+
+  // Disable the Export link for annotator-only users. Reviewer+ and managers
+  // may export; an annotator bulk-downloading the full dataset is not the
+  // intent (04_UI_UX.md § 6.1). Same treatment as the AI buttons: the element
+  // stays in the DOM but loses its href and is visually greyed out so the
+  // reason is obvious rather than mysterious.
+  if (exportLink) {
+    if (canReview(currentRole())) {
+      // Reviewer+: set the destination now that the role is confirmed.
+      exportLink.href = `project.html?id=${encodeURIComponent(projectId)}#/exports`;
+    } else {
+      // Annotator: remove any href, grey it out, block keyboard activation.
+      exportLink.removeAttribute('href');
+      exportLink.classList.add('is-disabled');
+      exportLink.setAttribute('aria-disabled', 'true');
+      exportLink.title = 'Export is not available for annotators';
+      exportLink.addEventListener('click', (e) => e.preventDefault(), { capture: true });
+    }
+  }
 }
 
 /**
@@ -971,9 +991,8 @@ async function initWorkspaceContext() {
   if (backToProject) {
     backToProject.href = `project.html?id=${projectId}#/tasks`;
   }
-  if (exportLink) {
-    exportLink.href = `project.html?id=${projectId}#/exports`;
-  }
+  // exportLink.href is set conditionally by initIdentityAndPermissions after
+  // the role is known — annotators get no href, reviewer+ get the exports tab.
 
   try {
     const res = await apiFetch('/api/projects');

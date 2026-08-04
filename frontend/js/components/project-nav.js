@@ -21,8 +21,12 @@ export const NAV_ITEMS = [
   // Imports are manager+: a replace-mode import wipes a project's labels and
   // orphans annotations for everyone at once.
   { route: "imports", label: "Imports", icon: "📥", title: "Import classes or annotations", minRole: "manager" },
-  // Exports stay at viewer: an export is a read, and QA reviewers need them.
-  { route: "exports", label: "Exports", icon: "📦", title: "Export annotations", minRole: "viewer" },
+  // Exports stay at reviewer+: an export is a read, but handing every
+  // annotator a one-click download of the full dataset is not the intent —
+  // exports are for QA reviewers, managers, and owners who need the full
+  // picture. Annotators (rank 1) are excluded; reviewer (rank 2) and above
+  // may export.
+  { route: "exports", label: "Exports", icon: "📦", title: "Export annotations", minRole: "reviewer" },
   // Owner-only. Granting is not delegable to a manager (03_API.md § 3).
   { route: "access", label: "Access", icon: "🔐", title: "Teams with access to this project", minRole: "owner" },
 ];
