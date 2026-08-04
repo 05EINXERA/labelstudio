@@ -16,9 +16,11 @@ from api.auth import (
     verify_password,
     create_access_token,
     issue_session_cookies,
+    issue_csrf_cookie,
     clear_session_cookies,
     get_current_user,
     require_csrf,
+    CSRF_COOKIE_NAME,
     ACCESS_TOKEN_EXPIRE_MINUTES,
 )
 
@@ -107,6 +109,8 @@ def logout(response: Response):
 
 @router.get("/me", response_model=Me)
 def me(
+    request: Request,
+    response: Response,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -119,7 +123,19 @@ def me(
 
     `/api/auth` is the one router without a router-level auth dependency (it has
     to serve login and registration), so the dependency goes on this function.
+
+    Also self-heals a missing CSRF cookie. `get_current_user` above already
+    proved the session cookie is valid, so if the CSRF cookie didn't come back
+    with it — e.g. a browser restart restored the (7-day) session cookie from
+    disk but dropped the session-only CSRF cookie — every subsequent write
+    would 403 until the user logs out and back in. The frontend calls this
+    endpoint on every page load, so reissuing here fixes the desync before it
+    can cause an autosave to be silently rejected. Set-Cookie on a GET is not a
+    database write, so this doesn't run afoul of CLAUDE.md rule 4. See
+    .devnotes/offline/INCIDENT_692.md.
     """
+    if not request.cookies.get(CSRF_COOKIE_NAME):
+        issue_csrf_cookie(response)
     teams = (
         db.query(models.Team, models.TeamMembership.role)
         .join(

@@ -505,6 +505,36 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
         if task.time_spent_delta is not None:
             db_task.time_spent = (db_task.time_spent or 0) + task.time_spent_delta
         if task.annotations is not None:
+            # Refuse a save that would silently erase existing work unless the
+            # client explicitly confirms it means to. A save carrying an empty
+            # annotation set is indistinguishable, at this point, from a client
+            # that reloaded into a broken/half-hydrated state and autosaved its
+            # blank default over real work — exactly what happened to task 692
+            # (.devnotes/offline/INCIDENT_692.md): a CSRF-cookie desync after an
+            # outage caused a storm of rejected writes, and when the cookie
+            # resynced the next autosave carried `[]` and overwrote 403 real
+            # polygons. Conflict detection did not catch it because the same
+            # client_id never conflicts with itself (by design, see
+            # 04_ANNOTATION_SAVE_LOSS.md) — this is the guard for the case that
+            # rule cannot cover.
+            incoming_is_empty = task.annotations.strip() in ("", "[]", "null")
+            existing_has_work = db_task.annotations and db_task.annotations.strip() not in ("", "[]", "null")
+            if incoming_is_empty and existing_has_work and not task.allow_clear:
+                # Deliberately NOT 409: the frontend's 409 handler means "a
+                # different client wrote since you last read — pick a version",
+                # and its "keep mine" path would resend this exact empty
+                # payload with allow_clear still unset, looping forever. 422 is
+                # "the payload itself is refused on the merits" and gets its
+                # own un-retryable handling in timer.js/init.js, same shape as
+                # the existing 403-forbidden path.
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Refusing to clear existing annotations. Reload the task to "
+                        "see the current work; if you really mean to delete every "
+                        "annotation, delete them in the UI and save again."
+                    ),
+                )
             db_task.annotations = task.annotations
         db_task.updated_at = datetime.datetime.now(datetime.timezone.utc)
         task_id = db_task.id

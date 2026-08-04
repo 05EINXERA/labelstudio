@@ -590,6 +590,23 @@ configureQueue({
           detail: (body && body.detail) || 'You no longer have permission to edit this task.',
         };
       }
+      // 422: the server refused this specific payload on the merits — right
+      // now, exclusively "this would silently erase existing annotations"
+      // (api/routers/tasks.py, see .devnotes/offline/INCIDENT_692.md). Handled
+      // exactly like a 403: not retryable (resending the same empty payload
+      // would refuse identically forever), and the payload must NOT be
+      // dropped — it is still the annotator's real unsaved work, just not
+      // safe to auto-apply. Reuses the `forbidden` queue state rather than
+      // adding a parallel one, since the required behavior (stop retrying,
+      // keep payload, tell the user once) is identical.
+      if (res.status === 422) {
+        const body = await res.json().catch(() => null);
+        return {
+          ok: false,
+          forbidden: true,
+          detail: (body && body.detail) || 'This save was refused; reload the task and check your changes.',
+        };
+      }
       if (!res.ok) return { ok: false };
 
       const data = await res.json().catch(() => null);

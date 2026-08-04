@@ -167,6 +167,113 @@ def test_writes_without_client_id_still_work(client, alice):
     assert res.status_code == 200
 
 
+# --- Empty-annotation guard (incident 2026-08-04: task 692) -----------------
+#
+# A live save from the SAME client_id as the last writer never conflicts, by
+# design (test_same_client_may_overwrite_its_own_write above) — that is the
+# fix for the original save-loss bug. But it also means an autosave that fires
+# with an empty in-memory annotation set (a half-hydrated reload, a client
+# stuck retrying through a CSRF/permission failure, anything that leaves the
+# canvas blank) sails straight through conflict detection and silently wipes
+# real work, because nothing else in that path distinguishes "the user deleted
+# every shape" from "the client never loaded them". This happened for real:
+# see .devnotes/offline/INCIDENT_692.md. These tests pin the guard added to
+# close it.
+
+def test_emptying_annotations_from_the_same_client_is_refused(client, alice):
+    """The exact incident shape: same client_id, existing work, empty payload."""
+    project_id = _project(client, alice)
+    task = _create_task(client, alice, project_id)
+
+    saved = client.post("/api/tasks", json={
+        "id": task["id"], "annotations": _annotations(3),
+        "updated_at": task["updated_at"], "client_id": "tab-A",
+    }, headers=alice)
+    assert saved.status_code == 200
+
+    wipe = client.post("/api/tasks", json={
+        "id": task["id"], "annotations": "[]",
+        # Deliberately stale/absent updated_at — this is what an autosave that
+        # never re-hydrated the task would actually send, and it must not be
+        # what saves it: the guard has to catch this on its own merits, not
+        # rely on a conflict 409 firing first.
+        "updated_at": None, "client_id": "tab-A",
+    }, headers=alice)
+    assert wipe.status_code == 422
+    assert "clear" in wipe.json()["detail"].lower()
+
+    rows = client.get(f"/api/tasks?projectId={project_id}", headers=alice).json()
+    assert len(rows[0]["annotations"]) == 3, "the refused write must not have touched stored annotations"
+
+
+def test_emptying_annotations_is_refused_regardless_of_client_id(client, alice):
+    """Not just the self-overwrite case — any client emptying a worked task."""
+    project_id = _project(client, alice)
+    task = _create_task(client, alice, project_id)
+
+    client.post("/api/tasks", json={
+        "id": task["id"], "annotations": _annotations(3),
+        "updated_at": task["updated_at"], "client_id": "tab-A",
+    }, headers=alice)
+
+    res = client.post("/api/tasks", json={
+        "id": task["id"], "annotations": "[]",
+        "updated_at": None, "client_id": "tab-B",
+    }, headers=alice)
+    assert res.status_code in (409, 422), "must be refused one way or another, never accepted as 200"
+
+
+def test_allow_clear_lets_a_genuine_delete_all_through(client, alice):
+    """The escape hatch: a user who really did delete every shape can still save."""
+    project_id = _project(client, alice)
+    task = _create_task(client, alice, project_id)
+
+    saved = client.post("/api/tasks", json={
+        "id": task["id"], "annotations": _annotations(3),
+        "updated_at": task["updated_at"], "client_id": "tab-A",
+    }, headers=alice)
+    assert saved.status_code == 200
+
+    cleared = client.post("/api/tasks", json={
+        "id": task["id"], "annotations": "[]",
+        "updated_at": None, "client_id": "tab-A", "allow_clear": True,
+    }, headers=alice)
+    assert cleared.status_code == 200
+
+    rows = client.get(f"/api/tasks?projectId={project_id}", headers=alice).json()
+    assert rows[0]["annotations"] == []
+
+
+def test_saving_an_already_empty_task_is_unaffected(client, alice):
+    """The guard must not block ordinary saves on a task with nothing to lose."""
+    project_id = _project(client, alice)
+    task = _create_task(client, alice, project_id)
+
+    res = client.post("/api/tasks", json={
+        "id": task["id"], "annotations": "[]",
+        "updated_at": task["updated_at"], "client_id": "tab-A",
+    }, headers=alice)
+    assert res.status_code == 200
+
+
+def test_non_empty_annotations_are_never_refused_by_the_guard(client, alice):
+    """Sanity: the guard is specific to emptying, not to writing annotations at all."""
+    project_id = _project(client, alice)
+    task = _create_task(client, alice, project_id)
+
+    first = client.post("/api/tasks", json={
+        "id": task["id"], "annotations": _annotations(3),
+        "updated_at": task["updated_at"], "client_id": "tab-A",
+    }, headers=alice)
+    assert first.status_code == 200
+
+    second = client.post("/api/tasks", json={
+        "id": task["id"], "annotations": _annotations(5),
+        "updated_at": None, "client_id": "tab-A",
+    }, headers=alice)
+    assert second.status_code == 200
+
+
 # ---------------------------------------------------------------------------
 # T1.1 / T1.4 — GET /api/tasks/{id} (per-task detail endpoint)
 # ---------------------------------------------------------------------------

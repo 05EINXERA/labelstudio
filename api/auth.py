@@ -77,12 +77,24 @@ def issue_session_cookies(response: Response, access_token: str) -> str:
     Returns the CSRF token so the caller can also hand it back in the JSON body
     (a client that cannot read cookies, e.g. a test, still needs it).
     """
+    # Both cookies get the same max_age as the JWT they gate. Previously both
+    # were session cookies (no max_age) even though the token inside
+    # access_token is valid for ACCESS_TOKEN_EXPIRE_MINUTES (7 days): a browser
+    # restart could restore the session cookie from disk while dropping the
+    # session-only CSRF cookie, leaving a client that reads as authenticated
+    # (GETs succeed) but fails every write with 403. That desync is what wiped
+    # task 692's annotations after the 2026-08-04 outage — see
+    # .devnotes/offline/INCIDENT_692.md. Keeping the two cookies' lifetimes
+    # identical removes the failure mode at the source; issue_csrf_cookie()
+    # below is the second layer (self-heal on any authenticated GET).
+    max_age = ACCESS_TOKEN_EXPIRE_MINUTES * 60
     response.set_cookie(
         key="access_token",
         value=f"Bearer {access_token}",
         httponly=True,
         samesite=COOKIE_SAMESITE,
         secure=COOKIE_SECURE,
+        max_age=max_age,
     )
     csrf_token = secrets.token_urlsafe(32)
     response.set_cookie(
@@ -91,6 +103,27 @@ def issue_session_cookies(response: Response, access_token: str) -> str:
         httponly=False,  # the frontend must read this to echo it in a header
         samesite=COOKIE_SAMESITE,
         secure=COOKIE_SECURE,
+        max_age=max_age,
+    )
+    return csrf_token
+
+
+def issue_csrf_cookie(response: Response) -> str:
+    """Re-issue just the CSRF cookie for an already-authenticated request.
+
+    Self-heal for the desync described in issue_session_cookies: if a client's
+    session cookie survived (so it can reach an authenticated GET) but its CSRF
+    cookie did not, this hands it a fresh one without forcing a full re-login.
+    Called from GET /api/auth/me, which the frontend already polls on load.
+    """
+    csrf_token = secrets.token_urlsafe(32)
+    response.set_cookie(
+        key=CSRF_COOKIE_NAME,
+        value=csrf_token,
+        httponly=False,
+        samesite=COOKIE_SAMESITE,
+        secure=COOKIE_SECURE,
+        max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     )
     return csrf_token
 

@@ -39,6 +39,13 @@ class TaskUpdate(BaseModel):
     # against the same task. Only a *different* client is a real conflict.
     # See .devnotes/deployment-hardening/04_ANNOTATION_SAVE_LOSS.md.
     client_id: Optional[str] = Field(None, max_length=64)
+    # Explicit confirmation that an empty `annotations` payload is a real
+    # delete-all, not an artifact of a client that never finished loading the
+    # task's existing work. See .devnotes/offline/INCIDENT_692.md: a save that
+    # silently carried an empty in-memory state wiped 403 real annotations.
+    # Default False so every existing caller (which never sends this field)
+    # gets the safe behavior automatically.
+    allow_clear: bool = False
 
 class ProjectSummary(BaseModel):
     """A project plus its task metrics — one row of the projects list.
