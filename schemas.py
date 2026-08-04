@@ -16,7 +16,6 @@ class ProjectModel(BaseModel):
     slug: str
     type: str = "Image - Polygon"
     creator: str
-    assignee: Optional[str] = None
 
 class ProjectUpdate(BaseModel):
     # Optional: PATCH /api/projects/{id} takes the id from the path. The legacy
@@ -24,7 +23,6 @@ class ProjectUpdate(BaseModel):
     id: Optional[int] = None
     name: Optional[str] = None
     status: Optional[str] = None
-    assignee: Optional[str] = None
 
 class TaskUpdate(BaseModel):
     id: Optional[int] = None
@@ -54,7 +52,6 @@ class ProjectSummary(BaseModel):
     type: Optional[str] = None
     status: Optional[str] = None
     creator: Optional[str] = None
-    assignee: Optional[str] = None
     created_at: Optional[datetime] = None
     total: int = 0
     completed: int = 0

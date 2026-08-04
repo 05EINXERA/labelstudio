@@ -140,7 +140,7 @@ def get_projects(
     return [
         ProjectSummary(
             id=p.id, name=p.name, slug=p.slug, type=p.type, status=p.status,
-            creator=p.creator, assignee=p.assignee, created_at=p.created_at,
+            creator=p.creator, created_at=p.created_at,
             my_role=_role_value(effective_project_role(user, p.id, db, request=request)),
             is_owner=p.owner_id == user.id,
             **metrics[p.id],
@@ -163,7 +163,6 @@ def get_project(
     return {
         "id": p.id, "name": p.name, "slug": p.slug, "type": p.type,
         "status": p.status, "creator": p.creator, "created_at": p.created_at,
-        "assignee": p.assignee,
         "my_role": role.value if role else None,
         "is_owner": p.owner_id == user.id,
         "restrict_to_assigned_team": p.restrict_to_assigned_team,
@@ -185,7 +184,7 @@ def get_project_metrics(project_id: int, db: Session = Depends(get_db), user: mo
 @router.post("")
 def create_project(project: ProjectModel, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     # The owner is the authenticated caller; `creator` is only a display name.
-    db_project = models.Project(name=project.name, slug=project.slug, type=project.type, status="Preparing", creator=user.username, owner_id=user.id, assignee=project.assignee)
+    db_project = models.Project(name=project.name, slug=project.slug, type=project.type, status="Preparing", creator=user.username, owner_id=user.id)
     db.add(db_project)
     commit_with_retry(db)
     db.refresh(db_project)
@@ -197,8 +196,6 @@ def _apply_project_update(db_project: models.Project, project_update: schemas.Pr
         db_project.slug = project_update.name.lower().replace(" ", "-")
     if project_update.status is not None:
         db_project.status = project_update.status
-    if project_update.assignee is not None:
-        db_project.assignee = project_update.assignee
 
 @router.patch("/{project_id}")
 def patch_project(project_id: int, project_update: schemas.ProjectUpdate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):

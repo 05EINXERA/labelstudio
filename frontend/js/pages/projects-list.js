@@ -28,7 +28,6 @@ const els = {
   fId: document.getElementById("projectFormId"),
   fName: document.getElementById("projectFormName"),
   fType: document.getElementById("projectFormType"),
-  fAssignee: document.getElementById("projectFormAssignee"),
   fStatus: document.getElementById("projectFormStatus"),
   statusField: document.getElementById("projectStatusField"),
 };
@@ -60,8 +59,7 @@ const table = createDataTable({
   sortDesc: true,
   emptyMessage: "No projects yet. Create one to get started.",
   matches: (row, q) =>
-    String(row.name || "").toLowerCase().includes(q) ||
-    String(row.assignee || "").toLowerCase().includes(q),
+    String(row.name || "").toLowerCase().includes(q),
   columns: [
     {
       key: "name",
@@ -69,11 +67,6 @@ const table = createDataTable({
       render: (r) => `<a class="cell-link" href="project.html?id=${encodeURIComponent(r.id)}">${escapeHTML(r.name || "Untitled")}</a>`,
     },
     { key: "type", label: "Type", render: (r) => `<span style="color:var(--muted);">${escapeHTML(r.type || "—")}</span>` },
-    {
-      key: "assignee",
-      label: "Assignee",
-      render: (r) => r.assignee ? escapeHTML(r.assignee) : `<span style="color:var(--muted);">Unassigned</span>`,
-    },
     { key: "status", label: "Status", render: (r) => statusPill(r.status) },
     {
       // Why a project you do not own is in your list: it was granted to a team
@@ -130,23 +123,6 @@ async function loadProjects() {
   }
 }
 
-async function loadTeam() {
-  try {
-    const res = await apiFetch("/api/team");
-    if (!res || !res.ok) return;
-    const team = await res.json();
-    team.forEach((m) => {
-      const opt = document.createElement("option");
-      opt.value = m.name;
-      opt.textContent = m.name;
-      els.fAssignee.appendChild(opt);
-    });
-  } catch (err) {
-    // A missing team list only limits the assignee dropdown; the page is usable.
-    console.error("Failed to load team", err);
-  }
-}
-
 // --- modal -----------------------------------------------------------------
 
 function openModal(project) {
@@ -155,7 +131,6 @@ function openModal(project) {
   els.fId.value = isEdit ? project.id : "";
   els.fName.value = isEdit ? (project.name || "") : "";
   els.fType.value = isEdit ? (project.type || "Image - Polygon") : "Image - Polygon";
-  els.fAssignee.value = isEdit ? (project.assignee || "") : "";
   els.fStatus.value = isEdit ? (project.status || "Preparing") : "Preparing";
   // Status is derived from task completion on create, so only expose it on edit.
   els.statusField.style.display = isEdit ? "grid" : "none";
@@ -181,7 +156,6 @@ els.form.addEventListener("submit", async (e) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name,
-          assignee: els.fAssignee.value,
           status: els.fStatus.value,
         }),
       });
@@ -195,7 +169,6 @@ els.form.addEventListener("submit", async (e) => {
           type: els.fType.value,
           // Ignored by the server, which takes the owner from the token.
           creator: localStorage.getItem("dataset_username") || "",
-          assignee: els.fAssignee.value,
         }),
       });
     }
@@ -252,7 +225,6 @@ async function init() {
   const user = await getCurrentUser();
   els.user.textContent = user?.username || "";
 
-  loadTeam();
   await loadProjects();
 }
 
