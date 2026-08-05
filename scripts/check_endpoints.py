@@ -1,4 +1,6 @@
 import urllib.request, urllib.error
+import time
+import json
 
 def req(method, url, data=None):
     req = urllib.request.Request(url, data=data, headers={'Content-Type':'application/json'} if data else {})
@@ -20,8 +22,6 @@ def req(method, url, data=None):
         print('---', method, url, 'ERROR ---')
         print(e)
 
-import time
-import json
 
 def req_poll(method, url, data=None):
     job_id = None

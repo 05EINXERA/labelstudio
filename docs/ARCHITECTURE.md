@@ -177,21 +177,14 @@ weights directory — genuinely confusing to every newcomer).
 
 **Direction (when someone has a free afternoon, as a single dedicated PR):**
 
-```
-app/
-  main.py  config.py  database.py
-  db_models.py         # renamed from models.py
-  schemas.py
-  ml/detector.py       # split per § 3.5
-  api/auth.py  api/routers/...
-scripts/               # check_endpoints, debug_hang, manual test scripts
-tests/
-frontend/
-model_weights/         # renamed from models/, keeps .pt/.onnx out of the name clash
-```
+### 3.3 App package structure
 
-Don't do this file-by-file across feature PRs — a half-moved layout is worse
-than either endpoint.
+**Status: fixed.** The core application has been reorganized into the `app/` package with backward-compatible root facades:
+- `app/`: Contains `main.py`, `config.py`, `database.py`, `models.py`, `schemas.py`, `logging_config.py`.
+- Root modules (`main.py`, `config.py`, `database.py`, `models.py`, `schemas.py`, `logging_config.py`, `detector.py`) serve as re-export facades ensuring 100% backward compatibility for all entry points, scripts, Alembic, and test runners.
+- `scripts/`: Central home for ops, migrations, backups, and debug tools.
+- `tests/`: Automated test suite.
+- `frontend/`: Static browser assets and ES modules.
 
 ### 3.4 In-process state caps the app at one worker
 
@@ -255,13 +248,7 @@ convenience for a brand-new empty database.
 
 ### 3.8 Repo hygiene debris
 
-`parsed_content.txt`, `parsed_content_utf8.txt`, `messt.jpg` (0 bytes), and a
-committed `.jwt_secret` (see GOTCHAS #1) are in git; `.gitignore` contains
-corrupted mojibake lines; `requirements.txt` pins `python-multipart` twice
-with conflicting constraints and omits packages the code imports
-(`ultralytics`, `transformers`, `requests` for scripts). Small stuff, but it
-teaches newcomers that the repo is a junk drawer. One cleanup PR fixes all of
-it.
+**Status: fixed.** Debris files (`parsed_content.txt`, `parsed_content_utf8.txt`, `diff.txt`) removed; debug scripts moved under `scripts/`; `requirements.txt` cleaned up with deduplicated `python-multipart` and explicitly pinned `ultralytics` / `transformers`.
 
 ---
 

@@ -79,12 +79,13 @@ old pattern into new code.
 
 | Path | What it is |
 |---|---|
-| `main.py` | FastAPI app assembly: middleware, router mounting, static files |
-| `config.py` | Central config: loads `.env`, resolves `DATABASE_URL`/`APP_HOST`/CORS/JWT/etc., fail-fast `validate_config()` in production |
+| `app/` | Core application package (`app.main`, `app.config`, `app.database`, `app.models`, `app.schemas`, `app.logging_config`) |
+| `main.py` | FastAPI app assembly & root facade: middleware, router mounting, static files |
+| `config.py` | Central config facade: loads `.env`, resolves `DATABASE_URL`/`APP_HOST`/CORS/JWT/etc., fail-fast `validate_config()` in production |
 | `.env` | Deployment config (gitignored). Loaded by `config.py`, not just the launcher |
-| `database.py` | Engine/session for SQLite **or** Postgres (via `IS_SQLITE`), pool config, `get_db`, `commit_with_retry` |
-| `models.py` | SQLAlchemy ORM models (database tables) |
-| `schemas.py` | Pydantic request/response schemas (`TaskDetail`, etc.) |
+| `database.py` | Engine/session facade for SQLite **or** Postgres (via `IS_SQLITE`), pool config, `get_db`, `commit_with_retry` |
+| `models.py` | SQLAlchemy ORM models facade (database tables) |
+| `schemas.py` | Pydantic request/response schemas facade (`TaskDetail`, etc.) |
 | `api/auth.py` | JWT creation/validation, password hashing, `get_current_user`, `require_csrf`, session/CSRF cookies |
 | `api/routers/` | One router per resource (projects, tasks, labels, team, data, detect, auth, label_studio, exports, imports). `tasks.py` also holds the per-task detail endpoint and the in-process soft lock (`_TASK_LOCKS`) |
 | `formats/` | Import/export format logic (COCO, task JSON, YOLO, masks), one module per format; pure, testable without a server. See docs/ARCHITECTURE.md § 2.1 |
@@ -95,3 +96,4 @@ old pattern into new code.
 | `.devnotes/deployment-hardening/` | Deployment audit, phased task list, the annotation-save-loss postmortem, and the resilience plan/implementation record (`06_RESILIENCE_PLAN.md`, `07_RESILIENCE_IMPLEMENTATION.md`) |
 | `models/` | ML weight files (gitignored) — *not* Python code; `models.py` is the DB models |
 | `alembic/` | Database migrations |
+
