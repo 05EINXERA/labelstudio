@@ -389,3 +389,46 @@ def test_unrecognised_type_falls_through_to_inference():
     """An unknown string must not be trusted — infer from the geometry."""
     tri = [{"x": 0, "y": 0}, {"x": 10, "y": 0}, {"x": 5, "y": 10}]
     assert annotation_type_of({"type": "circle", "points": tri}) == "polygon"
+
+# ---------------------------------------------------------------------------
+# Starting-point (index-0) preservation after untangle
+# (see .devnotes/bugs/polygon-untangle-startpoint-drift.md)
+# ---------------------------------------------------------------------------
+
+def test_untangle_polygon_preserves_original_first_vertex_position():
+    """The first vertex of the input must remain at index 0 in the output
+    when it survives into the winning loop.
+
+    This is the Python counterpart of the rotation logic added to
+    untangleIfPolygon in interactions.js.  Keeping both sides identical is
+    what the cross-language tests guard — an annotation that looked resolved
+    on the canvas must not trip the export warning, and an import must
+    untangle identically to what the canvas would have produced.
+    """
+    # Same "eared" fixture as test_untangle_polygon_drops_the_smaller_loop.
+    # points[0] is (0,0); it lives in the large body that wins.
+    eared = [
+        {"x": 0, "y": 0}, {"x": 100, "y": 0}, {"x": 100, "y": 100},
+        {"x": 140, "y": 50}, {"x": 0, "y": 100},
+    ]
+    points, changed = untangle_polygon(eared)
+    assert changed is True
+    assert is_simple_polygon(points)
+    assert points[0] == {"x": 0, "y": 0}, (
+        f"expected (0,0) at index 0, got {points[0]}"
+    )
+
+
+def test_untangle_polygon_original_first_vertex_in_dropped_loop_is_not_fatal():
+    """When points[0] ends up in the dropped loop no rotation is possible.
+    The result must still be a valid simple ring — the missing vertex is
+    unavoidable in that case.
+    """
+    # Bowtie: (0,0)->(10,10)->(10,0)->(0,10).  Without an anchor the first
+    # loop (containing the crossing point and points 1 and 2) wins on ties,
+    # so (0,0) — which is in loop B — is in the dropped loop.
+    bowtie = [{"x": 0, "y": 0}, {"x": 10, "y": 10}, {"x": 10, "y": 0}, {"x": 0, "y": 10}]
+    points, changed = untangle_polygon(bowtie)
+    assert changed is True
+    assert is_simple_polygon(points)
+    assert len(points) >= 3

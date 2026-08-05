@@ -105,13 +105,44 @@ export function hitTestLine(point, annotation) {
 // Takes no snapshot of its own: every call site either already snapshotted for
 // the edit it is part of, or is a click on an in-progress polygon that
 // deliberately stays out of state.history (see undoLastPoint).
-function untangleIfPolygon(annotation, anchor) {
+//
+// `closed` (default true) must be false for a polygon that is still being
+// drawn by hand: `annotation.points` is an open polyline there (the segment
+// back to points[0] is only the dashed preview to the cursor, drawn by
+// draw.js — not a committed edge), and treating it as a closed ring would
+// fabricate a crossing edge that does not exist yet. See untangle.js.
+function untangleIfPolygon(annotation, anchor, closed = true) {
   if (!annotation || annotation.type !== "polygon") return false;
   const pts = annotation.points;
   if (!Array.isArray(pts) || pts.length < 4) return false;
-  const result = untangleRing(pts, anchor);
+
+  const result = untangleRing(pts, anchor, closed);
   if (!result.changed) return false;
+
   annotation.points = result.points;
+
+  if (closed) {
+    // Save the original first vertex *before* untangling so we can restore it
+    // to index 0 afterwards.  A closed ring is rotationally invariant, so any
+    // rotation produces the same polygon — but the canvas draws the closing-
+    // vertex handle at points[0], and the annotator expects it to stay where
+    // they first clicked.  See .devnotes/bugs/polygon-untangle-startpoint-drift.md.
+    //
+    // Not needed for an open polyline: untangleRing never rotates or wraps
+    // there, it only trims the tail, so points[0] is untouched already.
+    const originalFirst = pts[0];
+    const EPS = 1e-9;
+    const idx = annotation.points.findIndex(
+      (p) => Math.abs(p.x - originalFirst.x) < EPS && Math.abs(p.y - originalFirst.y) < EPS
+    );
+    if (idx > 0) {
+      annotation.points = [
+        ...annotation.points.slice(idx),
+        ...annotation.points.slice(0, idx),
+      ];
+    }
+  }
+
   return true;
 }
 
@@ -867,9 +898,13 @@ canvas.addEventListener("pointerdown", (event) => {
           annotation.points.push(placed);
           // Each click is a discrete committed action, so a crossing it creates
           // is resolved immediately rather than at finalize — the annotator sees
-          // the shape they will keep while they are still placing points. The
-          // click itself is the anchor, so it survives the cut.
-          if (untangleIfPolygon(annotation, placed)) {
+          // the shape they will keep while they are still placing points.
+          // `closed: false` — the polygon isn't finished yet, so this is an
+          // open polyline, not a ring; the dashed line back to the start point
+          // is only a preview (see draw.js), not a real edge to test against.
+          // The crossing point itself becomes the new last point, so `placed`
+          // can be dropped here if it landed inside the loop just cut away.
+          if (untangleIfPolygon(annotation, placed, false)) {
             setStatus("Overlap removed");
           }
           updateAnnotationBounds(annotation);

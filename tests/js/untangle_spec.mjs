@@ -169,5 +169,214 @@ ok('degenerate area is zero', u.ringArea([P(0, 0), P(1, 1)]) === 0);
 const twice = u.untangleRing(u.untangleRing(bowtie).points);
 ok('untangle is idempotent', twice.changed === false);
 
+// --- 9. Starting-point (index-0) preservation ----------------------------
+//
+// After untangleIfPolygon rewrites annotation.points, the original first vertex
+// must still be at index 0 when it survives into the winning loop.  The canvas
+// draws the closing-vertex handle at points[0]; if it drifts to the crossing
+// point the annotator can no longer close the polygon at the intended spot.
+// See .devnotes/bugs/polygon-untangle-startpoint-drift.md for the full analysis.
+//
+// These tests exercise the rotation logic that lives in untangleIfPolygon
+// (interactions.js) via a thin wrapper defined here:
+
+function untangleIfPolygonSimulation(pts, anchor) {
+  // Mirrors the rotation logic added to untangleIfPolygon in interactions.js.
+  if (!Array.isArray(pts) || pts.length < 4) return { points: pts, changed: false };
+  const originalFirst = pts[0];
+  const result = u.untangleRing(pts, anchor);
+  if (!result.changed) return result;
+
+  let outPts = result.points;
+  const EPS = 1e-9;
+  const idx = outPts.findIndex(
+    (p) => Math.abs(p.x - originalFirst.x) < EPS && Math.abs(p.y - originalFirst.y) < EPS
+  );
+  if (idx > 0) {
+    outPts = [...outPts.slice(idx), ...outPts.slice(0, idx)];
+  }
+  return { points: outPts, changed: true };
+}
+
+// The "eared" ring from section 3: points[0] is (0,0) which is in the large
+// body that wins. After untangle + rotation it must be back at index 0.
+const earOut = untangleIfPolygonSimulation(withEar);
+ok('index-0 preserved after eared-ring untangle',
+   near(earOut.points[0].x, 0) && near(earOut.points[0].y, 0));
+ok('ring is still valid after rotation', u.isSimpleRing(earOut.points));
+
+// Verify the ring is actually the same ring (just rotated): all body vertices
+// still present.
+ok('(100,0) still present after rotation', hasVertex(earOut.points, 100, 0));
+ok('(0,100) still present after rotation', hasVertex(earOut.points, 0, 100));
+
+// When the original first vertex is in the DROPPED loop, we cannot restore it.
+// The bowtie's first vertex (0,0) goes to the left triangle; if we anchor to
+// the right side, the right triangle wins and (0,0) is in the dropped loop.
+// In that case the output must still be a valid simple ring — just don't assert
+// where index 0 ended up.
+const bowtieDrop = untangleIfPolygonSimulation([P(0, 0), P(10, 10), P(10, 0), P(0, 10)], P(10, 0));
+ok('dropped-loop case still produces a valid ring',
+   u.isSimpleRing(bowtieDrop.points) && bowtieDrop.points.length >= 3);
+
+// Multi-pass convergence: if original points[0] survives in the winner,
+// it must be at index 0. If it's in the dropped loop, just assert validity.
+const multiOut = untangleIfPolygonSimulation(multi);
+const multiFirst = multi[0];
+const multiFirstSurvived = multiOut.points.some(
+  (p) => near(p.x, multiFirst.x) && near(p.y, multiFirst.y)
+);
+if (multiFirstSurvived) {
+  ok('multi-crossing: original first vertex at index 0 if it survived',
+     near(multiOut.points[0].x, multiFirst.x) && near(multiOut.points[0].y, multiFirst.y));
+} else {
+  ok('multi-crossing: original first vertex in dropped loop — ring is still valid',
+     u.isSimpleRing(multiOut.points) && multiOut.points.length >= 3);
+}
+
+// No-op: already-simple ring must not be touched at all.
+const noopOut = untangleIfPolygonSimulation(square);
+ok('no-op ring: changed is false', noopOut.changed === false);
+ok('no-op ring: points array is identity-equal', noopOut.points === square);
+
+// --- 10. Open polyline (mid-draw) — closed: false ------------------------
+//
+// While a polygon is still being drawn, `annotation.points` is an open
+// polyline: the dashed line back to points[0] the canvas shows is only a
+// preview (draw.js), not a committed edge. `findFirstSelfIntersection` and
+// `untangleRing` must not fabricate that closing edge when told `closed:
+// false` — the bug this section guards against is exactly that: the "next
+// edge" after the last real edge being treated as [points[0], points[n-1]]
+// instead of there being no next edge at all.
+
+// A plain zig-zag with no real crossing must not be touched, even though it
+// would "close" into a self-intersecting ring if a phantom edge back to
+// points[0] were drawn (it would cross the first edge). This is the direct
+// regression case for the reported bug.
+const zigzagNoRealCrossing = [P(0, 0), P(10, 0), P(0, 5), P(10, 10)];
+ok('open zig-zag: closed=true (buggy) wrongly reports a crossing via the phantom edge',
+   u.findFirstSelfIntersection(zigzagNoRealCrossing, true) !== null);
+ok('open zig-zag: closed=false correctly finds no real crossing',
+   u.findFirstSelfIntersection(zigzagNoRealCrossing, false) === null);
+ok('open zig-zag: untangleRing(closed=false) leaves it alone',
+   u.untangleRing(zigzagNoRealCrossing, null, false).changed === false);
+
+// --- 10a. Open polyline: head wins (annotator drew a big body first) -----
+//
+// Path: 0:(0,0)->1:(100,0)->2:(50,100)->3:(150,50)->4:(30,60)
+// Edge 1->2 crosses edge 3->4 at ~(71.7, 56.5).
+// head = [P(0,0), P(100,0), P~71.7]  len=3, area≈2826  ← most area
+// loop = [P~71.7,  P(50,100), P(150,50)]  len=3, area≈1630
+// tail = [P~71.7,  P(30,60)]          len=2, area=0
+// head ties loop on length, but has more area — head wins.
+const headWinsPath = [P(0, 0), P(100, 0), P(50, 100), P(150, 50), P(30, 60)];
+const headWinsHit = u.findFirstSelfIntersection(headWinsPath, false);
+ok('head-wins: crossing detected', headWinsHit !== null);
+const headWinsFixed = u.untangleRing(headWinsPath, P(30, 60), false);
+ok('head-wins: resolves to a simple open path', u.isSimpleRing(headWinsFixed.points, false));
+ok('head-wins: the big body (head) is kept — points[0] survives',
+   hasVertex(headWinsFixed.points, 0, 0));
+ok('head-wins: the big body (head) is kept — points[1] survives',
+   hasVertex(headWinsFixed.points, 100, 0));
+ok('head-wins: the stray vertex (30,60) is dropped',
+   !hasVertex(headWinsFixed.points, 30, 60));
+ok('head-wins: the loop vertex (50,100) is dropped',
+   !hasVertex(headWinsFixed.points, 50, 100));
+ok('head-wins: crossing point is the new last vertex',
+   headWinsHit && near(headWinsFixed.points[headWinsFixed.points.length - 1].x, headWinsHit.point.x) &&
+   near(headWinsFixed.points[headWinsFixed.points.length - 1].y, headWinsHit.point.y));
+
+// --- 10b. Open polyline: tail wins (annotator drew a big body after the crossing) ---
+//
+// Path: 0:(50,0)->1:(50,100)->2:(0,50)->3:(100,50)->4:(100,200)->5:(0,200)->6:(0,150)
+// Edge 0->1 (x=50) crosses edge 2->3 (y=50) at (50,50).
+// head = [P(50,0), P(50,50)]                                        len=2, area=0
+// loop = [P(50,50), P(50,100), P(0,50)]                             len=3, area=1250
+// tail = [P(50,50), P(100,50), P(100,200), P(0,200), P(0,150)]     len=5, area=12500 ← most
+// tail has the most vertices — tail wins.
+const tailWinsPath = [P(50,0), P(50,100), P(0,50), P(100,50), P(100,200), P(0,200), P(0,150)];
+const tailWinsHit = u.findFirstSelfIntersection(tailWinsPath, false);
+ok('tail-wins: crossing detected', tailWinsHit !== null);
+const tailWinsFixed = u.untangleRing(tailWinsPath, tailWinsPath[tailWinsPath.length - 1], false);
+ok('tail-wins: resolves to a simple open path', u.isSimpleRing(tailWinsFixed.points, false));
+ok('tail-wins: the large body (tail) is kept — P(100,200) survives',
+   hasVertex(tailWinsFixed.points, 100, 200));
+ok('tail-wins: the large body (tail) is kept — P(0,200) survives',
+   hasVertex(tailWinsFixed.points, 0, 200));
+ok('tail-wins: the tiny head vertex P(50,0) is dropped',
+   !hasVertex(tailWinsFixed.points, 50, 0));
+ok('tail-wins: the loop vertex P(50,100) is dropped',
+   !hasVertex(tailWinsFixed.points, 50, 100));
+ok('tail-wins: crossing point is the new first vertex',
+   tailWinsHit &&
+   near(tailWinsFixed.points[0].x, tailWinsHit.point.x) &&
+   near(tailWinsFixed.points[0].y, tailWinsHit.point.y));
+
+// --- 10c. Open polyline: body wins (fish / nearly-complete body, i=0 crossing) ---
+//
+// The annotator has drawn most of a closed shape (7-point oval body) and the
+// last two clicks cross the very first edge (i=0). When i=0 a fourth candidate
+// is considered: body = points[0..j] + P — the whole path from start through
+// j, ending at P. body has one more vertex than loop and always preserves
+// points[0], so it beats loop; tail (len=3) is smaller than body (len=8).
+//
+//   head = [P(0,0), P_cross]                                  len=2, area=0
+//   loop = [P_cross, P(100,0)..P(0,50)]                       len=7, area≈30179
+//   tail = [P_cross, P(130,-20), P(170,40)]                   len=3, area≈1514
+//   body = [P(0,0), P(100,0)..P(0,50), P_cross]              len=8  ← wins
+//
+// body wins; points[0] is preserved as first vertex, P is the new last vertex.
+const fishPath = [
+  P(0, 0), P(100, 0), P(200, 50), P(200, 150), P(100, 200),
+  P(0, 150), P(0, 50), P(130, -20), P(170, 40),
+];
+const fishHit = u.findFirstSelfIntersection(fishPath, false);
+ok('body-wins (fish): crossing detected', fishHit !== null);
+const fishFixed = u.untangleRing(fishPath, fishPath[fishPath.length - 1], false);
+ok('body-wins (fish): resolves to a simple open path', u.isSimpleRing(fishFixed.points, false));
+ok('body-wins (fish): body vertex P(200,50) survives',
+   hasVertex(fishFixed.points, 200, 50));
+ok('body-wins (fish): body vertex P(100,200) survives',
+   hasVertex(fishFixed.points, 100, 200));
+ok('body-wins (fish): body vertex P(0,150) survives',
+   hasVertex(fishFixed.points, 0, 150));
+ok('body-wins (fish): stray approach P(130,-20) is dropped',
+   !hasVertex(fishFixed.points, 130, -20));
+ok('body-wins (fish): stray approach P(170,40) is dropped',
+   !hasVertex(fishFixed.points, 170, 40));
+ok('body-wins (fish): points[0] is dropped (it was on the crossed edge)',
+   !hasVertex(fishFixed.points, 0, 0));
+ok('body-wins (fish): points[1] (100,0) is now the first vertex',
+   near(fishFixed.points[0].x, 100) && near(fishFixed.points[0].y, 0));
+ok('body-wins (fish): crossing point is the new last vertex',
+   fishHit && near(fishFixed.points[fishFixed.points.length - 1].x, fishHit.point.x) &&
+   near(fishFixed.points[fishFixed.points.length - 1].y, fishHit.point.y));
+
+// --- 10d. Open polyline: S-shape crossing back near start (i=0, body wins) ---
+//
+// Annotator draws a full S-curve body (5 points) then the last click crosses
+// back across edge 0->1. body = points[0..j] + P wins over loop and tail.
+// points[0] stays as first vertex; P becomes the new last vertex.
+const sPath = [P(100, 0), P(200, 0), P(200, 100), P(0, 100), P(0, 50), P(150, -20)];
+const sHit = u.findFirstSelfIntersection(sPath, false);
+ok('S-shape: crossing on edge 0->1 detected', sHit !== null);
+const sFixed = u.untangleRing(sPath, sPath[sPath.length - 1], false);
+ok('S-shape: resolves to a simple open path', u.isSimpleRing(sFixed.points, false));
+ok('S-shape: points[0] (100,0) dropped (it was on the crossed edge)',
+   !hasVertex(sFixed.points, 100, 0));
+ok('S-shape: points[1] (200,0) is now the first vertex',
+   near(sFixed.points[0].x, 200) && near(sFixed.points[0].y, 0));
+ok('S-shape: full body P(200,100) kept', hasVertex(sFixed.points, 200, 100));
+ok('S-shape: full body P(0,100) kept', hasVertex(sFixed.points, 0, 100));
+ok('S-shape: stray (150,-20) dropped', !hasVertex(sFixed.points, 150, -20));
+ok('S-shape: crossing point is new last vertex',
+   sHit && near(sFixed.points[sFixed.points.length - 1].x, sHit.point.x) &&
+   near(sFixed.points[sFixed.points.length - 1].y, sHit.point.y));
+
+// Adjacent-edge and short-input guards must hold for the open case too.
+ok('open: three points never change', u.untangleRing([P(0, 0), P(5, 0), P(0, 5)], null, false).changed === false);
+ok('open: a simple polyline is untouched',
+   u.untangleRing([P(0, 0), P(10, 0), P(10, 10), P(20, 10)], null, false).changed === false);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

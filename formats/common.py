@@ -181,6 +181,12 @@ def untangle_polygon(points: Sequence[dict]) -> Tuple[List[dict], bool]:
     if len(original) < 4:
         return original, False
 
+    # Capture the original first vertex before any rewriting so we can rotate
+    # the winner back to it at the end.  See the JS counterpart in
+    # interactions.js (untangleIfPolygon) and the bug note at
+    # .devnotes/bugs/polygon-untangle-startpoint-drift.md.
+    original_first = original[0]
+
     pts = original
     changed = False
     for _ in range(len(original)):
@@ -199,6 +205,25 @@ def untangle_polygon(points: Sequence[dict]) -> Tuple[List[dict], bool]:
             break
         pts = winner
         changed = True
+
+    if changed:
+        # Rotate the winner so the original first vertex is at index 0, when it
+        # survived into the winning loop.  A closed ring is rotationally
+        # invariant, so this doesn't change the geometry — it just makes the JS
+        # and Python outputs identical for the same input (important for
+        # round-trip tests).  If the vertex was in the dropped loop, StopIteration
+        # is caught and pts is left as-is.
+        _EPS = 1e-9
+        try:
+            idx = next(
+                k for k, p in enumerate(pts)
+                if abs(p["x"] - original_first["x"]) < _EPS
+                and abs(p["y"] - original_first["y"]) < _EPS
+            )
+            if idx > 0:
+                pts = pts[idx:] + pts[:idx]
+        except StopIteration:
+            pass  # original first vertex was in the dropped loop — no rotation possible
 
     return pts, changed
 

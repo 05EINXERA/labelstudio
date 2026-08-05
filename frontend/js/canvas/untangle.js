@@ -84,23 +84,34 @@ export function segmentsIntersect(p1, p2, p3, p4) {
 }
 
 /**
- * First proper self-intersection of a closed ring, or null if it is simple.
+ * First proper self-intersection of a ring or open polyline, or null if it
+ * is simple.
  *
  * Returns { i, j, point } where edge i->i+1 crosses edge j->j+1 and i < j.
- * Adjacent edge pairs are skipped (they share a vertex), including the
- * wrap-around pair (last edge, edge 0).
+ * Adjacent edge pairs are skipped (they share a vertex).
+ *
+ * `closed` (default true) controls whether edge n-1 -> 0 exists at all. A
+ * finished polygon's ring really does close there, so every other call site
+ * (finalize, point removal, vertex drag) leaves it true. A polygon that is
+ * still being drawn by hand is an open polyline — the segment back to
+ * points[0] is only a dashed preview the canvas draws to the cursor, not a
+ * committed edge — so the mid-draw call site passes `closed: false` and the
+ * last real edge is n-2 -> n-1, not a fabricated closing edge back to the
+ * start point.
  */
-export function findFirstSelfIntersection(points) {
+export function findFirstSelfIntersection(points, closed = true) {
   const n = points.length;
   if (n < 4) return null;
-  for (let i = 0; i < n; i += 1) {
+  const edgeCount = closed ? n : n - 1;
+  for (let i = 0; i < edgeCount; i += 1) {
     const a1 = points[i];
     const a2 = points[(i + 1) % n];
-    for (let j = i + 1; j < n; j += 1) {
-      // Skip edges sharing a vertex with edge i: j === i + 1, and the
-      // wrap-around case where edge j ends exactly where edge i begins.
+    for (let j = i + 1; j < edgeCount; j += 1) {
+      // Skip edges sharing a vertex with edge i: j === i + 1, and — only
+      // when the ring is actually closed — the wrap-around case where edge j
+      // ends exactly where edge i begins.
       if (j === i + 1) continue;
-      if (i === 0 && j === n - 1) continue;
+      if (closed && i === 0 && j === n - 1) continue;
       const b1 = points[j];
       const b2 = points[(j + 1) % n];
       const hit = segmentsIntersect(a1, a2, b1, b2);
@@ -110,9 +121,9 @@ export function findFirstSelfIntersection(points) {
   return null;
 }
 
-/** True when the ring has no proper self-intersection. */
-export function isSimpleRing(points) {
-  return findFirstSelfIntersection(points) === null;
+/** True when the ring/polyline has no proper self-intersection. */
+export function isSimpleRing(points, closed = true) {
+  return findFirstSelfIntersection(points, closed) === null;
 }
 
 /**
@@ -142,10 +153,28 @@ export function isSimpleRing(points) {
  * The anchor breaks that tie towards the half they were working in. Optional;
  * without it an exact tie falls back to keeping the first loop.
  *
+ * `closed` (default true) must match what `findFirstSelfIntersection` was
+ * told: a finished polygon is a real ring, so a crossing splits it into two
+ * loops (A: the slice between the crossing edges; B: the rest, wrapping
+ * through index 0) and the larger survives.
+ *
+ * An in-progress polyline (`closed: false`) has no wrap-around edge, but the
+ * same "keep the bigger piece" rule still applies — there are still two ways
+ * to cut a self-crossing open path at the crossing point P, and one of them
+ * is the small stray loop the annotator did not mean to keep:
+ *
+ *   head = points[0..i], P       (drops points[i+1..end] — the loop plus tail)
+ *   tail = P, points[j+1..end]   (drops points[0..i] — the loop plus head)
+ *
+ * Both are closed off at P for the area comparison (an open path encloses
+ * nothing on its own); whichever side is bigger keeps drawing from P as its
+ * new open end. This mirrors the closed-ring case exactly, just without a
+ * wrap-around candidate.
+ *
  * Returns { points, changed }. `points` is a new array when changed, and the
  * caller's original array when not — callers must not assume identity either way.
  */
-export function untangleRing(input, anchor) {
+export function untangleRing(input, anchor, closed = true) {
   const original = input || [];
   if (original.length < 4) return { points: original, changed: false };
 
@@ -159,10 +188,78 @@ export function untangleRing(input, anchor) {
   let changed = false;
 
   for (let pass = 0; pass < original.length; pass += 1) {
-    const hit = findFirstSelfIntersection(points);
+    const hit = findFirstSelfIntersection(points, closed);
     if (!hit) break;
 
     const { i, j, point } = hit;
+
+    if (!closed) {
+      // Open polyline — no wrap-around edge, but "keep the biggest piece" still
+      // applies. At crossing point P there are three natural segments:
+      //
+      //   head = points[0..i], P            (path before the first crossing edge)
+      //   loop = P, points[i+1..j]          (the enclosed middle)
+      //   tail = P, points[j+1..end]        (path after the second crossing edge)
+      //
+      // There is also a fourth candidate that matters when the crossing is on
+      // the very first edge (i === 0): the annotator drew the entire body
+      // (points[0..j]) and the last click's stray tail crossed back across
+      // edge 0→1. In that case neither head (just [points[0], P]) nor loop
+      // (which starts at P, not points[0]) correctly preserves the full body
+      // including the starting vertex:
+      //
+      //   body = points[0..j], P            (only added when i === 0)
+      //
+      // body = head_interior + loop_interior + [P]; it always has one more
+      // vertex than loop, so it wins whenever the crossing is on edge 0→1
+      // and the tail is smaller — covering both the "S-shape returns near
+      // start" and "fish/nearly-complete oval" scenarios. When i > 0 the
+      // head already contains substantive early vertices, so head/loop/tail
+      // comparison is sufficient.
+      //
+      // Winner selection: most vertices, then most enclosed area on a tie,
+      // then head on a double tie (never silently discard the starting work).
+      const head = [...points.slice(0, i + 1), point];
+      const loop = [point, ...points.slice(i + 1, j + 1)];
+      const tail = [point, ...points.slice(j + 1)];
+
+      // body candidate is only valid (and only needed) when i === 0
+      const body = i === 0 ? [...points.slice(0, j + 1), point] : null;
+
+      const score = (seg) => ({
+        len: seg.length,
+        area: seg.length >= 3 ? ringArea(seg) : 0,
+      });
+      const sh = score(head);
+      const sl = score(loop);
+      const st = score(tail);
+      const sb = body ? score(body) : { len: -1, area: -1 };
+
+      const beats = (a, b) =>
+        a.len > b.len || (a.len === b.len && a.area > b.area);
+
+      // Pick the candidate that beats all others. body beats loop by definition
+      // (same vertices plus P), so we only need to compare body vs tail.
+      let winner;
+      if (body && !beats(sh, sb) && !beats(sl, sb) && !beats(st, sb)) winner = body;
+      else if (!beats(sl, sh) && !beats(st, sh)) winner = head;
+      else if (!beats(sh, sl) && !beats(st, sl)) winner = loop;
+      else winner = tail;
+
+      // When the crossing was on edge 0→1 (i === 0) and the body candidate won,
+      // points[0] sits on the crossed edge itself and must be removed. The edge
+      // points[0]→points[1] was the one that got cut; retaining points[0] would
+      // leave a dangling line from the old start to the crossing point. Drop it
+      // so the result begins at points[1] and ends at P.
+      if (winner === body) winner = winner.slice(1);
+
+      // A degenerate cut that leaves fewer than 2 points is not useful — stop.
+      if (winner.length < 2) break;
+      points = winner;
+      changed = true;
+      continue;
+    }
+
     // Slice between the crossing edges. i < j is guaranteed by the scan order.
     const loopA = [point, ...points.slice(i + 1, j + 1)];
     const loopB = [point, ...points.slice(j + 1), ...points.slice(0, i + 1)];
