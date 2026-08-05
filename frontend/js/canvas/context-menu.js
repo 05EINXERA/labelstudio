@@ -62,6 +62,13 @@ export function initContextMenu() {
   // any visible effect (both just suppress the native menu); we add our own UI.
   canvas.addEventListener("contextmenu", (event) => {
     if (!view.imageLoaded) return;
+    // A polygon is mid-placement (first point clicked, not yet closed): the
+    // annotator needs every right-click to keep panning around the in-progress
+    // shape, not select/reorder some other completed annotation out from under
+    // them. Once the shape is closed view.drag reverts to null/other types and
+    // right-click selection resumes normally. Selecting a class without having
+    // placed a point yet is unaffected — view.drag isn't "draw-polygon" then.
+    if (view.drag?.type === "draw-polygon") return;
     // Right-click is also the pan gesture: pointerdown sets view.isPanning and
     // records view.panStart for *every* right-press, so isPanning alone can't
     // tell a tap from a drag. Distinguish by movement — contextmenu carries the
