@@ -17,6 +17,7 @@ from detector import (
     detect_objects,
     embed_image,
     segment_point,
+    get_inference_semaphore,
 )
 from schemas import ClassifyPayload, DetectPayload, EmbedPayload, SegmentPayload
 
@@ -73,14 +74,15 @@ def _create_job(db: Optional[Session] = None) -> str:
 def run_detect_job(job_id: str, payload: DetectPayload):
     db = SessionLocal()
     try:
-        response = detect_objects(
-            payload.image,
-            selection=payload.selection,
-            prompts=payload.prompts,
-            model_size=payload.model_size,
-            confidence=payload.confidence,
-            nms_threshold=payload.nms_threshold,
-        )
+        with get_inference_semaphore():
+            response = detect_objects(
+                payload.image,
+                selection=payload.selection,
+                prompts=payload.prompts,
+                model_size=payload.model_size,
+                confidence=payload.confidence,
+                nms_threshold=payload.nms_threshold,
+            )
         job = db.query(models.AIJob).filter(models.AIJob.id == job_id).first()
         if job:
             job.status = "completed"
@@ -106,7 +108,8 @@ def run_detect_job(job_id: str, payload: DetectPayload):
 def run_classify_job(job_id: str, payload: ClassifyPayload):
     db = SessionLocal()
     try:
-        response = classify_image(payload.image, selection=payload.selection)
+        with get_inference_semaphore():
+            response = classify_image(payload.image, selection=payload.selection)
         job = db.query(models.AIJob).filter(models.AIJob.id == job_id).first()
         if job:
             job.status = "completed"
@@ -132,15 +135,16 @@ def run_classify_job(job_id: str, payload: ClassifyPayload):
 def run_segment_job(job_id: str, payload: SegmentPayload):
     db = SessionLocal()
     try:
-        response = segment_point(
-            payload.image,
-            points=[{"x": p.x, "y": p.y} for p in payload.points],
-            labels=payload.labels,
-            prompt=payload.prompt,
-            precision=payload.precision,
-            bbox=payload.bbox,
-            sam_model=payload.sam_model,
-        )
+        with get_inference_semaphore():
+            response = segment_point(
+                payload.image,
+                points=[{"x": p.x, "y": p.y} for p in payload.points],
+                labels=payload.labels,
+                prompt=payload.prompt,
+                precision=payload.precision,
+                bbox=payload.bbox,
+                sam_model=payload.sam_model,
+            )
         job = db.query(models.AIJob).filter(models.AIJob.id == job_id).first()
         if job:
             job.status = "completed"
@@ -166,10 +170,11 @@ def run_segment_job(job_id: str, payload: SegmentPayload):
 def run_embed_job(job_id: str, payload: EmbedPayload):
     db = SessionLocal()
     try:
-        response = embed_image(
-            payload.image,
-            sam_model=payload.sam_model,
-        )
+        with get_inference_semaphore():
+            response = embed_image(
+                payload.image,
+                sam_model=payload.sam_model,
+            )
         job = db.query(models.AIJob).filter(models.AIJob.id == job_id).first()
         if job:
             job.status = "completed"

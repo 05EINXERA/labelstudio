@@ -77,7 +77,7 @@ if ($env:APP_ENV -eq "production") {
     }
 }
 
-Write-Host "`nStarting uvicorn...`n" -ForegroundColor Cyan
+Write-Host "`nStarting uvicorn (single-worker process, AnyIO threadpool enabled)...`n" -ForegroundColor Cyan
 
-# Run the app
-& python -m uvicorn main:app --host $env:APP_HOST --port $env:APP_PORT
+# Run the app in single-worker mode to unify ML model singletons and embedding cache
+& python -m uvicorn main:app --host $env:APP_HOST --port $env:APP_PORT --workers 1

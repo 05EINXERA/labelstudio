@@ -101,13 +101,22 @@ THREADPOOL_CAP = int(os.environ.get("THREADPOOL_CAP", "40"))
 # Postgres max_connections must be >= pool ceiling + admin headroom
 # (40 + 5 = 45 minimum; default Postgres is 100, which is fine).
 #
-# NOTE — multi-worker support (D3): JOBS and _TASK_LOCKS are now externalized
-#   to Postgres/SQLite tables (ai_jobs, task_locks). Multiple Uvicorn workers
-#   (--workers N) are now supported for increased LAN concurrency.
+# NOTE — Worker architecture:
+#   The application runs as a single Uvicorn worker process. HTTP concurrency
+#   is handled by Starlette's AnyIO threadpool (THREADPOOL_CAP=40), matching
+#   the DB pool ceiling. Running a single worker ensures that heavy PyTorch
+#   model singletons (YOLO, SAM, CLIP) and interactive SAM feature caches
+#   are shared in memory without multiplying VRAM/RAM footprint across processes.
 DB_POOL_SIZE = int(os.environ.get("DB_POOL_SIZE", "20"))
 DB_MAX_OVERFLOW = int(os.environ.get("DB_MAX_OVERFLOW", "20"))
 DB_POOL_TIMEOUT = int(os.environ.get("DB_POOL_TIMEOUT", "30"))
 DB_POOL_RECYCLE = int(os.environ.get("DB_POOL_RECYCLE", "1800"))
+
+# --- ML & Inference Concurrency ------------------------------------------
+# Bounds the number of concurrent heavy ML inference jobs running simultaneously.
+# Gating inference to 1-2 concurrent jobs prevents GPU VRAM and CPU thrashing
+# under simultaneous AI requests from multiple annotators.
+MAX_INFERENCE_CONCURRENCY = int(os.environ.get("MAX_INFERENCE_CONCURRENCY", "1"))
 
 # --- Auth -----------------------------------------------------------------
 JWT_SECRET = os.environ.get("JWT_SECRET", "").strip()

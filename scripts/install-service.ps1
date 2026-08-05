@@ -145,8 +145,8 @@ if ($env:DATABASE_URL -match '^postgresql(\+\w+)?://[^@]*@([^:/]+)(:(\d+))?/') {
 # Loop so that if uvicorn exits unexpectedly the wrapper restarts it.
 while ($true) {
     $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    Add-Content -Path $log -Value "$ts  [service] Starting uvicorn on ${bindHost}:${port}"
-    & "$repoRoot\venv\Scripts\uvicorn.exe" main:app --host $bindHost --port $port 2>&1 |
+    Add-Content -Path $log -Value "$ts  [service] Starting uvicorn on ${bindHost}:${port} (--workers 1)"
+    & "$repoRoot\venv\Scripts\uvicorn.exe" main:app --host $bindHost --port $port --workers 1 2>&1 |
         ForEach-Object { Add-Content -Path $log -Value "$(Get-Date -Format 'HH:mm:ss')  $_" }
     $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     Add-Content -Path $log -Value "$ts  [service] uvicorn exited - restarting in 5s"

@@ -6,7 +6,7 @@ import os
 import shutil
 import threading
 import urllib.request
-from config import DATA_DIR
+from config import DATA_DIR, MAX_INFERENCE_CONCURRENCY
 
 import cv2
 import numpy as np
@@ -21,7 +21,7 @@ model_path = MODEL_FILE if os.path.isabs(MODEL_FILE) else os.path.join(DETECTOR_
 download_url = os.environ.get(
     "YOLO_download_url",
     "https://github.com/ultralytics/assets/releases/download/v8.2.0/yolov8n-seg.pt", 
-)
+    )
 INPUT_SIZE = int(os.environ.get("YOLO_INPUT_SIZE", "640"))
 CONFIDENCE = float(os.environ.get("DETECT_CONFIDENCE", "0.35"))
 NMS_THRESHOLD = float(os.environ.get("DETECT_NMS", "0.45"))
@@ -33,6 +33,26 @@ CLIP_MODEL_NAME = "openai/clip-vit-base-patch32"
 YOLO_WORLD_MODEL = os.environ.get("YOLO_WORLD_MODEL", "yolov8s-worldv2.pt")
 
 Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
+
+# ---------------------------------------------------------------------------
+# ML Inference Concurrency Control & Memory Protection
+# ---------------------------------------------------------------------------
+_INFERENCE_SEMAPHORE = threading.BoundedSemaphore(value=max(1, MAX_INFERENCE_CONCURRENCY))
+
+
+def get_inference_semaphore() -> threading.BoundedSemaphore:
+    """Return the global semaphore gating concurrent PyTorch/OpenCV inferences."""
+    return _INFERENCE_SEMAPHORE
+
+
+def _evict_cache_if_needed(cache_dict: dict, lock: threading.RLock, max_size: int = 3) -> None:
+    """Thread-safe bounded LRU cache eviction to prevent process memory growth."""
+    with lock:
+        while len(cache_dict) > max_size:
+            oldest_key = next(iter(cache_dict))
+            popped = cache_dict.pop(oldest_key, None)
+            del popped
+
 
 _model = None
 _model_lock = threading.RLock()
