@@ -35,7 +35,11 @@ param(
 
 $results = @()
 
-function Add-Result([string]$Name, [bool]$Ok, [string]$Detail) {
+# $Ok is deliberately untyped so it can be $true, $false, or $null. $null means
+# "skipped" (e.g. the backup check with no -BackupDest) and must not count as a
+# failure. Typing it [bool] made PowerShell reject $null outright, which broke
+# every run that omitted -BackupDest.
+function Add-Result([string]$Name, $Ok, [string]$Detail) {
     $script:results += [pscustomobject]@{ Check = $Name; Ok = $Ok; Detail = $Detail }
 }
 
@@ -93,9 +97,21 @@ if ($BackupDest) {
 }
 
 # 5 - power plan / sleep settings
+# Checked by GUID, not by name: plan names are editable, and on the serving PC
+# the built-in High Performance scheme (381b4222-...) has been renamed
+# "Balanced", which made a name match report a false FAIL.
 $activeScheme = (powercfg /getactivescheme) 2>$null
-$isHighPerf = $activeScheme -match "High performance"
-Add-Result "Power plan = High Performance" $isHighPerf "$activeScheme"
+$isHighPerf = $activeScheme -match "381b4222-f694-41f0-9685-ff5bb260df2e"
+Add-Result "Power plan = High Performance (by GUID)" $isHighPerf "$activeScheme"
+
+# Minimum processor state on AC. Deliberately 50%, not the stock High
+# Performance 100%: 100% never downclocks even at idle, which on this
+# thermally-limited machine caused sustained heat and throttling (see the
+# POWER note in install-service.ps1). 50% keeps the box responsive for
+# annotators without pinning max clock.
+$procMin = (powercfg /query SCHEME_CURRENT SUB_PROCESSOR PROCTHROTTLEMIN 2>$null) -join "`n"
+$procMinAcOk = $procMin -match "Current AC Power Setting Index:\s*0x00000032"
+Add-Result "Min processor state (AC) = 50%" $procMinAcOk "Set with: powercfg /setacvalueindex SCHEME_CURRENT SUB_PROCESSOR PROCTHROTTLEMIN 50; powercfg /setactive SCHEME_CURRENT"
 
 $standbyAc = (powercfg /query SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 2>$null) -join "`n"
 $standbyOff = $standbyAc -match "Current AC Power Setting Index:\s*0x00000000"

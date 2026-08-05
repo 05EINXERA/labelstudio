@@ -20,12 +20,12 @@
         Unregister-ScheduledTask -TaskName "AnnotationApp" -Confirm:$false
 
     POWER: This script disables sleep/hibernate on AC power so the serving
-    PC doesn't sleep mid-shift. It does NOT switch your active power plan or
-    touch processor throttling - an earlier version force-switched to the
-    built-in "High performance" plan, which pins minimum CPU frequency at
-    100% even at idle; on a laptop that causes sustained heat and can lead
-    to thermal throttling and sluggishness. If you want just the sleep
-    change without running the whole script:
+    PC doesn't sleep mid-shift, and raises the minimum processor state to 50%
+    on AC for responsiveness under load. It does NOT switch your active power
+    plan - an earlier version force-switched to the built-in "High
+    performance" plan, whose 100% minimum CPU frequency causes sustained heat
+    and thermal throttling on a laptop. 50% is the deliberate middle ground.
+    If you want just the sleep change without running the whole script:
         powercfg /change standby-timeout-ac 0
         powercfg /change hibernate-timeout-ac 0
 
@@ -288,15 +288,23 @@ if ($applied.DisallowStartIfOnBatteries -or $applied.StopIfGoingOnBatteries) {
 # serving laptop and it sleeps mid-shift, dropping every annotator. If this
 # machine is a desktop the -dc settings are simply inert, so applying them
 # unconditionally costs nothing.
-Write-Host "Disabling sleep/hibernate on the current power plan (no plan switch, no processor throttle change)..."
+#
+# Processor throttling IS touched, but only the AC minimum, and only to 50% -
+# not the 100% that stock "High performance" applies. 50% keeps the serving
+# box off its lowest clocks (which showed up as lag on first request after an
+# idle period) without holding it at max clock and cooking it. Battery (DC) is
+# left alone so an unplugged machine still downclocks normally.
+Write-Host "Disabling sleep/hibernate on the current power plan (no plan switch)..."
 try {
     powercfg /change standby-timeout-ac 0
     powercfg /change hibernate-timeout-ac 0
     powercfg /change standby-timeout-dc 0
     powercfg /change hibernate-timeout-dc 0
     powercfg /hibernate off
+    powercfg /setacvalueindex SCHEME_CURRENT SUB_PROCESSOR PROCTHROTTLEMIN 50
+    powercfg /setactive SCHEME_CURRENT
     $current = (powercfg /getactivescheme)
-    Write-Host "Sleep/hibernate disabled on AC and battery. Active plan unchanged: $current"
+    Write-Host "Sleep/hibernate disabled on AC and battery; min processor state (AC) set to 50%. Active plan unchanged: $current"
 } catch {
     Write-Warning "Could not change sleep/hibernate settings: $_  (run manually: powercfg /change standby-timeout-ac 0; powercfg /change standby-timeout-dc 0)"
 }
