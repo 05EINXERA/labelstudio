@@ -100,6 +100,7 @@ $log = Join-Path $logDir "service.log"
 # parse the entire file.
 $bindHost = if ($env:APP_HOST) { $env:APP_HOST } else { "0.0.0.0" }
 $port     = if ($env:APP_PORT) { $env:APP_PORT } else { "8000" }
+$forwardedIps = if ($env:FORWARDED_ALLOW_IPS) { $env:FORWARDED_ALLOW_IPS } else { "127.0.0.1" }
 
 # Refuse to start if something else already owns the port. Without this the
 # wrapper restart-loops forever writing "address in use" while a stray
@@ -145,8 +146,8 @@ if ($env:DATABASE_URL -match '^postgresql(\+\w+)?://[^@]*@([^:/]+)(:(\d+))?/') {
 # Loop so that if uvicorn exits unexpectedly the wrapper restarts it.
 while ($true) {
     $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    Add-Content -Path $log -Value "$ts  [service] Starting uvicorn on ${bindHost}:${port} (--workers 1)"
-    & "$repoRoot\venv\Scripts\uvicorn.exe" main:app --host $bindHost --port $port --workers 1 2>&1 |
+    Add-Content -Path $log -Value "$ts  [service] Starting uvicorn on ${bindHost}:${port} (--workers 1 --proxy-headers)"
+    & "$repoRoot\venv\Scripts\uvicorn.exe" main:app --host $bindHost --port $port --workers 1 --proxy-headers --forwarded-allow-ips $forwardedIps 2>&1 |
         ForEach-Object { Add-Content -Path $log -Value "$(Get-Date -Format 'HH:mm:ss')  $_" }
     $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     Add-Content -Path $log -Value "$ts  [service] uvicorn exited - restarting in 5s"

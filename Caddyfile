@@ -1,0 +1,55 @@
+# Caddyfile — Reverse Proxy & TLS Configuration for Annotation Workspace
+#
+# Production reverse proxy terminating TLS on the LAN and forwarding to FastAPI/Uvicorn.
+#
+# Usage:
+#   1. Run `caddy run` (or install as service with `.\scripts\setup-caddy.ps1`)
+#   2. Caddy will automatically generate and manage local TLS certificates.
+#   3. To trust certificates across the LAN, run `caddy trust` on the server and
+#      export the root CA from `C:\Users\<user>\AppData\Roaming\Caddy\pki\authorities\local\root.crt`.
+
+{
+    # Global options
+    admin off
+    auto_https disable_redirects
+}
+
+# Bind to HTTPS (default 443) or custom domain/IP
+:443 {
+    # Internal automated TLS (local certificate authority)
+    tls internal
+
+    # Enable compression for text/json/js/css payloads
+    encode zstd gzip
+
+    # Limit request bodies to 300MB for dataset ZIP imports (matching MAX_IMPORT_BYTES)
+    request_body {
+        max_size 300MB
+    }
+
+    # Security headers
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains;"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "same-origin"
+    }
+
+    # Proxy to the local FastAPI/Uvicorn single-worker process
+    reverse_proxy 127.0.0.1:8000 {
+        # Transparently pass upstream proxy headers
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-Host {host}
+
+        # Immediate streaming response for long-running AI inference & export tasks
+        flush_interval -1
+    }
+}
+
+# Optional plaintext HTTP listener for automatic redirect to HTTPS
+:80 {
+    redir https://{host}{uri} permanent
+}

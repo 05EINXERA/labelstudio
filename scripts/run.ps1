@@ -67,6 +67,8 @@ Write-Host "  APP_HOST: $($env:APP_HOST ?? '127.0.0.1')" -ForegroundColor White
 Write-Host "  APP_PORT: $($env:APP_PORT ?? '8765')" -ForegroundColor White
 Write-Host "  CORS_ORIGINS: $($env:CORS_ORIGINS ?? '(none)' )" -ForegroundColor White
 Write-Host "  ALLOW_REGISTRATION: $($env:ALLOW_REGISTRATION ?? '1')" -ForegroundColor White
+Write-Host "  COOKIE_SECURE: $($env:COOKIE_SECURE ?? '0')" -ForegroundColor White
+Write-Host "  FORWARDED_ALLOW_IPS: $($env:FORWARDED_ALLOW_IPS ?? '127.0.0.1')" -ForegroundColor White
 
 # Remind about JWT_SECRET
 if ($env:APP_ENV -eq "production") {
@@ -77,7 +79,9 @@ if ($env:APP_ENV -eq "production") {
     }
 }
 
-Write-Host "`nStarting uvicorn (single-worker process, AnyIO threadpool enabled)...`n" -ForegroundColor Cyan
+Write-Host "`nStarting uvicorn (single-worker process, AnyIO threadpool enabled, proxy headers enabled)...`n" -ForegroundColor Cyan
+
+$forwardedIps = if ($env:FORWARDED_ALLOW_IPS) { $env:FORWARDED_ALLOW_IPS } else { "127.0.0.1" }
 
 # Run the app in single-worker mode to unify ML model singletons and embedding cache
-& python -m uvicorn main:app --host $env:APP_HOST --port $env:APP_PORT --workers 1
+& python -m uvicorn main:app --host $env:APP_HOST --port $env:APP_PORT --workers 1 --proxy-headers --forwarded-allow-ips $forwardedIps

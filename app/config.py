@@ -73,6 +73,12 @@ IS_PRODUCTION = APP_ENV == "production"
 APP_HOST = os.environ.get("APP_HOST", "127.0.0.1")
 APP_PORT = int(os.environ.get("APP_PORT", "8000"))
 
+# --- Reverse Proxy & TLS --------------------------------------------------
+# IP addresses trusted for X-Forwarded-* proxy headers (defaults to loopback).
+# When running behind a local Caddy/Nginx reverse proxy, set to "127.0.0.1" or "*" on trusted LAN.
+FORWARDED_ALLOW_IPS = os.environ.get("FORWARDED_ALLOW_IPS", "127.0.0.1").strip()
+PROXY_HEADERS = os.environ.get("PROXY_HEADERS", "1").strip().lower() in ("1", "true", "yes")
+
 # --- Database -------------------------------------------------------------
 # DATABASE_URL is authoritative. Without it we fall back to the historical
 # SQLite file so existing development checkouts keep working untouched.

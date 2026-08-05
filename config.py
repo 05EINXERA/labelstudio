@@ -23,6 +23,7 @@ from app.config import (
     DB_POOL_RECYCLE,
     DB_POOL_SIZE,
     DB_POOL_TIMEOUT,
+    FORWARDED_ALLOW_IPS,
     IS_PRODUCTION,
     IS_SQLITE,
     JWT_SECRET,
@@ -34,6 +35,7 @@ from app.config import (
     MAX_INFERENCE_CONCURRENCY,
     MAX_UPLOAD_FILES,
     MIN_PASSWORD_LENGTH,
+    PROXY_HEADERS,
     THREADPOOL_CAP,
     validate_config,
 )
@@ -53,6 +55,7 @@ __all__ = [
     "DB_POOL_RECYCLE",
     "DB_POOL_SIZE",
     "DB_POOL_TIMEOUT",
+    "FORWARDED_ALLOW_IPS",
     "IS_PRODUCTION",
     "IS_SQLITE",
     "JWT_SECRET",
@@ -64,6 +67,7 @@ __all__ = [
     "MAX_INFERENCE_CONCURRENCY",
     "MAX_UPLOAD_FILES",
     "MIN_PASSWORD_LENGTH",
+    "PROXY_HEADERS",
     "THREADPOOL_CAP",
     "validate_config",
 ]
