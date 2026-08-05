@@ -26,6 +26,9 @@ class ProjectUpdate(BaseModel):
     status: Optional[str] = None
     team_id: Optional[int] = None
 
+class ProjectTransferOwnership(BaseModel):
+    new_owner: str = Field(min_length=1, max_length=64)
+
 class TaskUpdate(BaseModel):
     id: Optional[int] = None
     assignee: Optional[str] = None

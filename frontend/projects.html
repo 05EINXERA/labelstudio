@@ -113,7 +113,34 @@
     </div>
   </div>
 
-  <script type="module" src="js/pages/projects-list.js?v=2"></script>
+  <!-- Transfer Project Ownership modal -->
+  <div class="modal-overlay" id="transferProjectModal">
+    <div class="modal-content" style="max-width: 420px;">
+      <div class="modal-header">
+        <h2 id="transferProjectModalTitle">Transfer Project Ownership</h2>
+        <button class="modal-close" id="transferProjectModalClose" type="button">&times;</button>
+      </div>
+      <div id="transferProjectModalError" style="display: none; padding: 10px 16px; background: #ffebee; color: #c62828; font-size: 0.9rem; border-bottom: 1px solid #ffcdd2;"></div>
+      <form id="transferProjectForm">
+        <input type="hidden" id="transferProjectId">
+        <div class="modal-body" style="display: grid; gap: 14px;">
+          <p style="font-size: .9rem; color: var(--muted);">Transfer ownership of project <strong id="transferProjectName" style="color: var(--ink);"></strong> to a team member.</p>
+          <label style="display: grid; gap: 6px;">
+            <span style="font-size: .85rem; color: var(--muted);">New Owner</span>
+            <select id="transferProjectNewOwnerSelect" required
+              style="padding: 9px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--ink);">
+            </select>
+          </label>
+        </div>
+        <div style="display: flex; gap: 10px; justify-content: flex-end; padding: 16px;">
+          <button type="button" class="tool-button" id="transferProjectFormCancel">Cancel</button>
+          <button type="submit" class="primary" style="padding: 9px 18px; border-radius: 6px;">Transfer</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script type="module" src="js/pages/projects-list.js?v=3"></script>
 </body>
 
 </html>

@@ -12,7 +12,7 @@ import models
 import schemas
 from config import DATA_DIR, MAX_UPLOAD_FILES
 from database import get_db, commit_with_retry
-from schemas import ProjectModel, ProjectMetrics, ProjectSummary
+from schemas import ProjectModel, ProjectMetrics, ProjectSummary, ProjectTransferOwnership
 from api.auth import get_current_user, require_csrf, get_current_annotator
 from formats.common import measure_image
 
@@ -265,6 +265,66 @@ def delete_project(project_id: int, request: Request, db: Session = Depends(get_
     db.delete(db_project)
     commit_with_retry(db)
     return {"status": "ok"}
+
+@router.patch("/{project_id}/transfer-ownership")
+@router.post("/{project_id}/transfer-ownership")
+def transfer_project_ownership(
+    project_id: int,
+    payload: schemas.ProjectTransferOwnership,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+    annotator: Optional[models.TeamMember] = Depends(get_current_annotator),
+):
+    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    caller_names = set()
+    if annotator:
+        caller_names.add(annotator.name)
+    if user:
+        caller_names.add(user.username)
+    header_name = request.headers.get("X-Annotator-Name")
+    if header_name:
+        caller_names.add(header_name)
+
+    is_owner = (project.creator in caller_names) or (project.owner_id == user.id)
+    if not is_owner:
+        raise HTTPException(status_code=403, detail="Only the project creator can transfer ownership")
+
+    new_owner = payload.new_owner.strip()
+    if not new_owner:
+        raise HTTPException(status_code=400, detail="New owner name cannot be empty")
+
+    if new_owner == project.creator or new_owner in caller_names:
+        raise HTTPException(status_code=400, detail="User is already the project creator")
+
+    target_user = db.query(models.User).filter(models.User.username == new_owner).first()
+    target_member = db.query(models.TeamMember).filter(models.TeamMember.name == new_owner).first()
+    if not target_user and not target_member:
+        raise HTTPException(status_code=400, detail="Target user does not exist")
+
+    if not target_member:
+        target_member = models.TeamMember(name=new_owner, time_logged=0)
+        db.add(target_member)
+
+    if project.team_id:
+        existing_assoc = db.query(models.TeamMemberAssociation).filter(
+            models.TeamMemberAssociation.team_id == project.team_id,
+            models.TeamMemberAssociation.member_name == new_owner,
+        ).first()
+        if not existing_assoc:
+            assoc = models.TeamMemberAssociation(member_name=new_owner, team_id=project.team_id)
+            db.add(assoc)
+
+    project.creator = new_owner
+    if target_user:
+        project.owner_id = target_user.id
+
+    commit_with_retry(db)
+    db.refresh(project)
+    return {"status": "ok", "id": project.id, "creator": project.creator}
 
 ALLOWED_UPLOAD_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.gif', '.webp'}
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024  # 25 MB per image
