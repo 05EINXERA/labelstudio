@@ -167,15 +167,11 @@ export function finalizePolygon() {
     save();
     return;
   }
-  // Clean up any closing edge self-intersections
+  // Clean up any closing edge self-intersections while preserving primary shape
   if (annotation.points && annotation.points.length >= 4) {
-    annotation.points = resolvePolygonClosingIntersections(annotation.points);
-    if (annotation.points.length < 3) {
-      state.annotations = state.annotations.filter((item) => item.id !== annotation.id);
-      state.selectedId = null;
-      render();
-      save();
-      return;
+    const cleaned = resolvePolygonClosingIntersections(annotation.points);
+    if (cleaned && cleaned.length >= 3) {
+      annotation.points = cleaned;
     }
   }
   // Auto-smooth: apply FFT low-pass filter when the toggle is enabled.
@@ -829,12 +825,8 @@ canvas.addEventListener("pointerdown", (event) => {
 
         const lastPoint = pts[pts.length - 1];
         if (!lastPoint || Math.hypot(lastPoint.x - pointInImage.x, lastPoint.y - pointInImage.y) > 1) {
-          const oldLen = pts.length;
           annotation.points = addPolygonPointResolvingIntersections(pts, pointInImage);
           updateAnnotationBounds(annotation);
-          if (annotation.points.length < oldLen) {
-            setStatus("Intersected sides removed");
-          }
           // A genuinely new vertex invalidates whatever was parked by prior
           // point-level undos — there is no longer a consistent "redo" path
           // back to points that came after a different vertex.

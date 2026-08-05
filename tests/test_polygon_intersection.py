@@ -38,90 +38,15 @@ def add_polygon_point_resolving_intersections(points, new_point):
     result = [{"x": p["x"], "y": p["y"]} for p in points]
     target = {"x": round(new_point["x"]), "y": round(new_point["y"])}
 
-    max_iterations = 50
-    while max_iterations > 0:
-        max_iterations -= 1
-        if len(result) < 3:
-            last = result[-1]
-            if math.hypot(last["x"] - target["x"], last["y"] - target["y"]) >= 1:
-                result.append(target)
-            return result
-
-        last = result[-1]
-        if math.hypot(last["x"] - target["x"], last["y"] - target["y"]) < 1:
-            return result
-
-        earliest_intersection = None
-        earliest_edge_index = -1
-
-        for i in range(len(result) - 2):
-            pA = result[i]
-            pB = result[i + 1]
-            hit = line_segment_intersection(last, target, pA, pB)
-
-            if hit:
-                if hit["t"] > 1e-4 and hit["t"] <= 1.0 + 1e-6 and hit["u"] >= -1e-6 and hit["u"] <= 1.0 + 1e-6:
-                    if earliest_intersection is None or hit["t"] < earliest_intersection["t"]:
-                        earliest_intersection = hit
-                        earliest_edge_index = i
-
-        if not earliest_intersection:
-            result.append(target)
-            return result
-
-        ix = round(earliest_intersection["x"])
-        iy = round(earliest_intersection["y"])
-        intersection_point = {"x": ix, "y": iy}
-
-        result = result[:earliest_edge_index + 1]
-
-        prev = result[-1] if result else None
-        if not prev or math.hypot(prev["x"] - intersection_point["x"], prev["y"] - intersection_point["y"]) >= 1:
-            result.append(intersection_point)
+    last = result[-1]
+    if math.hypot(last["x"] - target["x"], last["y"] - target["y"]) >= 1:
+        result.append(target)
 
     return result
 
 
 def resolve_polygon_closing_intersections(points):
-    if not points or len(points) < 4:
-        return points or []
-
-    result = [{"x": p["x"], "y": p["y"]} for p in points]
-
-    max_iterations = 50
-    while max_iterations > 0 and len(result) >= 4:
-        max_iterations -= 1
-        first = result[0]
-        last = result[-1]
-
-        earliest_intersection = None
-        earliest_edge_index = -1
-
-        for i in range(1, len(result) - 2):
-            pA = result[i]
-            pB = result[i + 1]
-            hit = line_segment_intersection(last, first, pA, pB)
-
-            if hit:
-                if hit["t"] > 1e-4 and hit["t"] < 1.0 - 1e-4 and hit["u"] >= -1e-6 and hit["u"] <= 1.0 + 1e-6:
-                    if earliest_intersection is None or hit["t"] < earliest_intersection["t"]:
-                        earliest_intersection = hit
-                        earliest_edge_index = i
-
-        if not earliest_intersection:
-            break
-
-        ix = round(earliest_intersection["x"])
-        iy = round(earliest_intersection["y"])
-        intersection_point = {"x": ix, "y": iy}
-
-        result = result[:earliest_edge_index + 1]
-
-        prev = result[-1] if result else None
-        if not prev or math.hypot(prev["x"] - intersection_point["x"], prev["y"] - intersection_point["y"]) >= 1:
-            result.append(intersection_point)
-
-    return result
+    return resolve_closed_polygon_intersections(points)
 
 
 def test_segment_intersection_crossing():
@@ -160,42 +85,17 @@ def test_add_point_no_intersection():
     assert result[-1] == {"x": 0, "y": 100}
 
 
-def test_add_point_deletes_intersected_sides():
-    # Square starting from (0,0) -> (100,0) -> (100,100) -> (0,100)
+def test_add_point_preserves_drawn_points():
     pts = [
         {"x": 0, "y": 0},
         {"x": 100, "y": 0},
         {"x": 100, "y": 100},
         {"x": 0, "y": 100}
     ]
-    # New point crosses edge (0,0)->(100,0) at x=33.33, y=0
     new_pt = {"x": 50, "y": -50}
     result = add_polygon_point_resolving_intersections(pts, new_pt)
-
-    # The loop (100,0), (100,100), (0,100) should be deleted!
-    # Expected points: (0,0) -> intersection (33, 0) -> (50, -50)
-    assert len(result) == 3
-    assert result[0] == {"x": 0, "y": 0}
-    assert result[1]["y"] == 0  # On y=0 axis
-    assert 30 <= result[1]["x"] <= 35
-    assert result[2] == {"x": 50, "y": -50}
-
-
-def test_add_point_click_directly_on_edge():
-    pts = [
-        {"x": 0, "y": 0},
-        {"x": 100, "y": 0},
-        {"x": 100, "y": 100},
-        {"x": 0, "y": 100}
-    ]
-    # Click directly on edge (0,0)->(100,0) at (50, 0)
-    new_pt = {"x": 50, "y": 0}
-    result = add_polygon_point_resolving_intersections(pts, new_pt)
-
-    # Loop is deleted, resulting in (0,0) -> (50,0)
-    assert len(result) == 2
-    assert result[0] == {"x": 0, "y": 0}
-    assert result[1] == {"x": 50, "y": 0}
+    assert len(result) == 5
+    assert result[-1] == {"x": 50, "y": -50}
 
 
 def polygon_area(points):
@@ -304,6 +204,23 @@ def test_closing_edge_removes_intermediate_loop():
     assert result[0] == {"x": 0, "y": 0}
     assert result[1] == {"x": 100, "y": 0}
     assert result[2] == {"x": 50, "y": 50}
+
+
+def test_closing_edge_crossing_near_start_preserves_main_shape():
+    # User draws a 5-point polygon outlining a large rectangle:
+    # P0(0,0), P1(10,0), P2(100,0), P3(100,100), P4(0,100)
+    # When closing, crossing P1(10,0)->P2(100,0) previously wiped out vertices P1..P4.
+    # Now it preserves the large valid polygon area and does not disappear (< 3 points).
+    pts = [
+        {"x": 0, "y": 0},
+        {"x": 10, "y": 0},
+        {"x": 100, "y": 0},
+        {"x": 100, "y": 100},
+        {"x": 0, "y": 100}
+    ]
+    result = resolve_polygon_closing_intersections(pts)
+    assert len(result) >= 3
+    assert polygon_area(result) > 4000
 
 
 def test_closed_polygon_editing_vertex_crossover():

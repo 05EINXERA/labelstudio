@@ -87,10 +87,8 @@ export function getLineSegmentsIntersection(p1, p2, p3, p4) {
 }
 
 /**
- * Appends a new point to an in-progress polygon, automatically detecting
- * and resolving any self-intersections. If the new segment crosses an earlier
- * non-adjacent edge, the self-intersecting loop of sides is deleted and replaced
- * with the exact intersection point before continuing to the new point.
+ * Appends a new point to an in-progress polygon, ensuring consecutive duplicates
+ * are filtered out without destructively truncating user-drawn vertices mid-drawing.
  */
 export function addPolygonPointResolvingIntersections(points, newPoint) {
   if (!Array.isArray(points) || points.length === 0) {
@@ -100,111 +98,20 @@ export function addPolygonPointResolvingIntersections(points, newPoint) {
   const result = points.map((p) => ({ x: Number(p.x) || 0, y: Number(p.y) || 0 }));
   const target = { x: round(newPoint.x), y: round(newPoint.y) };
 
-  let maxIterations = 50;
-  while (maxIterations-- > 0) {
-    if (result.length < 3) {
-      const last = result[result.length - 1];
-      if (Math.hypot(last.x - target.x, last.y - target.y) >= 1) {
-        result.push(target);
-      }
-      return result;
-    }
-
-    const last = result[result.length - 1];
-    if (Math.hypot(last.x - target.x, last.y - target.y) < 1) {
-      return result;
-    }
-
-    let earliestIntersection = null;
-    let earliestEdgeIndex = -1;
-
-    for (let i = 0; i <= result.length - 3; i++) {
-      const pA = result[i];
-      const pB = result[i + 1];
-      const hit = getLineSegmentsIntersection(last, target, pA, pB);
-
-      if (hit) {
-        if (hit.t > 1e-4 && hit.t <= 1.0 + 1e-6 && hit.u >= -1e-6 && hit.u <= 1.0 + 1e-6) {
-          if (!earliestIntersection || hit.t < earliestIntersection.t) {
-            earliestIntersection = hit;
-            earliestEdgeIndex = i;
-          }
-        }
-      }
-    }
-
-    if (!earliestIntersection) {
-      result.push(target);
-      return result;
-    }
-
-    const ix = round(earliestIntersection.x);
-    const iy = round(earliestIntersection.y);
-    const intersectionPoint = { x: ix, y: iy };
-
-    result.splice(earliestEdgeIndex + 1);
-
-    const prev = result[result.length - 1];
-    if (!prev || Math.hypot(prev.x - intersectionPoint.x, prev.y - intersectionPoint.y) >= 1) {
-      result.push(intersectionPoint);
-    }
+  const last = result[result.length - 1];
+  if (!last || Math.hypot(last.x - target.x, last.y - target.y) >= 1) {
+    result.push(target);
   }
 
   return result;
 }
 
 /**
- * Resolves self-intersections when closing a polygon (connecting the last
- * vertex back to the first vertex). Deletes any intermediate sides intersected
- * by the closing edge.
+ * Resolves self-intersections when closing a polygon by finding loops and preserving
+ * the primary valid polygon area using shoelace area comparison.
  */
 export function resolvePolygonClosingIntersections(points) {
-  if (!Array.isArray(points) || points.length < 4) {
-    return points || [];
-  }
-
-  const result = points.map((p) => ({ x: Number(p.x) || 0, y: Number(p.y) || 0 }));
-
-  let maxIterations = 50;
-  while (maxIterations-- > 0 && result.length >= 4) {
-    const first = result[0];
-    const last = result[result.length - 1];
-
-    let earliestIntersection = null;
-    let earliestEdgeIndex = -1;
-
-    for (let i = 1; i <= result.length - 3; i++) {
-      const pA = result[i];
-      const pB = result[i + 1];
-      const hit = getLineSegmentsIntersection(last, first, pA, pB);
-
-      if (hit) {
-        if (hit.t > 1e-4 && hit.t < 1.0 - 1e-4 && hit.u >= -1e-6 && hit.u <= 1.0 + 1e-6) {
-          if (!earliestIntersection || hit.t < earliestIntersection.t) {
-            earliestIntersection = hit;
-            earliestEdgeIndex = i;
-          }
-        }
-      }
-    }
-
-    if (!earliestIntersection) {
-      break;
-    }
-
-    const ix = round(earliestIntersection.x);
-    const iy = round(earliestIntersection.y);
-    const intersectionPoint = { x: ix, y: iy };
-
-    result.splice(earliestEdgeIndex + 1);
-
-    const prev = result[result.length - 1];
-    if (!prev || Math.hypot(prev.x - intersectionPoint.x, prev.y - intersectionPoint.y) >= 1) {
-      result.push(intersectionPoint);
-    }
-  }
-
-  return result;
+  return resolveClosedPolygonIntersections(points);
 }
 
 /**
