@@ -125,6 +125,30 @@ def test_area_equals_bbox_area_for_a_rectangle(client, alice):
 # Annotation key set
 # ---------------------------------------------------------------------------
 
+def test_export_does_not_raise_on_a_self_intersecting_polygon(client, alice, caplog):
+    """A tangled ring can reach a task without going through the canvas at all
+    (a hand-edited draft, a row saved before this feature existed, direct API
+    use). Export must still succeed — a data-quality issue is not a reason to
+    fail the whole job — and it should say so in the log rather than silently
+    producing a segmentation whose area/rendering won't match the annotator.
+    """
+    pid = _new_project(client, alice)
+    lid = _new_label(client, alice, pid, "lbl-bowtie", "Bowtie")
+    _new_task(client, alice, pid, "bowtie.png", annotations=[{
+        "id": "a1", "labelId": lid, "type": "polygon",
+        "points": [{"x": 0, "y": 0}, {"x": 10, "y": 10}, {"x": 10, "y": 0}, {"x": 0, "y": 10}],
+    }])
+
+    with caplog.at_level("WARNING", logger="formats.coco"):
+        export = _export_coco(client, alice, pid)
+
+    assert len(export["annotations"]) == 1
+    ann = export["annotations"][0]
+    # Exported verbatim — export never rewrites a stored annotation's geometry.
+    assert len(ann["segmentation"][0]) == 8
+    assert any("self-intersecting" in rec.message for rec in caplog.records)
+
+
 def test_annotation_key_set_matches_interop(client, alice):
     """Compared against the real the interop format COCO export's annotation keys."""
     with open(os.path.join(FIXTURES, "coco_annotations.json"), encoding="utf-8") as fh:
@@ -271,6 +295,44 @@ def test_parse_multipolygon_becomes_separate_annotations():
         }],
     }
     assert len(coco_format.parse(doc)["a.png"]) == 2
+
+
+def test_parse_untangles_a_self_intersecting_segmentation():
+    """A self-intersecting ring from an external tool is normalised on import.
+
+    This is the one place a self-intersecting polygon is silently rewritten —
+    see untangle_polygon's docstring for why that's safe here (foreign data
+    being brought in) and nowhere else (never a stored task's own geometry).
+    A bowtie (0,0)->(10,10)->(10,0)->(0,10) crosses at (5,5); the resolved
+    ring must be simple and keep that point as a vertex.
+    """
+    doc = {
+        "images": [{"id": 1, "file_name": "a.png"}],
+        "categories": [{"id": 1, "name": "X"}],
+        "annotations": [{
+            "image_id": 1, "category_id": 1,
+            "segmentation": [[0, 0, 10, 10, 10, 0, 0, 10]],
+        }],
+    }
+    ann = coco_format.parse(doc)["a.png"][0]
+    from formats.common import is_simple_polygon
+    assert is_simple_polygon(ann["points"])
+    assert any(p["x"] == pytest.approx(5) and p["y"] == pytest.approx(5) for p in ann["points"])
+
+
+def test_parse_leaves_a_simple_polygon_unchanged():
+    doc = {
+        "images": [{"id": 1, "file_name": "a.png"}],
+        "categories": [{"id": 1, "name": "X"}],
+        "annotations": [{
+            "image_id": 1, "category_id": 1,
+            "segmentation": [[0, 0, 10, 0, 10, 10, 0, 10]],
+        }],
+    }
+    ann = coco_format.parse(doc)["a.png"][0]
+    assert ann["points"] == [
+        {"x": 0, "y": 0}, {"x": 10, "y": 0}, {"x": 10, "y": 10}, {"x": 0, "y": 10},
+    ]
 
 
 def test_parse_skips_annotation_with_unknown_image():

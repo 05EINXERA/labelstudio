@@ -1,6 +1,7 @@
 import { generateUUID, clamp, round } from "../utils.js?v=1";
 import { state, snapshot, isAnnotationHidden } from "../state.js?v=2";
 import { annotationPoints, updateAnnotationBounds, pointInPolygon } from "./geometry.js?v=1";
+import { untangleRing } from "./untangle.js?v=1";
 import { view } from "./view.js?v=1";
 import { draw, drawAllLayers } from "./draw.js?v=1";
 import { canvas, undoButton } from "../dom.js?v=1";
@@ -90,6 +91,47 @@ export function hitTestLine(point, annotation) {
   return -1;
 }
 
+// Resolve a polygon that an edit just made cross itself: the outside loop is
+// dropped and the crossing becomes a vertex. See untangle.js for the algorithm.
+//
+// The `type === "polygon"` guard is the containment boundary for this whole
+// feature. Boxes go through several of the same handlers (updateAnnotationBounds
+// is shared by every shape), and a bbox must never be reshaped by this — its
+// four corners are load-bearing for `_is_axis_aligned_rect` in
+// formats/common.py, which is what keeps a box exporting as a box. Comments
+// carry no points at all.
+//
+// Returns true when the ring was actually rewritten, so callers can report it.
+// Takes no snapshot of its own: every call site either already snapshotted for
+// the edit it is part of, or is a click on an in-progress polygon that
+// deliberately stays out of state.history (see undoLastPoint).
+function untangleIfPolygon(annotation, anchor) {
+  if (!annotation || annotation.type !== "polygon") return false;
+  const pts = annotation.points;
+  if (!Array.isArray(pts) || pts.length < 4) return false;
+  const result = untangleRing(pts, anchor);
+  if (!result.changed) return false;
+  annotation.points = result.points;
+  return true;
+}
+
+// Untangle after a vertex or edge removal. Deleting points stitches the two
+// neighbours together with a new edge, and that new edge can cut straight
+// across the far side of the shape — it is the easiest way to produce a
+// crossing without dragging anything. There is no anchor here: the vertex the
+// annotator interacted with is the one that just went away.
+//
+// Also clears the hover/selection indices, which refer to positions in the ring
+// that the removal (and any untangle) has just shifted.
+function afterPointRemoval(annotation) {
+  const untangled = untangleIfPolygon(annotation);
+  view.selectedLineIndex = -1;
+  view.hoveredLineIndex = -1;
+  view.hoveredPointIndex = -1;
+  updateAnnotationBounds(annotation);
+  return untangled;
+}
+
 export function replaceAnnotation(updated) {
   state.annotations = state.annotations.map((item) => (
     item.id === updated.id ? updated : item
@@ -160,6 +202,18 @@ export function finalizePolygon() {
     save();
     return;
   }
+  // Resolve any self-crossing before smoothing. Freehand tracing is sampled on
+  // pointermove, so a stroke that loops back over itself lays down a crossing
+  // mid-drag; untangling there would collapse the ring under the moving cursor,
+  // which then continues drawing into a re-indexed array. Deferring to finalize
+  // keeps the stroke stable and resolves it once, at the moment the shape is
+  // committed. No anchor: by this point no single vertex is "the one just
+  // placed", so area alone decides.
+  //
+  // Must run before applyAutoSmooth — the FFT low-pass treats points as one
+  // ordered contour, and running it over a tangled ring smears the two loops
+  // into each other rather than filtering either.
+  const untangled = untangleIfPolygon(annotation);
   // Auto-smooth: apply FFT low-pass filter when the toggle is enabled.
   // Called before updateAnnotationBounds so the bounds reflect the smoothed points.
   applyAutoSmooth(annotation);
@@ -168,7 +222,7 @@ export function finalizePolygon() {
   state.justFinalized = true;
   render();
   save();
-  setStatus("Select class for next");
+  setStatus(untangled ? "Overlap removed — select class for next" : "Select class for next");
 }
 
 // Point-level undo/redo for an in-progress (not yet finalized) polygon.
@@ -621,7 +675,7 @@ canvas.addEventListener("pointerdown", (event) => {
       if (ptIndex !== -1) {
         snapshot();
         selected.points.splice(ptIndex, 1);
-        updateAnnotationBounds(selected);
+        if (afterPointRemoval(selected)) setStatus("Overlap removed");
         render();
         save();
         return;
@@ -633,9 +687,7 @@ canvas.addEventListener("pointerdown", (event) => {
         const toRemove = [lnIndex, nextIndex].sort((a, b) => b - a);
         selected.points.splice(toRemove[0], 1);
         selected.points.splice(toRemove[1], 1);
-        view.selectedLineIndex = -1;
-        view.hoveredLineIndex = -1;
-        updateAnnotationBounds(selected);
+        if (afterPointRemoval(selected)) setStatus("Overlap removed");
         render();
         save();
         return;
@@ -811,11 +863,20 @@ canvas.addEventListener("pointerdown", (event) => {
 
         const lastPoint = pts[pts.length - 1];
         if (!lastPoint || Math.hypot(lastPoint.x - pointInImage.x, lastPoint.y - pointInImage.y) > 1) {
-          annotation.points.push({ x: round(pointInImage.x), y: round(pointInImage.y) });
+          const placed = { x: round(pointInImage.x), y: round(pointInImage.y) };
+          annotation.points.push(placed);
+          // Each click is a discrete committed action, so a crossing it creates
+          // is resolved immediately rather than at finalize — the annotator sees
+          // the shape they will keep while they are still placing points. The
+          // click itself is the anchor, so it survives the cut.
+          if (untangleIfPolygon(annotation, placed)) {
+            setStatus("Overlap removed");
+          }
           updateAnnotationBounds(annotation);
           // A genuinely new vertex invalidates whatever was parked by prior
           // point-level undos — there is no longer a consistent "redo" path
-          // back to points that came after a different vertex.
+          // back to points that came after a different vertex. This holds all
+          // the more once an untangle has re-indexed the ring.
           if (view.drag.undonePoints) view.drag.undonePoints = [];
         }
       }
@@ -1007,10 +1068,10 @@ canvas.addEventListener("dblclick", (event) => {
       if (ptIndex !== -1) {
         snapshot();
         selected.points.splice(ptIndex, 1);
-        updateAnnotationBounds(selected);
+        const untangled = afterPointRemoval(selected);
         render();
         save();
-        setStatus("Vertex removed");
+        setStatus(untangled ? "Vertex removed — overlap removed" : "Vertex removed");
         return;
       }
     }
@@ -1024,7 +1085,31 @@ canvas.addEventListener("pointerup", (e) => {
     return;
   }
   if (view.drag?.type === "move-point") {
+    // Untangle on release, not on every pointermove. Rewriting the ring
+    // mid-drag would invalidate view.drag.pointIndex the instant it happened,
+    // leaving the annotator dragging a vertex that no longer exists at that
+    // index — they would silently start reshaping some other part of the
+    // polygon. Deferring to release keeps pointIndex valid for the whole
+    // gesture; the crossing stays visible while dragging and resolves when
+    // the vertex is dropped.
+    const annotation = state.annotations.find((item) => item.id === view.drag.annotationId);
+    // The dragged vertex is the anchor, so a symmetric split keeps the half
+    // the annotator was actually working in.
+    const anchor = annotation?.points?.[view.drag.pointIndex];
+    const untangled = untangleIfPolygon(annotation, anchor);
+    if (untangled) {
+      updateAnnotationBounds(annotation);
+      // The ring was re-indexed, so any hover/selection referring to the old
+      // indices now points at unrelated geometry.
+      view.hoveredPointIndex = -1;
+      view.hoveredLineIndex = -1;
+      view.selectedLineIndex = -1;
+      setStatus("Overlap removed");
+    }
     view.drag = null;
+    // snapshot() was already taken at pointerdown, so one Ctrl+Z undoes the
+    // move and the untangle together — they are one edit from the user's side.
+    if (untangled) render();
     save();
     return;
   }
@@ -1160,11 +1245,10 @@ window.addEventListener("keydown", (event) => {
         if (selected && selected.points && selected.points.length > 3) {
           snapshot();
           selected.points.splice(view.hoveredPointIndex, 1);
-          view.hoveredPointIndex = -1;
-          updateAnnotationBounds(selected);
+          const untangled = afterPointRemoval(selected);
           render();
           save();
-          setStatus("Vertex deleted");
+          setStatus(untangled ? "Vertex deleted — overlap removed" : "Vertex deleted");
           return;
         }
       }
@@ -1177,12 +1261,10 @@ window.addEventListener("keydown", (event) => {
           const toRemove = [view.selectedLineIndex, nextIndex].sort((a, b) => b - a);
           selected.points.splice(toRemove[0], 1);
           selected.points.splice(toRemove[1], 1);
-          view.selectedLineIndex = -1;
-          view.hoveredLineIndex = -1;
-          updateAnnotationBounds(selected);
+          const untangled = afterPointRemoval(selected);
           render();
           save();
-          setStatus("Line segment deleted");
+          setStatus(untangled ? "Line segment deleted — overlap removed" : "Line segment deleted");
           return;
         }
       }

@@ -24,9 +24,11 @@ from formats.common import (
     flatten_points,
     image_size,
     is_annotation,
+    is_simple_polygon,
     points_of,
     polygon_area,
     round2,
+    untangle_polygon,
     unflatten_points,
     value_from_name,
     values_for_labels,
@@ -86,6 +88,20 @@ def build(tasks: Sequence[models.Task], labels: Sequence[models.Label], db=None)
             points = points_of(ann)
             if len(points) < 2:
                 continue
+            if len(points) >= 4 and not is_simple_polygon(points):
+                # The canvas resolves crossings as the annotator edits (see
+                # frontend/js/canvas/untangle.js), so this should be rare — model
+                # output and legacy/imported rows are the paths that skip it.
+                # COCO's segmentation/area semantics assume a simple ring; a
+                # self-intersecting one still exports (never block an export
+                # over a data-quality issue), but downstream tools may render or
+                # measure it inconsistently, so it's worth a name in the log.
+                logger.warning(
+                    "Task %s annotation %s is a self-intersecting polygon; "
+                    "exported segmentation/area may not match how it renders "
+                    "in the annotator.",
+                    task.id, ann.get("id"),
+                )
             x, y, w, h = bbox_of(points)
             annotations.append({
                 "id": ann_id,
@@ -169,6 +185,19 @@ def parse(data: dict) -> Dict[str, List[dict]]:
                 resolved_type = shape_type
             if len(points) < 2:
                 continue
+            if len(points) >= 4 and not is_simple_polygon(points):
+                # Normalise foreign geometry on the way in — see
+                # untangle_polygon's docstring for why this is safe here and
+                # nowhere else (only on freshly-parsed import data, never
+                # against a stored task).
+                points, was_untangled = untangle_polygon(points)
+                if was_untangled:
+                    logger.warning(
+                        "Imported COCO annotation for image %s is a "
+                        "self-intersecting polygon; resolved to its larger "
+                        "loop on import.",
+                        img.get("file_name"),
+                    )
             x, y, w, h = bbox_of(points)
             record = {
                 "id": uuid4().hex,

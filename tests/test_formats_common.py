@@ -20,11 +20,13 @@ from formats.common import (
     from_external_status,
     image_size,
     is_annotation,
+    is_simple_polygon,
     measure_image,
     points_of,
     polygon_area,
     safe_stem,
     to_external_status,
+    untangle_polygon,
     unflatten_points,
     value_from_name,
     values_for_labels,
@@ -75,6 +77,95 @@ def test_points_of_falls_back_to_bbox_corners():
     assert points_of(ann) == [
         {"x": 5, "y": 10}, {"x": 25, "y": 10}, {"x": 25, "y": 40}, {"x": 5, "y": 40},
     ]
+
+
+# ---------------------------------------------------------------------------
+# Self-intersection ("criss-cross") — server-side mirror of untangle.js.
+#
+# The agreement with the JS spec (tests/js/untangle_spec.mjs) is what matters:
+# both sides must call the same rings simple/tangled and pick the same winner,
+# or an annotation that looked resolved on the canvas could still trip the
+# export warning, or an import could untangle a ring differently than the
+# canvas would have. These fixtures are deliberately the same shapes as the
+# JS spec's, so a divergence between the two ports shows up as a value
+# mismatch here rather than as two suites that both pass in isolation.
+# ---------------------------------------------------------------------------
+
+def test_is_simple_polygon_true_for_ordinary_shapes():
+    square = [{"x": 0, "y": 0}, {"x": 10, "y": 0}, {"x": 10, "y": 10}, {"x": 0, "y": 10}]
+    concave = [
+        {"x": 0, "y": 0}, {"x": 10, "y": 0}, {"x": 10, "y": 10},
+        {"x": 5, "y": 4}, {"x": 0, "y": 10},
+    ]
+    triangle = [{"x": 0, "y": 0}, {"x": 10, "y": 0}, {"x": 5, "y": 10}]
+    assert is_simple_polygon(square)
+    assert is_simple_polygon(concave)
+    assert is_simple_polygon(triangle)
+
+
+def test_is_simple_polygon_short_rings_are_always_simple():
+    assert is_simple_polygon([])
+    assert is_simple_polygon([{"x": 0, "y": 0}, {"x": 1, "y": 1}])
+    assert is_simple_polygon([{"x": 0, "y": 0}, {"x": 5, "y": 0}, {"x": 0, "y": 5}])
+
+
+def test_is_simple_polygon_detects_a_bowtie():
+    bowtie = [{"x": 0, "y": 0}, {"x": 10, "y": 10}, {"x": 10, "y": 0}, {"x": 0, "y": 10}]
+    assert not is_simple_polygon(bowtie)
+
+
+def test_is_simple_polygon_ignores_collinear_overlap():
+    """Edges lying along one another enclose no area and are not a crossing."""
+    collinear = [{"x": 0, "y": 0}, {"x": 10, "y": 0}, {"x": 5, "y": 0}, {"x": 5, "y": 10}]
+    assert is_simple_polygon(collinear)
+
+
+def test_untangle_polygon_leaves_simple_rings_untouched():
+    square = [{"x": 0, "y": 0}, {"x": 10, "y": 0}, {"x": 10, "y": 10}, {"x": 0, "y": 10}]
+    points, changed = untangle_polygon(square)
+    assert changed is False
+    assert points == square
+
+
+def test_untangle_polygon_resolves_a_bowtie_and_keeps_the_crossing_as_a_vertex():
+    bowtie = [{"x": 0, "y": 0}, {"x": 10, "y": 10}, {"x": 10, "y": 0}, {"x": 0, "y": 10}]
+    points, changed = untangle_polygon(bowtie)
+    assert changed is True
+    assert is_simple_polygon(points)
+    assert any(p["x"] == pytest.approx(5) and p["y"] == pytest.approx(5) for p in points)
+    assert len(points) >= 3
+
+
+def test_untangle_polygon_drops_the_smaller_loop():
+    """A square with one corner dragged past the opposite edge: the small
+    triangular ear must go, the large body must survive."""
+    eared = [
+        {"x": 0, "y": 0}, {"x": 100, "y": 0}, {"x": 100, "y": 100},
+        {"x": 140, "y": 50}, {"x": 0, "y": 100},
+    ]
+    points, changed = untangle_polygon(eared)
+    assert changed is True
+    assert is_simple_polygon(points)
+    assert polygon_area(points) > polygon_area(eared) * 0.5
+    assert not any(p["x"] == 140 and p["y"] == 50 for p in points)
+    assert any(p["x"] == 0 and p["y"] == 0 for p in points)
+
+
+def test_untangle_polygon_is_idempotent():
+    bowtie = [{"x": 0, "y": 0}, {"x": 10, "y": 10}, {"x": 10, "y": 0}, {"x": 0, "y": 10}]
+    once, _ = untangle_polygon(bowtie)
+    twice, changed_again = untangle_polygon(once)
+    assert changed_again is False
+    assert twice == once
+
+
+def test_untangle_polygon_handles_degenerate_input_without_raising():
+    assert untangle_polygon([]) == ([], False)
+    assert untangle_polygon([{"x": 0, "y": 0}, {"x": 5, "y": 5}]) == (
+        [{"x": 0, "y": 0}, {"x": 5, "y": 5}], False,
+    )
+    triangle = [{"x": 0, "y": 0}, {"x": 5, "y": 0}, {"x": 0, "y": 5}]
+    assert untangle_polygon(triangle) == (triangle, False)
 
 
 def test_flatten_unflatten_round_trip():

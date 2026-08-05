@@ -83,6 +83,127 @@ def polygon_area(points: Sequence[dict]) -> float:
 
 
 # ---------------------------------------------------------------------------
+# Self-intersection
+# ---------------------------------------------------------------------------
+#
+# Mirror of the detection half of `frontend/js/canvas/untangle.js`. The canvas
+# resolves crossings as the annotator edits, so stored geometry should already
+# be simple; this exists because "should" is not "is" — rows predate the
+# feature, imports arrive from other tools, and model output is deliberately
+# never untangled.
+#
+# Detection only. Nothing here rewrites a user's saved geometry: a
+# self-intersecting polygon is a quality problem, not a correctness or security
+# one, and silently deleting a lobe of someone's label server-side would be far
+# worse than exporting an awkward shape. Exports warn; imports of foreign data
+# are the one place normalisation is appropriate, and that happens at the
+# import call site, not here.
+
+_INTERSECT_EPS = 1e-9
+
+
+def _cross_sign(ox: float, oy: float, ax: float, ay: float, bx: float, by: float) -> float:
+    return (ax - ox) * (by - oy) - (ay - oy) * (bx - ox)
+
+
+def segments_properly_intersect(p1: dict, p2: dict, p3: dict, p4: dict) -> bool:
+    """True when p1-p2 and p3-p4 cross in their interiors.
+
+    Shared endpoints and collinear overlap are not crossings — adjacent edges of
+    any ring share a vertex, so counting those would call every polygon
+    self-intersecting. Matches `segmentsIntersect` in untangle.js.
+    """
+    d1 = _cross_sign(p3["x"], p3["y"], p4["x"], p4["y"], p1["x"], p1["y"])
+    d2 = _cross_sign(p3["x"], p3["y"], p4["x"], p4["y"], p2["x"], p2["y"])
+    d3 = _cross_sign(p1["x"], p1["y"], p2["x"], p2["y"], p3["x"], p3["y"])
+    d4 = _cross_sign(p1["x"], p1["y"], p2["x"], p2["y"], p4["x"], p4["y"])
+    if min(abs(d1), abs(d2), abs(d3), abs(d4)) < _INTERSECT_EPS:
+        return False
+    return (d1 > 0) != (d2 > 0) and (d3 > 0) != (d4 > 0)
+
+
+def _find_first_self_intersection(points: Sequence[dict]) -> Optional[Tuple[int, int, dict]]:
+    n = len(points)
+    if n < 4:
+        return None
+    for i in range(n):
+        a1, a2 = points[i], points[(i + 1) % n]
+        for j in range(i + 1, n):
+            if j == i + 1:
+                continue
+            if i == 0 and j == n - 1:
+                continue
+            b1, b2 = points[j], points[(j + 1) % n]
+            if segments_properly_intersect(a1, a2, b1, b2):
+                point = _segment_intersection_point(a1, a2, b1, b2)
+                if point is not None:
+                    return i, j, point
+    return None
+
+
+def _segment_intersection_point(p1: dict, p2: dict, p3: dict, p4: dict) -> Optional[dict]:
+    denom = (p2["x"] - p1["x"]) * (p4["y"] - p3["y"]) - (p2["y"] - p1["y"]) * (p4["x"] - p3["x"])
+    if abs(denom) < _INTERSECT_EPS:
+        return None
+    t = (
+        (p3["x"] - p1["x"]) * (p4["y"] - p3["y"]) - (p3["y"] - p1["y"]) * (p4["x"] - p3["x"])
+    ) / denom
+    return {"x": p1["x"] + t * (p2["x"] - p1["x"]), "y": p1["y"] + t * (p2["y"] - p1["y"])}
+
+
+def is_simple_polygon(points: Sequence[dict]) -> bool:
+    """True when the ring has no proper self-intersection.
+
+    Rings of fewer than 4 points cannot cross and are always simple.
+    """
+    return _find_first_self_intersection(points) is None
+
+
+def untangle_polygon(points: Sequence[dict]) -> Tuple[List[dict], bool]:
+    """Python port of `untangleRing` in frontend/js/canvas/untangle.js.
+
+    Used ONLY on import (see formats/coco.py `parse`): normalising a
+    self-intersecting ring arriving from an external tool is safe because it is
+    foreign data being brought in, not a live rewrite of something a user is
+    mid-edit on. Never call this against a stored task's annotations directly —
+    that rewrite belongs to the canvas, where the user sees it happen and it
+    counts as one undo step; a background/import job silently editing a saved
+    annotation's geometry is exactly the kind of surprise rule 1c-adjacent
+    guarantees in this codebase exist to prevent.
+
+    No anchor/tie-break here (see the JS docstring for what that means): there
+    is no "vertex the user just placed" for an already-authored external file,
+    so an exact-tie split falls back to keeping the first loop, deterministically.
+
+    Returns (points, changed).
+    """
+    original = list(points) if points else []
+    if len(original) < 4:
+        return original, False
+
+    pts = original
+    changed = False
+    for _ in range(len(original)):
+        hit = _find_first_self_intersection(pts)
+        if not hit:
+            break
+        i, j, point = hit
+        loop_a = [point] + pts[i + 1:j + 1]
+        loop_b = [point] + pts[j + 1:] + pts[:i + 1]
+        area_a = polygon_area(loop_a) if len(loop_a) >= 3 else 0.0
+        area_b = polygon_area(loop_b) if len(loop_b) >= 3 else 0.0
+        if area_a < 0.5 and area_b < 0.5:
+            break
+        winner = loop_a if area_a >= area_b else loop_b
+        if len(winner) < 3:
+            break
+        pts = winner
+        changed = True
+
+    return pts, changed
+
+
+# ---------------------------------------------------------------------------
 # Annotation shape type (gap G1)
 # ---------------------------------------------------------------------------
 
