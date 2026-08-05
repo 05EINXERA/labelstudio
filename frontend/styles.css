@@ -2183,6 +2183,73 @@ table.data-table tbody tr:last-child td { border-bottom: none; }
   color: #b3313d; font-size: .9rem;
 }
 
+/* --- upload progress ---------------------------------------------------- */
+
+/* Container shown while a batched upload is in flight. */
+.upload-progress-box {
+  padding: 12px 14px;
+  border-radius: 8px;
+  margin-bottom: 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+}
+
+.upload-progress-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.upload-progress-label {
+  font-size: .88rem;
+  font-weight: 600;
+  color: var(--ink);
+  min-width: 0;
+}
+
+.upload-progress-pct {
+  font-size: .82rem;
+  font-weight: 700;
+  color: var(--accent-dark);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Track + animated fill */
+.upload-progress-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--line);
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.upload-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  width: 0%;
+  transition: width 0.25s ease;
+}
+
+/* Abort button — sits right-aligned below the bar */
+.upload-abort-btn {
+  font-size: .78rem;
+  padding: 3px 10px;
+  min-height: 26px;
+  border-radius: 6px;
+  border: 1px solid rgba(224,82,96,.4);
+  background: transparent;
+  color: #b3313d;
+  cursor: pointer;
+  font-weight: 600;
+}
+.upload-abort-btn:hover {
+  background: rgba(224,82,96,.08);
+}
+
 /* --- project workspace shell -------------------------------------------- */
 
 .project-shell { display: flex; min-height: calc(100vh - 56px); align-items: stretch; }

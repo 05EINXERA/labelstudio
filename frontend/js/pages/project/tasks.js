@@ -10,6 +10,11 @@
  *    single-shared-account deployment (L2/T2.3 trade-off decision).
  *  - The upload endpoint now reports per-file success/failure (P3.1), so the
  *    UI shows a summary instead of a single "Upload failed" alert.
+ *
+ * Upload is batched on the client (BATCH_SIZE files per request) so the task
+ * table populates incrementally — new rows appear after each batch rather than
+ * all at once at the end. An XHR progress event drives the progress bar and
+ * the "X / N uploaded" counter. An abort button cancels mid-flight.
  */
 import { apiFetch } from "../../api.js?v=1";
 import { escapeHTML, formatTime } from "../../utils.js?v=1";
@@ -33,29 +38,148 @@ let table = null;
 
 // Active filter values — kept here so loadTasks() can re-apply derived-key
 // filters (_assigneeFilter, _teamFilter) after setRows() replaces all rows.
-// The derived keys are written onto row objects by applyAssigneeFilter /
-// applyTeamFilter; a plain setRows() call produces rows without those keys,
-// so any active derived filter would make the table appear empty until the
-// user touches the dropdown again.
 const _activeFilters = {
-  assignee: "All",   // the value last passed to applyAssigneeFilter
-  team: "All",       // the value last passed to applyTeamFilter
-  status: "All",     // directly used as the "status" filter key
+  assignee: "All",
+  team: "All",
+  status: "All",
 };
 
 // T2.2 — lock status cache: {taskId: {locked: bool, locked_by: str}}
-// Populated asynchronously after the task list renders.
 const _lockCache = {};
 
 async function _refreshLockCache(tasks) {
-  // Fetch lock status for every task in parallel (fire-and-forget batches).
-  // Errors are silently swallowed — lock display is best-effort.
   await Promise.allSettled(tasks.map(async (t) => {
     try {
       const res = await apiFetch(`/api/tasks/${t.id}/lock-status`);
       if (res && res.ok) _lockCache[t.id] = await res.json();
     } catch { /* best-effort */ }
   }));
+}
+
+// ---------------------------------------------------------------------------
+// How many files to include in one multipart POST. Each batch becomes one
+// server-side commit and one loadTasks() refresh, so the table fills
+// incrementally. Keep this well below MAX_UPLOAD_FILES (server default 200).
+// ---------------------------------------------------------------------------
+const BATCH_SIZE = 25;
+
+// CSRF cookie name — must match api/auth.py.
+const CSRF_COOKIE = "csrf_token";
+
+function _readCookie(name) {
+  const m = document.cookie.match(new RegExp("(?:^|;\\s*)" + name + "=([^;]*)"));
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
+// ---------------------------------------------------------------------------
+// Upload one batch via XHR so we can attach an upload-progress listener.
+// Returns { uploaded, failed } on success, or throws on network/HTTP error.
+// `onProgress(loaded, total)` is called as bytes are sent.
+// `signal` is an AbortSignal; when aborted the XHR is cancelled.
+// ---------------------------------------------------------------------------
+function _uploadBatch(projectId, files, onProgress, signal) {
+  return new Promise((resolve, reject) => {
+    const formData = new FormData();
+    files.forEach((f) => formData.append("file", f));
+
+    const xhr = new XMLHttpRequest();
+
+    // Wire the abort signal.
+    const onAbort = () => xhr.abort();
+    if (signal) signal.addEventListener("abort", onAbort, { once: true });
+
+    xhr.upload.addEventListener("progress", (e) => {
+      if (e.lengthComputable && onProgress) onProgress(e.loaded, e.total);
+    });
+
+    xhr.addEventListener("load", () => {
+      if (signal) signal.removeEventListener("abort", onAbort);
+      if (xhr.status === 401) {
+        localStorage.removeItem("logged_in");
+        window.location.href = "/";
+        reject(new Error("Session expired"));
+        return;
+      }
+      if (!xhr.responseText) { reject(new Error(`HTTP ${xhr.status}`)); return; }
+      let body;
+      try { body = JSON.parse(xhr.responseText); } catch (e) {
+        reject(new Error("Invalid server response")); return;
+      }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(body);
+      } else {
+        reject(new Error(body?.detail || `HTTP ${xhr.status}`));
+      }
+    });
+
+    xhr.addEventListener("error", () => {
+      if (signal) signal.removeEventListener("abort", onAbort);
+      reject(new Error("Network error"));
+    });
+    xhr.addEventListener("abort", () => {
+      if (signal) signal.removeEventListener("abort", onAbort);
+      reject(new DOMException("Upload cancelled", "AbortError"));
+    });
+
+    xhr.open("POST", `/api/projects/${encodeURIComponent(projectId)}/upload`);
+    const csrf = _readCookie(CSRF_COOKIE);
+    if (csrf) xhr.setRequestHeader("X-CSRF-Token", csrf);
+    xhr.send(formData);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Progress UI helpers
+// ---------------------------------------------------------------------------
+
+// Current AbortController for the running upload, null when idle.
+let _uploadAbortCtrl = null;
+
+function _showProgress() {
+  el("uploadProgress").style.display = "";
+  el("uploadBtn").disabled = true;
+  el("uploadInput").disabled = true;
+  const zone = el("dropZone");
+  if (zone) zone.style.pointerEvents = "none";
+}
+
+function _hideProgress() {
+  el("uploadProgress").style.display = "none";
+  el("uploadBtn").disabled = false;
+  el("uploadInput").disabled = false;
+  const zone = el("dropZone");
+  if (zone) zone.style.pointerEvents = "";
+  _uploadAbortCtrl = null;
+}
+
+/**
+ * Update the progress bar and counters.
+ *
+ * @param {number} filesUploaded  - how many files have fully landed on the server
+ * @param {number} filesTotal     - total files selected
+ * @param {number} bytesLoaded    - bytes sent in the current batch so far
+ * @param {number} bytesInBatch   - total bytes of the current batch
+ * @param {number} bytesDonePrev  - bytes from all completed batches
+ * @param {number} bytesTotal     - sum of all file sizes
+ */
+function _updateProgress(filesUploaded, filesTotal, bytesLoaded, bytesInBatch, bytesDonePrev, bytesTotal) {
+  const bar = el("uploadProgressFill");
+  const label = el("uploadProgressLabel");
+  const pct = el("uploadProgressPct");
+
+  const bytesDone = bytesDonePrev + bytesLoaded;
+  const fraction = bytesTotal > 0 ? Math.min(bytesDone / bytesTotal, 1) : 0;
+  const pctVal = Math.round(fraction * 100);
+
+  bar.style.width = `${pctVal}%`;
+  label.textContent = `Uploading ${filesUploaded} / ${filesTotal} images…`;
+  pct.textContent = `${pctVal}%`;
+}
+
+function _markDone(filesUploaded, filesTotal) {
+  el("uploadProgressFill").style.width = "100%";
+  el("uploadProgressLabel").textContent = `${filesUploaded} / ${filesTotal} uploaded`;
+  el("uploadProgressPct").textContent = "100%";
 }
 
 function template() {
@@ -65,7 +189,7 @@ function template() {
         <p class="mgmt-eyebrow">Project</p>
         <h2>Tasks</h2>
       </div>
-      <div style="display:flex; gap:10px;">
+      <div style="display:flex; gap:10px; align-items:center;">
         <button type="button" class="primary" id="uploadBtn" style="padding:9px 16px;border-radius:8px;font-weight:600;">+ Upload images</button>
         <input type="file" id="uploadInput" accept="image/png,image/jpeg,image/gif,image/webp" multiple style="display:none;">
       </div>
@@ -75,12 +199,24 @@ function template() {
       <p>Drag &amp; drop images here, or click "Upload images"</p>
     </div>
 
+    <div id="uploadProgress" class="upload-progress-box" style="display:none;" aria-live="polite" aria-label="Upload progress">
+      <div class="upload-progress-header">
+        <span class="upload-progress-label" id="uploadProgressLabel">Preparing…</span>
+        <span class="upload-progress-pct" id="uploadProgressPct">0%</span>
+      </div>
+      <div class="upload-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="uploadProgressBar">
+        <div class="upload-progress-fill" id="uploadProgressFill"></div>
+      </div>
+      <div style="display:flex; justify-content:flex-end; margin-top:4px;">
+        <button type="button" class="upload-abort-btn" id="uploadAbortBtn">Cancel upload</button>
+      </div>
+    </div>
+
     <div id="uploadSummary"></div>
     <div id="errorBanner" class="mgmt-error" style="display:none;"></div>
 
     <div class="bulk-bar" id="bulkBar">
       <span class="count" id="bulkCount"></span>
-      <!-- "Assign" writes the real team/user FKs via the team assign dialog. -->
       <button type="button" class="tool-button" id="bulkTeamBtn">Assign…</button>
       <button type="button" class="tool-button" id="bulkDeleteBtn" style="color:#e05260;border-color:rgba(224,82,96,.3);">Bulk delete</button>
     </div>
@@ -129,7 +265,6 @@ function template() {
         </form>
       </div>
     </div>
-
   `;
 }
 
@@ -160,9 +295,9 @@ async function loadTasks() {
   table.setRows(tasks);
 
   // Re-apply derived-key filters. setRows() replaces all row objects, so the
-  // _assigneeFilter and _teamFilter keys that applyAssigneeFilter /
-  // applyTeamFilter write onto rows are gone. Without this, an active "My
-  // tasks" filter makes the table appear empty after every reload.
+  // _assigneeFilter and _teamFilter keys written onto rows by applyAssigneeFilter /
+  // applyTeamFilter are gone. Without this, an active filter makes the table
+  // appear empty after every reload.
   _reapplyFilters();
 
   // T2.2 — refresh lock badges after the table renders (async, non-blocking).
@@ -174,61 +309,142 @@ async function loadTasks() {
 
 // --- upload --------------------------------------------------------------
 
-function renderUploadSummary(body) {
+function _renderUploadSummary(allUploaded, allFailed, aborted) {
   const summary = el("uploadSummary");
-  if (!body) { summary.innerHTML = ""; return; }
   const parts = [];
-  if (body.uploaded?.length) {
+
+  if (aborted) {
+    parts.push(`<div class="mgmt-error" style="margin-bottom:0;">
+      Upload cancelled. ${allUploaded.length} image${allUploaded.length === 1 ? "" : "s"} uploaded before cancellation.
+    </div>`);
+  } else if (allUploaded.length) {
     parts.push(`<div class="mgmt-empty" style="text-align:left;padding:10px 14px;color:var(--accent-dark);">
-        ✓ Uploaded ${body.uploaded.length} image${body.uploaded.length === 1 ? "" : "s"}.</div>`);
+      ✓ Uploaded ${allUploaded.length} image${allUploaded.length === 1 ? "" : "s"}.
+    </div>`);
   }
-  if (body.failed?.length) {
+
+  if (allFailed.length) {
     parts.push(`<div class="mgmt-error">
-        ${body.failed.length} file${body.failed.length === 1 ? "" : "s"} could not be uploaded:
-        <ul style="margin:6px 0 0 18px;">
-          ${body.failed.map((f) => `<li>${escapeHTML(f.filename || "unknown")} — ${escapeHTML(f.error)}</li>`).join("")}
-        </ul>
-      </div>`);
+      ${allFailed.length} file${allFailed.length === 1 ? "" : "s"} could not be uploaded:
+      <ul style="margin:6px 0 0 18px;">
+        ${allFailed.map((f) => `<li>${escapeHTML(f.filename || "unknown")} — ${escapeHTML(f.error)}</li>`).join("")}
+      </ul>
+    </div>`);
   }
+
   summary.innerHTML = parts.join("");
 }
 
+/**
+ * Batched upload with live progress.
+ *
+ * Files are split into BATCH_SIZE chunks. Each chunk is a separate multipart
+ * POST so the server commits rows incrementally. After every batch we call
+ * loadTasks() to update the table immediately — users see new rows appear
+ * as each chunk lands, rather than waiting for all files to finish.
+ *
+ * Progress is driven by XHR upload events (fetch has no progress API).
+ * The progress bar reflects both bytes-sent within the current batch and
+ * bytes from all previously completed batches.
+ */
 async function uploadFiles(fileList) {
   const files = [...fileList];
   if (!files.length) return;
 
-  const formData = new FormData();
-  files.forEach((f) => formData.append("file", f));
+  // Pre-compute total bytes for the progress bar denominator.
+  const bytesTotal = files.reduce((sum, f) => sum + f.size, 0);
+
+  // Split into batches.
+  const batches = [];
+  for (let i = 0; i < files.length; i += BATCH_SIZE) {
+    batches.push(files.slice(i, i + BATCH_SIZE));
+  }
+
+  // Set up the abort controller.
+  _uploadAbortCtrl = new AbortController();
+  const { signal } = _uploadAbortCtrl;
+
+  // Show the progress UI and clear stale state.
+  _showProgress();
+  el("uploadSummary").innerHTML = "";
+  clearError();
+  _updateProgress(0, files.length, 0, 0, 0, bytesTotal);
+
+  const allUploaded = [];
+  const allFailed = [];
+  let bytesDonePrev = 0;  // bytes from fully completed batches
+  let filesUploaded = 0;
+  let aborted = false;
 
   try {
-    const res = await apiFetch(
-      `/api/projects/${encodeURIComponent(ctx.projectId)}/upload`,
-      { method: "POST", body: formData }
-    );
-    if (!res) return;
-    if (!res.ok) {
-      showError(`Upload failed (${res.status}).`);
-      return;
+    for (const batch of batches) {
+      const batchBytes = batch.reduce((sum, f) => sum + f.size, 0);
+
+      let body;
+      try {
+        body = await _uploadBatch(
+          ctx.projectId,
+          batch,
+          (loaded, _total) => {
+            _updateProgress(filesUploaded, files.length, loaded, batchBytes, bytesDonePrev, bytesTotal);
+            // Keep the ARIA progressbar attribute in sync.
+            const pctVal = bytesTotal > 0
+              ? Math.round(Math.min((bytesDonePrev + loaded) / bytesTotal, 1) * 100)
+              : 0;
+            el("uploadProgressBar").setAttribute("aria-valuenow", pctVal);
+          },
+          signal,
+        );
+      } catch (err) {
+        if (err.name === "AbortError") {
+          aborted = true;
+          break;
+        }
+        // A single batch HTTP error (e.g. 413 count limit) — report it and
+        // continue; remaining batches might still succeed.
+        allFailed.push(...batch.map((f) => ({ filename: f.name, error: err.message })));
+        bytesDonePrev += batchBytes;
+        continue;
+      }
+
+      // Merge per-file results.
+      allUploaded.push(...(body.uploaded || []));
+      allFailed.push(...(body.failed || []));
+      filesUploaded += (body.uploaded || []).length;
+      bytesDonePrev += batchBytes;
+
+      // Refresh the table immediately so new rows appear.
+      await loadTasks();
+
+      // Update the counter to reflect confirmed server-side uploads.
+      _updateProgress(filesUploaded, files.length, 0, batchBytes, bytesDonePrev, bytesTotal);
     }
-    clearError();
-    renderUploadSummary(await res.json());
-    await loadTasks();
-  } catch (err) {
-    console.error("Upload failed", err);
-    showError("Upload failed. Check your connection and try again.");
+  } finally {
+    _markDone(filesUploaded, files.length);
+    // Brief pause so the user sees "100%" before the bar disappears.
+    await new Promise((r) => setTimeout(r, 600));
+    _hideProgress();
+    _renderUploadSummary(allUploaded, allFailed, aborted);
+    // Ensure the table is up to date after an abort (partial batches may have landed).
+    if (aborted) await loadTasks();
   }
 }
 
 function bindUpload() {
-  const btn = el("uploadBtn");
+  const btn   = el("uploadBtn");
   const input = el("uploadInput");
-  const zone = el("dropZone");
+  const zone  = el("dropZone");
+  const abort = el("uploadAbortBtn");
 
   btn.addEventListener("click", () => input.click());
   zone.addEventListener("click", () => input.click());
   input.addEventListener("change", (e) => {
     uploadFiles(e.target.files);
     input.value = "";
+  });
+
+  abort.addEventListener("click", () => {
+    if (_uploadAbortCtrl) _uploadAbortCtrl.abort();
   });
 
   ["dragenter", "dragover"].forEach((evt) =>
@@ -303,8 +519,6 @@ function updateBulkBar(selection) {
 }
 
 function bindBulkActions() {
-  // A reviewer gets the bulk bar (for review actions) but not the
-  // administrative buttons, so those are removed rather than left to 403.
   if (!canManage(ctx.myRole)) {
     el("bulkTeamBtn")?.remove();
     el("bulkDeleteBtn")?.remove();
@@ -339,18 +553,11 @@ function bindBulkActions() {
 
 // --- teams, reviewers and filters ------------------------------------------
 
-// id → display name, so the Team and Assignee columns can render a name
-// without a request per row. Both are small and change rarely.
 const teamsById = new Map();
 const usersById = new Map();
-// Full roster of everyone assignable on this project, carrying the team each
-// was reached through so the dialog can narrow the list once a team is picked.
 let assignableMembers = [];
 
 async function loadLookups() {
-  // Teams granted on *this project*, not the caller's own teams: a task can be
-  // assigned to a team the caller does not belong to, and its name must still
-  // render. Grants are readable by any project member.
   const res = await apiFetch(`/api/projects/${encodeURIComponent(ctx.projectId)}/grants`);
   if (res?.ok) {
     for (const grant of await res.json()) {
@@ -358,9 +565,6 @@ async function loadLookups() {
     }
   }
 
-  // One project-scoped request instead of walking every team's roster: the
-  // caller assigning work is often not a member of the teams they distribute
-  // to, and /api/teams/{id}/members deliberately 404s for non-members (E-16).
   const membersRes = await apiFetch(
     `/api/projects/${encodeURIComponent(ctx.projectId)}/assignable-members`
   );
@@ -381,34 +585,9 @@ async function loadLookups() {
   }
 }
 
-/**
- * The team filter is applied through `setFilter` on a derived key rather than
- * on `assigned_team_id` directly, because "unassigned" is a null match and the
- * table's filter compares by equality.
- */
-/**
- * Filter by who a task is reserved for.
- *
- * "My tasks" is the one annotators live in: once work is distributed, the
- * default view is everything, and they need one click to see only what is
- * theirs. This is presentation — the *enforcement* is server-side, so switching
- * back to "Everyone" shows other people's tasks but does not make them
- * writable.
- */
-/**
- * Re-apply all active filters after setRows() replaces row objects.
- *
- * Derived-key filters (_assigneeFilter, _teamFilter) are not stored on the
- * data-table — they are written directly onto each row object by
- * applyAssigneeFilter / applyTeamFilter. setRows() produces a fresh set of
- * plain server rows with none of those keys, so the table falls back to
- * undefined !== "mine" and shows empty. Re-applying them writes the keys back.
- */
 function _reapplyFilters() {
   if (_activeFilters.assignee !== "All") applyAssigneeFilter(_activeFilters.assignee);
   if (_activeFilters.team     !== "All") applyTeamFilter(_activeFilters.team);
-  // The status filter acts on the "status" column directly (no derived key),
-  // so data-table preserves it across setRows; no re-application needed.
 }
 
 function applyAssigneeFilter(value) {
@@ -432,19 +611,6 @@ function applyTeamFilter(value) {
   table.setFilter("_teamFilter", value === "All" ? "All" : value);
 }
 
-/**
- * Bulk assign a team to the selected tasks.
- *
- * Uses a prompt rather than a fourth modal: the choice is one value from a
- * short list the user has just seen in the filter, and a modal here would be
- * more chrome than decision.
- */
-/**
- * Assign one task, or every selected task, to a team and optionally a person.
- *
- * Both entry points share this function: the question is identical and only the
- * id list differs. `row` is null for the bulk case.
- */
 async function assignTasks(row) {
   const ids = row ? [row.id] : [...table.getSelection()];
   if (!ids.length) return;
@@ -459,14 +625,10 @@ async function assignTasks(row) {
     title: row ? `Assign "${row.description || "task"}"` : `Assign ${ids.length} task(s)`,
     teams,
     members: assignableMembers,
-    // Pre-select what the row already has, so opening the dialog on an assigned
-    // task shows its current state rather than resetting it.
     current: row ? { teamId: row.assigned_team_id, userId: row.assignee_user_id } : {},
   });
-  if (!choice) return; // cancelled
+  if (!choice) return;
 
-  // One task goes through the per-task endpoint so its warnings (E-10) surface
-  // verbatim; many go through bulk-assign, which reports updated/skipped.
   const res = row
     ? await apiFetch(`/api/tasks/${encodeURIComponent(row.id)}/assignment`, {
         method: "PATCH",
@@ -498,12 +660,10 @@ async function assignTasks(row) {
 }
 
 async function review(row, action) {
-  // A rejection carries a reason: "sent back" with no note is the thing
-  // annotators complain about most.
   let note = null;
   if (action === "rejected") {
     note = prompt(`Why is "${row.description}" being sent back?`);
-    if (note == null) return; // cancelled
+    if (note == null) return;
   }
 
   const res = await apiFetch(`/api/tasks/${encodeURIComponent(row.id)}/review`, {
@@ -537,8 +697,6 @@ export async function mount(hostRoot, hostCtx) {
   table = createDataTable({
     mount: el("tableMount"),
     rowId: (r) => r.id,
-    // Selection exists only to drive the bulk bar, so a role without one gets
-    // no checkbox column either.
     selectable: showsSelection(role),
     sortKey: "updated_at",
     sortDesc: true,
@@ -555,12 +713,10 @@ export async function mount(hostRoot, hostCtx) {
     }),
   });
 
-  // Upload and bulk controls are removed from the DOM rather than disabled:
-  // a greyed-out button the caller can never use is just clutter, and their
-  // handlers assume permissions the server would refuse anyway.
   if (!showsUpload(role)) {
     el("uploadBtn")?.remove();
     el("dropZone")?.remove();
+    el("uploadProgress")?.remove();
   } else {
     bindUpload();
   }
@@ -609,8 +765,7 @@ export async function mount(hostRoot, hostCtx) {
     const originalStatus = sel.dataset.original;
     if (!taskId || !newStatus || newStatus === originalStatus) return;
 
-    // Optimistic colour update so the user sees instant feedback while the
-    // request is in flight. Reverted below on failure.
+    // Optimistic colour update so the user sees instant feedback.
     sel.className = `status-select ${statusSelectClass(newStatus)}`;
 
     const isReviewStatus = newStatus === "Approved" || newStatus === "Rejected";
@@ -620,10 +775,7 @@ export async function mount(hostRoot, hostCtx) {
       let note = null;
       if (newStatus === "Rejected") {
         note = prompt(`Why is this task being sent back?`);
-        if (note == null) {
-          sel.value = originalStatus;
-          return;
-        }
+        if (note == null) { sel.value = originalStatus; return; }
       }
       const action = newStatus === "Approved" ? "approved" : "rejected";
       res = await apiFetch(`/api/tasks/${encodeURIComponent(taskId)}/review`, {
@@ -643,17 +795,13 @@ export async function mount(hostRoot, hostCtx) {
       const body = await res?.json().catch(() => null);
       showError(body?.detail || `Could not update status (${res?.status}).`);
       sel.value = originalStatus;
-      // Restore the colour to the original status.
       sel.className = `status-select ${statusSelectClass(originalStatus)}`;
       return;
     }
 
     clearError();
-    // Update the original marker so a second change calculates correctly,
-    // and recolour immediately so the user gets instant feedback.
     sel.dataset.original = newStatus;
     sel.className = `status-select ${statusSelectClass(newStatus)}`;
-    // Reload to refresh the full row (pill colours, action buttons, etc.).
     await loadTasks();
   });
 
@@ -662,6 +810,11 @@ export async function mount(hostRoot, hostCtx) {
 }
 
 export function unmount() {
+  // If an upload is in flight when the user navigates away, abort it cleanly.
+  if (_uploadAbortCtrl) {
+    _uploadAbortCtrl.abort();
+    _uploadAbortCtrl = null;
+  }
   root = null;
   ctx = null;
   table = null;
