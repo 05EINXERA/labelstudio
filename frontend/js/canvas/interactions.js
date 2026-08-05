@@ -110,17 +110,38 @@ export function annotationChanged(before, after) {
   return beforePoints.some((point, index) => point.x !== afterPoints[index].x || point.y !== afterPoints[index].y);
 }
 
+export function setCanvasCursor(cursor) {
+  if (canvas && canvas.style.cursor !== cursor) {
+    canvas.style.cursor = cursor;
+  }
+}
+
 export function updateCanvasCursor(point) {
   if (!view.imageLoaded) {
-    canvas.style.cursor = "default";
+    setCanvasCursor("default");
     return;
+  }
+
+  if (view.drag) {
+    if (view.drag.type === "move-shape") {
+      setCanvasCursor("grabbing");
+      return;
+    }
+    if (view.drag.type === "draw-polygon" || view.drag.type === "draw" || view.drag.type === "move-point") {
+      setCanvasCursor("crosshair");
+      return;
+    }
   }
 
   if (state.mode === "select") {
     if (state.selectedId) {
-      const selected = state.annotations.find(a => a.id === state.selectedId);
+      const selected = state.annotations.find((a) => a.id === state.selectedId);
       if (selected && hitTestPoint(point, selected) !== -1) {
-        canvas.style.cursor = "crosshair";
+        setCanvasCursor("crosshair");
+        return;
+      }
+      if (selected && selected.points && selected.points.length >= 3 && hitTestLine(point, selected) !== -1) {
+        setCanvasCursor("pointer");
         return;
       }
     }
@@ -130,15 +151,27 @@ export function updateCanvasCursor(point) {
       // shape promises a drag, so show "move". Otherwise a finished annotation
       // can only be selected, and "pointer" is the honest cursor.
       if (state.moveObjectsUnlocked && state.selectedIds.has(hoverId)) {
-        canvas.style.cursor = "move";
+        setCanvasCursor("move");
       } else {
-        canvas.style.cursor = "pointer";
+        setCanvasCursor("pointer");
       }
       return;
     }
+    setCanvasCursor("default");
+    return;
   }
 
-  canvas.style.cursor = state.mode === "draw" ? "crosshair" : "default";
+  if (state.mode === "draw") {
+    if (state.needsLabelSelection) {
+      const hoverId = hitTest(point);
+      setCanvasCursor(hoverId ? "pointer" : "default");
+      return;
+    }
+    setCanvasCursor("crosshair");
+    return;
+  }
+
+  setCanvasCursor("default");
 }
 
 // Drop the selection left over from a completed shape. Called on the first canvas
@@ -572,7 +605,7 @@ canvas.addEventListener("pointerdown", (event) => {
     event.preventDefault();
     view.isPanning = true;
     view.panStart = { x: event.clientX, y: event.clientY, panX: view.viewPan.x, panY: view.viewPan.y };
-    canvas.style.cursor = "grabbing";
+    setCanvasCursor("grabbing");
     return;
   }
 
@@ -717,7 +750,7 @@ canvas.addEventListener("pointerdown", (event) => {
             y: a.y
           }))
         };
-        canvas.style.cursor = "grabbing";
+        setCanvasCursor("grabbing");
         return;
       }
       if (event.shiftKey) {
@@ -880,39 +913,58 @@ canvas.addEventListener("pointermove", (event) => {
   const point = canvasPoint(event);
   updateCanvasCursor(point);
 
-  // Detect line hover on selected polygon (select mode only, even when no view.drag)
+  // Detect line & point hover on selected polygon (select mode only, even when no view.drag)
   if (state.mode === "select" && state.selectedId && !view.drag) {
     const selected = state.annotations.find(a => a.id === state.selectedId);
     if (selected && selected.points && selected.points.length >= 3) {
       const ptIndex = hitTestPoint(point, selected);
       if (ptIndex !== -1) {
+        let changed = false;
         if (view.hoveredLineIndex !== -1) {
           view.hoveredLineIndex = -1;
-          draw();
+          changed = true;
         }
         if (view.hoveredPointIndex !== ptIndex) {
           view.hoveredPointIndex = ptIndex;
-          draw();
+          changed = true;
         }
-        canvas.style.cursor = "crosshair";
+        if (changed) draw();
       } else {
+        let changed = false;
         if (view.hoveredPointIndex !== -1) {
           view.hoveredPointIndex = -1;
-          draw();
+          changed = true;
         }
         const lnIndex = hitTestLine(point, selected);
         if (lnIndex !== view.hoveredLineIndex) {
           view.hoveredLineIndex = lnIndex;
-          draw();
+          changed = true;
         }
-        if (lnIndex !== -1) {
-          canvas.style.cursor = "pointer";
-        }
+        if (changed) draw();
       }
-    } else if (view.hoveredLineIndex !== -1) {
-      view.hoveredLineIndex = -1;
-      draw();
+    } else {
+      let changed = false;
+      if (view.hoveredPointIndex !== -1) {
+        view.hoveredPointIndex = -1;
+        changed = true;
+      }
+      if (view.hoveredLineIndex !== -1) {
+        view.hoveredLineIndex = -1;
+        changed = true;
+      }
+      if (changed) draw();
     }
+  } else {
+    let changed = false;
+    if (view.hoveredPointIndex !== -1) {
+      view.hoveredPointIndex = -1;
+      changed = true;
+    }
+    if (view.hoveredLineIndex !== -1) {
+      view.hoveredLineIndex = -1;
+      changed = true;
+    }
+    if (changed) draw();
   }
 
   if (!view.drag) return;
@@ -1034,7 +1086,7 @@ canvas.addEventListener("dblclick", (event) => {
 canvas.addEventListener("pointerup", (e) => {
   if (view.isPanning) {
     view.isPanning = false;
-    canvas.style.cursor = "default";
+    setCanvasCursor("default");
     return;
   }
   if (view.drag?.type === "move-point") {
@@ -1057,7 +1109,7 @@ canvas.addEventListener("pointerup", (e) => {
   if (view.drag?.type === "move-shape") {
     const moved = view.drag.moved;
     view.drag = null;
-    canvas.style.cursor = "default";
+    setCanvasCursor("default");
     render();
     if (moved) save();
     return;
@@ -1132,7 +1184,7 @@ canvas.addEventListener("pointerleave", () => {
   if (view.isPanning) {
     view.isPanning = false;
   }
-  if (!view.drag) canvas.style.cursor = "default";
+  if (!view.drag) setCanvasCursor("default");
   if (view.hoveredLineIndex !== -1) {
     view.hoveredLineIndex = -1;
     draw();
@@ -1142,7 +1194,7 @@ canvas.addEventListener("pointerleave", () => {
 canvas.addEventListener("pointercancel", () => {
   if (view.isPanning) {
     view.isPanning = false;
-    canvas.style.cursor = "default";
+    setCanvasCursor("default");
     return;
   }
   if (view.drag?.type === "draw-polygon") {
@@ -1156,7 +1208,7 @@ canvas.addEventListener("pointercancel", () => {
   // moved (a snapshot was taken).
   const wasMoved = view.drag?.type === "move-shape" && view.drag.moved;
   view.drag = null;
-  canvas.style.cursor = "default";
+  setCanvasCursor("default");
   render();
   if (wasMoved) save();
 });
