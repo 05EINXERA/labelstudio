@@ -216,16 +216,18 @@ no shared-memory assumption — and move `_TASK_LOCKS` into the DB too. This is
 tracked as the deferred D3 item in `.devnotes/deployment-hardening/tasks.md`.
 Never "fix" scaling by just adding workers.
 
-### 3.5 `detector.py` mixes five concerns in 800 lines
+### 3.5 `detector.py` decomposition into `ml/` sub-package
 
-Model downloading/conversion, path resolution, three different model
-families (YOLO, SAM, CLIP), image decoding, and geometry post-processing share
-one file with six module-level lock/singleton pairs.
+**Status: fixed.** `detector.py` has been decomposed into the modular `ml/` package:
+- `ml/common.py`: Constants, `DetectionClientError`, inference concurrency semaphore (`_INFERENCE_SEMAPHORE`), cache eviction (`_evict_cache_if_needed`), and geometry/NMS utilities.
+- `ml/images.py`: `decode_image` (with size/security validation) and `pil_to_bgr`.
+- `ml/weights.py`: `resolve_model_path` (handling local vs Hugging Face IDs) and `ensure_model_file`.
+- `ml/yolo.py`: YOLOv8 ONNX and YOLO-World object detection (`detect_objects`, `get_model`, `run_inference`).
+- `ml/clip.py`: Zero-shot tag classification (`classify_image`, `get_clip_model`).
+- `ml/sam.py`: Interactive promptable segmentation and embeddings (`segment_point`, `embed_image`).
+- `ml/__init__.py`: Package-level public exports.
+- `detector.py`: Backward-compatibility facade re-exporting all symbols for legacy imports.
 
-**Direction:** split into `ml/weights.py` (download/resolve),
-`ml/yolo.py`, `ml/sam.py`, `ml/clip.py`, `ml/images.py` (decode/validate)
-when next doing significant ML work. The router-facing functions
-(`detect_objects`, `segment_point`, `classify_image`) keep their signatures.
 
 ### 3.6 Legacy whole-blob sync — removed
 

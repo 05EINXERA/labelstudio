@@ -12,7 +12,7 @@ HTML5 canvas. AI assistance comes from local models: YOLOv8 / YOLO-World
   LAN deployment. The engine is chosen from `config.DATABASE_URL`
   (`config.IS_SQLITE` switches the dialect-specific settings). See `database.py`.
 - **Frontend:** Vanilla JS + HTML5 Canvas, served as static files from `frontend/`. No build step, no framework.
-- **ML:** `detector.py` loads and runs the models. Inference runs through an in-process background job queue (`api/routers/detect.py`).
+- **ML:** `ml/` package (`ml.yolo`, `ml.sam`, `ml.clip`, `ml.weights`, `ml.images`, `ml.common`) loads and runs models; `detector.py` provides backward compatibility. Inference runs through an in-process background job queue (`api/routers/detect.py`).
 - **Deploy target:** one PC on an office LAN, one uvicorn process, serving ~20–25
   annotators who **share a single login** (classes/images uploaded once are
   visible to all; per-person task assignment is advisory). Postgres runs on the
@@ -86,7 +86,7 @@ old pattern into new code.
 | `api/auth.py` | JWT creation/validation, password hashing, `get_current_user`, `require_csrf`, session/CSRF cookies |
 | `api/routers/` | One router per resource (projects, tasks, labels, team, data, detect, auth, label_studio, exports, imports). `tasks.py` also holds the per-task detail endpoint and the in-process soft lock (`_TASK_LOCKS`) |
 | `formats/` | Import/export format logic (COCO, task JSON, YOLO, masks), one module per format; pure, testable without a server. See docs/ARCHITECTURE.md § 2.1 |
-| `detector.py` | ML model loading + inference (YOLO, SAM, CLIP) |
+| `ml/` + `detector.py` | ML subsystem (`ml/yolo.py`, `ml/sam.py`, `ml/clip.py`, `ml/weights.py`, `ml/images.py`, `ml/common.py`) + backward-compatibility facade |
 | `frontend/app.html` + `app.js` | The annotation canvas page (the monolith) |
 | `frontend/js/` | Shared ES modules — new frontend code goes here (`utils.js`, `state.js`, `task-lock.js`, `components/`, `pages/`) |
 | `scripts/` | Ops + one-off tooling: `migrate_sqlite_to_postgres.py`, `backup.py`, `schedule-backup.ps1`, `install-service.ps1`, `run.ps1` |

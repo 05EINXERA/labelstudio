@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 import models
 from api.auth import get_current_user, require_csrf
 from database import SessionLocal, commit_with_retry, get_db
-from detector import (
+from ml import (
     DetectionClientError,
     classify_image,
     detect_objects,
