@@ -133,12 +133,30 @@ def drill_postgres(dest_dir: str, pg_admin_url: str, scratch_db_name: str) -> in
         # pg_restore commonly exits non-zero on harmless warnings (e.g.
         # missing roles from --no-owner); treat stderr content as informative
         # rather than fatal, but still bail if the restore produced no data.
+        # The table/row checks below are the real verdict.
         if result.stderr:
             print(result.stderr.strip())
+            if "transaction_timeout" in result.stderr:
+                # Benign client/server version skew: pg_dump 17 emits
+                # "SET transaction_timeout = 0" (a PG17 GUC) which a PG16
+                # server rejects. 0 is the default anyway, so nothing is lost.
+                # Align the client-side tools with the server major version to
+                # silence this.
+                print(
+                    "  ^ benign: pg_dump 17 emitted a PG17-only setting for an "
+                    "older server. Not a restore failure."
+                )
 
         from sqlalchemy import create_engine, text
 
-        engine = create_engine(scratch_url)
+        # scratch_url stays driver-less above because pg_restore is a libpq CLI
+        # and would reject a "+psycopg" scheme. SQLAlchemy, though, defaults a
+        # bare postgresql:// URL to psycopg2, which this project does not
+        # install — it standardises on psycopg 3 (see requirements.txt). Ask
+        # for that dialect explicitly rather than adding a second driver.
+        engine = create_engine(
+            scratch_url.replace("postgresql://", "postgresql+psycopg://", 1)
+        )
         with engine.connect() as connection:
             tables = {
                 row[0] for row in connection.execute(
