@@ -92,6 +92,9 @@ class TeamCreate(BaseModel):
 class TeamUpdate(BaseModel):
     name: str = Field(min_length=1, max_length=64)
 
+class TeamTransferOwnership(BaseModel):
+    new_owner: str = Field(min_length=1, max_length=64)
+
 class TeamResponse(BaseModel):
     id: int
     name: str

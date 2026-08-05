@@ -46,6 +46,15 @@ const els = {
   memberTasksModalClose: document.getElementById("memberTasksModalClose"),
   memberTasksName: document.getElementById("memberTasksName"),
   memberTasksModalBody: document.getElementById("memberTasksModalBody"),
+
+  transferModal: document.getElementById("transferModal"),
+  transferModalClose: document.getElementById("transferModalClose"),
+  transferModalError: document.getElementById("transferModalError"),
+  transferForm: document.getElementById("transferForm"),
+  transferTeamId: document.getElementById("transferTeamId"),
+  transferTeamName: document.getElementById("transferTeamName"),
+  transferNewOwnerSelect: document.getElementById("transferNewOwnerSelect"),
+  transferFormCancel: document.getElementById("transferFormCancel"),
 };
 
 let teamsTable;
@@ -99,6 +108,7 @@ function renderMembers() {
 
 const ICON_DELETE = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>`;
 const ICON_EDIT = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></svg>`;
+const ICON_TRANSFER = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="m18 8 3 3-3 3"/><path d="M21 11H13"/></svg>`;
 
 function initTables() {
   teamsTable = createDataTable({
@@ -126,11 +136,11 @@ function initTables() {
         }
       },
       {
-        key: "actions", label: "", sortable: false, align: "right", width: "50px",
+        key: "actions", label: "", sortable: false, align: "right", width: "80px",
         render: (r) => {
           const datasetUsername = localStorage.getItem('dataset_username');
           if (r.creator === datasetUsername) {
-            return `<div class="row-actions"><button type="button" data-action="delete" class="danger" title="Delete Team">${ICON_DELETE}</button></div>`;
+            return `<div class="row-actions"><button type="button" data-action="transfer" title="Transfer Team Ownership">${ICON_TRANSFER}</button><button type="button" data-action="delete" class="danger" title="Delete Team">${ICON_DELETE}</button></div>`;
           }
           return '';
         }
@@ -140,6 +150,10 @@ function initTables() {
 
   teamsTable.onAction("filter-team", (row) => {
     selectOrToggleTeam(row);
+  });
+
+  teamsTable.onAction("transfer", (row) => {
+    openTransferModal(row);
   });
 
   teamsTable.onAction("delete", async (row) => {
@@ -527,6 +541,108 @@ els.assignForm.addEventListener("submit", async (e) => {
   } catch (err) {
     els.assignModalError.textContent = "Connection error";
     els.assignModalError.style.display = "block";
+  }
+});
+
+// --- Transfer Ownership Modal ---
+
+function openTransferModal(team) {
+  els.transferForm.reset();
+  els.transferModalError.style.display = "none";
+  els.transferTeamId.value = team.id;
+  els.transferTeamName.textContent = team.name;
+
+  const datasetUsername = localStorage.getItem('dataset_username');
+  const candidates = membersCache.filter(m => m.name !== team.creator && m.name !== datasetUsername);
+
+  els.transferNewOwnerSelect.innerHTML = '';
+  if (candidates.length === 0) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = 'No other members available';
+    opt.disabled = true;
+    opt.selected = true;
+    els.transferNewOwnerSelect.appendChild(opt);
+  } else {
+    const inTeam = [];
+    const notInTeam = [];
+    candidates.forEach(m => {
+      if (m.teams && m.teams.some(t => t.id === team.id)) {
+        inTeam.push(m);
+      } else {
+        notInTeam.push(m);
+      }
+    });
+
+    if (inTeam.length > 0) {
+      const group = document.createElement('optgroup');
+      group.label = 'Team Members';
+      inTeam.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m.name;
+        opt.textContent = m.name;
+        group.appendChild(opt);
+      });
+      els.transferNewOwnerSelect.appendChild(group);
+    }
+
+    if (notInTeam.length > 0) {
+      const group = document.createElement('optgroup');
+      group.label = 'Other Members';
+      notInTeam.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m.name;
+        opt.textContent = m.name;
+        group.appendChild(opt);
+      });
+      els.transferNewOwnerSelect.appendChild(group);
+    }
+  }
+
+  els.transferModal.classList.add("is-active");
+}
+
+function closeTransferModal() {
+  els.transferModal.classList.remove("is-active");
+}
+
+els.transferModalClose.addEventListener("click", closeTransferModal);
+els.transferFormCancel.addEventListener("click", closeTransferModal);
+els.transferModal.addEventListener("click", (e) => {
+  if (e.target === els.transferModal) closeTransferModal();
+});
+
+els.transferForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const teamId = els.transferTeamId.value;
+  const newOwner = els.transferNewOwnerSelect.value;
+  if (!newOwner) {
+    els.transferModalError.textContent = "Please select a member to transfer ownership to";
+    els.transferModalError.style.display = "block";
+    return;
+  }
+
+  if (!confirm(`Are you sure you want to transfer ownership of "${els.transferTeamName.textContent}" to ${newOwner}? All projects belonging to this team will also be transferred to ${newOwner}.`)) {
+    return;
+  }
+
+  try {
+    const res = await apiFetch(`/api/teams/${teamId}/transfer-ownership`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ new_owner: newOwner })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      els.transferModalError.textContent = err.detail || "Failed to transfer ownership";
+      els.transferModalError.style.display = "block";
+      return;
+    }
+    closeTransferModal();
+    loadData();
+  } catch (err) {
+    els.transferModalError.textContent = "Connection error";
+    els.transferModalError.style.display = "block";
   }
 });
 

@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 import models
 from database import get_db, commit_with_retry
-from schemas import TeamCreate, TeamUpdate, TeamResponse
+from schemas import TeamCreate, TeamUpdate, TeamResponse, TeamTransferOwnership
 from api.auth import get_current_user, require_csrf, get_current_annotator
 
 router = APIRouter(prefix="/api/teams", tags=["teams"], dependencies=[Depends(get_current_user)])
@@ -57,6 +57,69 @@ def create_team(payload: TeamCreate, request: Request, db: Session = Depends(get
             db.add(assoc)
             commit_with_retry(db)
         
+    return team
+
+@router.patch("/{team_id}/transfer-ownership", response_model=TeamResponse, dependencies=[Depends(require_csrf)])
+@router.post("/{team_id}/transfer-ownership", response_model=TeamResponse, dependencies=[Depends(require_csrf)])
+def transfer_team_ownership(
+    team_id: int,
+    payload: TeamTransferOwnership,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+    annotator = Depends(get_current_annotator),
+):
+    team = db.query(models.Team).filter(models.Team.id == team_id).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+
+    caller_names = set()
+    if annotator:
+        caller_names.add(annotator.name)
+    if user:
+        caller_names.add(user.username)
+    header_name = request.headers.get("X-Annotator-Name")
+    if header_name:
+        caller_names.add(header_name)
+
+    if not team.creator or team.creator not in caller_names:
+        raise HTTPException(status_code=403, detail="Only the team creator can transfer ownership")
+
+    new_owner = payload.new_owner.strip()
+    if not new_owner:
+        raise HTTPException(status_code=400, detail="New owner name cannot be empty")
+
+    if new_owner == team.creator:
+        raise HTTPException(status_code=400, detail="User is already the team creator")
+
+    target_user = db.query(models.User).filter(models.User.username == new_owner).first()
+    target_member = db.query(models.TeamMember).filter(models.TeamMember.name == new_owner).first()
+    if not target_user and not target_member:
+        raise HTTPException(status_code=400, detail="Target user does not exist")
+
+    if not target_member:
+        target_member = models.TeamMember(name=new_owner, time_logged=0)
+        db.add(target_member)
+
+    existing_assoc = db.query(models.TeamMemberAssociation).filter(
+        models.TeamMemberAssociation.team_id == team.id,
+        models.TeamMemberAssociation.member_name == new_owner
+    ).first()
+    if not existing_assoc:
+        assoc = models.TeamMemberAssociation(member_name=new_owner, team_id=team.id)
+        db.add(assoc)
+
+    team.creator = new_owner
+
+    # Transfer ownership of all projects belonging to this team
+    team_projects = db.query(models.Project).filter(models.Project.team_id == team.id).all()
+    for proj in team_projects:
+        proj.creator = new_owner
+        if target_user:
+            proj.owner_id = target_user.id
+
+    commit_with_retry(db)
+    db.refresh(team)
     return team
 
 @router.delete("/{team_id}", dependencies=[Depends(require_csrf)])

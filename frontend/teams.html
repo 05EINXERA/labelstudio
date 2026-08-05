@@ -175,7 +175,34 @@
     </div>
   </div>
 
-  <script type="module" src="js/pages/teams.js?v=8"></script>
+  <!-- Transfer Team Ownership modal -->
+  <div class="modal-overlay" id="transferModal">
+    <div class="modal-content" style="max-width: 400px;">
+      <div class="modal-header">
+        <h2 id="transferModalTitle">Transfer Team Ownership</h2>
+        <button class="modal-close" id="transferModalClose" type="button">&times;</button>
+      </div>
+      <div id="transferModalError" style="display: none; padding: 10px 16px; background: #ffebee; color: #c62828; font-size: 0.9rem; border-bottom: 1px solid #ffcdd2;"></div>
+      <form id="transferForm">
+        <input type="hidden" id="transferTeamId">
+        <div class="modal-body" style="display: grid; gap: 14px;">
+          <p style="font-size: .9rem; color: var(--muted);">Transfer ownership of team <strong id="transferTeamName" style="color: var(--ink);"></strong> to another member. All projects belonging to this team will also be transferred.</p>
+          <label style="display: grid; gap: 6px;">
+            <span style="font-size: .85rem; color: var(--muted);">New Owner</span>
+            <select id="transferNewOwnerSelect" required
+              style="padding: 9px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--ink);">
+            </select>
+          </label>
+        </div>
+        <div style="display: flex; gap: 10px; justify-content: flex-end; padding: 16px;">
+          <button type="button" class="tool-button" id="transferFormCancel">Cancel</button>
+          <button type="submit" class="primary" style="padding: 9px 18px; border-radius: 6px;">Transfer</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script type="module" src="js/pages/teams.js?v=10"></script>
 </body>
 
 </html>
