@@ -25,7 +25,7 @@ import {
   showsSelection,
   showsUpload,
   statusPill,
-} from "./task-columns.js?v=6";
+} from "./task-columns.js?v=7";
 
 let root = null;
 let ctx = null;
@@ -149,7 +149,15 @@ function clearError() {
 // --- data --------------------------------------------------------------
 
 async function loadTasks() {
-  const res = await apiFetch(`/api/tasks?projectId=${encodeURIComponent(ctx.projectId)}`);
+  // include_annotations=false: this view never reads annotation *contents*, only
+  // the Classes and Comments counts, which the server now returns as two
+  // integers per row (class_count / comment_count). Fetching the blobs meant
+  // ~8.9 MB on a 120-task project to render two columns — the same mistake the
+  // canvas page already avoids (CLAUDE.md rule 17).
+  // See .devnotes/server-optimization/03_TASKS_PAGE.md.
+  const res = await apiFetch(
+    `/api/tasks?projectId=${encodeURIComponent(ctx.projectId)}&include_annotations=false`
+  );
   if (!res) return;
   if (!res.ok) {
     showError(`Could not load tasks (${res.status}).`);

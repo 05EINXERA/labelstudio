@@ -217,6 +217,67 @@ def _assignment_names(tasks, db: Session) -> tuple[dict, dict]:
     return teams, users
 
 
+_EMPTY_COUNTS = {"comment_count": 0, "class_count": 0}
+
+
+def _annotation_counts(task_ids: List[int], db: Session) -> Dict[int, dict]:
+    """Comment and distinct-label counts per task, without shipping the blobs.
+
+    The Tasks view shows two integers per row — a comment count and a count of
+    distinct classes used. It used to obtain them by downloading every task's
+    full annotation JSON and counting in the browser, which on a 120-task
+    project meant ~8.9 MB of payload to render two columns
+    (.devnotes/server-optimization/03_TASKS_PAGE.md).
+
+    The blobs still have to be read *here* — they are stored as opaque `Text`,
+    so Postgres cannot count inside them (finding F16) — but they stop at the
+    application, and only the integers cross the wire. That is the bulk of the
+    win: the browser no longer parses megabytes to produce a handful of
+    numbers, and the JSON response shrinks by orders of magnitude.
+
+    The honest next step is denormalised counter columns maintained on write,
+    which would make this free rather than merely cheap. Deliberately not done
+    here: that needs a migration plus a backfill, and it would put new logic in
+    the annotation save path, which is exactly where this project has been bitten
+    before (.devnotes/deployment-hardening/04_ANNOTATION_SAVE_LOSS.md). Kept as
+    a read-path-only change on purpose.
+    """
+    if not task_ids:
+        return {}
+
+    counts: Dict[int, dict] = {}
+    rows = (
+        db.query(models.Task.id, models.Task.annotations)
+        .filter(models.Task.id.in_(task_ids))
+        .all()
+    )
+    for task_id, raw in rows:
+        comments = 0
+        label_ids = set()
+        if raw:
+            try:
+                parsed = json.loads(raw)
+            except (ValueError, TypeError) as exc:
+                # Same tolerance as everywhere else that reads this column: a
+                # single corrupt blob must not fail the whole task list.
+                logger.warning("Task %s has unparseable annotations: %s", task_id, exc)
+                parsed = []
+            if isinstance(parsed, list):
+                for annotation in parsed:
+                    if not isinstance(annotation, dict):
+                        continue
+                    if annotation.get("type") == "comment":
+                        comments += 1
+                    label_id = annotation.get("labelId")
+                    if label_id is not None:
+                        label_ids.add(label_id)
+        counts[task_id] = {
+            "comment_count": comments,
+            "class_count": len(label_ids),
+        }
+    return counts
+
+
 @router.get("")
 def get_tasks(projectId: Optional[int] = Query(None), include_annotations: bool = Query(True), db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     if projectId:
@@ -230,6 +291,10 @@ def get_tasks(projectId: Optional[int] = Query(None), include_annotations: bool 
         )
 
     if not include_annotations:
+        # The annotations column is deliberately absent from this projection:
+        # not fetching it is the entire point of the flag (CLAUDE.md rule 17).
+        # `comment_count`/`class_count` below are derived from a *separate*
+        # narrow query so the blobs never reach the response.
         query = query.with_entities(
             models.Task.id, models.Task.description, models.Task.assignee,
             models.Task.image_path, models.Task.status, models.Task.time_spent,
@@ -238,6 +303,7 @@ def get_tasks(projectId: Optional[int] = Query(None), include_annotations: bool 
         )
         tasks = query.all()
         team_names, user_names = _assignment_names(tasks, db)
+        counts = _annotation_counts([t.id for t in tasks], db)
         return [{"id": t.id, "description": t.description, "assignee": t.assignee,
                  "image_path": t.image_path, "status": t.status, "time_spent": t.time_spent,
                  "updated_at": t.updated_at,
@@ -245,6 +311,9 @@ def get_tasks(projectId: Optional[int] = Query(None), include_annotations: bool 
                  "assignee_user_id": t.assignee_user_id,
                  "assigned_team_name": team_names.get(t.assigned_team_id),
                  "assignee_name": user_names.get(t.assignee_user_id),
+                 # Two integers per task so the Tasks view's Classes and
+                 # Comments columns still render without shipping every blob.
+                 **counts.get(t.id, _EMPTY_COUNTS),
                  "annotations": []} for t in tasks]
 
     tasks = query.all()
@@ -257,6 +326,18 @@ def get_tasks(projectId: Optional[int] = Query(None), include_annotations: bool 
                 annotations_data = json.loads(t.annotations)
             except (ValueError, TypeError) as exc:
                 logger.warning("Task %s has unparseable annotations: %s", t.id, exc)
+        # Counted from the already-parsed list rather than via
+        # _annotation_counts, which would re-read and re-parse the same blobs.
+        # The fields are present on both branches so a client never has to care
+        # which one served it.
+        comment_count = sum(
+            1 for a in annotations_data
+            if isinstance(a, dict) and a.get("type") == "comment"
+        )
+        class_count = len({
+            a.get("labelId") for a in annotations_data
+            if isinstance(a, dict) and a.get("labelId") is not None
+        })
         result.append({
             "id": t.id, "description": t.description, "assignee": t.assignee,
             "image_path": t.image_path, "status": t.status, "time_spent": t.time_spent,
@@ -268,6 +349,8 @@ def get_tasks(projectId: Optional[int] = Query(None), include_annotations: bool 
             "assignee_user_id": t.assignee_user_id,
             "assigned_team_name": team_names.get(t.assigned_team_id),
             "assignee_name": user_names.get(t.assignee_user_id),
+            "comment_count": comment_count,
+            "class_count": class_count,
             "annotations": annotations_data
         })
     return result

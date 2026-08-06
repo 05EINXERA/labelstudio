@@ -63,6 +63,56 @@ def get_labels(projectId: int = Query(...), db: Session = Depends(get_db), user:
     labels = db.query(models.Label).filter(models.Label.project_id == projectId).all()
     return [{"id": l.id, "name": l.name, "color": l.color, "projectId": l.project_id} for l in labels]
 
+
+@router.get("/usage")
+def get_label_usage(projectId: int = Query(...), db: Session = Depends(get_db),
+                    user: models.User = Depends(get_current_user)):
+    """How many annotations reference each label in a project.
+
+    The Classes view shows a usage count per class. It used to get that by
+    fetching every task *with its full annotation blob* and tallying in the
+    browser — the same payload problem as the Tasks view, for one column
+    (.devnotes/server-optimization/03_TASKS_PAGE.md).
+
+    Counting here means the blobs stop at the application and only a small
+    `{label_id: count}` map crosses the wire. Annotations are opaque `Text`, so
+    the parse cannot be pushed into Postgres (finding F16); the win is in what
+    is *sent*, not in avoiding the read.
+
+    Declared before `DELETE /{label_id}` — a literal path must be registered
+    ahead of a parameterised sibling or FastAPI matches it as `label_id`.
+    Returns every label id that has at least one annotation; the client treats a
+    missing id as zero.
+    """
+    require_project(projectId, user, db, minimum=ProjectRole.VIEWER)
+
+    usage: dict = {}
+    rows = (
+        db.query(models.Task.id, models.Task.annotations)
+        .filter(models.Task.project_id == projectId)
+        .all()
+    )
+    for task_id, raw in rows:
+        if not raw:
+            continue
+        try:
+            anns = json.loads(raw)
+        except (ValueError, TypeError) as exc:
+            # Consistent with every other reader of this column: one bad blob
+            # must not fail the whole view.
+            logger.warning("Task %s has unparseable annotations: %s", task_id, exc)
+            continue
+        if not isinstance(anns, list):
+            continue
+        for annotation in anns:
+            if not isinstance(annotation, dict):
+                continue
+            label_id = annotation.get("labelId")
+            if label_id is not None:
+                usage[label_id] = usage.get(label_id, 0) + 1
+
+    return usage
+
 @router.post("")
 def create_or_update_label(label: LabelModel, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     require_project(label.projectId, user, db, minimum=ProjectRole.MANAGER)

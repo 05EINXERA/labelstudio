@@ -32,8 +32,8 @@ const projectId = new URLSearchParams(window.location.search).get("id");
 // it stays statically analysable.
 const VIEWS = {
   home: () => import("./home.js?v=1"),
-  tasks: () => import("./tasks.js?v=4"),
-  classes: () => import("./classes.js?v=1"),
+  tasks: () => import("./tasks.js?v=5"),
+  classes: () => import("./classes.js?v=2"),
   imports: () => import("./imports.js?v=1"),
   exports: () => import("./exports.js?v=1"),
   access: () => import("./access.js?v=1"),

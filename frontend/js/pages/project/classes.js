@@ -139,23 +139,21 @@ function clearError() {
 async function loadUsage() {
   // Best-effort: usage counts are a nice-to-have, so a failure here should
   // not block the class list from rendering.
+  //
+  // Counted server-side (GET /api/labels/usage) rather than by fetching every
+  // task with its annotations and tallying here. That older approach pulled the
+  // whole project's annotation JSON across the wire to produce one number per
+  // class — the same payload problem as the Tasks view.
+  // See .devnotes/server-optimization/03_TASKS_PAGE.md.
   usageByLabelId = {};
   try {
-    const res = await apiFetch(`/api/tasks?projectId=${encodeURIComponent(ctx.projectId)}`);
+    const res = await apiFetch(
+      `/api/labels/usage?projectId=${encodeURIComponent(ctx.projectId)}`
+    );
     if (!res || !res.ok) return;
-    const tasks = await res.json();
-    for (const task of tasks) {
-      let anns = task.annotations;
-      if (typeof anns === "string") {
-        try { anns = JSON.parse(anns); } catch { anns = []; }
-      }
-      if (!Array.isArray(anns)) continue;
-      for (const a of anns) {
-        if (a.labelId) usageByLabelId[a.labelId] = (usageByLabelId[a.labelId] || 0) + 1;
-      }
-    }
+    usageByLabelId = await res.json();
   } catch (err) {
-    console.error("Failed to compute class usage", err);
+    console.error("Failed to load class usage", err);
   }
 }
 

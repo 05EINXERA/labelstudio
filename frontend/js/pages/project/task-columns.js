@@ -48,7 +48,25 @@ export function statusSelectClass(status) {
   }
 }
 
+/**
+ * Comment and distinct-class counts for one task row.
+ *
+ * Prefers the server-supplied `comment_count` / `class_count`, which is how the
+ * Tasks view gets these without downloading every annotation blob
+ * (.devnotes/server-optimization/03_TASKS_PAGE.md). Falls back to counting a
+ * hydrated `annotations` array so the function stays correct for any caller
+ * that does have one — and so a client running against an older server, or a
+ * cached bundle mid-rollout, degrades to the previous behaviour instead of
+ * rendering zeroes.
+ */
 export function countAnnotations(task) {
+  if (
+    typeof task?.comment_count === "number" &&
+    typeof task?.class_count === "number"
+  ) {
+    return { comments: task.comment_count, classes: task.class_count };
+  }
+
   let anns = task.annotations;
   if (typeof anns === "string") {
     try { anns = JSON.parse(anns); } catch { anns = []; }
