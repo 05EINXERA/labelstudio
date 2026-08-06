@@ -129,7 +129,6 @@ export function labelDisplayName(label) {
 export function snapshot() {
   state.redoHistory = [];
   state.history.push(JSON.stringify({
-    labels: state.labels,
     annotations: state.annotations,
     selectedId: state.selectedId
   }));
@@ -142,6 +141,8 @@ export function resetWorkspaceForNewImage() {
   // state.labels is deliberately not cleared to persist classes across images
   state.annotations = [];
   state.selectedId = null;
+  state.history = [];
+  state.redoHistory = [];
   // Re-arm the label gate for each new task: the annotator must pick a class
   // before drawing, rather than inheriting the previous task's armed state.
   state.mode = "select";

@@ -292,7 +292,6 @@ export function undoAction() {
   }
 
   state.redoHistory.push(JSON.stringify({
-    labels: state.labels,
     annotations: state.annotations,
     selectedId: state.selectedId
   }));
@@ -300,9 +299,12 @@ export function undoAction() {
   if (carryAnnotation) delete carryAnnotation.__pendingUndonePoints;
 
   const restored = JSON.parse(previous);
-  state.labels = restored.labels;
-  state.annotations = restored.annotations;
-  state.selectedId = restored.selectedId;
+  if (restored.annotations) {
+    state.annotations = restored.annotations;
+  }
+  if (restored.selectedId !== undefined) {
+    state.selectedId = restored.selectedId;
+  }
 
   if (view.drag?.type === "draw-polygon") {
     const exists = state.annotations.some((item) => item.id === view.drag.annotationId);
@@ -327,15 +329,17 @@ export function redoAction() {
   if (!next) return;
 
   state.history.push(JSON.stringify({
-    labels: state.labels,
     annotations: state.annotations,
     selectedId: state.selectedId
   }));
 
   const restored = JSON.parse(next);
-  state.labels = restored.labels;
-  state.annotations = restored.annotations;
-  state.selectedId = restored.selectedId;
+  if (restored.annotations) {
+    state.annotations = restored.annotations;
+  }
+  if (restored.selectedId !== undefined) {
+    state.selectedId = restored.selectedId;
+  }
 
   if (view.drag?.type === "draw-polygon") {
     const exists = state.annotations.some((item) => item.id === view.drag.annotationId);

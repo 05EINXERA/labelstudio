@@ -6,7 +6,7 @@
  */
 import { clientId } from "../utils.js?v=1";
 import { apiFetch } from "../api.js?v=1";
-import { state, snapshot, resetWorkspaceForNewImage } from "../state.js?v=1";
+import { state, resetWorkspaceForNewImage } from "../state.js?v=1";
 import { view } from "../canvas/view.js?v=1";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
 import {
@@ -118,7 +118,6 @@ export async function switchImage(index) {
   resetSessionForTask();
   const item = state.gallery[index];
 
-  snapshot();
   resetWorkspaceForNewImage();
 
   // Hydrate annotations on demand via per-task detail endpoint

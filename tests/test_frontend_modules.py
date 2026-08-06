@@ -54,3 +54,32 @@ def test_modal_manipulation_conventions():
     assert "helpModal.style.display" not in content
     assert "tcModal.style.display" not in content
     assert "teamValidationModal.style.display" not in content
+
+
+def test_undo_redo_and_workspace_reset_hygiene():
+    """Verify that undo history is reset between tasks and labels are not corrupted by undo/redo."""
+    state_file = os.path.join(FRONTEND_JS_DIR, "state.js")
+    with open(state_file, "r", encoding="utf-8") as f:
+        state_content = f.read()
+
+    # resetWorkspaceForNewImage must reset history and redoHistory
+    assert "state.history = [];" in state_content
+    assert "state.redoHistory = [];" in state_content
+
+    # snapshot() must not store labels
+    assert "labels: state.labels" not in state_content
+
+    gallery_file = os.path.join(FRONTEND_JS_DIR, "components", "gallery.js")
+    with open(gallery_file, "r", encoding="utf-8") as f:
+        gallery_content = f.read()
+
+    # switchImage must not snapshot before resetting
+    assert "snapshot()" not in gallery_content
+
+    interactions_file = os.path.join(FRONTEND_JS_DIR, "canvas", "interactions.js")
+    with open(interactions_file, "r", encoding="utf-8") as f:
+        interactions_content = f.read()
+
+    # undoAction and redoAction must not overwrite state.labels
+    assert "state.labels = restored.labels" not in interactions_content
+
