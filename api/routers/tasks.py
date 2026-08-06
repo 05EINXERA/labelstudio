@@ -355,6 +355,77 @@ def get_tasks(projectId: Optional[int] = Query(None), include_annotations: bool 
         })
     return result
 
+@router.get("/lock-status")
+def bulk_lock_status(projectId: int = Query(...), db: Session = Depends(get_db),
+                     user: models.User = Depends(get_current_user)):
+    """Lock state for every currently-locked task in one project.
+
+    The Tasks view shows a "busy" badge on tasks another annotator has open. It
+    used to get that by calling GET /{task_id}/lock-status once per task — 120
+    authenticated requests on a 120-task project, each doing a JWT decode, a
+    user lookup and a full permission resolve, all to read an in-process dict
+    that needed no database at all. Over HTTP/1.1 the browser also ran them ~6
+    at a time, blocking the connection pool for everything else on the page.
+    See .devnotes/server-optimization/03_TASKS_PAGE.md.
+
+    **Only locked tasks are returned.** The client treats a missing id as
+    unlocked, which is what the per-task endpoint already reported for a free
+    task, so the rendered result is identical. Returning the locked minority
+    keeps the response tiny — a lock means someone has that task open *right
+    now*, so it is normally a handful of entries at most.
+
+    Shape per entry mirrors GET /{task_id}/lock-status exactly (`locked`,
+    `locked_by`, `seconds_remaining`) so the two cannot drift and the caller can
+    use either interchangeably.
+
+    Declared before `GET /{task_id}` deliberately: FastAPI matches routes in
+    declaration order, so a literal path registered after a parameterised
+    sibling is swallowed as `task_id="lock-status"` and fails as a 422.
+
+    Permission: ANNOTATOR on the project, matching the per-task endpoint — a
+    viewer cannot claim a task, so the badge tells them nothing actionable.
+    Resolved **once** here rather than once per task, which is the other half of
+    the saving.
+
+    Single-worker constraint (CLAUDE.md rule 9) is unchanged: this reads the
+    same in-process `_TASK_LOCKS` dict as every other lock endpoint.
+    """
+    require_project(projectId, user, db, minimum=ProjectRole.ANNOTATOR)
+
+    # Nothing is locked anywhere — skip the task-id query entirely. This is the
+    # overwhelmingly common case on a quiet project.
+    if not _TASK_LOCKS:
+        return {}
+
+    # Restrict to this project's tasks so a lock held on some other project's
+    # task can never leak through. Only the ids are fetched.
+    task_ids = {
+        task_id
+        for (task_id,) in db.query(models.Task.id)
+        .filter(models.Task.project_id == projectId)
+        .all()
+    }
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    result = {}
+    # Iterate the (small) lock dict rather than the (large) task id set, and
+    # snapshot its keys: _lock_status evicts stale entries, which mutates the
+    # dict during iteration.
+    for task_id in list(_TASK_LOCKS.keys()):
+        if task_id not in task_ids:
+            continue
+        lock = _lock_status(task_id)
+        if not lock:
+            continue
+        age = (now - lock["claimed_at"]).total_seconds()
+        result[str(task_id)] = {
+            "locked": True,
+            "locked_by": lock["client_id"],
+            "seconds_remaining": max(0, TASK_LOCK_TTL_SECONDS - int(age)),
+        }
+    return result
+
+
 @router.get("/{task_id}", response_model=TaskDetail)
 def get_task(task_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     """Return a single task with its full annotations blob.

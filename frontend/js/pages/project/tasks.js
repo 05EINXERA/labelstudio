@@ -45,17 +45,36 @@ const _activeFilters = {
 
 // T2.2 — lock status cache: {taskId: {locked: bool, locked_by: str}}
 // Populated asynchronously after the task list renders.
+//
+// Mutated in place rather than reassigned: buildColumns() captured this exact
+// object when the table was created, so replacing the binding would leave the
+// renderer reading a detached snapshot and the badges would never update again.
 const _lockCache = {};
 
-async function _refreshLockCache(tasks) {
-  // Fetch lock status for every task in parallel (fire-and-forget batches).
-  // Errors are silently swallowed — lock display is best-effort.
-  await Promise.allSettled(tasks.map(async (t) => {
-    try {
-      const res = await apiFetch(`/api/tasks/${t.id}/lock-status`);
-      if (res && res.ok) _lockCache[t.id] = await res.json();
-    } catch { /* best-effort */ }
-  }));
+async function _refreshLockCache() {
+  // One request for the whole project instead of one per task. The old shape
+  // issued 120 authenticated requests on a 120-task project — each a JWT
+  // decode, a user lookup and a permission resolve — to read an in-process
+  // dict. See .devnotes/server-optimization/03_TASKS_PAGE.md.
+  //
+  // Errors are silently swallowed: lock display is best-effort and must never
+  // block the task list from rendering.
+  try {
+    const res = await apiFetch(
+      `/api/tasks/lock-status?projectId=${encodeURIComponent(ctx.projectId)}`
+    );
+    if (!res || !res.ok) return;
+    const locked = await res.json();
+
+    // Clear before applying. The endpoint returns *only* locked tasks, so an
+    // entry that has since been released or expired simply stops being sent —
+    // merging would leave a stale "busy" badge on a task that is now free,
+    // until a full page reload. The per-task endpoint used to overwrite every
+    // id with {locked:false}, which hid this; the batch shape makes the clear
+    // load-bearing.
+    for (const key of Object.keys(_lockCache)) delete _lockCache[key];
+    Object.assign(_lockCache, locked);
+  } catch { /* best-effort */ }
 }
 
 function template() {
@@ -174,7 +193,7 @@ async function loadTasks() {
   _reapplyFilters();
 
   // T2.2 — refresh lock badges after the table renders (async, non-blocking).
-  _refreshLockCache(tasks).then(() => {
+  _refreshLockCache().then(() => {
     table.setRows(tasks);
     _reapplyFilters();
   });
