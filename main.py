@@ -15,6 +15,7 @@ import os
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from sqlalchemy import text
 
@@ -84,6 +85,34 @@ async def add_security_and_cache_headers(request, call_next):
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
     return response
+
+
+# Compress text responses. Nothing here is served compressed otherwise: the JS
+# module graph (~562 KB across 50 files), styles.css (~64 KB) and every JSON
+# body went over the LAN raw. JSON and JS are the most compressible content
+# there is — annotation blobs and task lists repeat the same keys once per
+# shape — so this is 80-90% off the wire for a few ms of CPU per response.
+# See .devnotes/server-optimization/06_CACHING.md (F3).
+#
+# Added *after* the header middleware deliberately: Starlette runs the
+# last-added middleware outermost, so GZip wraps the header pass and compresses
+# the finished response. The security and Cache-Control headers above are set
+# on the inner response and survive untouched.
+#
+# Already-compressed formats (the JPEG/PNG/WebP uploads) are not re-compressed
+# by GZipMiddleware, which is correct — shrinking those is an image-pipeline
+# problem, not a transport one.
+#
+# minimum_size=500 is the intent — below roughly this the gzip header costs
+# more than the compression saves. Note it does NOT currently take effect:
+# GZipMiddleware only consults it when the body length is known up front, and
+# `add_security_and_cache_headers` above is a BaseHTTPMiddleware, which makes
+# every response streaming with no content-length. So small bodies are
+# compressed too. The waste is a few hundred bytes on tiny acknowledgements —
+# far smaller than what this middleware saves — so it is left as-is and
+# documented rather than fixed by rewriting the header middleware as pure ASGI.
+# Pinned by tests/test_response_compression.py.
+app.add_middleware(GZipMiddleware, minimum_size=500)
 
 
 # Exact origins only. A wildcard cannot be combined with cookie credentials, and
