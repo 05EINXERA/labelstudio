@@ -201,13 +201,39 @@ async function loadTasks() {
 
 // --- upload --------------------------------------------------------------
 
+// Above this many stacked names, show a count instead of listing every one —
+// a batch of a few hundred duplicate filenames would otherwise render a
+// scroll-length list.
+const DUPLICATE_LIST_LIMIT = 8;
+// How long the upload summary (success/failed/duplicate) stays on screen
+// before it clears itself, so a stale banner doesn't linger over the table.
+const UPLOAD_SUMMARY_DURATION_MS = 8000;
+
+let _uploadSummaryTimer = null;
+
 function renderUploadSummary(body) {
   const summary = el("uploadSummary");
+  if (_uploadSummaryTimer) {
+    clearTimeout(_uploadSummaryTimer);
+    _uploadSummaryTimer = null;
+  }
   if (!body) { summary.innerHTML = ""; return; }
   const parts = [];
   if (body.uploaded?.length) {
     parts.push(`<div class="mgmt-empty" style="text-align:left;padding:10px 14px;color:var(--accent-dark);">
         ✓ Uploaded ${body.uploaded.length} image${body.uploaded.length === 1 ? "" : "s"}.</div>`);
+  }
+  if (body.duplicates?.length) {
+    const n = body.duplicates.length;
+    const listable = n <= DUPLICATE_LIST_LIMIT;
+    parts.push(`<div class="mgmt-error">
+        ${n} file${n === 1 ? "" : "s"} skipped — a task with that name already exists:
+        ${listable
+          ? `<ul style="margin:6px 0 0 18px;">
+              ${body.duplicates.map((name) => `<li>${escapeHTML(name || "unknown")}</li>`).join("")}
+            </ul>`
+          : ""}
+      </div>`);
   }
   if (body.failed?.length) {
     parts.push(`<div class="mgmt-error">
@@ -218,6 +244,12 @@ function renderUploadSummary(body) {
       </div>`);
   }
   summary.innerHTML = parts.join("");
+  if (parts.length) {
+    _uploadSummaryTimer = setTimeout(() => {
+      summary.innerHTML = "";
+      _uploadSummaryTimer = null;
+    }, UPLOAD_SUMMARY_DURATION_MS);
+  }
 }
 
 async function uploadFiles(fileList) {

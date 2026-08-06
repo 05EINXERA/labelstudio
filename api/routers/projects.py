@@ -299,10 +299,23 @@ def upload_files(project_id: int, assignee: Optional[str] = Query(None), file: L
     uploads_dir = os.path.join(DATA_DIR, "uploads")
     os.makedirs(uploads_dir, exist_ok=True)
 
+    # Existing task names in this project, so a re-upload of the same image
+    # is rejected instead of silently creating a second task with an
+    # identical name. Seeded with names already used *within this batch* too,
+    # since a bulk upload can itself contain the same filename twice.
+    existing_names = {
+        name for (name,) in db.query(models.Task.description)
+        .filter(models.Task.project_id == project_id).all()
+    }
+
     uploaded = []
     failed = []
+    duplicates = []
 
     for f in file:
+        if f.filename in existing_names:
+            duplicates.append(f.filename)
+            continue
         try:
             db_filepath = _save_upload(f, uploads_dir)
         except ValueError as exc:
@@ -325,12 +338,16 @@ def upload_files(project_id: int, assignee: Optional[str] = Query(None), file: L
             image_width=width, image_height=height,
         ))
         uploaded.append({"filename": f.filename, "path": db_filepath})
+        # Seen within this same request too, so a batch containing the same
+        # filename twice only creates one task and flags the rest as dupes.
+        existing_names.add(f.filename)
 
     commit_with_retry(db)
     return {
         "status": "ok",
         "uploaded": uploaded,
         "failed": failed,
+        "duplicates": duplicates,
         # Legacy field: project_details.js only checked res.ok, but keep the
         # shape until that page is deleted (tracker P5.1).
         "files": [u["path"] for u in uploaded],

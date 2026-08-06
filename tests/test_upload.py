@@ -153,6 +153,93 @@ def test_unreadable_image_leaves_dimensions_null(client, alice):
         db.close()
 
 
+# ---------------------------------------------------------------------------
+# Duplicate filename rejection
+#
+# Re-uploading a file whose name already matches an existing task in the
+# project must not create a second task (previously it silently duplicated).
+# ---------------------------------------------------------------------------
+
+def test_duplicate_filename_is_rejected_not_duplicated(client, alice):
+    pid = _new_project(client, alice)
+    first = client.post(
+        f"/api/projects/{pid}/upload",
+        files=[("file", ("P100015.jpg", PNG_BYTES, "image/jpeg"))],
+        headers=alice,
+    )
+    assert len(first.json()["uploaded"]) == 1
+
+    second = client.post(
+        f"/api/projects/{pid}/upload",
+        files=[("file", ("P100015.jpg", PNG_BYTES, "image/jpeg"))],
+        headers=alice,
+    )
+    body = second.json()
+    assert body["uploaded"] == []
+    assert body["duplicates"] == ["P100015.jpg"]
+
+    tasks = client.get(f"/api/tasks?projectId={pid}", headers=alice).json()
+    assert len(tasks) == 1
+
+
+def test_duplicate_within_same_batch_creates_only_one_task(client, alice):
+    pid = _new_project(client, alice)
+    res = client.post(
+        f"/api/projects/{pid}/upload",
+        files=[
+            ("file", ("dup.png", PNG_BYTES, "image/png")),
+            ("file", ("other.png", PNG_BYTES, "image/png")),
+            ("file", ("dup.png", PNG_BYTES, "image/png")),
+        ],
+        headers=alice,
+    )
+    body = res.json()
+    assert len(body["uploaded"]) == 2
+    assert body["duplicates"] == ["dup.png"]
+
+    tasks = client.get(f"/api/tasks?projectId={pid}", headers=alice).json()
+    assert len(tasks) == 2
+
+
+def test_duplicate_rejection_does_not_block_other_files_in_batch(client, alice):
+    pid = _new_project(client, alice)
+    client.post(
+        f"/api/projects/{pid}/upload",
+        files=[("file", ("existing.png", PNG_BYTES, "image/png"))],
+        headers=alice,
+    )
+    res = client.post(
+        f"/api/projects/{pid}/upload",
+        files=[
+            ("file", ("existing.png", PNG_BYTES, "image/png")),
+            ("file", ("fresh.png", PNG_BYTES, "image/png")),
+        ],
+        headers=alice,
+    )
+    body = res.json()
+    assert body["duplicates"] == ["existing.png"]
+    assert len(body["uploaded"]) == 1
+    assert body["uploaded"][0]["filename"] == "fresh.png"
+
+
+def test_same_filename_allowed_in_different_project(client, alice):
+    pid1 = _new_project(client, alice)
+    pid2 = _new_project(client, alice)
+    client.post(
+        f"/api/projects/{pid1}/upload",
+        files=[("file", ("shared.png", PNG_BYTES, "image/png"))],
+        headers=alice,
+    )
+    res = client.post(
+        f"/api/projects/{pid2}/upload",
+        files=[("file", ("shared.png", PNG_BYTES, "image/png"))],
+        headers=alice,
+    )
+    body = res.json()
+    assert body["duplicates"] == []
+    assert len(body["uploaded"]) == 1
+
+
 def test_created_at_is_populated_on_upload(client, alice):
     pid = _new_project(client, alice)
     client.post(
