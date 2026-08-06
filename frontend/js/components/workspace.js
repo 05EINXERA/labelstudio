@@ -3,12 +3,12 @@ import { apiFetch } from "../api.js?v=1";
 import {
   state, storageKey, draftKey, legacyDraftKey, colorForName, labelByName, labelById,
   labelDisplayName, snapshot, selectedAnnotation
-} from "../state.js?v=2";
+} from "../state.js?v=3";
 import { pendingCount, retryablePendingCount, isServerUnreachable, peekWrite } from "../offline-queue.js?v=3";
 import { annotationPoints, updateAnnotationBounds } from "../canvas/geometry.js?v=1";
 import { view } from "../canvas/view.js?v=1";
 import { drainTaskTime } from "./timer.js?v=2";
-import { detectState } from "../ai/detect-state.js?v=2";
+import { detectState } from "../ai/detect-state.js?v=3";
 import { draw, drawAllLayers } from "../canvas/draw.js?v=1";
 import {
   emptyState, classesList, annotationList, annotationCount, selectedInfo,

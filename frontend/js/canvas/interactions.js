@@ -1,5 +1,5 @@
 import { generateUUID, clamp, round } from "../utils.js?v=1";
-import { state, snapshot, isAnnotationHidden } from "../state.js?v=2";
+import { state, snapshot, isAnnotationHidden } from "../state.js?v=3";
 import { annotationPoints, updateAnnotationBounds, pointInPolygon } from "./geometry.js?v=1";
 import { untangleRing } from "./untangle.js?v=1";
 import { view } from "./view.js?v=1";
@@ -330,7 +330,6 @@ export function undoAction() {
   }
 
   state.redoHistory.push(JSON.stringify({
-    labels: state.labels,
     annotations: state.annotations,
     selectedId: state.selectedId
   }));
@@ -338,7 +337,7 @@ export function undoAction() {
   if (carryAnnotation) delete carryAnnotation.__pendingUndonePoints;
 
   const restored = JSON.parse(previous);
-  state.labels = restored.labels;
+  // state.labels is untouched: classes are project-level, not undoable (state.js).
   state.annotations = restored.annotations;
   state.selectedId = restored.selectedId;
 
@@ -365,13 +364,12 @@ export function redoAction() {
   if (!next) return;
 
   state.history.push(JSON.stringify({
-    labels: state.labels,
     annotations: state.annotations,
     selectedId: state.selectedId
   }));
 
   const restored = JSON.parse(next);
-  state.labels = restored.labels;
+  // state.labels is untouched: classes are project-level, not undoable (state.js).
   state.annotations = restored.annotations;
   state.selectedId = restored.selectedId;
 

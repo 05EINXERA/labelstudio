@@ -2,7 +2,7 @@ import { generateUUID, clamp, round, normalizeClassName, formatTime, clientId } 
 import { apiFetch, pollJob } from "./api.js?v=1";
 import {
   state, snapshot, resetWorkspaceForNewImage
-} from "./state.js?v=2";
+} from "./state.js?v=3";
 import { view } from "./canvas/view.js?v=1";
 import { commentOverlayRefs } from "./comment-overlay.js?v=1";
 import {
@@ -28,7 +28,7 @@ import {
 } from "./components/timer.js?v=2";
 import {
   finalizePolygon, deleteSelected, undoAction, redoAction, setZoomChangeHandler
-} from "./canvas/interactions.js?v=1";
+} from "./canvas/interactions.js?v=3";
 import { initContextMenu } from "./canvas/context-menu.js?v=1";
 import { getCurrentUser } from "./session.js?v=1";
 import { canReview } from "./permissions.js?v=1";
@@ -205,7 +205,11 @@ async function switchImage(index) {
   resetSessionForTask();
   const item = state.gallery[index];
 
-  snapshot();
+  // No snapshot() here. Switching tasks is not an undoable edit, and taking one
+  // was actively harmful: it pushed the outgoing (about to be emptied) state
+  // onto the stack, so the first Ctrl+Z on the freshly-opened task restored an
+  // empty annotation array over the hydrated work and saved the wipe.
+  // resetWorkspaceForNewImage() clears the stack instead — undo is per-session.
   resetWorkspaceForNewImage();
 
   // T1.3 — Hydrate annotations on demand.

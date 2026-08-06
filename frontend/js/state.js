@@ -138,10 +138,15 @@ export function labelDisplayName(label) {
   return formatClassName(label?.name || "object");
 }
 
+// Undo/redo is deliberately annotation-only. Classes are project-level state
+// owned by the labels API, shared by every task and every annotator: rolling
+// them back from one annotator's canvas history would blank the class panel
+// (and orphan every annotation referencing a class this tab had "undone").
+// Restoring only annotations keeps undo scoped to what the canvas actually
+// edits. See clearHistory() for the session-scoping half of the same rule.
 export function snapshot() {
   state.redoHistory = [];
   state.history.push(JSON.stringify({
-    labels: state.labels,
     annotations: state.annotations,
     selectedId: state.selectedId
   }));
@@ -150,10 +155,22 @@ export function snapshot() {
   }
 }
 
+// Undo history is per-task and per-session. Opening a task must start with an
+// empty stack: work saved by a previous session (or by another annotator) is
+// not this session's to undo, and a stack carried across a task switch let the
+// first Ctrl+Z restore the *outgoing* task's state over the incoming one —
+// which, because a task is hydrated after the switch, meant undoing onto an
+// empty annotation array and saving that wipe to the server.
+export function clearHistory() {
+  state.history = [];
+  state.redoHistory = [];
+}
+
 export function resetWorkspaceForNewImage() {
   // state.labels is deliberately not cleared to persist classes across images
   state.annotations = [];
   state.selectedId = null;
+  clearHistory();
   // Re-arm the label gate for each new task: the annotator must pick a class
   // before drawing, rather than inheriting the previous task's armed state.
   state.mode = "select";
