@@ -109,6 +109,27 @@ async def add_security_and_cache_headers(request, call_next):
         # intermediary that still reads them, so they are dropped rather than
         # left to fight it. Cache-Control is authoritative for every client
         # this app serves.
+    elif path.startswith("/uploads/"):
+        # Task images. Unlike JS/CSS these are genuinely immutable: every
+        # upload is written under a fresh uuid4().hex filename
+        # (_save_upload, api/routers/projects.py) and nothing in this codebase
+        # ever writes into an existing upload path afterward — a changed image
+        # is a new file with a new name, never a mutation in place. A URL's
+        # bytes therefore cannot change under an annotator, so caching it for a
+        # year and skipping revalidation entirely is safe, where doing the same
+        # for JS/CSS above would not be (see the no-cache branch's reasoning).
+        #
+        # This does not touch image quality or resolution in any way — same
+        # file, same bytes, served with a different header. Distinct from T9
+        # (a downscaled derivative for the canvas), which is deliberately not
+        # implemented: that would change what an annotator draws against and
+        # needs a careful coordinate-mapping design first.
+        #
+        # The payoff: opening a task a second time (switching back to a
+        # previous image, or reopening after a reload) costs zero requests
+        # instead of a conditional round trip, on files that average ~9 MB
+        # (.devnotes/server-optimization/02_FINDINGS.md, F5).
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
     return response
 
 

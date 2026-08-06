@@ -87,3 +87,69 @@ def test_api_responses_are_not_given_the_static_cache_header(client):
     res = client.get("/health")
     assert res.status_code == 200
     assert res.headers.get("Cache-Control") is None
+
+
+# --- /uploads (T5, finding F5) ---------------------------------------------
+#
+# Uploaded images are genuinely immutable — _save_upload (api/routers/
+# projects.py) names every file with a fresh uuid4().hex and nothing ever
+# writes into an existing upload path afterward — so they get the strongest
+# cache directive instead of the revalidate-always one above. This does not
+# touch the image bytes or quality in any way; only the response header
+# changes. See .devnotes/server-optimization/06_CACHING.md (R-CACHE-3).
+
+PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"0" * 32
+
+
+def _upload_one(client, auth):
+    pid = client.post(
+        "/api/projects", json={"name": "cache-t5", "slug": "cache-t5", "creator": "x"},
+        headers=auth,
+    ).json()["id"]
+    res = client.post(
+        f"/api/projects/{pid}/upload",
+        files=[("file", ("photo.png", PNG_BYTES, "image/png"))],
+        headers=auth,
+    )
+    assert res.status_code == 200, res.text
+    return res.json()["uploaded"][0]["path"]
+
+
+def test_uploaded_image_is_cached_as_immutable(client, alice):
+    path = _upload_one(client, alice)
+    res = client.get(f"/{path}")
+    assert res.status_code == 200
+    cache_control = res.headers.get("Cache-Control", "")
+    assert "immutable" in cache_control
+    assert "max-age=31536000" in cache_control
+
+
+def test_uploaded_image_is_not_marked_no_cache_or_no_store(client, alice):
+    """Uploads must not fall into the JS/CSS/HTML branch above.
+
+    Both directives are wrong for an immutable file: `no-cache` would force a
+    pointless revalidation round trip on every view, and `no-store` would
+    reintroduce the exact re-download cost T5 exists to remove.
+    """
+    path = _upload_one(client, alice)
+    cache_control = client.get(f"/{path}").headers.get("Cache-Control", "")
+    assert "no-cache" not in cache_control
+    assert "no-store" not in cache_control
+
+
+def test_uploaded_image_bytes_are_unchanged_by_the_header_change(client, alice):
+    """T5 only adds a header; the served bytes must be byte-for-byte identical.
+
+    This is the direct check that image quality/content was not touched: the
+    same request before and after this change must return the same file.
+    """
+    path = _upload_one(client, alice)
+    res = client.get(f"/{path}")
+    assert res.content == PNG_BYTES
+
+
+def test_non_upload_static_paths_are_unaffected_by_the_uploads_branch(client):
+    """/uploads/ is a path-prefix check; it must not swallow other paths."""
+    res = client.get("/styles.css")
+    cache_control = res.headers.get("Cache-Control", "")
+    assert "immutable" not in cache_control
