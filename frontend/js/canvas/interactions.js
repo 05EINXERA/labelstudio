@@ -892,6 +892,27 @@ canvas.addEventListener("pointerdown", (event) => {
 
         // Closure is now handled by the hitTestPoint logic above
 
+        // A click landing back on an already-placed vertex (typically the
+        // second half of a double-click) is a delete gesture, not a request
+        // to place a new point there. Left alone, it would push a
+        // near-duplicate point and hand the mid-draw untangle below a
+        // fabricated edge back to that vertex — a real crossing by
+        // coincidence, not by intent — which then cuts away whatever the
+        // annotator had already drawn. points[0] is excluded: clicking it
+        // closes the shape via the hitTestPoint block above and never
+        // reaches here.
+        const existingIndex = pts.length > 1
+          ? hitTestPoint(point, { points: pts.slice(1) })
+          : -1;
+        if (existingIndex !== -1) {
+          annotation.points.splice(existingIndex + 1, 1);
+          updateAnnotationBounds(annotation);
+          if (view.drag.undonePoints) view.drag.undonePoints = [];
+          render();
+          save();
+          return;
+        }
+
         const lastPoint = pts[pts.length - 1];
         if (!lastPoint || Math.hypot(lastPoint.x - pointInImage.x, lastPoint.y - pointInImage.y) > 1) {
           const placed = { x: round(pointInImage.x), y: round(pointInImage.y) };
@@ -1094,6 +1115,17 @@ canvas.addEventListener("pointermove", (event) => {
 
 canvas.addEventListener("dblclick", (event) => {
   // Polygon finalizing via double-click has been removed as per user request
+
+  // While a polygon is still being drawn, vertex deletion is already handled
+  // per-click in the pointerdown "draw-polygon" branch above (closed: false,
+  // no fabricated edge back to points[0]). This handler runs afterPointRemoval
+  // with closed: true — correct for a finished ring, but on an open polyline
+  // it treats the dashed preview line back to the start point as a real edge,
+  // reintroducing the exact phantom-closing-edge bug the mid-draw path exists
+  // to avoid. Both pointerdown events that make up the double-click already
+  // reached that branch by the time this fires, so there is nothing left
+  // for this handler to do mid-draw — skip it outright.
+  if (view.drag?.type === "draw-polygon") return;
 
   if (state.selectedId) {
     const point = canvasPoint(event);
