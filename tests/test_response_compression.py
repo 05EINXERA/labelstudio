@@ -141,9 +141,9 @@ def test_security_headers_survive_compression(client, header, expected):
 def test_cache_control_survives_compression(client):
     """The static-asset cache directive must not be lost on compressed assets.
 
-    Pinned because T2 is going to change this value: if compression were
-    swallowing the header, that change would appear to work and do nothing.
+    Pinned because T2 changed this value: if compression were swallowing the
+    header, that change would have appeared to work while doing nothing.
     """
     res = _get(client, "/styles.css")
     assert res.headers.get("content-encoding") == "gzip"
-    assert "no-store" in res.headers.get("Cache-Control", "")
+    assert res.headers.get("Cache-Control") == "no-cache"

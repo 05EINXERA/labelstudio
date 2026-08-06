@@ -81,9 +81,34 @@ async def add_security_and_cache_headers(request, call_next):
         path == "/" or
         path.startswith("/frontend")
     ):
-        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-        response.headers["Pragma"] = "no-cache"
-        response.headers["Expires"] = "0"
+        # `no-cache`, NOT `no-store`. The two sound alike and are very
+        # different: `no-store` forbids writing the response to cache at all,
+        # so every navigation and every reload re-downloaded the whole ~626 KB
+        # of JS and CSS. `no-cache` allows storage but requires revalidation
+        # before reuse — the server is still consulted on every request, so the
+        # freshness guarantee is exactly as strong as before, but an unchanged
+        # file comes back as a 304 with an empty body instead of the full
+        # bytes.
+        #
+        # This is safe because StaticFiles already sends both validators
+        # (verified: `ETag` and `Last-Modified` are present, and a request
+        # carrying If-None-Match gets 304 with 0 bytes vs 200 with 63,941 for
+        # styles.css). Nothing about stale-bundle risk changes: a client still
+        # asks the server about every asset on every load, and the `?v=` import
+        # pins (CLAUDE.md rule 13) remain the invalidation mechanism.
+        #
+        # Deliberately stopping short of `max-age=…, immutable` on versioned
+        # assets, which would remove the round trip entirely and make reloads
+        # truly instant. That needs an audit that every asset really is
+        # `?v=`-pinned first — an unpinned file cached for a year is a bad
+        # failure mode. Tracked as T13 in
+        # .devnotes/server-optimization/07_RECOMMENDATIONS.md.
+        response.headers["Cache-Control"] = "no-cache"
+        # `Pragma`/`Expires` are HTTP/1.0 relics that only ever meant
+        # "don't cache". Keeping them would contradict the header above for any
+        # intermediary that still reads them, so they are dropped rather than
+        # left to fight it. Cache-Control is authoritative for every client
+        # this app serves.
     return response
 
 
