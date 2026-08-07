@@ -414,7 +414,25 @@ deleteButton.addEventListener("click", () => {
 });
 
 clearButton.addEventListener("click", () => {
-  if (!state.annotations.length) return;
+  const total = state.annotations.length;
+  if (!total) return;
+
+  // Clear-all is the most destructive control on the canvas: one click deletes
+  // every shape on the task and — unlike deleting them individually — there is
+  // no partial result to notice before the save goes out. It is also adjacent
+  // to Delete (selected) in the toolbar, so a misclick wipes the whole image.
+  //
+  // Native confirm() rather than a styled modal to match every other
+  // destructive action in this codebase (project/task/class delete, leaving a
+  // team) and because it is synchronous: the clear must not begin until the
+  // answer is known, and an async modal here would mean restructuring the
+  // save path for one dialog.
+  const shapes = `${total} annotation${total === 1 ? "" : "s"}`;
+  if (!confirm(
+    `Delete all ${shapes} on this image?\n\n` +
+    "You can undo this with Ctrl+Z as long as you stay on this task."
+  )) return;
+
   snapshot();
   state.annotations = [];
   state.selectedId = null;
@@ -424,7 +442,7 @@ clearButton.addEventListener("click", () => {
   // this save and the annotator is told their "offline work could not be saved"
   // for something they just chose to do.
   save({ allowClear: true });
-  setStatus("Cleared all");
+  setStatus(`Cleared ${shapes}`);
 });
 
 // Save button: manual save with visual feedback
