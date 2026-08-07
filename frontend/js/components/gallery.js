@@ -134,6 +134,20 @@ export async function switchImage(index) {
 
   resetWorkspaceForNewImage();
 
+  // Persist active task for project and update back link
+  if (item && item.id) {
+    const urlParams = new URLSearchParams(window.location.search);
+    const curProjId = urlParams.get('projectId');
+    if (curProjId) {
+      sessionStorage.setItem(`last_active_task_${curProjId}`, String(item.id));
+      localStorage.setItem(`last_active_task_${curProjId}`, String(item.id));
+      const backToProject = document.querySelector("#backToProject");
+      if (backToProject) {
+        backToProject.href = `project.html?id=${encodeURIComponent(curProjId)}&activeTaskId=${encodeURIComponent(item.id)}#/tasks`;
+      }
+    }
+  }
+
   // Start image network fetch and decoding immediately
   loadImageFromSource(item.url, item.name);
   updateGalleryUI();

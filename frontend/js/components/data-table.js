@@ -48,6 +48,7 @@ export function createDataTable(opts) {
     query: "",
     filters: {},
     selected: new Set(),
+    priorityRowId: opts.priorityRowId || null,
   };
 
   // --- derivation ---------------------------------------------------------
@@ -68,21 +69,31 @@ export function createDataTable(opts) {
   }
 
   function sorted(rows) {
-    if (!state.sortKey) return rows;
-    const key = state.sortKey;
-    // Copy first: sorting `rows` in place would reorder state.rows via the
-    // shared array reference when no filter is active.
-    return [...rows].sort((a, b) => {
-      let va = a[key];
-      let vb = b[key];
-      if (va == null) va = "";
-      if (vb == null) vb = "";
-      if (typeof va === "string") va = va.toLowerCase();
-      if (typeof vb === "string") vb = vb.toLowerCase();
-      if (va < vb) return state.sortDesc ? 1 : -1;
-      if (va > vb) return state.sortDesc ? -1 : 1;
-      return 0;
-    });
+    let result = rows;
+    if (state.sortKey) {
+      const key = state.sortKey;
+      // Copy first: sorting `rows` in place would reorder state.rows via the
+      // shared array reference when no filter is active.
+      result = [...rows].sort((a, b) => {
+        let va = a[key];
+        let vb = b[key];
+        if (va == null) va = "";
+        if (vb == null) vb = "";
+        if (typeof va === "string") va = va.toLowerCase();
+        if (typeof vb === "string") vb = vb.toLowerCase();
+        if (va < vb) return state.sortDesc ? 1 : -1;
+        if (va > vb) return state.sortDesc ? -1 : 1;
+        return 0;
+      });
+    }
+    if (state.priorityRowId != null) {
+      const pId = String(state.priorityRowId);
+      const idx = result.findIndex((r) => String(rowId(r)) === pId);
+      if (idx > 0) {
+        result = [result[idx], ...result.slice(0, idx), ...result.slice(idx + 1)];
+      }
+    }
+    return result;
   }
 
   function pageInfo(rows) {
@@ -258,6 +269,8 @@ export function createDataTable(opts) {
     clearSelection() { state.selected.clear(); render(); onSelectionChange?.(state.selected); },
     getSelection() { return new Set(state.selected); },
     getRows() { return [...state.rows]; },
+    setPriorityRowId(id) { state.priorityRowId = id || null; render(); },
+    getPriorityRowId() { return state.priorityRowId; },
     render,
     showLoading,
     /** Delegate a click on a row action button, e.g. onAction('edit', row => …) */

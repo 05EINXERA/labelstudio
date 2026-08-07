@@ -602,6 +602,12 @@ export async function mount(hostRoot, hostCtx) {
   const datasetUsername = localStorage.getItem("dataset_username") || "";
   const isCreator = Boolean(ctx?.project?.creator && ctx.project.creator === datasetUsername);
 
+  const urlParams = new URLSearchParams(window.location.search);
+  const activeTaskId = urlParams.get("activeTaskId") ||
+    sessionStorage.getItem(`last_active_task_${ctx.projectId}`) ||
+    localStorage.getItem(`last_active_task_${ctx.projectId}`) ||
+    null;
+
   root.innerHTML = template(isCreator);
 
   table = createDataTable({
@@ -610,6 +616,8 @@ export async function mount(hostRoot, hostCtx) {
     selectable: isCreator,
     sortKey: "updated_at",
     sortDesc: true,
+    priorityRowId: activeTaskId,
+    rowClass: (r) => (activeTaskId && String(r.id) === String(activeTaskId) ? "row-recent-task" : ""),
     emptyMessage: "No tasks yet. Upload images to get started.",
     onSelectionChange: updateBulkBar,
     matches: (row, q) => String(row.description || "").toLowerCase().includes(q),

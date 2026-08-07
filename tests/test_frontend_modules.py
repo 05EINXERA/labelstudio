@@ -99,3 +99,29 @@ def test_undo_redo_and_workspace_reset_hygiene():
     # undoAction and redoAction must not overwrite state.labels
     assert "state.labels = restored.labels" not in interactions_content
 
+
+def test_active_task_table_prioritization():
+    """Verify data-table priorityRowId support and tasks.js active task prioritization."""
+    data_table_file = os.path.join(FRONTEND_JS_DIR, "components", "data-table.js")
+    with open(data_table_file, "r", encoding="utf-8") as f:
+        dt_content = f.read()
+
+    assert "priorityRowId" in dt_content
+    assert "setPriorityRowId" in dt_content
+    assert "getPriorityRowId" in dt_content
+
+    gallery_file = os.path.join(FRONTEND_JS_DIR, "components", "gallery.js")
+    with open(gallery_file, "r", encoding="utf-8") as f:
+        gallery_content = f.read()
+
+    assert "last_active_task_" in gallery_content
+    assert "activeTaskId" in gallery_content
+
+    tasks_file = os.path.join(FRONTEND_JS_DIR, "pages", "project", "tasks.js")
+    with open(tasks_file, "r", encoding="utf-8") as f:
+        tasks_content = f.read()
+
+    assert "activeTaskId" in tasks_content
+    assert "priorityRowId: activeTaskId" in tasks_content
+    assert "row-recent-task" in tasks_content
+

@@ -2041,11 +2041,13 @@ table.data-table th.is-sortable { cursor: pointer; user-select: none; }
 table.data-table th.is-sortable:hover { color: var(--ink); }
 table.data-table tbody tr:hover { background: var(--panel-2); }
 table.data-table tbody tr.selected-team-row,
-table.data-table tbody tr.is-selected-row {
+table.data-table tbody tr.is-selected-row,
+table.data-table tbody tr.row-recent-task {
   background: rgba(15, 139, 141, 0.09) !important;
 }
 table.data-table tbody tr.selected-team-row td:first-child,
-table.data-table tbody tr.is-selected-row td:first-child {
+table.data-table tbody tr.is-selected-row td:first-child,
+table.data-table tbody tr.row-recent-task td:first-child {
   border-left: 3px solid var(--accent);
 }
 table.data-table tbody tr:last-child td { border-bottom: none; }

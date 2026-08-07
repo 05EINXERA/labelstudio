@@ -129,10 +129,12 @@ async function initWorkspaceContext() {
   const breadcrumbProject = document.querySelector("#breadcrumbProject");
 
   if (backToProject) {
-    backToProject.href = `project.html?id=${projectId}#/tasks`;
+    const lastActive = targetTaskId || sessionStorage.getItem(`last_active_task_${projectId}`) || localStorage.getItem(`last_active_task_${projectId}`);
+    const activeQuery = lastActive ? `&activeTaskId=${encodeURIComponent(lastActive)}` : "";
+    backToProject.href = `project.html?id=${encodeURIComponent(projectId)}${activeQuery}#/tasks`;
   }
   if (exportLink) {
-    exportLink.href = `project.html?id=${projectId}#/exports`;
+    exportLink.href = `project.html?id=${encodeURIComponent(projectId)}#/exports`;
   }
 
   try {
