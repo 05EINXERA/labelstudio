@@ -2136,9 +2136,24 @@ table.data-table tbody tr:last-child td { border-bottom: none; }
   display: flex; align-items: center; justify-content: space-between;
   gap: 12px; flex-wrap: wrap; padding: 12px 2px;
 }
-.data-table-info, .data-table-page { font-size: .85rem; color: var(--muted); }
-.data-table-pager { display: flex; align-items: center; gap: 10px; }
-.data-table-pager button[disabled] { opacity: .45; cursor: not-allowed; }
+.data-table-info { font-size: .85rem; color: var(--muted); }
+.data-table-pager { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.data-table-pager button[disabled] { opacity: .35; cursor: not-allowed; }
+.pager-pages { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.pager-btn {
+  min-width: 34px; height: 34px; padding: 0 8px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 1.05rem; line-height: 1; font-weight: 600;
+  color: var(--ink); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 6px; cursor: pointer;
+}
+.pager-btn.pager-num { font-size: .85rem; font-weight: 500; }
+.pager-btn:hover:not([disabled]) { border-color: var(--accent); color: var(--accent-dark); }
+.pager-btn.is-current {
+  background: var(--accent); border-color: var(--accent);
+  color: #fff; font-weight: 700; cursor: default;
+}
+.pager-gap { padding: 0 2px; color: var(--muted); font-size: .85rem; }
 
 .cell-link { color: var(--accent-dark); font-weight: 600; text-decoration: none; }
 .cell-link:hover { text-decoration: underline; }
