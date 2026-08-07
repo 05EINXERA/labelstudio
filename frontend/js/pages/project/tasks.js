@@ -83,7 +83,7 @@ async function _refreshLockCache() {
 // server-side commit and one loadTasks() refresh, so the table fills
 // incrementally. Keep this well below MAX_UPLOAD_FILES (server default 200).
 // ---------------------------------------------------------------------------
-const BATCH_SIZE = 25;
+const BATCH_SIZE = 15;
 
 // CSRF cookie name — must match api/auth.py.
 const CSRF_COOKIE = "csrf_token";
@@ -375,10 +375,10 @@ function _renderUploadSummary(allUploaded, allFailed, allDuplicates, aborted) {
     parts.push(`<div class="mgmt-error">
         ${n} file${n === 1 ? "" : "s"} skipped — a task with that name already exists:
         ${listable
-          ? `<ul style="margin:6px 0 0 18px;">
+        ? `<ul style="margin:6px 0 0 18px;">
               ${allDuplicates.map((name) => `<li>${escapeHTML(name || "unknown")}</li>`).join("")}
             </ul>`
-          : ""}
+        : ""}
       </div>`);
   }
 
@@ -498,9 +498,9 @@ async function uploadFiles(fileList) {
 }
 
 function bindUpload() {
-  const btn   = el("uploadBtn");
+  const btn = el("uploadBtn");
   const input = el("uploadInput");
-  const zone  = el("dropZone");
+  const zone = el("dropZone");
   const abort = el("uploadAbortBtn");
 
   btn.addEventListener("click", () => input.click());
@@ -654,7 +654,7 @@ async function loadLookups() {
 
 function _reapplyFilters() {
   if (_activeFilters.assignee !== "All") applyAssigneeFilter(_activeFilters.assignee);
-  if (_activeFilters.team     !== "All") applyTeamFilter(_activeFilters.team);
+  if (_activeFilters.team !== "All") applyTeamFilter(_activeFilters.team);
 }
 
 function applyAssigneeFilter(value) {
@@ -698,15 +698,15 @@ async function assignTasks(row) {
 
   const res = row
     ? await apiFetch(`/api/tasks/${encodeURIComponent(row.id)}/assignment`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(choice),
-      })
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(choice),
+    })
     : await apiFetch("/api/tasks/bulk-assign", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids, ...choice }),
-      });
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids, ...choice }),
+    });
   if (!res) return;
 
   if (!res.ok) {
