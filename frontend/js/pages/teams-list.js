@@ -6,7 +6,7 @@
  */
 import { apiFetch } from "../api.js?v=1";
 import { escapeHTML } from "../utils.js?v=1";
-import { createDataTable } from "../components/data-table.js?v=1";
+import { createDataTable } from "../components/data-table.js?v=2";
 import { createModal } from "../components/modal.js?v=1";
 import { teamRoleBadge } from "../components/role-badge.js?v=1";
 import { canManageTeam, ownsTeam } from "../permissions.js?v=1";

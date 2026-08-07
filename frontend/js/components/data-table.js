@@ -88,6 +88,26 @@ export function createDataTable(opts) {
     return { totalPages, start, slice: rows.slice(start, start + state.pageSize) };
   }
 
+  /**
+   * Page numbers to render, with `null` marking an elided run.
+   * Always includes first, last, and a window around the current page, so the
+   * control stays a fixed width no matter how many tasks a project holds.
+   */
+  function pageNumbers(totalPages) {
+    const span = 2;                       // pages shown either side of current
+    const out = [];
+    let last = 0;
+    for (let p = 1; p <= totalPages; p++) {
+      const near = Math.abs(p - state.page) <= span;
+      if (p === 1 || p === totalPages || near) {
+        if (last && p - last > 1) out.push(null);
+        out.push(p);
+        last = p;
+      }
+    }
+    return out;
+  }
+
   // --- rendering ----------------------------------------------------------
 
   function render() {
@@ -128,6 +148,18 @@ export function createDataTable(opts) {
           .join("")
       : `<tr><td colspan="${columns.length + (selectable ? 1 : 0)}" style="text-align:center;color:var(--muted);padding:24px;">${escapeHTML(emptyMessage)}</td></tr>`;
 
+    const atStart = state.page <= 1;
+    const atEnd = state.page >= totalPages;
+    const pageBtns = pageNumbers(totalPages)
+      .map((p) =>
+        p == null
+          ? `<span class="pager-gap">…</span>`
+          : `<button type="button" class="pager-btn pager-num${p === state.page ? " is-current" : ""}"
+                     data-role="page" data-page="${p}"
+                     aria-label="Page ${p}"${p === state.page ? ' aria-current="page"' : ""}>${p}</button>`
+      )
+      .join("");
+
     mount.innerHTML = `
       <div class="data-table-wrap">
         <table class="task-table data-table">
@@ -138,9 +170,11 @@ export function createDataTable(opts) {
       <div class="data-table-footer">
         <span class="data-table-info">Showing ${rows.length ? start + 1 : 0} to ${Math.min(start + state.pageSize, rows.length)} of ${rows.length} entries</span>
         <div class="data-table-pager">
-          <button type="button" class="tool-button" data-role="prev" ${state.page === 1 ? "disabled" : ""}>Previous</button>
-          <span class="data-table-page">Page ${state.page} / ${totalPages}</span>
-          <button type="button" class="tool-button" data-role="next" ${state.page >= totalPages ? "disabled" : ""}>Next</button>
+          <button type="button" class="pager-btn" data-role="first" title="First page" aria-label="First page" ${atStart ? "disabled" : ""}>«</button>
+          <button type="button" class="pager-btn" data-role="prev" title="Previous page" aria-label="Previous page" ${atStart ? "disabled" : ""}>‹</button>
+          <span class="pager-pages">${pageBtns}</span>
+          <button type="button" class="pager-btn" data-role="next" title="Next page" aria-label="Next page" ${atEnd ? "disabled" : ""}>›</button>
+          <button type="button" class="pager-btn" data-role="last" title="Last page" aria-label="Last page" ${atEnd ? "disabled" : ""}>»</button>
         </div>
       </div>`;
 
@@ -160,10 +194,28 @@ export function createDataTable(opts) {
       });
     });
 
-    const prev = mount.querySelector('[data-role="prev"]');
-    const next = mount.querySelector('[data-role="next"]');
-    if (prev) prev.addEventListener("click", () => { if (state.page > 1) { state.page--; render(); } });
-    if (next) next.addEventListener("click", () => { state.page++; render(); });
+    // pageInfo() clamps state.page down on the next render, so "last" can just
+    // aim past the end rather than recomputing the page count here.
+    const goto = {
+      first: () => 1,
+      prev: () => state.page - 1,
+      next: () => state.page + 1,
+      last: () => Number.MAX_SAFE_INTEGER,
+    };
+    Object.entries(goto).forEach(([role, to]) => {
+      const btn = mount.querySelector(`[data-role="${role}"]`);
+      if (btn) btn.addEventListener("click", () => {
+        state.page = Math.max(1, to());
+        render();
+      });
+    });
+
+    mount.querySelectorAll('[data-role="page"]').forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const p = Number(btn.dataset.page);
+        if (p && p !== state.page) { state.page = p; render(); }
+      });
+    });
 
     if (selectable) {
       const all = mount.querySelector('[data-role="select-all"]');
