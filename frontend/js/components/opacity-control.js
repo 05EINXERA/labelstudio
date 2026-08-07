@@ -26,10 +26,11 @@ export function setAnnotationOpacity(percent, persist = true) {
   const clamped = Math.max(0, Math.min(100, Math.round(percent)));
   const base = clamped / 100;
 
+  // Control intensity specifically for presently annotating and selected shapes.
+  // Background unselected shapes remain at a calm, consistent baseline (0.35).
   annotationOpacity.drawing = base;
-  annotationOpacity.normal = base;
-  // Selected shape has a slightly higher contrast/fill when opacity > 0
-  annotationOpacity.selected = base === 0 ? 0.1 : Math.min(1.0, base + 0.15);
+  annotationOpacity.selected = base;
+  annotationOpacity.normal = 0.35;
 
   const slider = document.getElementById("opacitySlider");
   const badge = document.getElementById("opacityBadge");

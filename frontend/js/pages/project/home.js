@@ -67,7 +67,18 @@ function render(root, project, m) {
 
 export async function mount(root, ctx) {
   abortController = new AbortController();
-  root.innerHTML = `<div class="mgmt-empty">Loading metrics…</div>`;
+  root.innerHTML = `
+    <div class="mgmt-title-row">
+      <div>
+        <p class="mgmt-eyebrow">Overview</p>
+        <h2>${escapeHTML(ctx?.project?.name || "Project")}</h2>
+      </div>
+    </div>
+    <div class="metric-tile skeleton skeleton-card" style="margin-bottom: 18px; height: 100px;"></div>
+    <div class="metric-grid">
+      ${Array.from({ length: 8 }).map(() => '<div class="metric-tile skeleton skeleton-card" style="height: 90px;"></div>').join('')}
+    </div>
+  `;
 
   try {
     const res = await apiFetch(`/api/projects/${encodeURIComponent(ctx.projectId)}/metrics`, {

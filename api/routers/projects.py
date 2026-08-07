@@ -120,19 +120,28 @@ def _aggregate_metrics(project_ids: List[int], db: Session) -> dict:
     if not project_ids:
         return metrics
 
-    tasks = db.query(
-        models.Task.id, models.Task.project_id, models.Task.status,
-        models.Task.time_spent,
-    ).filter(models.Task.project_id.in_(project_ids)).all()
+    task_stats = db.query(
+        models.Task.project_id,
+        models.Task.status,
+        func.count(models.Task.id),
+        func.coalesce(func.sum(models.Task.time_spent), 0),
+    ).filter(
+        models.Task.project_id.in_(project_ids)
+    ).group_by(
+        models.Task.project_id,
+        models.Task.status,
+    ).all()
 
-    for t in tasks:
-        entry = metrics[t.project_id]
-        entry["total"] += 1
-        if t.status == 'Completed':
-            entry["completed"] += 1
-        elif t.status == 'In Progress':
-            entry["in_progress"] += 1
-        entry["total_time"] += t.time_spent or 0
+    for pid, status, count, total_time in task_stats:
+        if pid not in metrics:
+            continue
+        entry = metrics[pid]
+        entry["total"] += count
+        if status == 'Completed':
+            entry["completed"] += count
+        elif status == 'In Progress':
+            entry["in_progress"] += count
+        entry["total_time"] += total_time
 
     # Fetch annotations only for tasks that might have comments, saving massive DB I/O
     comment_tasks = db.query(
@@ -377,12 +386,21 @@ def _save_upload(f: UploadFile, uploads_dir: str) -> str:
 
 
 @router.post("/{project_id}/upload")
-def upload_files(project_id: int, assignee: Optional[str] = Query(None), file: List[UploadFile] = File(...), db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
+def upload_files(
+    project_id: int,
+    assignee: Optional[str] = Query(None),
+    skip_duplicates: bool = Query(False),
+    file: List[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+    annotator: Optional[models.TeamMember] = Depends(get_current_annotator),
+):
     """Bulk image upload. One bad file no longer aborts the whole batch.
 
     Previously any disallowed extension raised mid-loop, so earlier files were
     left on disk with no task row and the client got a 400 with no record of
     what did succeed. Each file is now reported individually.
+    Supports skip_duplicates=True to bypass files that already exist in this project.
     """
     db_project = get_owned_project(project_id, user, db, annotator)
     if not is_project_creator(db_project, user, annotator):
@@ -403,10 +421,26 @@ def upload_files(project_id: int, assignee: Optional[str] = Query(None), file: L
     uploads_dir = os.path.join(DATA_DIR, "uploads")
     os.makedirs(uploads_dir, exist_ok=True)
 
+    existing_filenames = set()
+    if skip_duplicates:
+        existing_filenames = {
+            d[0]
+            for d in db.query(models.Task.description).filter(models.Task.project_id == project_id).all()
+            if d[0]
+        }
+
     uploaded = []
     failed = []
+    skipped = []
+    seen_in_batch = set()
 
     for f in file:
+        if skip_duplicates and (f.filename in existing_filenames or f.filename in seen_in_batch):
+            skipped.append({"filename": f.filename, "reason": "Already exists in project"})
+            continue
+        if f.filename:
+            seen_in_batch.add(f.filename)
+
         try:
             db_filepath = _save_upload(f, uploads_dir)
         except ValueError as exc:
@@ -435,6 +469,7 @@ def upload_files(project_id: int, assignee: Optional[str] = Query(None), file: L
         "status": "ok",
         "uploaded": uploaded,
         "failed": failed,
+        "skipped": skipped,
         # Legacy field: project_details.js only checked res.ok, but keep the
         # shape until that page is deleted (tracker P5.1).
         "files": [u["path"] for u in uploaded],

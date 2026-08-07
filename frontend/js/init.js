@@ -136,13 +136,12 @@ async function initWorkspaceContext() {
   }
 
   try {
-    const res = await apiFetch('/api/projects');
-    if (!res.ok) return;
-    const projects = await res.json();
-    const project = projects.find(p => String(p.id) === String(projectId));
+    const res = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}`);
+    if (!res || !res.ok) return;
+    const project = await res.json();
     if (project && breadcrumbProject) {
-      breadcrumbProject.textContent = project.name;
-      breadcrumbProject.title = project.name;
+      breadcrumbProject.textContent = project.name || "Untitled project";
+      breadcrumbProject.title = project.name || "Untitled project";
     }
   } catch (e) {
     console.error("Failed to resolve project name for breadcrumb", e);
@@ -180,15 +179,18 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }, 30_000);
 
-  initWorkspaceContext();
-  fetchLabels();
-  if (projectId) {
-    loadWorkspaceTasks(projectId, targetTaskId);
-  }
-
   initFftControls();
   initOpacityControl();
   loadSaved();
   resizeCanvas();
   render();
+
+  // Parallel high-speed workspace data bootstrap
+  Promise.all([
+    initWorkspaceContext(),
+    fetchLabels(),
+    projectId ? loadWorkspaceTasks(projectId, targetTaskId) : Promise.resolve(),
+  ]).catch((err) => {
+    console.error("Failed to bootstrap workspace data in parallel:", err);
+  });
 });

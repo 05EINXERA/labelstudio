@@ -27,10 +27,10 @@ class Project(Base):
     status = Column(String)
     # Display name of the creator. Retained for existing UI; authorization is
     # keyed on owner_id, never on this string.
-    creator = Column(String)
+    creator = Column(String, index=True)
     owner_id = Column(Integer, ForeignKey("users.id"), index=True)
     created_at = Column(DateTime, server_default=func.now())
-    team_id = Column(Integer, ForeignKey("teams.id"), nullable=True)
+    team_id = Column(Integer, ForeignKey("teams.id"), nullable=True, index=True)
 
 class Task(Base):
     __tablename__ = "tasks"
@@ -38,8 +38,8 @@ class Task(Base):
     project_id = Column(Integer, ForeignKey("projects.id"), index=True)
     image_path = Column(String)
     description = Column(String)
-    status = Column(String)
-    assignee = Column(String)
+    status = Column(String, index=True)
+    assignee = Column(String, index=True)
     time_spent = Column(Integer, default=0)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
@@ -95,7 +95,7 @@ class TaskLock(Base):
     __tablename__ = "task_locks"
     task_id = Column(Integer, ForeignKey("tasks.id", ondelete="CASCADE"), primary_key=True, index=True)
     client_id = Column(String(64), nullable=False)
-    claimed_at = Column(DateTime, server_default=func.now(), nullable=False)
+    claimed_at = Column(DateTime, server_default=func.now(), nullable=False, index=True)
 
 class AIJob(Base):
     __tablename__ = "ai_jobs"
@@ -103,4 +103,4 @@ class AIJob(Base):
     status = Column(String(32), default="pending", nullable=False)
     result = Column(Text, nullable=True)
     error = Column(Text, nullable=True)
-    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False, index=True)

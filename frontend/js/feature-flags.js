@@ -77,8 +77,8 @@ export const annotationSettings = {
  * separate from its neighbours without any other visual cue.
  */
 export const annotationOpacity = {
-  normal: 0.5,
-  selected: 0.6,
+  normal: 0.35,
+  selected: 0.5,
   /** Fill for the in-progress shape being drawn (before it is committed). */
   drawing: 0.5,
 };

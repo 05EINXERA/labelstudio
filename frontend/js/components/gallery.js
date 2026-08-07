@@ -98,6 +98,20 @@ export function updateGalleryUI() {
 }
 
 /**
+ * Preloads adjacent images for instant next/prev navigation.
+ */
+function preloadAdjacentImages(currentIndex) {
+  if (!state.gallery) return;
+  const indices = [currentIndex + 1, currentIndex - 1];
+  for (const idx of indices) {
+    if (idx >= 0 && idx < state.gallery.length && state.gallery[idx]?.url) {
+      const img = new Image();
+      img.src = state.gallery[idx].url;
+    }
+  }
+}
+
+/**
  * Switches the active task to the given index in the gallery.
  */
 export async function switchImage(index) {
@@ -120,30 +134,38 @@ export async function switchImage(index) {
 
   resetWorkspaceForNewImage();
 
-  // Hydrate annotations on demand via per-task detail endpoint
-  if (item.id) {
-    try {
-      const res = await apiFetch(`/api/tasks/${item.id}`);
-      if (res && res.ok) {
-        const detail = await res.json();
-        item.annotations = Array.isArray(detail.annotations) ? detail.annotations : [];
-        if (detail.updated_at) item.updated_at = detail.updated_at;
-        if (detail.time_spent != null) item.time_spent = detail.time_spent;
-      }
-    } catch (e) {
-      console.error("Failed to hydrate task annotations:", e);
-    }
+  // Start image network fetch and decoding immediately
+  loadImageFromSource(item.url, item.name);
+  updateGalleryUI();
+  preloadAdjacentImages(index);
 
-    // Claim soft task lock
-    try {
-      const lock = await claimTask(item.id, clientId());
-      if (lock && lock.status === 'locked') {
-        const secsLeft = lock.seconds_remaining || 60;
-        setStatus(`⚠ Task in use by another annotator (~${secsLeft}s remaining)`);
-      }
-    } catch (e) {
-      console.warn('[task-lock] claim on open failed:', e);
-    }
+  // Hydrate annotations on demand and claim soft task lock in parallel
+  if (item.id) {
+    const detailPromise = apiFetch(`/api/tasks/${item.id}`)
+      .then(async (res) => {
+        if (res && res.ok) {
+          const detail = await res.json();
+          item.annotations = Array.isArray(detail.annotations) ? detail.annotations : [];
+          if (detail.updated_at) item.updated_at = detail.updated_at;
+          if (detail.time_spent != null) item.time_spent = detail.time_spent;
+        }
+      })
+      .catch((e) => {
+        console.error("Failed to hydrate task annotations:", e);
+      });
+
+    const lockPromise = claimTask(item.id, clientId())
+      .then((lock) => {
+        if (lock && lock.status === 'locked') {
+          const secsLeft = lock.seconds_remaining || 60;
+          setStatus(`⚠ Task in use by another annotator (~${secsLeft}s remaining)`);
+        }
+      })
+      .catch((e) => {
+        console.warn('[task-lock] claim on open failed:', e);
+      });
+
+    await Promise.all([detailPromise, lockPromise]);
   }
 
   state.annotations = [...item.annotations];
@@ -151,8 +173,7 @@ export async function switchImage(index) {
   if (restoreDraft(item)) {
     setStatus("Recovered unsaved changes");
   }
-  loadImageFromSource(item.url, item.name);
-  updateGalleryUI();
+  render();
 }
 
 /**

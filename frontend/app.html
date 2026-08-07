@@ -7,6 +7,7 @@
   <title>Image Annotation MVP</title>
   <link rel="icon" type="image/png" href="logo.png">
   <link rel="stylesheet" href="styles.css?v=23">
+  <link rel="modulepreload" href="js/init.js?v=1">
   <!-- sync.js (legacy global annotation-slot sync to /api/data) removed in T3.1.
        Under a shared account the 'image-annotation-mvp-v1' row was last-writer-wins
        across all 25 clients. Per-task localStorage drafts (workspace.js restoreDraft)
@@ -301,8 +302,8 @@
           <span class="tool-group-label">Intensity</span>
           <div class="tool-group-buttons">
             <input type="range" id="opacitySlider" class="opacity-slider" min="0" max="100" value="50" step="5"
-              title="Adjust fill color intensity (0% = wireframe, 100% = solid). Shortcuts: [ to decrease, ] to increase">
-            <span id="opacityBadge" class="opacity-badge" title="Color intensity (0%–100%). Double-click for presets.">50%</span>
+              title="Adjust color intensity for presently annotating or selected polygon (0% = wireframe, 100% = solid). Shortcuts: [ to decrease, ] to increase">
+            <span id="opacityBadge" class="opacity-badge" title="Color intensity for active/selected polygon (0%–100%). Double-click for presets.">50%</span>
           </div>
         </div>
 

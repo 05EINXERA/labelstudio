@@ -209,6 +209,38 @@ export function createDataTable(opts) {
     }
   }
 
+  function showLoading(count = 5) {
+    const head = columns
+      .map((c) => {
+        const style = `${c.width ? `width:${c.width};` : ""}${c.align ? `text-align:${c.align};` : ""}`;
+        return `<th style="${style}">${escapeHTML(c.label)}</th>`;
+      })
+      .join("");
+
+    const selectHead = selectable
+      ? `<th style="width:40px;text-align:center;"><input type="checkbox" disabled></th>`
+      : "";
+
+    const rowsHtml = Array.from({ length: count }, () => {
+      const cells = columns
+        .map(() => `<td><div class="skeleton skeleton-row" style="height:18px;margin:2px 0;"></div></td>`)
+        .join("");
+      const box = selectable ? `<td style="text-align:center;"><div class="skeleton" style="width:16px;height:16px;margin:auto;"></div></td>` : "";
+      return `<tr>${box}${cells}</tr>`;
+    }).join("");
+
+    mount.innerHTML = `
+      <div class="data-table-wrap">
+        <table class="task-table data-table">
+          <thead><tr>${selectHead}${head}</tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>
+      <div class="data-table-footer">
+        <span class="data-table-info" style="color:var(--muted);">Loading entries…</span>
+      </div>`;
+  }
+
   // --- public api ---------------------------------------------------------
 
   return {
@@ -227,6 +259,7 @@ export function createDataTable(opts) {
     getSelection() { return new Set(state.selected); },
     getRows() { return [...state.rows]; },
     render,
+    showLoading,
     /** Delegate a click on a row action button, e.g. onAction('edit', row => …) */
     onAction(name, handler) {
       mount.addEventListener("click", (e) => {

@@ -2434,4 +2434,42 @@ button.switch[aria-checked="true"] .switch-knob {
   border-color: var(--accent);
 }
 
+/* --- High-Performance Skeleton Loading UI --- */
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--panel-2, #e8f0f0) 25%, var(--bg, #f4f8f8) 50%, var(--panel-2, #e8f0f0) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite ease-in-out;
+  border-radius: 6px;
+  display: inline-block;
+  pointer-events: none;
+}
+
+.skeleton-text {
+  height: 14px;
+  width: 100%;
+  margin: 4px 0;
+}
+
+.skeleton-card {
+  min-height: 90px;
+  border-radius: 10px;
+}
+
+.skeleton-row {
+  height: 38px;
+  width: 100%;
+  border-radius: 4px;
+  margin: 6px 0;
+}
+
+
 

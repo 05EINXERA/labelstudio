@@ -95,7 +95,7 @@ def _accessible_project_ids(user: models.User, db: Session, annotator: Optional[
     task_pids = [
         t[0] for t in db.query(models.Task.project_id).filter(
             models.Task.assignee.in_(names)
-        ).all()
+        ).distinct().all()
     ]
     if task_pids:
         conditions.append(models.Project.id.in_(task_pids))

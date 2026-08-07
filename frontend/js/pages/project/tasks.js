@@ -157,6 +157,35 @@ function template(isCreator) {
         </form>
       </div>
     </div>
+
+    <div class="modal-overlay" id="duplicateModal">
+      <div class="modal-content" style="max-width:520px;">
+        <div class="modal-header">
+          <h2 style="display:flex; align-items:center; gap:8px; color:#e05260; font-size:1.15rem;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+              <line x1="12" y1="9" x2="12" y2="13"></line>
+              <line x1="12" y1="17" x2="12.01" y2="17"></line>
+            </svg>
+            Duplicate Images Detected
+          </h2>
+          <button class="modal-close" id="duplicateClose" type="button">&times;</button>
+        </div>
+        <div class="modal-body" style="display:grid; gap:14px; padding:18px 22px;">
+          <p id="duplicateDesc" style="margin:0; font-size:.92rem; line-height:1.45; color:var(--ink);">
+            The following image(s) already exist in this project or are duplicated in your selection:
+          </p>
+          <div id="duplicateList" style="max-height:160px; overflow-y:auto; border:1px solid var(--line); border-radius:8px; padding:8px 12px; background:var(--panel-alt, rgba(0,0,0,0.03)); display:grid; gap:6px;">
+          </div>
+          <div id="duplicateRemainingMsg" style="font-size:.88rem; color:var(--muted); margin-top:2px;"></div>
+        </div>
+        <div class="modal-footer" style="display:flex; gap:10px; justify-content:flex-end; padding:14px 22px; border-top:1px solid var(--line); flex-wrap:wrap;">
+          <button type="button" class="tool-button" id="duplicateCancelBtn">Cancel Upload</button>
+          <button type="button" class="tool-button" id="duplicateProceedBtn">Upload All Anyway</button>
+          <button type="button" class="primary" id="duplicateSkipBtn" style="padding:8px 16px; border-radius:6px; font-weight:600;">Skip Duplicates &amp; Upload Remaining</button>
+        </div>
+      </div>
+    </div>
   `;
 }
 
@@ -189,7 +218,79 @@ async function loadTasks() {
   _refreshLockCache(tasks).then(() => table.setRows(tasks));
 }
 
-// --- upload --------------------------------------------------------------
+// --- upload & duplicate handling ----------------------------------------
+
+let pendingUploadFiles = null;
+let pendingUniqueFiles = null;
+
+function checkDuplicates(fileList) {
+  const files = [...fileList];
+  if (!files.length) return { duplicates: [], unique: [] };
+
+  const existing = new Set((table?.rows || []).map((r) => (r.description || "").trim().toLowerCase()));
+  const seenInBatch = new Set();
+  const duplicates = [];
+  const unique = [];
+
+  for (const f of files) {
+    const norm = (f.name || "").trim().toLowerCase();
+    if (existing.has(norm)) {
+      duplicates.push({ file: f, name: f.name, reason: "Already exists in project" });
+    } else if (seenInBatch.has(norm)) {
+      duplicates.push({ file: f, name: f.name, reason: "Duplicate in selection" });
+    } else {
+      unique.push(f);
+      seenInBatch.add(norm);
+    }
+  }
+  return { duplicates, unique };
+}
+
+function showDuplicateModal(files, duplicates, unique) {
+  pendingUploadFiles = files;
+  pendingUniqueFiles = unique;
+
+  const modal = el("duplicateModal");
+  const listEl = el("duplicateList");
+  const descEl = el("duplicateDesc");
+  const remainingEl = el("duplicateRemainingMsg");
+  const skipBtn = el("duplicateSkipBtn");
+
+  if (!modal || !listEl) return;
+
+  descEl.innerHTML = `Found <strong>${duplicates.length}</strong> image${duplicates.length === 1 ? "" : "s"} that already exist in this project:`;
+  listEl.innerHTML = duplicates
+    .map(
+      (d) => `
+      <div style="display:flex; justify-content:space-between; align-items:center; font-size:.85rem; padding:4px 0; border-bottom:1px solid var(--line-light, rgba(0,0,0,0.05));">
+        <span style="font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:300px;" title="${escapeHTML(d.name)}">
+          📄 ${escapeHTML(d.name)}
+        </span>
+        <span class="pill" style="font-size:.75rem; background:rgba(224,82,96,0.12); color:#e05260; padding:2px 8px; border-radius:10px;">
+          ${escapeHTML(d.reason)}
+        </span>
+      </div>`
+    )
+    .join("");
+
+  if (unique.length > 0) {
+    remainingEl.innerHTML = `✨ <strong>${unique.length}</strong> new unique image${unique.length === 1 ? "" : "s"} will be uploaded if you skip duplicates.`;
+    skipBtn.style.display = "";
+    skipBtn.textContent = `Skip Duplicates & Upload Remaining (${unique.length})`;
+  } else {
+    remainingEl.innerHTML = `⚠️ All selected images already exist in this project.`;
+    skipBtn.style.display = "none";
+  }
+
+  modal.classList.add("is-active");
+}
+
+function hideDuplicateModal() {
+  const modal = el("duplicateModal");
+  if (modal) modal.classList.remove("is-active");
+  pendingUploadFiles = null;
+  pendingUniqueFiles = null;
+}
 
 function renderUploadSummary(body) {
   const summary = el("uploadSummary");
@@ -198,6 +299,10 @@ function renderUploadSummary(body) {
   if (body.uploaded?.length) {
     parts.push(`<div class="mgmt-empty" style="text-align:left;padding:10px 14px;color:var(--accent-dark);">
         ✓ Uploaded ${body.uploaded.length} image${body.uploaded.length === 1 ? "" : "s"}.</div>`);
+  }
+  if (body.skipped?.length) {
+    parts.push(`<div class="mgmt-empty" style="text-align:left;padding:10px 14px;color:var(--muted);">
+        ℹ Skipped ${body.skipped.length} duplicate image${body.skipped.length === 1 ? "" : "s"}.</div>`);
   }
   if (body.failed?.length) {
     parts.push(`<div class="mgmt-error">
@@ -243,10 +348,20 @@ function bindUpload() {
   const zone = el("dropZone");
   if (!btn || !input || !zone) return;
 
+  const handleIncomingFiles = (fileList) => {
+    if (!fileList || !fileList.length) return;
+    const { duplicates, unique } = checkDuplicates(fileList);
+    if (duplicates.length > 0) {
+      showDuplicateModal(fileList, duplicates, unique);
+    } else {
+      uploadFiles(fileList);
+    }
+  };
+
   btn.addEventListener("click", () => input.click());
   zone.addEventListener("click", () => input.click());
   input.addEventListener("change", (e) => {
-    uploadFiles(e.target.files);
+    handleIncomingFiles(e.target.files);
     input.value = "";
   });
 
@@ -258,8 +373,37 @@ function bindUpload() {
   );
   zone.addEventListener("drop", (e) => {
     e.preventDefault();
-    if (e.dataTransfer?.files?.length) uploadFiles(e.dataTransfer.files);
+    if (e.dataTransfer?.files?.length) handleIncomingFiles(e.dataTransfer.files);
   });
+
+  // Duplicate modal actions
+  const dupModal = el("duplicateModal");
+  const dupClose = el("duplicateClose");
+  const dupCancel = el("duplicateCancelBtn");
+  const dupSkip = el("duplicateSkipBtn");
+  const dupProceed = el("duplicateProceedBtn");
+
+  if (dupClose) dupClose.addEventListener("click", hideDuplicateModal);
+  if (dupCancel) dupCancel.addEventListener("click", hideDuplicateModal);
+  if (dupSkip) {
+    dupSkip.addEventListener("click", () => {
+      const toUpload = pendingUniqueFiles;
+      hideDuplicateModal();
+      if (toUpload?.length) uploadFiles(toUpload);
+    });
+  }
+  if (dupProceed) {
+    dupProceed.addEventListener("click", () => {
+      const toUpload = pendingUploadFiles;
+      hideDuplicateModal();
+      if (toUpload?.length) uploadFiles(toUpload);
+    });
+  }
+  if (dupModal) {
+    dupModal.addEventListener("click", (e) => {
+      if (e.target === dupModal) hideDuplicateModal();
+    });
+  }
 }
 
 // --- edit modal ------------------------------------------------------------
@@ -515,37 +659,35 @@ export async function mount(hostRoot, hostCtx) {
     ],
   });
 
-  loadTeamForTasks();
+    bindUpload();
+    bindEditModal();
+    bindBulkActions();
 
-  bindUpload();
-  bindEditModal();
-  bindBulkActions();
+    el("searchInput").addEventListener("input", (e) => table.setQuery(e.target.value));
+    el("statusFilter").addEventListener("change", (e) => table.setFilter("status", e.target.value));
 
-  el("searchInput").addEventListener("input", (e) => table.setQuery(e.target.value));
-  el("statusFilter").addEventListener("change", (e) => table.setFilter("status", e.target.value));
-
-  table.onAction("edit", (row) => {
-    if (!isCreator) return;
-    openEditModal(row);
-  });
-  table.onAction("delete", async (row) => {
-    if (!isCreator) return;
-    if (!confirm(`Delete "${row.description}"? This cannot be undone.`)) return;
-    try {
-      const res = await apiFetch(`/api/tasks/${row.id}`, { method: "DELETE" });
-      if (!res) return;
-      if (!res.ok) {
-        showError(`Could not delete the task (${res.status}).`);
-        return;
+    table.onAction("edit", (row) => {
+      if (!isCreator) return;
+      openEditModal(row);
+    });
+    table.onAction("delete", async (row) => {
+      if (!isCreator) return;
+      if (!confirm(`Delete "${row.description}"? This cannot be undone.`)) return;
+      try {
+        const res = await apiFetch(`/api/tasks/${row.id}`, { method: "DELETE" });
+        if (!res) return;
+        if (!res.ok) {
+          showError(`Could not delete the task (${res.status}).`);
+          return;
+        }
+        await loadTasks();
+      } catch (err) {
+        console.error("Failed to delete task", err);
+        showError("Could not delete the task.");
       }
-      await loadTasks();
-    } catch (err) {
-      console.error("Failed to delete task", err);
-      showError("Could not delete the task.");
-    }
-  });
+    });
 
-  await loadTasks();
+    await Promise.all([loadTeamForTasks(), loadTasks()]);
 
   // Poll every 30 s so LAN peers see assignee/status changes promptly.
   _pollTimer = setInterval(async () => {

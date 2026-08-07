@@ -399,8 +399,8 @@ els.logout.addEventListener("click", async () => {
 // --- init ------------------------------------------------------------------
 
 els.user.textContent = localStorage.getItem("dataset_username") || "";
-loadTeam();
-loadProjects();
+table.showLoading(6);
+Promise.all([loadProjects(), loadTeam()]).catch((err) => console.error("Initial load failed:", err));
 
 // Poll every 30 s so LAN peers see project and team updates promptly.
 const POLL_INTERVAL_MS = 30_000;

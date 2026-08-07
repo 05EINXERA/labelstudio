@@ -112,20 +112,20 @@ async def add_security_and_cache_headers(request, call_next):
     # Cheap, always-correct hardening headers. A CSP is deliberately not set
     # here — the annotation canvas uses inline handlers today, so a meaningful
     # policy needs frontend work first (tracked as deferred item T-4).
+    # Security hardening headers
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "same-origin"
 
-    if (
-        path.endswith(".js")
-        or path.endswith(".html")
-        or path.endswith(".css")
-        or path == "/"
-        or path.startswith("/frontend")
-    ):
-        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-        response.headers["Pragma"] = "no-cache"
-        response.headers["Expires"] = "0"
+    # Intelligent static caching for high performance
+    lower_path = path.lower()
+    if lower_path.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".woff", ".woff2", ".ttf")):
+        response.headers["Cache-Control"] = "public, max-age=86400"
+    elif lower_path.endswith((".js", ".css")):
+        # Allow fast 304 revalidation or short-term reuse with background revalidation
+        response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=3600"
+    elif lower_path.endswith(".html") or path == "/" or path.startswith("/frontend"):
+        response.headers["Cache-Control"] = "no-cache"
     return response
 
 

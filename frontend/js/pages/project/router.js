@@ -27,15 +27,38 @@ const els = {
 
 const projectId = new URLSearchParams(window.location.search).get("id");
 
-// View loaders. Keyed by route; the dynamic import path must be a literal so
-// it stays statically analysable.
-const VIEWS = {
+// View loaders with caching and preloading for instant zero-lag tab switching
+const VIEW_LOADERS = {
   home: () => import("./home.js?v=1"),
   tasks: () => import("./tasks.js?v=2"),
   classes: () => import("./classes.js?v=1"),
   imports: () => import("./imports.js?v=1"),
   exports: () => import("./exports.js?v=1"),
 };
+
+const moduleCache = new Map();
+
+function getViewModule(route) {
+  if (moduleCache.has(route)) {
+    return Promise.resolve(moduleCache.get(route));
+  }
+  const loader = VIEW_LOADERS[route];
+  if (!loader) return Promise.reject(new Error(`Unknown route "${route}"`));
+  return loader().then((mod) => {
+    moduleCache.set(route, mod);
+    return mod;
+  });
+}
+
+function preloadAllViews() {
+  for (const [key, loader] of Object.entries(VIEW_LOADERS)) {
+    if (!moduleCache.has(key)) {
+      loader()
+        .then((mod) => moduleCache.set(key, mod))
+        .catch(() => {});
+    }
+  }
+}
 
 let currentView = null;   // the loaded module, so we can call unmount()
 let currentRoute = null;
@@ -97,7 +120,7 @@ function routeFromHash() {
   return VALID_ROUTES.has(raw) ? raw : DEFAULT_ROUTE;
 }
 
-async function renderRoute() {
+async function renderRoute(optPromise) {
   const route = routeFromHash();
   if (route === currentRoute) return;
 
@@ -118,7 +141,7 @@ async function renderRoute() {
   els.view.innerHTML = `<div class="mgmt-empty">Loading…</div>`;
 
   try {
-    const mod = await VIEWS[route]();
+    const mod = await (optPromise || getViewModule(route));
     // A newer navigation started while this module was loading; discard.
     if (token !== loadToken) return;
     currentView = mod;
@@ -158,7 +181,8 @@ async function init() {
     window.location.replace("/");
   });
 
-  renderNav(els.nav, routeFromHash());
+  const initialRoute = routeFromHash();
+  renderNav(els.nav, initialRoute);
 
   // Normalise a bare/unknown hash so the address bar always shows the real
   // route and a reload lands in the same place.
@@ -166,11 +190,20 @@ async function init() {
     history.replaceState(null, "", `${window.location.pathname}${window.location.search}#/${DEFAULT_ROUTE}`);
   }
 
+  // Concurrently fetch project details and load view module
+  const initialViewPromise = getViewModule(initialRoute);
   const project = await loadProject();
   if (!project) return; // fatal already rendered
 
-  window.addEventListener("hashchange", renderRoute);
-  await renderRoute();
+  window.addEventListener("hashchange", () => renderRoute());
+  await renderRoute(initialViewPromise);
+
+  // Background preload remaining tab modules for instant subsequent navigation
+  if (typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(preloadAllViews);
+  } else {
+    setTimeout(preloadAllViews, 100);
+  }
 }
 
 init();
