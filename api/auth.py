@@ -79,10 +79,11 @@ def issue_session_cookies(response: Response, access_token: str) -> str:
     """
     response.set_cookie(
         key="access_token",
-        value=f"Bearer {access_token}",
+        value=access_token,
         httponly=True,
         samesite=COOKIE_SAMESITE,
         secure=COOKIE_SECURE,
+        path="/",
     )
     csrf_token = secrets.token_urlsafe(32)
     response.set_cookie(
@@ -91,13 +92,14 @@ def issue_session_cookies(response: Response, access_token: str) -> str:
         httponly=False,  # the frontend must read this to echo it in a header
         samesite=COOKIE_SAMESITE,
         secure=COOKIE_SECURE,
+        path="/",
     )
     return csrf_token
 
 
 def clear_session_cookies(response: Response) -> None:
-    response.delete_cookie("access_token")
-    response.delete_cookie(CSRF_COOKIE_NAME)
+    response.delete_cookie("access_token", path="/")
+    response.delete_cookie(CSRF_COOKIE_NAME, path="/")
 
 
 def require_csrf(request: Request) -> None:
@@ -155,16 +157,22 @@ def get_current_annotator(request: Request, db: Session = Depends(get_db)):
                 commit_with_retry(db)
     return member
 
-def get_token(request: Request):
+def get_token(request: Request) -> Optional[str]:
+    import urllib.parse
     token = request.cookies.get("access_token")
     if token:
+        token = urllib.parse.unquote(token).strip().strip('"').strip("'")
         if token.startswith("Bearer "):
-            return token[7:]
-        return token
+            token = token[7:].strip().strip('"').strip("'")
+        if token:
+            return token
     
     auth = request.headers.get("Authorization")
-    if auth and auth.startswith("Bearer "):
-        return auth[7:]
+    if auth:
+        auth = auth.strip()
+        if auth.startswith("Bearer "):
+            return auth[7:].strip().strip('"').strip("'")
+        return auth
     
     return None
 

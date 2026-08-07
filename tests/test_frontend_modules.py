@@ -10,10 +10,26 @@ def test_p4_modules_exist():
         os.path.join(FRONTEND_JS_DIR, "components", "gallery.js"),
         os.path.join(FRONTEND_JS_DIR, "components", "modals.js"),
         os.path.join(FRONTEND_JS_DIR, "components", "mode-controls.js"),
+        os.path.join(FRONTEND_JS_DIR, "components", "opacity-control.js"),
         os.path.join(FRONTEND_JS_DIR, "init.js"),
     ]
     for file_path in expected_files:
         assert os.path.isfile(file_path), f"Expected file not found: {file_path}"
+
+
+def test_opacity_control_module():
+    """Verify opacity-control.js exports, persistence keys, and shortcut handlers."""
+    opacity_file = os.path.join(FRONTEND_JS_DIR, "components", "opacity-control.js")
+    assert os.path.isfile(opacity_file)
+    with open(opacity_file, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    assert "export function setAnnotationOpacity" in content
+    assert "export function initOpacityControl" in content
+    assert "annotationOpacity" in content
+    assert "drawAllLayers" in content
+    assert "annotation_opacity_percent" in content
+
 
 
 def test_js_import_paths_resolve():

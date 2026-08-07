@@ -23,6 +23,11 @@ export async function apiFetch(url, options = {}) {
     options.headers['X-Annotator-Name'] = datasetUsername;
   }
 
+  const token = localStorage.getItem('access_token');
+  if (token && !options.headers['Authorization']) {
+    options.headers['Authorization'] = `Bearer ${token}`;
+  }
+
   // State-changing requests must carry the CSRF token; the backend rejects
   // them with 403 otherwise.
   const method = (options.method || 'GET').toUpperCase();
@@ -36,6 +41,7 @@ export async function apiFetch(url, options = {}) {
   if (res.status === 401) {
     localStorage.removeItem('logged_in');
     localStorage.removeItem('dataset_username');
+    localStorage.removeItem('access_token');
     window.location.replace('/');
     return res;
   }
@@ -53,6 +59,7 @@ export async function apiFetch(url, options = {}) {
     }
     if (detail.toLowerCase().includes('csrf')) {
       localStorage.removeItem('logged_in');
+      localStorage.removeItem('access_token');
       window.location.replace('/');
     }
   }

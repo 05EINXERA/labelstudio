@@ -21,6 +21,7 @@ import {
 } from "./components/gallery.js?v=1";
 import { initModals } from "./components/modals.js?v=1";
 import { initModeControls } from "./components/mode-controls.js?v=1";
+import { initOpacityControl } from "./components/opacity-control.js?v=1";
 
 if (!localStorage.getItem('logged_in')) {
   window.location.replace('/');
@@ -39,6 +40,7 @@ if (logoutBtnApp) {
     localStorage.removeItem("dataset_username");
     localStorage.removeItem("image-annotation-mvp-v1");
     localStorage.removeItem("logged_in");
+    localStorage.removeItem("access_token");
     window.location.replace("/");
   });
 }
@@ -185,6 +187,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   initFftControls();
+  initOpacityControl();
   loadSaved();
   resizeCanvas();
   render();

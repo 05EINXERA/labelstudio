@@ -94,13 +94,56 @@ def backup_sqlite(dest_dir: str) -> str:
     return target
 
 
+def _find_pg_dump() -> str:
+    """Resolve the pg_dump executable.
+
+    Checks:
+    1. PG_DUMP_PATH environment variable
+    2. System PATH (via shutil.which)
+    3. Common PostgreSQL install locations on Windows (picking latest version)
+    """
+    custom = os.environ.get("PG_DUMP_PATH")
+    if custom and os.path.isfile(custom):
+        return custom
+
+    found = shutil.which("pg_dump")
+    if found:
+        return found
+
+    if sys.platform == "win32":
+        candidates = [
+            r"C:\Program Files\PostgreSQL",
+            r"C:\Program Files (x86)\PostgreSQL",
+        ]
+        for base in candidates:
+            if os.path.isdir(base):
+                try:
+                    entries = sorted(
+                        os.listdir(base),
+                        key=lambda x: int(x) if x.isdigit() else -1,
+                        reverse=True,
+                    )
+                except Exception:
+                    entries = sorted(os.listdir(base), reverse=True)
+                for entry in entries:
+                    pg_dump_path = os.path.join(base, entry, "bin", "pg_dump.exe")
+                    if os.path.isfile(pg_dump_path):
+                        return pg_dump_path
+
+    raise FileNotFoundError(
+        "pg_dump executable not found on PATH or in standard PostgreSQL directories. "
+        "Please add PostgreSQL's bin directory to PATH or set PG_DUMP_PATH."
+    )
+
+
 def backup_postgres(dest_dir: str) -> str:
     """pg_dump in custom format, restorable with pg_restore."""
     target = os.path.join(dest_dir, f"workspace-{_timestamp()}.dump")
     # psycopg-style URLs need the SQLAlchemy driver suffix stripped for pg_dump.
     url = DATABASE_URL.replace("postgresql+psycopg://", "postgresql://")
+    pg_dump_bin = _find_pg_dump()
     subprocess.run(
-        ["pg_dump", "--format=custom", "--file", target, url],
+        [pg_dump_bin, "--format=custom", "--file", target, url],
         check=True,
     )
     return target

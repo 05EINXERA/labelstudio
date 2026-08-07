@@ -186,10 +186,11 @@ export function drawAnnotation(annotation, selected = false, targetCtx = ctx) {
   targetCtx.strokeStyle = label.color;
   // Fill matches the outline colour but stays well below it in opacity, so the
   // class reads at a glance without obscuring the pixels being annotated.
-  targetCtx.fillStyle = hexToRgba(
-    label.color,
-    selected ? annotationOpacity.selected : annotationOpacity.normal
-  );
+  const isDraft = annotation.id === "draft" || view.drag?.draft === annotation;
+  const fillAlpha = isDraft
+    ? annotationOpacity.drawing
+    : (selected ? annotationOpacity.selected : annotationOpacity.normal);
+  targetCtx.fillStyle = hexToRgba(label.color, fillAlpha);
 
   if (!screenPoints.length) {
     targetCtx.restore();

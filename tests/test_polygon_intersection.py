@@ -33,13 +33,13 @@ def line_segment_intersection(p1, p2, p3, p4):
 
 def add_polygon_point_resolving_intersections(points, new_point):
     if not points:
-        return [{"x": round(new_point["x"]), "y": round(new_point["y"])}]
+        return [{"x": round(new_point["x"], 2), "y": round(new_point["y"], 2)}]
 
     result = [{"x": p["x"], "y": p["y"]} for p in points]
-    target = {"x": round(new_point["x"]), "y": round(new_point["y"])}
+    target = {"x": round(new_point["x"], 2), "y": round(new_point["y"], 2)}
 
     last = result[-1]
-    if math.hypot(last["x"] - target["x"], last["y"] - target["y"]) >= 1:
+    if math.hypot(last["x"] - target["x"], last["y"] - target["y"]) >= 1e-3:
         result.append(target)
 
     return result
@@ -98,6 +98,18 @@ def test_add_point_preserves_drawn_points():
     assert result[-1] == {"x": 50, "y": -50}
 
 
+def test_add_point_subpixel_high_zoom():
+    pts = [
+        {"x": 10.0, "y": 10.0}
+    ]
+    # At high zoom (e.g. 500x), a point 0.05 image pixels away (25 screen pixels)
+    # must be added and not dropped as a duplicate
+    new_pt = {"x": 10.05, "y": 10.0}
+    result = add_polygon_point_resolving_intersections(pts, new_pt)
+    assert len(result) == 2
+    assert result[-1] == {"x": 10.05, "y": 10.0}
+
+
 def polygon_area(points):
     if not points or len(points) < 3:
         return 0.0
@@ -112,16 +124,16 @@ def polygon_area(points):
 def filter_consecutive_duplicates(pts):
     if not pts:
         return []
-    res = [{"x": round(pts[0]["x"]), "y": round(pts[0]["y"])}]
+    res = [{"x": round(pts[0]["x"], 2), "y": round(pts[0]["y"], 2)}]
     for i in range(1, len(pts)):
         prev = res[-1]
-        curr = {"x": round(pts[i]["x"]), "y": round(pts[i]["y"])}
-        if math.hypot(prev["x"] - curr["x"], prev["y"] - curr["y"]) >= 1:
+        curr = {"x": round(pts[i]["x"], 2), "y": round(pts[i]["y"], 2)}
+        if math.hypot(prev["x"] - curr["x"], prev["y"] - curr["y"]) >= 1e-3:
             res.append(curr)
     if len(res) > 1:
         first = res[0]
         last = res[-1]
-        if math.hypot(first["x"] - last["x"], first["y"] - last["y"]) < 1:
+        if math.hypot(first["x"] - last["x"], first["y"] - last["y"]) < 1e-3:
             res.pop()
     return res
 

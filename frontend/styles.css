@@ -2390,3 +2390,48 @@ button.switch[aria-checked="true"] .switch-knob {
   filter: url(#sharpen);
 }
 
+/* ─── Annotation Opacity & Color Intensity ─── */
+.opacity-tool-group {
+  user-select: none;
+}
+
+.opacity-slider {
+  width: 68px;
+  height: 5px;
+  border-radius: 4px;
+  accent-color: var(--accent);
+  background: var(--line);
+  cursor: pointer;
+  outline: none;
+  vertical-align: middle;
+  transition: opacity 0.15s ease;
+}
+
+.opacity-slider:hover {
+  filter: brightness(1.05);
+}
+
+.opacity-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  height: 22px;
+  padding: 0 4px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-dark);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  user-select: none;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.opacity-badge:hover {
+  background: #d9efee;
+  border-color: var(--accent);
+}
+
+

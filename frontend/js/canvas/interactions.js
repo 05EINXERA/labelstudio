@@ -861,7 +861,7 @@ canvas.addEventListener("pointerdown", (event) => {
         // Closure is now handled by the hitTestPoint logic above
 
         const lastPoint = pts[pts.length - 1];
-        if (!lastPoint || Math.hypot(lastPoint.x - pointInImage.x, lastPoint.y - pointInImage.y) > 1) {
+        if (!lastPoint || Math.hypot(lastPoint.x - pointInImage.x, lastPoint.y - pointInImage.y) >= 1e-3) {
           annotation.points = addPolygonPointResolvingIntersections(pts, pointInImage);
           updateAnnotationBounds(annotation);
           // A genuinely new vertex invalidates whatever was parked by prior

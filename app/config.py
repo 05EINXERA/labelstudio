@@ -140,7 +140,7 @@ MIN_PASSWORD_LENGTH = int(os.environ.get("MIN_PASSWORD_LENGTH", "8"))
 # deployment is plain HTTP; a Secure cookie would simply never be sent and
 # would lock everyone out. Turn on together with TLS (deferred item T-1).
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "0").strip().lower() in ("1", "true", "yes")
-COOKIE_SAMESITE = os.environ.get("COOKIE_SAMESITE", "strict").strip().lower()
+COOKIE_SAMESITE = os.environ.get("COOKIE_SAMESITE", "lax").strip().lower()
 
 # --- CORS -----------------------------------------------------------------
 # Comma-separated exact origins, e.g. "http://192.168.1.81:8000".

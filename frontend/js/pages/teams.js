@@ -656,6 +656,7 @@ els.logout.addEventListener("click", async () => {
   }
   localStorage.removeItem("logged_in");
   localStorage.removeItem("dataset_username");
+  localStorage.removeItem("access_token");
   window.location.replace("/");
 });
 

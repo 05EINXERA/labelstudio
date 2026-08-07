@@ -296,6 +296,16 @@
           </div>
         </div>
 
+        <!-- Annotation Opacity / Color Intensity tool group -->
+        <div class="tool-group opacity-tool-group" role="group" aria-label="Color intensity and opacity">
+          <span class="tool-group-label">Intensity</span>
+          <div class="tool-group-buttons">
+            <input type="range" id="opacitySlider" class="opacity-slider" min="0" max="100" value="50" step="5"
+              title="Adjust fill color intensity (0% = wireframe, 100% = solid). Shortcuts: [ to decrease, ] to increase">
+            <span id="opacityBadge" class="opacity-badge" title="Color intensity (0%–100%). Double-click for presets.">50%</span>
+          </div>
+        </div>
+
         <div class="tool-group" role="group" aria-label="Selection status">
           <span class="tool-group-label">Selected</span>
           <div class="tool-group-buttons">
@@ -434,9 +444,13 @@
               <td style="padding: 8px 0;">Bring Forward / Send Backward</td>
               <td><code>F</code> / <code>B</code> (in Select Mode)</td>
             </tr>
-            <tr>
+            <tr style="border-bottom: 1px solid var(--line);">
               <td style="padding: 8px 0;">Bring to Front / Send to Back</td>
               <td><code>Shift+F</code> / <code>Shift+B</code></td>
+            </tr>
+            <tr>
+              <td style="padding: 8px 0;">Color Intensity (Opacity)</td>
+              <td><code>[</code> (decrease) / <code>]</code> (increase)</td>
             </tr>
           </tbody>
         </table>

@@ -99,7 +99,7 @@ export function addPolygonPointResolvingIntersections(points, newPoint) {
   const target = { x: round(newPoint.x), y: round(newPoint.y) };
 
   const last = result[result.length - 1];
-  if (!last || Math.hypot(last.x - target.x, last.y - target.y) >= 1) {
+  if (!last || Math.hypot(last.x - target.x, last.y - target.y) >= 1e-3) {
     result.push(target);
   }
 
@@ -127,7 +127,7 @@ export function polygonArea(points) {
 }
 
 /**
- * Removes duplicate consecutive vertices within 1px distance.
+ * Removes duplicate consecutive vertices (within sub-pixel precision).
  */
 export function filterConsecutiveDuplicates(pts) {
   if (!Array.isArray(pts) || !pts.length) return [];
@@ -135,14 +135,14 @@ export function filterConsecutiveDuplicates(pts) {
   for (let i = 1; i < pts.length; i++) {
     const prev = res[res.length - 1];
     const curr = { x: round(pts[i].x), y: round(pts[i].y) };
-    if (Math.hypot(prev.x - curr.x, prev.y - curr.y) >= 1) {
+    if (Math.hypot(prev.x - curr.x, prev.y - curr.y) >= 1e-3) {
       res.push(curr);
     }
   }
   if (res.length > 1) {
     const first = res[0];
     const last = res[res.length - 1];
-    if (Math.hypot(first.x - last.x, first.y - last.y) < 1) {
+    if (Math.hypot(first.x - last.x, first.y - last.y) < 1e-3) {
       res.pop();
     }
   }
