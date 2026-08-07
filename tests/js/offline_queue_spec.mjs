@@ -179,5 +179,50 @@ store.clear();
   ok('403: does not mark the server unreachable', q.isServerUnreachable() === false);
 }
 
+// 10. A 422 refusal ("this save would erase existing annotations") shares the
+//     403 machinery — stop retrying, keep the payload — but must be reported as
+//     its own thing. Conflating the two told annotators working normally on
+//     their own tasks, against a server that never went down, that they lacked
+//     permission and that their "offline work" was stranded. All three claims
+//     were false. The `refused` flag is what keeps the wording honest.
+store.clear();
+{
+  const reported = [];
+  q.configureQueue({
+    send: async () => ({
+      ok: false,
+      forbidden: true,
+      refused: true,
+      detail: 'Refusing to clear existing annotations.',
+    }),
+    onConflict: () => { throw new Error('a 422 must not be routed to the conflict handler'); },
+    onForbidden: (taskId, payload, detail, opts) => reported.push({ taskId, detail, opts }),
+  });
+
+  q.enqueueWrite({
+    id: 31,
+    time_spent_delta: 15,
+    annotations: JSON.stringify([]),
+    client_id: 'browser-A',
+  });
+
+  await q.drainQueue();
+
+  ok('422: reported once', reported.length === 1);
+  ok('422: flagged as refused, not as a permission failure',
+     reported[0].opts && reported[0].opts.refused === true);
+
+  const persisted = JSON.parse(store.get('pending-writes-v1'));
+  ok('422: the payload is kept, exactly as for a 403', persisted['31'] !== undefined);
+  ok('422: marked refused in storage', persisted['31'].refused === true);
+  ok('422: stops being retried', persisted['31'].forbidden === true);
+  ok('422: does not mark the server unreachable', q.isServerUnreachable() === false);
+
+  // The stranded entry must not be counted as retryable work, or the save
+  // indicator reports unsaved changes forever against a healthy server.
+  ok('422: excluded from the retryable count', q.retryablePendingCount() === 0);
+  ok('422: still present in the raw total', q.pendingCount() === 1);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail?1:0);

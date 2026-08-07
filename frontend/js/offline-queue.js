@@ -148,7 +148,13 @@ export function isServerUnreachable() {
 
 export function queueState() {
   return {
-    pending: pendingCount(),
+    // The *retryable* count, not the raw one. A forbidden/refused/conflicted
+    // entry is deliberately never retried and never expires, so including it
+    // here left the save indicator reporting unsaved changes forever against a
+    // healthy server — including for work that a later save had already stored
+    // successfully. The raw total is still available via pendingCount().
+    pending: retryablePendingCount(),
+    stranded: pendingCount() - retryablePendingCount(),
     unreachable: isServerUnreachable(),
     draining,
   };
@@ -335,10 +341,17 @@ export async function drainQueue() {
       consecutiveFailures = 0;
       entry.forbidden = true;
       entry.forbiddenDetail = result.detail || '';
+      // Distinguishes "refused on the merits" (422) from "you lack permission"
+      // (403). Both stop retrying and both keep the payload; only the wording
+      // shown to the annotator differs, and getting that wrong reported healthy
+      // servers as permission failures.
+      entry.refused = !!result.refused;
       entry.lastAttemptAt = Date.now();
       if (onForbidden) {
         try {
-          onForbidden(Number(taskId), entry.payload, result.detail || '');
+          onForbidden(Number(taskId), entry.payload, result.detail || '', {
+            refused: !!result.refused,
+          });
         } catch (e) {
           console.error('[offline-queue] forbidden handler failed', e);
         }

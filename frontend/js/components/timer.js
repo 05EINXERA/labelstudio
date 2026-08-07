@@ -4,7 +4,7 @@ import { timerState } from "../timer-state.js?v=3";
 import { canvas } from "../dom.js?v=1";
 import {
   enqueueWrite, discardWrite, noteServerReachable, noteServerUnreachable
-} from "../offline-queue.js?v=3";
+} from "../offline-queue.js?v=4";
 
 // Called when the server reports a genuine cross-client conflict. Registered
 // by the page so timer.js does not have to know how the workspace wants to
@@ -77,7 +77,7 @@ function hasActiveTask() {
  * single drain point for timerState.taskSessionSeconds (F4).
  */
 /** Resolves true when the server accepted the write, false otherwise. */
-export async function drainTaskTime(task, { status, annotations, useBeacon = false } = {}) {
+export async function drainTaskTime(task, { status, annotations, useBeacon = false, allowClear = false } = {}) {
   if (!task || !task.id) return false;
 
   const taskId = task.id;
@@ -88,7 +88,6 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
     id: taskId,
     time_spent_delta: timeDelta,
     status: status || task.status || 'In Progress',
-    annotations: JSON.stringify(annotations || task.annotations || []),
     // Sent explicitly as null rather than left undefined when unknown:
     // JSON.stringify drops undefined keys, and an absent updated_at silently
     // disables conflict detection instead of declaring "I have no token".
@@ -96,6 +95,31 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
     // Lets the server tell our own earlier writes apart from another user's.
     client_id: clientId()
   };
+
+  // The annotation set is included ONLY when the caller actually supplied one.
+  //
+  // This used to be `JSON.stringify(annotations || task.annotations || [])`,
+  // whose `|| []` fabricated an empty set for every *time-only* save — the 30s
+  // tick, the visibilitychange beacon, the gallery-switch flush and the session
+  // flush all call this with no `annotations` option. Against a task that
+  // already had work, that empty payload tripped the server's clear-guard
+  // (api/routers/tasks.py, INCIDENT_692) and came back 422, which the queue
+  // then reported to the annotator as "your offline work could not be saved" —
+  // on a healthy server, for a task they were correctly assigned, having
+  // deleted nothing. See the audit in .devnotes/offline/.
+  //
+  // Omitting the key is meaningful, not merely tidier: the server treats
+  // `annotations=None` as "leave the stored set alone", which is exactly what a
+  // time-only save means. `[]` means "make it empty" and must be reserved for
+  // callers that really mean it.
+  const set = annotations !== undefined ? annotations : task.annotations;
+  if (Array.isArray(set)) {
+    payload.annotations = JSON.stringify(set);
+    // A deliberate delete-all still has to say so, or the server's clear-guard
+    // refuses it forever with no way through (the guard's own escape hatch was
+    // previously unreachable — nothing in the frontend ever set this).
+    if (allowClear && set.length === 0) payload.allow_clear = true;
+  }
 
   // On unload a normal fetch is not guaranteed to be delivered; sendBeacon is
   // (F2). Beacons give us no response, so treat dispatch as success.

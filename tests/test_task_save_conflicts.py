@@ -36,6 +36,19 @@ def _annotations(n):
     return json.dumps([{"id": f"a{i}", "type": "box", "labelId": "l1"} for i in range(n)])
 
 
+def _row(client, auth, project_id, task_id):
+    """The listed row for one task, selected by id rather than by position.
+
+    `rows[0]` is only correct while a project holds exactly one task, which
+    couples tests to each other's fixtures. Selecting by id keeps a test honest
+    regardless of what else the session has created.
+    """
+    rows = client.get(f"/api/tasks?projectId={project_id}", headers=auth).json()
+    match = [r for r in rows if r["id"] == task_id]
+    assert match, f"task {task_id} missing from project {project_id} listing"
+    return match[0]
+
+
 def test_same_client_may_overwrite_its_own_write(client, alice):
     """The core fix: a tab saving over its own previous save is not a conflict.
 
@@ -242,6 +255,70 @@ def test_allow_clear_lets_a_genuine_delete_all_through(client, alice):
 
     rows = client.get(f"/api/tasks?projectId={project_id}", headers=alice).json()
     assert rows[0]["annotations"] == []
+
+
+def test_time_only_save_does_not_trip_the_clear_guard(client, alice):
+    """A save carrying no annotation set must not be read as "make it empty".
+
+    The regression this pins: the frontend's time-only saves (the 30s timer
+    tick, the visibilitychange beacon, the gallery-switch and session flushes)
+    built their payload with `JSON.stringify(annotations || task.annotations
+    || [])`. That `|| []` fabricated an empty set for a save that was only ever
+    about the elapsed seconds, tripping the clear-guard and reporting a 422 to
+    annotators who had deleted nothing, on a server that was up the whole time.
+
+    Omitting `annotations` means "leave the stored set alone" and must stay a
+    distinct, always-safe operation from sending `[]`.
+    """
+    project_id = _project(client, alice)
+    task = _create_task(client, alice, project_id)
+
+    saved = client.post("/api/tasks", json={
+        "id": task["id"], "annotations": _annotations(3),
+        "updated_at": task["updated_at"], "client_id": "tab-A",
+    }, headers=alice)
+    assert saved.status_code == 200
+    stored_at = saved.json()["updated_at"]
+
+    # The time-only save: no `annotations` key at all.
+    tick = client.post("/api/tasks", json={
+        "id": task["id"], "time_spent_delta": 30,
+        "updated_at": stored_at, "client_id": "tab-A",
+    }, headers=alice)
+    assert tick.status_code == 200, "a time-only save must never be refused as a clear"
+
+    row = _row(client, alice, project_id, task["id"])
+    assert len(row["annotations"]) == 3, "a time-only save must leave annotations untouched"
+    assert row["time_spent"] == 30
+
+
+def test_reopening_a_worked_task_and_saving_untouched_is_accepted(client, alice):
+    """Open a task with existing work, change nothing, save.
+
+    The second symptom reported from the floor. The client re-sends the same
+    annotation set it just loaded; because it is non-empty the clear-guard is
+    not involved, and because the client_id matches its own last write there is
+    no conflict either. This must be an ordinary 200.
+    """
+    project_id = _project(client, alice)
+    task = _create_task(client, alice, project_id)
+
+    first = client.post("/api/tasks", json={
+        "id": task["id"], "annotations": _annotations(2),
+        "updated_at": task["updated_at"], "client_id": "tab-A",
+    }, headers=alice)
+    assert first.status_code == 200
+
+    detail = client.get(f"/api/tasks/{task['id']}", headers=alice).json()
+
+    resave = client.post("/api/tasks", json={
+        "id": task["id"], "annotations": json.dumps(detail["annotations"]),
+        "updated_at": detail["updated_at"], "client_id": "tab-A",
+    }, headers=alice)
+    assert resave.status_code == 200
+
+    row = _row(client, alice, project_id, task["id"])
+    assert len(row["annotations"]) == 2
 
 
 def test_saving_an_already_empty_task_is_unaffected(client, alice):

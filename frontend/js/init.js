@@ -14,18 +14,18 @@ import { drawAllLayers } from "./canvas/draw.js?v=1";
 import {
   setStatus, syncToBackend, save, loadSaved, saveDraft, restoreDraft,
   render, manualSaveWithUI, refreshSaveStatus, pruneStaleDrafts
-} from "./components/workspace.js?v=4";
+} from "./components/workspace.js?v=5";
 import {
   configureQueue, startQueue, subscribe as subscribeQueue, drainQueue,
   enqueueWrite, retryablePendingCount, noteServerReachable, noteServerUnreachable,
   peekWrite as peekQueuedWrite, discardWrite as discardQueuedWrite
-} from "./offline-queue.js?v=3";
+} from "./offline-queue.js?v=4";
 import { autoDetectObjects, autoTagObjects } from "./ai/detect.js?v=1";
 import {
   syncTaskTime, syncTimeToServer, drainTaskTime, setActiveTaskResolver,
   setConflictHandler, resetSessionForTask, refreshTimerDisplays,
   handleVisibilityChange
-} from "./components/timer.js?v=2";
+} from "./components/timer.js?v=3";
 import {
   finalizePolygon, deleteSelected, undoAction, redoAction, setZoomChangeHandler
 } from "./canvas/interactions.js?v=3";
@@ -34,9 +34,10 @@ import { getCurrentUser } from "./session.js?v=1";
 import { canReview } from "./permissions.js?v=1";
 import {
   applyReadOnlyMode, isReadOnly, loadProjectPermissions, renderReviewControls,
-  reportSaveForbidden, setMyTeams, setMyUserId, updateTaskBanner,
+  reportSaveForbidden, reportSaveRefused, setMyTeams, setMyUserId, updateTaskBanner,
   renderStatusDropdown, renderSaveSplitMenu, updateTaskStatusPill, currentRole,
-} from "./canvas-permissions.js?v=4";
+  taskWriteBlock,
+} from "./canvas-permissions.js?v=5";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
 import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=1";
 import { claimTask, heartbeatTask, releaseTask } from "./task-lock.js?v=2";
@@ -419,7 +420,10 @@ clearButton.addEventListener("click", () => {
   state.selectedId = null;
   view.drag = null;
   render();
-  save();
+  // A deliberate delete-all. Without allowClear the server's clear-guard refuses
+  // this save and the annotator is told their "offline work could not be saved"
+  // for something they just chose to do.
+  save({ allowClear: true });
   setStatus("Cleared all");
 });
 
@@ -430,13 +434,27 @@ if (saveButton) {
   });
 }
 
-// Ctrl+S shortcut: trigger manual save
+// Ctrl+S shortcut: trigger manual save.
+//
+// The read-only check is load-bearing, not decorative. The Save button is
+// disabled purely by CSS (`body.is-read-only #saveButton { pointer-events:none }`),
+// which stops a click but does nothing to a keydown handler bound on `document`
+// — so Ctrl+S was the one way a user viewing a task assigned to someone else
+// could still fire a save. The write was correctly refused by the server, but
+// the resulting 403 stranded a permanently-unretryable entry in the offline
+// queue and told them their work "could not be saved", which read as data loss.
+// Refusing here means the doomed write is never created in the first place.
 document.addEventListener("keydown", (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key === "s") {
     e.preventDefault();
-    if (saveButton) {
-      manualSaveWithUI();
+    if (!saveButton) return;
+    const task = state.gallery?.[state.galleryIndex] || null;
+    const block = taskWriteBlock(task);
+    if (block) {
+      setStatus("Read-only — not saved");
+      return;
     }
+    manualSaveWithUI();
   }
 });
 
@@ -603,11 +621,19 @@ configureQueue({
       // safe to auto-apply. Reuses the `forbidden` queue state rather than
       // adding a parallel one, since the required behavior (stop retrying,
       // keep payload, tell the user once) is identical.
+      // 422: the server refused this specific payload on the merits — right
+      // now, exclusively "this would silently erase existing annotations".
+      // Shares the queue's un-retryable handling with 403 (resending an
+      // identical payload would be refused identically forever, and the work
+      // must be kept either way) but is reported through its own channel: it is
+      // not a permission failure and saying so sent annotators chasing access
+      // problems that did not exist.
       if (res.status === 422) {
         const body = await res.json().catch(() => null);
         return {
           ok: false,
           forbidden: true,
+          refused: true,
           detail: (body && body.detail) || 'This save was refused; reload the task and check your changes.',
         };
       }
@@ -630,7 +656,7 @@ configureQueue({
     }
   },
 
-  onForbidden(taskId, payload, detail) {
+  onForbidden(taskId, payload, detail, { refused = false } = {}) {
     // E-27: a queued write the server refused on permission grounds. Unlike a
     // conflict there is no choice to offer — overwriting is not an option the
     // user has — so this only informs them.
@@ -643,8 +669,20 @@ configureQueue({
     // Use the permission banner rather than a native alert: the banner stays
     // visible while the annotator keeps working, and a blocking dialog mid-
     // session is disruptive (and unexpected when they're on their own task).
+    //
+    // A 422 is reported as what it is. Calling it "offline work" that "could not
+    // be saved" for lack of permission — as this did for every non-403 refusal —
+    // described a network outage and an access revocation to a user who was
+    // experiencing neither.
+    if (refused) {
+      reportSaveRefused(
+        `Your change to "${label}" was not saved. ` +
+        (detail || 'The server refused that save.')
+      );
+      return;
+    }
     reportSaveForbidden(
-      `Your offline work on "${label}" could not be saved. ` +
+      `Your unsaved work on "${label}" could not be saved. ` +
       (detail || 'You no longer have permission to edit this task.')
     );
   },

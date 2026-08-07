@@ -395,3 +395,25 @@ export function reportSaveForbidden(detail) {
     "warn"
   );
 }
+
+/**
+ * Report a save the server refused on the merits (422) — *not* a permission
+ * problem and *not* an offline problem.
+ *
+ * Kept separate from `reportSaveForbidden` because the two were previously
+ * conflated: a 422 was mapped onto the `forbidden` queue state and reported
+ * with its wording, so an annotator working normally on their own task, against
+ * a server that was up the whole time, was told they lacked permission and that
+ * their "offline work" was stranded. All three claims were false, and the
+ * message gave them nothing to act on.
+ *
+ * The payload is still kept (rule 18 — a refused save must never destroy
+ * unsaved work), so the wording says the work is safe without implying it is
+ * lost or that access was revoked.
+ */
+export function reportSaveRefused(detail) {
+  showBanner(
+    `${detail || "That save was refused."} Your work is still here and unsaved.`,
+    "warn"
+  );
+}

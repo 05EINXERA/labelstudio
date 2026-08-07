@@ -4,10 +4,10 @@ import {
   state, storageKey, draftKey, legacyDraftKey, colorForName, labelByName, labelById,
   labelDisplayName, snapshot, selectedAnnotation
 } from "../state.js?v=3";
-import { pendingCount, retryablePendingCount, isServerUnreachable, peekWrite } from "../offline-queue.js?v=3";
+import { pendingCount, retryablePendingCount, isServerUnreachable, peekWrite } from "../offline-queue.js?v=4";
 import { annotationPoints, updateAnnotationBounds } from "../canvas/geometry.js?v=1";
 import { view } from "../canvas/view.js?v=1";
-import { drainTaskTime } from "./timer.js?v=2";
+import { drainTaskTime } from "./timer.js?v=3";
 import { detectState } from "../ai/detect-state.js?v=3";
 import { draw, drawAllLayers } from "../canvas/draw.js?v=1";
 import {
@@ -97,7 +97,18 @@ export function repairLabelsFromAnnotations() {
   });
 }
 
-export function syncToBackend({ useBeacon = false, keepStatus = false } = {}) {
+/**
+ * Push the open task's annotations to the server.
+ *
+ * `allowClear` marks a save the user explicitly meant to empty: this is the
+ * only path that carries the real, user-authored annotation set, so it is the
+ * only one entitled to confirm a delete-all past the server's clear-guard
+ * (api/routers/tasks.py — the guard that exists because a half-hydrated client
+ * once autosaved `[]` over 403 real polygons, INCIDENT_692). Time-only saves
+ * elsewhere deliberately omit the annotation set entirely rather than sending
+ * an empty one, so they can never reach that guard at all.
+ */
+export function syncToBackend({ useBeacon = false, keepStatus = false, allowClear = false } = {}) {
   if (typeof state === 'undefined' || state.galleryIndex < 0 || !state.gallery || !state.gallery[state.galleryIndex]) return;
   const currentTask = state.gallery[state.galleryIndex];
   if (!currentTask.id) return;
@@ -131,7 +142,8 @@ export function syncToBackend({ useBeacon = false, keepStatus = false } = {}) {
   return Promise.resolve(drainTaskTime(currentTask, {
     status: taskStatus,
     annotations: currentTask.annotations,
-    useBeacon
+    useBeacon,
+    allowClear
   })).then((ok) => {
     // The draft exists to cover work the server does not have. Once it has
     // taken the write, the draft is stale and must go, or the next load would
@@ -276,7 +288,15 @@ export function restoreDraft(task) {
   }
 }
 
-export function save() {
+/**
+ * Debounced autosave.
+ *
+ * `allowClear` is threaded through for the one caller that legitimately empties
+ * the annotation set (the Clear-all button). Without it that save is refused by
+ * the server's clear-guard and surfaces to the annotator as a permission-style
+ * warning about unsaved offline work — for an action they deliberately took.
+ */
+export function save({ allowClear = false } = {}) {
   saveDraft();
   setStatus("Saving…");
 
@@ -291,7 +311,7 @@ export function save() {
     // On failure the write is now in the outbox, so "retrying" is finally true
     // rather than aspirational — and refreshSaveStatus() keeps the pending count
     // on screen instead of reverting to "Saved" three seconds later.
-    Promise.resolve(syncToBackend())
+    Promise.resolve(syncToBackend({ allowClear }))
       .then((ok) => (ok === false ? refreshSaveStatus() : setStatus("Saved")))
       .catch(() => refreshSaveStatus());
   }, 1000);
@@ -313,9 +333,13 @@ export async function manualSaveWithUI() {
   try {
     // Save the draft locally
     saveDraft();
-    
-    // Sync to backend
-    const ok = await syncToBackend();
+
+    // An explicit Save of an empty canvas is an explicit delete-all: the user is
+    // looking at zero annotations and pressing Save. Confirming it past the
+    // server's clear-guard here is what stops the "could not be saved" warning
+    // appearing for an action they deliberately took. The guard still protects
+    // the case it was built for — a background/autosave path never sets this.
+    const ok = await syncToBackend({ allowClear: state.annotations.length === 0 });
 
     // A manual save is the one place the user is actively watching, so a
     // failure must be stated plainly rather than dressed up as success.
