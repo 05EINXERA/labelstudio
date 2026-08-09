@@ -45,7 +45,7 @@ $uvicorn   = Join-Path $repoRoot "venv\Scripts\uvicorn.exe"
 $wrapperPs = Join-Path $repoRoot "scripts\_service-wrapper.ps1"
 
 if (-not (Test-Path $uvicorn)) {
-    Write-Error "venv not found at $uvicorn — run: python -m venv venv && venv\Scripts\pip install -r requirements.txt"
+    Write-Error "venv not found at $uvicorn - run: python -m venv venv, then venv\Scripts\pip install -r requirements.txt"
     exit 1
 }
 
@@ -153,7 +153,7 @@ while ($true) {
     Add-Content -Path $log -Value "$ts  [service] uvicorn exited - restarting in 5s"
     Start-Sleep -Seconds 5
 }
-'@ | Set-Content -Path $wrapperPs -Encoding utf8BOM
+'@ | Set-Content -Path $wrapperPs -Encoding UTF8
 
 # The scheduled task runs this wrapper with powershell.exe (Windows PowerShell
 # 5.1), which assumes the legacy ANSI codepage for files with no BOM. Written
@@ -226,7 +226,7 @@ Register-ScheduledTask `
     -Trigger   $trigger `
     -Settings  $settings `
     -Principal $principal `
-    -Description "Annotation workspace — auto-start + auto-restart on boot" `
+    -Description "Annotation workspace - auto-start + auto-restart on boot" `
     -ErrorAction Stop `
     | Out-Null
 

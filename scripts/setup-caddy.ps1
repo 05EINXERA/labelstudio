@@ -38,10 +38,12 @@ $caddyCmd = Get-Command caddy -ErrorAction SilentlyContinue
 if ($caddyCmd) {
     $caddyBin = $caddyCmd.Source
     Write-Host "✓ Found Caddy on PATH: $caddyBin" -ForegroundColor Green
-} elseif (Test-Path $caddyExe) {
+}
+elseif (Test-Path $caddyExe) {
     $caddyBin = $caddyExe
     Write-Host "✓ Found Caddy in scripts directory: $caddyBin" -ForegroundColor Green
-} else {
+}
+else {
     New-Item -ItemType Directory -Force -Path $caddyDir | Out-Null
     Write-Host "Downloading Caddy for Windows (x64)..." -ForegroundColor Yellow
     $downloadUrl = "https://caddyserver.com/api/download?os=windows&arch=amd64"
@@ -51,7 +53,8 @@ if ($caddyCmd) {
         Invoke-WebRequest -Uri $downloadUrl -OutFile $zipPath -UseBasicParsing
         $caddyBin = $zipPath
         Write-Host "✓ Caddy downloaded successfully to $caddyBin" -ForegroundColor Green
-    } catch {
+    }
+    catch {
         Write-Error "Failed to download Caddy automatically. Please download caddy.exe from https://caddyserver.com/download and place it in $caddyDir"
         exit 1
     }
@@ -77,7 +80,8 @@ if (-not $SkipTrust) {
     try {
         & $caddyBin trust --config $caddyfilePath --adapter caddyfile
         Write-Host "✓ Local Root CA trusted successfully" -ForegroundColor Green
-    } catch {
+    }
+    catch {
         Write-Warning "Could not automatically trust Caddy CA; you may need to run as Administrator or trust manually."
     }
 }
@@ -91,7 +95,8 @@ New-Item -ItemType Directory -Force -Path $certsOutDir | Out-Null
 $foundCert = $null
 if (Test-Path $localPkiRoot) {
     $foundCert = $localPkiRoot
-} elseif (Test-Path $roamingPkiRoot) {
+}
+elseif (Test-Path $roamingPkiRoot) {
     $foundCert = $roamingPkiRoot
 }
 
@@ -134,7 +139,8 @@ try {
         -Description "Reverse Proxy (Caddy) for Annotation Workspace TLS termination" `
         -Force | Out-Null
     Write-Host "✓ Scheduled task '$taskName' registered to start at boot." -ForegroundColor Green
-} catch {
+}
+catch {
     Write-Warning "Could not register scheduled task under SYSTEM (requires Administrator). Registering for current user..."
     Register-ScheduledTask `
         -TaskName $taskName `

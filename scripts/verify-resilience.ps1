@@ -67,7 +67,8 @@ if (Test-Path $serviceLog) {
     $age = (Get-Date) - (Get-Item $serviceLog).LastWriteTime
     $ok = $age.TotalHours -lt 24
     Add-Result "Service log activity" $ok "Last write: $([math]::Round($age.TotalHours, 1))h ago ($serviceLog)"
-} else {
+}
+else {
     Add-Result "Service log activity" $false "Not found at $serviceLog — is install-service.ps1 actually running the app?"
 }
 
@@ -75,20 +76,23 @@ if (Test-Path $serviceLog) {
 if ($BackupDest) {
     if (Test-Path $BackupDest) {
         $snapshot = Get-ChildItem $BackupDest -File -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -match '^workspace-\d{8}-\d{6}\.(db|dump)$' } |
-            Sort-Object LastWriteTime -Descending |
-            Select-Object -First 1
+        Where-Object { $_.Name -match '^workspace-\d{8}-\d{6}\.(db|dump)$' } |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -First 1
         if ($snapshot) {
             $age = (Get-Date) - $snapshot.LastWriteTime
             $ok = $age.TotalHours -lt 26  # a bit over 24h to tolerate the nightly schedule jitter
             Add-Result "Recent backup snapshot" $ok "$($snapshot.Name), $([math]::Round($age.TotalHours, 1))h old"
-        } else {
+        }
+        else {
             Add-Result "Recent backup snapshot" $false "No workspace-*.db/.dump found in $BackupDest"
         }
-    } else {
+    }
+    else {
         Add-Result "Recent backup snapshot" $false "Destination not reachable: $BackupDest"
     }
-} else {
+}
+else {
     Add-Result "Recent backup snapshot" $null "Skipped (-BackupDest not provided)"
 }
 
@@ -109,9 +113,11 @@ $failCount = 0
 foreach ($r in $results) {
     if ($null -eq $r.Ok) {
         $mark = "-"; $color = "Gray"
-    } elseif ($r.Ok) {
+    }
+    elseif ($r.Ok) {
         $mark = "OK"; $color = "Green"
-    } else {
+    }
+    else {
         $mark = "FAIL"; $color = "Red"; $failCount++
     }
     Write-Host ("[{0,-4}] {1,-28} {2}" -f $mark, $r.Check, $r.Detail) -ForegroundColor $color
@@ -119,7 +125,8 @@ foreach ($r in $results) {
 Write-Host "================================================"
 if ($failCount -eq 0) {
     Write-Host "All checks passed." -ForegroundColor Green
-} else {
+}
+else {
     Write-Host "$failCount check(s) FAILED — see .devnotes/deployment-hardening/06_RESILIENCE_PLAN.md P1." -ForegroundColor Yellow
 }
 exit $failCount

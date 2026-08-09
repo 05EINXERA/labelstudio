@@ -137,7 +137,7 @@ def _get_owned_task(task_id: int, user: models.User, db: Session, annotator: Opt
     return task
 
 @router.get("")
-def get_tasks(projectId: Optional[int] = Query(None), include_annotations: bool = Query(True), db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
+def get_tasks(projectId: Optional[int] = Query(None), include_annotations: bool = Query(False), db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
     if projectId:
         get_owned_project(projectId, user, db, annotator)
         query = db.query(models.Task).filter(models.Task.project_id == projectId)
