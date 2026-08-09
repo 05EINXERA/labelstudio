@@ -204,18 +204,40 @@ function clearError() {
 
 // --- data --------------------------------------------------------------
 
-async function loadTasks() {
-  const res = await apiFetch(`/api/tasks?projectId=${encodeURIComponent(ctx.projectId)}`);
-  if (!res) return;
+async function fetchServerTasks(state) {
+  table.showLoading(state.pageSize);
+  const params = new URLSearchParams({
+    projectId: ctx.projectId,
+    limit: state.pageSize,
+    offset: (state.page - 1) * state.pageSize,
+  });
+  if (state.query) params.set("search", state.query);
+  if (state.sortKey) {
+    params.set("sort_by", state.sortKey);
+    params.set("sort_desc", state.sortDesc);
+  }
+  if (state.filters.status && state.filters.status !== "All") {
+    params.set("status", state.filters.status);
+  }
+  
+  const res = await apiFetch(`/api/tasks?${params.toString()}`);
+  if (!res) {
+    table.setServerData([], 0);
+    return;
+  }
   if (!res.ok) {
     showError(`Could not load tasks (${res.status}).`);
+    table.setServerData([], 0);
     return;
   }
   clearError();
-  const tasks = await res.json();
-  table.setRows(tasks);
-  // T2.2 — refresh lock badges after the table renders (async, non-blocking).
-  _refreshLockCache(tasks).then(() => table.setRows(tasks));
+  const data = await res.json();
+  table.setServerData(data.items, data.total);
+  _refreshLockCache(data.items).then(() => table.render());
+}
+
+async function loadTasks() {
+  if (table) table.reload();
 }
 
 // --- upload & duplicate handling ----------------------------------------
@@ -620,7 +642,7 @@ export async function mount(hostRoot, hostCtx) {
     rowClass: (r) => (activeTaskId && String(r.id) === String(activeTaskId) ? "row-recent-task" : ""),
     emptyMessage: "No tasks yet. Upload images to get started.",
     onSelectionChange: updateBulkBar,
-    matches: (row, q) => String(row.description || "").toLowerCase().includes(q),
+    onFetchData: fetchServerTasks,
     columns: [
       {
         key: "image_path",

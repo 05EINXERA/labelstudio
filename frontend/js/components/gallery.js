@@ -215,7 +215,7 @@ export function initGalleryNavigation() {
 export async function loadWorkspaceTasks(projectId, targetTaskId = null) {
   if (!projectId) return;
   try {
-    const res = await apiFetch(`/api/tasks?projectId=${projectId}&include_annotations=false`);
+    const res = await apiFetch(`/api/tasks/sequence/${projectId}`);
     if (res && res.ok) {
       const tasks = await res.json();
       state.gallery = tasks.map(t => ({
@@ -225,10 +225,10 @@ export async function loadWorkspaceTasks(projectId, targetTaskId = null) {
         annotations: [],
         width: 0,
         height: 0,
-        status: t.status,
-        assignee: t.assignee,
-        time_spent: t.time_spent || 0,
-        updated_at: t.updated_at || null
+        status: "New",
+        assignee: null,
+        time_spent: 0,
+        updated_at: null
       }));
 
       if (state.gallery.length > 0) {

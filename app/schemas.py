@@ -337,3 +337,14 @@ class Token(BaseModel):
     # body so a non-browser client (tests, scripts) can echo it back without
     # having to parse Set-Cookie.
     csrf_token: Optional[str] = None
+
+class PaginatedTasks(BaseModel):
+    items: List[TaskDetail]
+    total: int
+    limit: int
+    offset: int
+
+class TaskSequenceItem(BaseModel):
+    id: int
+    description: Optional[str] = None
+    image_path: Optional[str] = None

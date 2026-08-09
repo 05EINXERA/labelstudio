@@ -141,19 +141,9 @@ async function loadUsage() {
   // not block the class list from rendering.
   usageByLabelId = {};
   try {
-    const res = await apiFetch(`/api/tasks?projectId=${encodeURIComponent(ctx.projectId)}`);
+    const res = await apiFetch(`/api/tasks/label-usage/${encodeURIComponent(ctx.projectId)}`);
     if (!res || !res.ok) return;
-    const tasks = await res.json();
-    for (const task of tasks) {
-      let anns = task.annotations;
-      if (typeof anns === "string") {
-        try { anns = JSON.parse(anns); } catch { anns = []; }
-      }
-      if (!Array.isArray(anns)) continue;
-      for (const a of anns) {
-        if (a.labelId) usageByLabelId[a.labelId] = (usageByLabelId[a.labelId] || 0) + 1;
-      }
-    }
+    usageByLabelId = await res.json();
   } catch (err) {
     console.error("Failed to compute class usage", err);
   }

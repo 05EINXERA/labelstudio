@@ -37,6 +37,7 @@ export function createDataTable(opts) {
     rowClass,
     onRowClick,
     onSelectionChange,
+    onFetchData,
   } = opts;
 
   const state = {
@@ -49,11 +50,13 @@ export function createDataTable(opts) {
     filters: {},
     selected: new Set(),
     priorityRowId: opts.priorityRowId || null,
+    totalRows: 0,
   };
 
   // --- derivation ---------------------------------------------------------
 
   function filtered() {
+    if (onFetchData) return state.rows;
     const q = state.query.trim().toLowerCase();
     return state.rows.filter((row) => {
       if (q) {
@@ -70,7 +73,7 @@ export function createDataTable(opts) {
 
   function sorted(rows) {
     let result = rows;
-    if (state.sortKey) {
+    if (state.sortKey && !onFetchData) {
       const key = state.sortKey;
       // Copy first: sorting `rows` in place would reorder state.rows via the
       // shared array reference when no filter is active.
@@ -97,17 +100,22 @@ export function createDataTable(opts) {
   }
 
   function pageInfo(rows) {
+    if (onFetchData) {
+      const totalPages = Math.max(1, Math.ceil(state.totalRows / state.pageSize));
+      const start = (state.page - 1) * state.pageSize;
+      return { totalPages, start, slice: rows, totalCount: state.totalRows };
+    }
     const totalPages = Math.max(1, Math.ceil(rows.length / state.pageSize));
     if (state.page > totalPages) state.page = totalPages;
     const start = (state.page - 1) * state.pageSize;
-    return { totalPages, start, slice: rows.slice(start, start + state.pageSize) };
+    return { totalPages, start, slice: rows.slice(start, start + state.pageSize), totalCount: rows.length };
   }
 
   // --- rendering ----------------------------------------------------------
 
   function render() {
     const rows = sorted(filtered());
-    const { totalPages, start, slice } = pageInfo(rows);
+    const { totalPages, start, slice, totalCount } = pageInfo(rows);
 
     const head = columns
       .map((c) => {
@@ -152,7 +160,7 @@ export function createDataTable(opts) {
         </table>
       </div>
       <div class="data-table-footer">
-        <span class="data-table-info">Showing ${rows.length ? start + 1 : 0} to ${Math.min(start + state.pageSize, rows.length)} of ${rows.length} entries</span>
+        <span class="data-table-info">Showing ${totalCount ? start + 1 : 0} to ${Math.min(start + state.pageSize, totalCount)} of ${totalCount} entries</span>
         <div class="data-table-pager">
           <button type="button" class="tool-button" data-role="prev" ${state.page === 1 ? "disabled" : ""}>Previous</button>
           <span class="data-table-page">Page ${state.page} / ${totalPages}</span>
@@ -182,14 +190,15 @@ export function createDataTable(opts) {
           state.sortKey = key;
           state.sortDesc = false;
         }
-        render();
+        state.page = 1;
+        if (onFetchData) onFetchData(state); else render();
       });
     });
 
     const prev = mount.querySelector('[data-role="prev"]');
     const next = mount.querySelector('[data-role="next"]');
-    if (prev) prev.addEventListener("click", () => { if (state.page > 1) { state.page--; render(); } });
-    if (next) next.addEventListener("click", () => { state.page++; render(); });
+    if (prev) prev.addEventListener("click", () => { if (state.page > 1) { state.page--; if (onFetchData) onFetchData(state); else render(); } });
+    if (next) next.addEventListener("click", () => { state.page++; if (onFetchData) onFetchData(state); else render(); });
 
     if (selectable) {
       const all = mount.querySelector('[data-role="select-all"]');
@@ -263,9 +272,17 @@ export function createDataTable(opts) {
       state.selected.forEach((id) => { if (!live.has(id)) state.selected.delete(id); });
       render();
     },
-    setQuery(q) { state.query = q || ""; state.page = 1; render(); },
-    setFilter(key, value) { state.filters[key] = value; state.page = 1; render(); },
-    setPageSize(n) { state.pageSize = Number(n) || 10; state.page = 1; render(); },
+    setServerData(items, total) {
+      state.rows = items || [];
+      state.totalRows = total || 0;
+      const live = new Set(state.rows.map(rowId));
+      state.selected.forEach((id) => { if (!live.has(id)) state.selected.delete(id); });
+      render();
+    },
+    setQuery(q) { state.query = q || ""; state.page = 1; if (onFetchData) onFetchData(state); else render(); },
+    setFilter(key, value) { state.filters[key] = value; state.page = 1; if (onFetchData) onFetchData(state); else render(); },
+    setPageSize(n) { state.pageSize = Number(n) || 10; state.page = 1; if (onFetchData) onFetchData(state); else render(); },
+    reload() { if (onFetchData) onFetchData(state); else render(); },
     clearSelection() { state.selected.clear(); render(); onSelectionChange?.(state.selected); },
     getSelection() { return new Set(state.selected); },
     getRows() { return [...state.rows]; },

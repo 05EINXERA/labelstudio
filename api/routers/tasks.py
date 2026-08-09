@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, selectinload
 
 import models
 from database import get_db, commit_with_retry
-from schemas import TaskUpdate, BulkDelete, BulkUpdate, TaskDetail
+from schemas import TaskUpdate, BulkDelete, BulkUpdate, TaskDetail, PaginatedTasks, TaskSequenceItem
 from api.auth import get_current_user, require_csrf, get_current_annotator
 from api.routers.projects import get_owned_project, get_user_accessible_team_ids, is_project_creator
 
@@ -137,59 +137,73 @@ def _get_owned_task(task_id: int, user: models.User, db: Session, annotator: Opt
         raise HTTPException(status_code=404, detail="Task not found")
     return task
 
-@router.get("")
-def get_tasks(projectId: Optional[int] = Query(None), include_annotations: bool = Query(False), db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
+@router.get("", response_model=PaginatedTasks)
+def get_tasks(
+    projectId: Optional[int] = Query(None),
+    limit: int = Query(50),
+    offset: int = Query(0),
+    search: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    sort_by: Optional[str] = Query("updated_at"),
+    sort_desc: bool = Query(True),
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+    annotator: Optional[models.TeamMember] = Depends(get_current_annotator)
+):
     if projectId:
         get_owned_project(projectId, user, db, annotator)
         query = db.query(models.Task).filter(models.Task.project_id == projectId)
     else:
-        # No project given: return tasks across every project the caller can access,
-        # never the whole table.
+        # No project given: return tasks across every project the caller can access
         query = db.query(models.Task).filter(
             models.Task.project_id.in_(_accessible_project_ids(user, db, annotator))
         )
 
-    if not include_annotations:
-        query = query.with_entities(
-            models.Task.id, models.Task.description, models.Task.assignee,
-            models.Task.image_path, models.Task.status, models.Task.time_spent, models.Task.updated_at
-        )
-        tasks = query.all()
-        return [{"id": t.id, "description": t.description, "assignee": t.assignee, 
-                 "image_path": t.image_path, "status": t.status, "time_spent": t.time_spent, 
-                 "updated_at": t.updated_at, "annotations": []} for t in tasks]
+    if search:
+        query = query.filter(models.Task.description.ilike(f"%{search}%"))
+    if status and status != "All":
+        query = query.filter(models.Task.status == status)
 
-    tasks = query.options(selectinload(models.Task.annotations)).all()
-    result = []
-    for t in tasks:
-        # annotations_data will be populated as AnnotationModel dicts by TaskDetail or manual dict.
-        # But wait, get_tasks returns a list of raw dicts, not TaskDetail.
-        annotations_data = []
-        for a in t.annotations:
-            points = None
-            if a.points:
-                try: points = json.loads(a.points)
-                except ValueError: pass
-            extra = None
-            if a.extra:
-                try: extra = json.loads(a.extra)
-                except ValueError: pass
-            
-            ann_dict = {
-                "id": a.id, "type": a.type, "labelId": a.label_id,
-                "points": points, "x": a.x, "y": a.y, "width": a.width, "height": a.height,
-                "text": a.text, "color": a.color, "order": a.order, "groupId": a.group_id,
-            }
-            if extra:
-                ann_dict.update(extra)
-            annotations_data.append(ann_dict)
+    total = query.count()
 
-        result.append({
-            "id": t.id, "description": t.description, "assignee": t.assignee, 
-            "image_path": t.image_path, "status": t.status, "time_spent": t.time_spent, 
-            "updated_at": t.updated_at, "annotations": annotations_data
-        })
-    return result
+    if sort_by:
+        sort_col = getattr(models.Task, sort_by, models.Task.updated_at)
+        if sort_desc:
+            sort_col = sort_col.desc()
+        query = query.order_by(sort_col)
+
+    query = query.with_entities(
+        models.Task.id, models.Task.description, models.Task.assignee,
+        models.Task.image_path, models.Task.status, models.Task.time_spent, models.Task.updated_at
+    )
+    
+    tasks = query.offset(offset).limit(limit).all()
+    
+    items = [{"id": t.id, "description": t.description, "assignee": t.assignee, 
+             "image_path": t.image_path, "status": t.status, "time_spent": t.time_spent, 
+             "updated_at": t.updated_at, "annotations": []} for t in tasks]
+             
+    return {"items": items, "total": total, "limit": limit, "offset": offset}
+
+@router.get("/sequence/{projectId}", response_model=List[TaskSequenceItem])
+def get_task_sequence(projectId: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
+    get_owned_project(projectId, user, db, annotator)
+    tasks = db.query(models.Task).filter(models.Task.project_id == projectId).order_by(models.Task.id).with_entities(models.Task.id, models.Task.description, models.Task.image_path).all()
+    return [{"id": t.id, "description": t.description, "image_path": t.image_path} for t in tasks]
+
+@router.get("/label-usage/{projectId}")
+def get_label_usage(projectId: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
+    get_owned_project(projectId, user, db, annotator)
+    # Count annotations grouped by label_id for the given project.
+    rows = db.query(
+        models.Annotation.label_id,
+        func.count(models.Annotation.id)
+    ).join(models.Task, models.Task.id == models.Annotation.task_id).filter(
+        models.Task.project_id == projectId,
+        models.Annotation.label_id.isnot(None)
+    ).group_by(models.Annotation.label_id).all()
+    
+    return {row[0]: row[1] for row in rows}
 
 @router.get("/{task_id}", response_model=TaskDetail)
 def get_task(task_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
