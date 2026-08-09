@@ -59,7 +59,7 @@ def _upload_png(client, auth, pid, filename, width, height, color=(10, 20, 30)):
 
 
 def _set_annotations(client, auth, pid, description, annotations):
-    tasks = client.get(f"/api/tasks?projectId={pid}", headers=auth).json()
+    tasks = client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=auth).json()
     tid = next(t["id"] for t in tasks if t["description"] == description)
     res = client.patch(f"/api/tasks/{tid}", json={"annotations": json.dumps(annotations)}, headers=auth)
     assert res.status_code == 200, res.text

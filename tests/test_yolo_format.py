@@ -56,7 +56,7 @@ def _upload_png(client, auth, pid, filename, width, height):
 
 
 def _set_annotations(client, auth, pid, description, annotations):
-    tasks = client.get(f"/api/tasks?projectId={pid}", headers=auth).json()
+    tasks = client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=auth).json()
     tid = next(t["id"] for t in tasks if t["description"] == description)
     res = client.patch(f"/api/tasks/{tid}", json={"annotations": json.dumps(annotations)}, headers=auth)
     assert res.status_code == 200, res.text
@@ -247,12 +247,14 @@ def test_task_with_no_annotations_gets_an_empty_file(client, alice):
 
 def test_annotation_for_deleted_label_is_skipped(client, alice):
     pid = _new_project(client, alice)
+    lid = _new_label(client, alice, pid, "lbl-gone", "Gone")
     _new_label(client, alice, pid, "l", "Thing")
     _upload_png(client, alice, pid, "orphan.png", 40, 40)
     _set_annotations(client, alice, pid, "orphan.png", [
-        {"id": "a1", "labelId": "gone", "points": [{"x": 0, "y": 0}, {"x": 5, "y": 5}]},
+        {"id": "a1", "labelId": lid, "points": [{"x": 0, "y": 0}, {"x": 5, "y": 5}]},
     ])
 
+    client.delete(f"/api/labels/{lid}?projectId={pid}", headers=alice)
     entries, _ = _export_yolo(client, alice, pid)
     assert entries["annotations/orphan.txt"] == b""
 

@@ -31,6 +31,7 @@ import models
 from formats.common import (
     annotation_type_of,
     bbox_of,
+    extract_annotations,
     image_size,
     is_annotation,
     points_of,
@@ -121,13 +122,7 @@ def build(tasks: Sequence[models.Task], labels: Sequence[models.Label],
 
 
 def _annotations_of(task: models.Task) -> List[dict]:
-    try:
-        anns = json.loads(task.annotations) if task.annotations else []
-    except (ValueError, TypeError) as exc:
-        logger.warning("Task %s has unparseable annotations, skipping in export: %s", task.id, exc)
-        return []
-    if not isinstance(anns, list):
-        return []
+    anns = extract_annotations(task)
     return [a for a in anns if is_annotation(a)]
 
 

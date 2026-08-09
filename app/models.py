@@ -1,5 +1,6 @@
 """SQLAlchemy ORM models for database persistence."""
-from sqlalchemy import Column, Integer, String, DateTime, func, Text, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, func, Text, ForeignKey, Float
+from sqlalchemy.orm import relationship
 try:
     from app.database import Base
 except ImportError:
@@ -43,7 +44,8 @@ class Task(Base):
     time_spent = Column(Integer, default=0)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
-    annotations = Column(Text)
+    annotations_legacy = Column("annotations_legacy", Text, nullable=True)
+    annotations = relationship("Annotation", cascade="all, delete-orphan", passive_deletes=True)
     # Pixel dimensions of the image at image_path, captured at upload.
     # Nullable because rows predating this column have never been measured;
     # formats.common.image_size() backfills them lazily. YOLO normalization and
@@ -104,3 +106,21 @@ class AIJob(Base):
     result = Column(Text, nullable=True)
     error = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.now(), nullable=False, index=True)
+
+class Annotation(Base):
+    __tablename__ = "annotations"
+    id = Column(String(64), primary_key=True)
+    task_id = Column(Integer, ForeignKey("tasks.id", ondelete="CASCADE"), primary_key=True, index=True)
+    label_id = Column(String, ForeignKey("labels.id", ondelete="SET NULL"), nullable=True, index=True)
+    type = Column(String(32), nullable=False)
+    points = Column(Text, nullable=True) # JSON string
+    x = Column(Float, nullable=True)
+    y = Column(Float, nullable=True)
+    width = Column(Float, nullable=True)
+    height = Column(Float, nullable=True)
+    text = Column(Text, nullable=True)
+    color = Column(String(16), nullable=True)
+    order = Column(Integer, nullable=True)
+    group_id = Column(String(36), nullable=True, index=True)
+    extra = Column(Text, nullable=True) # JSON string for unmodeled fields
+    created_at = Column(DateTime, server_default=func.now())

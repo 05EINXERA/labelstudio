@@ -86,17 +86,6 @@ def is_project_creator(project: models.Project, user: models.User, annotator: Op
     return False
 
 
-def _count_comments(annotations: Optional[str]) -> int:
-    """Number of comment annotations in a task's serialized annotation blob."""
-    if not annotations or '"comment"' not in annotations:
-        return 0
-    try:
-        annots = json.loads(annotations)
-    except (ValueError, TypeError) as exc:
-        logger.warning("Skipping unparseable annotations: %s", exc)
-        return 0
-    return sum(1 for a in annots if isinstance(a, dict) and a.get("type") == "comment")
-
 
 def _derive_status(total: int, completed: int) -> Optional[str]:
     """Project status implied by its task counts, or None if unchanged."""
@@ -143,16 +132,16 @@ def _aggregate_metrics(project_ids: List[int], db: Session) -> dict:
             entry["in_progress"] += count
         entry["total_time"] += total_time
 
-    # Fetch annotations only for tasks that might have comments, saving massive DB I/O
-    comment_tasks = db.query(
-        models.Task.project_id, models.Task.annotations
-    ).filter(
+    # Count comments using the Annotation table
+    comment_counts = db.query(
+        models.Task.project_id, func.count(models.Annotation.id)
+    ).join(models.Annotation, models.Task.id == models.Annotation.task_id).filter(
         models.Task.project_id.in_(project_ids),
-        models.Task.annotations.like('%"comment"%')
-    ).all()
+        models.Annotation.type == "comment"
+    ).group_by(models.Task.project_id).all()
     
-    for ct in comment_tasks:
-        metrics[ct.project_id]["comments"] += _count_comments(ct.annotations)
+    for pid, count in comment_counts:
+        metrics[pid]["comments"] = count
 
     label_counts = db.query(
         models.Label.project_id, func.count(models.Label.id),

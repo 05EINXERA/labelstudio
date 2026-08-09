@@ -39,13 +39,14 @@ otherwise create two labels for the same class.
 import io
 import json
 import logging
+import datetime
 import uuid
 import zipfile
 from collections import defaultdict
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set, Any, Tuple
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 import models
 from database import get_db, commit_with_retry
@@ -406,7 +407,12 @@ async def import_annotations(
 
     label_ids = _resolve_label_ids(by_filename, projectId, db)
     matched, unmatched = _match_to_tasks(by_filename, projectId, db)
-    tasks_by_id = {t.id: t for t in db.query(models.Task).filter(models.Task.project_id == projectId).all()}
+    tasks_by_id = {
+        t.id: t for t in db.query(models.Task)
+        .filter(models.Task.project_id == projectId)
+        .options(selectinload(models.Task.annotations))
+        .all()
+    }
 
     applied = 0
     annotations_imported = 0
@@ -437,17 +443,24 @@ async def import_annotations(
         ]
 
         if mode == "replace":
-            existing_kept = []
-        else:
-            try:
-                existing_kept = json.loads(task.annotations) if task.annotations else []
-                if not isinstance(existing_kept, list):
-                    existing_kept = []
-            except (ValueError, TypeError) as exc:
-                logger.warning("Task %s had unparseable annotations, replacing: %s", task.id, exc)
-                existing_kept = []
+            task.annotations.clear()
 
-        task.annotations = json.dumps(existing_kept + resolved)
+        for a in resolved:
+            known_keys = {'id', 'type', 'labelId', 'points', 'x', 'y', 'width', 'height', 'text', 'color', 'order', 'groupId'}
+            extra_dict = {k: v for k, v in a.items() if k not in known_keys}
+            extra = json.dumps(extra_dict) if extra_dict else None
+            points = json.dumps(a['points']) if a.get('points') is not None else None
+            
+            task.annotations.append(models.Annotation(
+                id=a.get('id') or str(uuid.uuid4()),
+                label_id=a.get('labelId'),
+                type=a.get('type', 'polygon'),
+                points=points,
+                x=a.get('x'), y=a.get('y'), width=a.get('width'), height=a.get('height'),
+                text=a.get('text'), color=a.get('color'), order=a.get('order'), group_id=a.get('groupId'),
+                extra=extra
+            ))
+
         applied += 1
         annotations_imported += len(resolved)
 

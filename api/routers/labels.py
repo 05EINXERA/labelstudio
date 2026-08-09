@@ -23,36 +23,17 @@ router = APIRouter(prefix="/api/labels", tags=["labels"], dependencies=[Depends(
 def purge_annotations_for_labels(project_id: int, label_ids: set, db: Session) -> int:
     """Delete every annotation in `project_id` that references a deleted label.
 
-    Annotations live as a JSON array in `Task.annotations`, so there is no
-    foreign key to cascade on: without this, deleting a class leaves orphaned
-    annotations behind that the canvas renders as an unnamed "Object" in the
-    default color. Comments carry no labelId and are always kept.
-
     Returns the number of annotations removed. The caller commits.
     """
     if not label_ids:
         return 0
 
-    removed = 0
-    tasks = db.query(models.Task).filter(models.Task.project_id == project_id).all()
-    for task in tasks:
-        if not task.annotations:
-            continue
-        try:
-            anns = json.loads(task.annotations)
-        except json.JSONDecodeError:
-            logger.warning("Task %s has unparseable annotations; skipping label purge", task.id)
-            continue
-        if not isinstance(anns, list):
-            continue
-
-        kept = [
-            a for a in anns
-            if not (isinstance(a, dict) and a.get("type") != "comment" and a.get("labelId") in label_ids)
-        ]
-        if len(kept) != len(anns):
-            removed += len(anns) - len(kept)
-            task.annotations = json.dumps(kept)
+    task_ids_subquery = db.query(models.Task.id).filter(models.Task.project_id == project_id).subquery()
+    removed = db.query(models.Annotation).filter(
+        models.Annotation.task_id.in_(task_ids_subquery),
+        models.Annotation.label_id.in_(label_ids),
+        models.Annotation.type != "comment"
+    ).delete(synchronize_session=False)
 
     return removed
 

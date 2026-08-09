@@ -111,7 +111,7 @@ def test_import_interop_json_option_writes_geometry(client, alice):
     _make_tasks(client, alice, pid, [t["name"] for t in source])
     _import(client, alice, pid, "annotations.json", raw)
 
-    tasks = client.get(f"/api/tasks?projectId={pid}", headers=alice).json()
+    tasks = client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=alice).json()
     task = next(t for t in tasks if t["description"] == first["name"])
     anns = task["annotations"]  # the list endpoint parses the JSON column
 
@@ -168,7 +168,7 @@ def test_import_interop_coco_segmentation_becomes_points(client, alice):
     _make_tasks(client, alice, pid, [i["file_name"] for i in coco["images"]])
     _import(client, alice, pid, "coco_annotations.json", raw)
 
-    tasks = client.get(f"/api/tasks?projectId={pid}", headers=alice).json()
+    tasks = client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=alice).json()
     total = sum(len(t["annotations"]) for t in tasks)
     assert total == len(coco["annotations"])
 

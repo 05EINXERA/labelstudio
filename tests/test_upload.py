@@ -34,7 +34,7 @@ def test_mixed_batch_reports_per_file_and_keeps_valid_ones(client, alice):
     assert len(body["failed"]) == 1
     assert body["failed"][0]["filename"] == "bad.exe"
 
-    tasks = client.get(f"/api/tasks?projectId={pid}", headers=alice).json()
+    tasks = client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=alice).json()
     assert len(tasks) == 2
 
 

@@ -53,7 +53,7 @@ from typing import List, Tuple
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import Response
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 import models
 from database import get_db
@@ -212,16 +212,17 @@ def _build_csv(tasks: List[models.Task], labels_by_id: dict) -> str:
     writer = csv.writer(buf)
     writer.writerow(["image", "label", "x", "y", "width", "height", "status"])
     for task in tasks:
-        try:
-            anns = json.loads(task.annotations) if task.annotations else []
-        except (ValueError, TypeError) as exc:
-            logger.warning("Task %s has unparseable annotations, skipping in export: %s", task.id, exc)
-            anns = []
+        anns = task.annotations
         for ann in anns:
-            if not isinstance(ann, dict) or ann.get("type") == "comment":
+            if ann.type == "comment":
                 continue
-            label = labels_by_id.get(ann.get("labelId"))
-            points = _points_of(ann)
+            label = labels_by_id.get(ann.label_id)
+            points_list = []
+            if ann.points:
+                try: points_list = json.loads(ann.points)
+                except ValueError: pass
+            ann_dict = {"points": points_list, "x": ann.x, "y": ann.y, "width": ann.width, "height": ann.height}
+            points = _points_of(ann_dict)
             xs = [p["x"] for p in points]
             ys = [p["y"] for p in points]
             writer.writerow([
@@ -248,7 +249,7 @@ def _run_export_job(job_id: str, req: ExportRequest, project_id: int):
         query = db.query(models.Task).filter(models.Task.project_id == project_id)
         if req.statusFilter:
             query = query.filter(models.Task.status.in_(req.statusFilter))
-        tasks = query.all()
+        tasks = query.options(selectinload(models.Task.annotations)).all()
         labels = db.query(models.Label).filter(models.Label.project_id == project_id).all()
         labels_by_id = {l.id: l for l in labels}
 

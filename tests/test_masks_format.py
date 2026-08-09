@@ -55,7 +55,7 @@ def _upload_png(client, auth, pid, filename, width, height):
 
 
 def _set_annotations(client, auth, pid, description, annotations):
-    tasks = client.get(f"/api/tasks?projectId={pid}", headers=auth).json()
+    tasks = client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=auth).json()
     tid = next(t["id"] for t in tasks if t["description"] == description)
     res = client.patch(f"/api/tasks/{tid}", json={"annotations": json.dumps(annotations)}, headers=auth)
     assert res.status_code == 200, res.text
@@ -321,12 +321,14 @@ def test_unparseable_label_colour_falls_back_to_grey():
 
 def test_annotation_for_deleted_label_is_skipped(client, alice):
     pid = _new_project(client, alice)
+    lid = _new_label(client, alice, pid, "lbl-gone", "Gone")
     _new_label(client, alice, pid, "l", "Thing")
     _upload_png(client, alice, pid, "orph.png", 10, 10)
     _set_annotations(client, alice, pid, "orph.png", [
-        {"id": "a1", "labelId": "gone", "type": "bbox", "points": _square(1, 1, 8, 8)},
+        {"id": "a1", "labelId": lid, "type": "bbox", "points": _square(1, 1, 8, 8)},
     ])
 
+    client.delete(f"/api/labels/{lid}?projectId={pid}", headers=alice)
     entries, _ = _export_masks(client, alice, pid, "masks_direct")
     img = _open(entries, "semantic_segmentations/orph.png").convert("RGB")
     assert img.getcolors() == [(100, (0, 0, 0))]

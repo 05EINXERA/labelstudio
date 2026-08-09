@@ -1,6 +1,7 @@
 """Annotation import (tracker P4.2, G5)."""
 import io
 import json
+import uuid
 
 import models
 from database import SessionLocal
@@ -12,6 +13,12 @@ def _new_project(client, auth, name="impp"):
 
 def _new_task(client, auth, pid, description):
     return client.post("/api/tasks", json={"description": description}, params={"projectId": pid}, headers=auth).json()["id"]
+
+
+def _new_label(client, auth, pid, name, color="#111"):
+    lid = uuid.uuid4().hex
+    client.post("/api/labels", json={"id": lid, "name": name, "color": color, "projectId": pid}, headers=auth)
+    return lid
 
 
 COCO_PAYLOAD = json.dumps({
@@ -49,7 +56,7 @@ def test_preview_reports_match_without_writing(client, alice):
     assert body["total_annotations"] == 1
 
     # nothing written
-    tasks = client.get(f"/api/tasks?projectId={pid}", headers=alice).json()
+    tasks = client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=alice).json()
     assert tasks[0]["annotations"] == []
 
 
@@ -93,7 +100,7 @@ def test_import_coco_matches_by_filename_and_creates_label(client, alice):
     assert body["annotations_imported"] == 1
     assert body["unmatched"] == []
 
-    task = next(t for t in client.get(f"/api/tasks?projectId={pid}", headers=alice).json() if t["id"] == tid)
+    task = next(t for t in client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=alice).json() if t["id"] == tid)
     assert len(task["annotations"]) == 1
     assert task["annotations"][0]["x"] == 10
     assert task["annotations"][0]["width"] == 20
@@ -119,30 +126,32 @@ def test_import_native_format_with_flat_point_list(client, alice):
 
 def test_import_merge_appends_to_existing_annotations(client, alice):
     pid = _new_project(client, alice)
+    lid = _new_label(client, alice, pid, "x", "X")
     tid = _new_task(client, alice, pid, "cat.png")
-    client.patch(f"/api/tasks/{tid}", json={"annotations": json.dumps([{"id": "pre-existing", "labelId": "x"}])}, headers=alice)
+    client.patch(f"/api/tasks/{tid}", json={"annotations": json.dumps([{"id": "pre-existing", "labelId": lid}])}, headers=alice)
 
     client.post(
         f"/api/imports/annotations?projectId={pid}&mode=merge",
         files={"file": ("coco.json", COCO_PAYLOAD, "application/json")},
         headers=alice,
     )
-    task = next(t for t in client.get(f"/api/tasks?projectId={pid}", headers=alice).json() if t["id"] == tid)
+    task = next(t for t in client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=alice).json() if t["id"] == tid)
     assert len(task["annotations"]) == 2
     assert any(a.get("id") == "pre-existing" for a in task["annotations"])
 
 
 def test_import_replace_overwrites_existing_annotations(client, alice):
     pid = _new_project(client, alice)
+    lid = _new_label(client, alice, pid, "x", "X")
     tid = _new_task(client, alice, pid, "cat.png")
-    client.patch(f"/api/tasks/{tid}", json={"annotations": json.dumps([{"id": "pre-existing", "labelId": "x"}])}, headers=alice)
+    client.patch(f"/api/tasks/{tid}", json={"annotations": json.dumps([{"id": "pre-existing", "labelId": lid}])}, headers=alice)
 
     client.post(
         f"/api/imports/annotations?projectId={pid}&mode=replace",
         files={"file": ("coco.json", COCO_PAYLOAD, "application/json")},
         headers=alice,
     )
-    task = next(t for t in client.get(f"/api/tasks?projectId={pid}", headers=alice).json() if t["id"] == tid)
+    task = next(t for t in client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=alice).json() if t["id"] == tid)
     assert len(task["annotations"]) == 1
     assert not any(a.get("id") == "pre-existing" for a in task["annotations"])
 
@@ -169,7 +178,7 @@ def test_import_does_not_create_new_tasks(client, alice):
         files={"file": ("coco.json", COCO_PAYLOAD, "application/json")},
         headers=alice,
     )
-    tasks = client.get(f"/api/tasks?projectId={pid}", headers=alice).json()
+    tasks = client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=alice).json()
     assert tasks == []
 
 

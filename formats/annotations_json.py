@@ -33,19 +33,14 @@ from formats.common import (
     to_external_status,
     unflatten_points,
     values_for_labels,
+    extract_annotations,
 )
 
 logger = logging.getLogger(__name__)
 
 
 def _annotations_of(task: models.Task) -> List[dict]:
-    try:
-        anns = json.loads(task.annotations) if task.annotations else []
-    except (ValueError, TypeError) as exc:
-        logger.warning("Task %s has unparseable annotations, skipping in export: %s", task.id, exc)
-        return []
-    if not isinstance(anns, list):
-        return []
+    anns = extract_annotations(task)
     return [a for a in anns if is_annotation(a)]
 
 

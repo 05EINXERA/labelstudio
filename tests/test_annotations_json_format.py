@@ -199,9 +199,11 @@ def test_value_is_shared_across_the_whole_export(client, alice):
 
 def test_annotation_for_deleted_label_is_skipped(client, alice):
     pid = _new_project(client, alice)
+    lid = _new_label(client, alice, pid, "lbl-gone", "Gone")
     _new_task(client, alice, pid, "d.png", annotations=[
-        {"id": "a1", "labelId": "does-not-exist", "points": [{"x": 0, "y": 0}, {"x": 5, "y": 5}]},
+        {"id": "a1", "labelId": lid, "points": [{"x": 0, "y": 0}, {"x": 5, "y": 5}]},
     ])
+    client.delete(f"/api/labels/{lid}?projectId={pid}", headers=alice)
     assert _export(client, alice, pid, "annotations_json").json()[0]["annotations"] == []
 
 
@@ -317,6 +319,7 @@ def test_parse_round_trips_an_export(client, alice):
          "points": [{"x": 1, "y": 2}, {"x": 30, "y": 4}, {"x": 5, "y": 60}]},
     ])
     exported = _export(client, alice, pid, "annotations_json").json()
+    print("DEBUG EXPORTED:", exported)
 
     target = _new_project(client, alice, "dst")
     _new_task(client, alice, target, "rt.png")
@@ -327,7 +330,7 @@ def test_parse_round_trips_an_export(client, alice):
     )
     assert res.status_code == 200, res.text
 
-    tasks = client.get(f"/api/tasks?projectId={target}", headers=alice).json()
+    tasks = client.get(f"/api/tasks?projectId={target}&include_annotations=true", headers=alice).json()
     anns = next(t for t in tasks if t["description"] == "rt.png")["annotations"]
     assert len(anns) == 1
     assert anns[0]["type"] == "polygon"

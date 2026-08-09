@@ -2,11 +2,12 @@ import json
 import logging
 import os
 import datetime
-from typing import Dict, Optional
+import uuid
+from typing import Dict, Optional, List
 
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException, Header
 from sqlalchemy import case, func, or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 import models
 from database import get_db, commit_with_retry
@@ -158,15 +159,31 @@ def get_tasks(projectId: Optional[int] = Query(None), include_annotations: bool 
                  "image_path": t.image_path, "status": t.status, "time_spent": t.time_spent, 
                  "updated_at": t.updated_at, "annotations": []} for t in tasks]
 
-    tasks = query.all()
+    tasks = query.options(selectinload(models.Task.annotations)).all()
     result = []
     for t in tasks:
+        # annotations_data will be populated as AnnotationModel dicts by TaskDetail or manual dict.
+        # But wait, get_tasks returns a list of raw dicts, not TaskDetail.
         annotations_data = []
-        if t.annotations:
-            try:
-                annotations_data = json.loads(t.annotations)
-            except (ValueError, TypeError) as exc:
-                logger.warning("Task %s has unparseable annotations: %s", t.id, exc)
+        for a in t.annotations:
+            points = None
+            if a.points:
+                try: points = json.loads(a.points)
+                except ValueError: pass
+            extra = None
+            if a.extra:
+                try: extra = json.loads(a.extra)
+                except ValueError: pass
+            
+            ann_dict = {
+                "id": a.id, "type": a.type, "labelId": a.label_id,
+                "points": points, "x": a.x, "y": a.y, "width": a.width, "height": a.height,
+                "text": a.text, "color": a.color, "order": a.order, "groupId": a.group_id,
+            }
+            if extra:
+                ann_dict.update(extra)
+            annotations_data.append(ann_dict)
+
         result.append({
             "id": t.id, "description": t.description, "assignee": t.assignee, 
             "image_path": t.image_path, "status": t.status, "time_spent": t.time_spent, 
@@ -182,13 +199,9 @@ def get_task(task_id: int, db: Session = Depends(get_db), user: models.User = De
     initial gallery load stays small. The workspace calls this endpoint once per
     task open to hydrate annotations on demand (T1.1 / T1.3).
     """
+    # _get_owned_task does not eager-load annotations, but since it's one task, lazy load is fine.
+    # Pydantic TaskDetail response_model will handle serialization of `task.annotations`.
     task = _get_owned_task(task_id, user, db, annotator)
-    annotations_data: list = []
-    if task.annotations:
-        try:
-            annotations_data = json.loads(task.annotations)
-        except (ValueError, TypeError) as exc:
-            logger.warning("Task %s has unparseable annotations: %s", task.id, exc)
     return TaskDetail(
         id=task.id,
         description=task.description,
@@ -197,7 +210,7 @@ def get_task(task_id: int, db: Session = Depends(get_db), user: models.User = De
         status=task.status,
         time_spent=task.time_spent,
         updated_at=task.updated_at,
-        annotations=annotations_data,
+        annotations=task.annotations,
     )
 
 
@@ -389,7 +402,28 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
         if task.time_spent_delta is not None:
             db_task.time_spent = (db_task.time_spent or 0) + task.time_spent_delta
         if task.annotations is not None:
-            db_task.annotations = task.annotations
+            try:
+                anns = json.loads(task.annotations)
+                new_annotations = []
+                for a in anns:
+                    if not isinstance(a, dict): continue
+                    known_keys = {'id', 'type', 'labelId', 'points', 'x', 'y', 'width', 'height', 'text', 'color', 'order', 'groupId'}
+                    extra_dict = {k: v for k, v in a.items() if k not in known_keys}
+                    extra = json.dumps(extra_dict) if extra_dict else None
+                    points = json.dumps(a['points']) if a.get('points') is not None else None
+                    
+                    new_annotations.append(models.Annotation(
+                        id=a.get('id') or str(uuid.uuid4()),
+                        label_id=a.get('labelId'),
+                        type=a.get('type', 'polygon'),
+                        points=points,
+                        x=a.get('x'), y=a.get('y'), width=a.get('width'), height=a.get('height'),
+                        text=a.get('text'), color=a.get('color'), order=a.get('order'), group_id=a.get('groupId'),
+                        extra=extra
+                    ))
+                db_task.annotations = new_annotations
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid annotations JSON")
         db_task.updated_at = datetime.datetime.now(datetime.timezone.utc)
         task_id = db_task.id
         new_updated_at = db_task.updated_at
@@ -405,10 +439,32 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
             project_id=projectId, 
             status=task.status or "New", 
             time_spent=task.time_spent_delta or 0, 
-            annotations=task.annotations,
             updated_at=datetime.datetime.now(datetime.timezone.utc),
             last_client_id=task.client_id,
         )
+        if task.annotations is not None:
+            try:
+                anns = json.loads(task.annotations)
+                new_annotations = []
+                for a in anns:
+                    if not isinstance(a, dict): continue
+                    known_keys = {'id', 'type', 'labelId', 'points', 'x', 'y', 'width', 'height', 'text', 'color', 'order', 'groupId'}
+                    extra_dict = {k: v for k, v in a.items() if k not in known_keys}
+                    extra = json.dumps(extra_dict) if extra_dict else None
+                    points = json.dumps(a['points']) if a.get('points') is not None else None
+                    
+                    new_annotations.append(models.Annotation(
+                        id=a.get('id') or str(uuid.uuid4()),
+                        label_id=a.get('labelId'),
+                        type=a.get('type', 'polygon'),
+                        points=points,
+                        x=a.get('x'), y=a.get('y'), width=a.get('width'), height=a.get('height'),
+                        text=a.get('text'), color=a.get('color'), order=a.get('order'), group_id=a.get('groupId'),
+                        extra=extra
+                    ))
+                db_task.annotations = new_annotations
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid annotations JSON")
         db.add(db_task)
         commit_with_retry(db)
         db.refresh(db_task)

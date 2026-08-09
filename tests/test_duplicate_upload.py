@@ -39,7 +39,7 @@ def test_upload_allows_duplicates_by_default(client, alice):
     assert len(body2["skipped"]) == 0
 
     # Verify tasks list has 2 tasks
-    tasks = client.get(f"/api/tasks?projectId={project_id}", headers=alice).json()
+    tasks = client.get(f"/api/tasks?projectId={project_id}&include_annotations=true", headers=alice).json()
     assert len(tasks) == 2
 
 
@@ -77,6 +77,6 @@ def test_upload_skip_duplicates_parameter(client, alice):
     assert "unique2.png" in skipped_names
 
     # Verify database total tasks is exactly 2
-    tasks = client.get(f"/api/tasks?projectId={project_id}", headers=alice).json()
+    tasks = client.get(f"/api/tasks?projectId={project_id}&include_annotations=true", headers=alice).json()
     assert len(tasks) == 2
     assert {t["description"] for t in tasks} == {"unique1.png", "unique2.png"}

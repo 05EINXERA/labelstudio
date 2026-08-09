@@ -19,7 +19,9 @@ def _project(client, auth):
         "name": "conflict-test", "slug": "conflict-test", "creator": "alice",
     }, headers=auth)
     assert res.status_code == 200, res.text
-    return res.json()["id"]
+    pid = res.json()["id"]
+    client.post("/api/labels", json={"id": f"l1-{pid}", "name": "l1", "color": "#000", "projectId": pid}, headers=auth)
+    return pid
 
 
 def _create_task(client, auth, project_id, description="img.jpg"):
@@ -32,8 +34,8 @@ def _create_task(client, auth, project_id, description="img.jpg"):
     return res.json()
 
 
-def _annotations(n):
-    return json.dumps([{"id": f"a{i}", "type": "box", "labelId": "l1"} for i in range(n)])
+def _annotations(n, pid):
+    return json.dumps([{"id": f"a{i}", "type": "box", "labelId": f"l1-{pid}"} for i in range(n)])
 
 
 def test_same_client_may_overwrite_its_own_write(client, alice):
@@ -47,19 +49,19 @@ def test_same_client_may_overwrite_its_own_write(client, alice):
     stale = task["updated_at"]
 
     first = client.post("/api/tasks", json={
-        "id": task["id"], "annotations": _annotations(1),
+        "id": task["id"], "annotations": _annotations(1, project_id),
         "updated_at": stale, "client_id": "tab-A",
     }, headers=alice)
     assert first.status_code == 200
 
     # Same tab, deliberately still holding the pre-first-write timestamp.
     second = client.post("/api/tasks", json={
-        "id": task["id"], "annotations": _annotations(2),
+        "id": task["id"], "annotations": _annotations(2, project_id),
         "updated_at": stale, "client_id": "tab-A",
     }, headers=alice)
     assert second.status_code == 200, "a client must never 409 against itself"
 
-    got = client.get(f"/api/tasks?projectId={project_id}", headers=alice).json()
+    got = client.get(f"/api/tasks?projectId={project_id}&include_annotations=true", headers=alice).json()
     assert len(got[0]["annotations"]) == 2
 
 
@@ -70,13 +72,13 @@ def test_different_client_with_stale_timestamp_conflicts(client, alice):
     stale = task["updated_at"]
 
     assert client.post("/api/tasks", json={
-        "id": task["id"], "annotations": _annotations(1),
+        "id": task["id"], "annotations": _annotations(1, project_id),
         "updated_at": stale, "client_id": "tab-A",
     }, headers=alice).status_code == 200
 
     # A second tab that never saw tab-A's write.
     res = client.post("/api/tasks", json={
-        "id": task["id"], "annotations": _annotations(9),
+        "id": task["id"], "annotations": _annotations(9, project_id),
         "updated_at": stale, "client_id": "tab-B",
     }, headers=alice)
     assert res.status_code == 409
@@ -92,12 +94,12 @@ def test_missing_updated_at_skips_the_check(client, alice):
     task = _create_task(client, alice, project_id)
 
     assert client.post("/api/tasks", json={
-        "id": task["id"], "annotations": _annotations(1),
+        "id": task["id"], "annotations": _annotations(1, project_id),
         "updated_at": task["updated_at"], "client_id": "tab-A",
     }, headers=alice).status_code == 200
 
     res = client.post("/api/tasks", json={
-        "id": task["id"], "annotations": _annotations(3),
+        "id": task["id"], "annotations": _annotations(3, project_id),
         "updated_at": None, "client_id": "tab-B",
     }, headers=alice)
     assert res.status_code == 200
@@ -112,7 +114,7 @@ def test_get_tasks_returns_updated_at(client, alice):
     project_id = _project(client, alice)
     _create_task(client, alice, project_id)
 
-    rows = client.get(f"/api/tasks?projectId={project_id}", headers=alice).json()
+    rows = client.get(f"/api/tasks?projectId={project_id}&include_annotations=true", headers=alice).json()
     assert rows[0].get("updated_at"), "GET /api/tasks must expose updated_at"
 
 
@@ -123,16 +125,16 @@ def test_conflict_does_not_lose_the_stored_annotations(client, alice):
     stale = task["updated_at"]
 
     client.post("/api/tasks", json={
-        "id": task["id"], "annotations": _annotations(4),
+        "id": task["id"], "annotations": _annotations(4, project_id),
         "updated_at": stale, "client_id": "tab-A",
     }, headers=alice)
 
     client.post("/api/tasks", json={
-        "id": task["id"], "annotations": _annotations(1),
+        "id": task["id"], "annotations": _annotations(1, project_id),
         "updated_at": stale, "client_id": "tab-B",
     }, headers=alice)
 
-    rows = client.get(f"/api/tasks?projectId={project_id}", headers=alice).json()
+    rows = client.get(f"/api/tasks?projectId={project_id}&include_annotations=true", headers=alice).json()
     assert len(rows[0]["annotations"]) == 4
 
 
@@ -149,7 +151,7 @@ def test_client_id_is_recorded_on_create(client, alice):
 
     # Same tab, stale token: accepted because the creator is recorded.
     follow_up = client.post("/api/tasks", json={
-        "id": task["id"], "annotations": _annotations(1),
+        "id": task["id"], "annotations": _annotations(1, project_id),
         "updated_at": task["updated_at"], "client_id": "tab-A",
     }, headers=alice)
     assert follow_up.status_code == 200
@@ -161,7 +163,7 @@ def test_writes_without_client_id_still_work(client, alice):
     task = _create_task(client, alice, project_id)
 
     res = client.post("/api/tasks", json={
-        "id": task["id"], "annotations": _annotations(2),
+        "id": task["id"], "annotations": _annotations(2, project_id),
         "updated_at": task["updated_at"],
     }, headers=alice)
     assert res.status_code == 200
@@ -178,7 +180,7 @@ def test_get_task_by_id_returns_200_with_annotations(client, alice):
 
     # Write some annotations via the save path so there is something to read back.
     client.post("/api/tasks", json={
-        "id": task["id"], "annotations": _annotations(3),
+        "id": task["id"], "annotations": _annotations(3, project_id),
         "updated_at": task["updated_at"], "client_id": "tab-A",
     }, headers=alice)
 
@@ -226,7 +228,7 @@ def test_get_tasks_list_is_annotation_free_by_default(client, alice):
 
     # Write annotations so there is definitely something to omit.
     client.post("/api/tasks", json={
-        "id": task["id"], "annotations": _annotations(5),
+        "id": task["id"], "annotations": _annotations(5, project_id),
         "updated_at": task["updated_at"], "client_id": "tab-A",
     }, headers=alice)
 
@@ -246,7 +248,7 @@ def test_get_task_by_id_updated_at_matches_after_save(client, alice):
     task = _create_task(client, alice, project_id)
 
     save_res = client.post("/api/tasks", json={
-        "id": task["id"], "annotations": _annotations(2),
+        "id": task["id"], "annotations": _annotations(2, project_id),
         "updated_at": task["updated_at"], "client_id": "tab-A",
     }, headers=alice)
     assert save_res.status_code == 200
@@ -255,7 +257,7 @@ def test_get_task_by_id_updated_at_matches_after_save(client, alice):
     detail = client.get(f"/api/tasks/{task['id']}", headers=alice).json()
     # The token from GET /{id} must be usable in the next save without a 409.
     follow_up = client.post("/api/tasks", json={
-        "id": task["id"], "annotations": _annotations(4),
+        "id": task["id"], "annotations": _annotations(4, project_id),
         "updated_at": detail["updated_at"], "client_id": "tab-A",
     }, headers=alice)
     assert follow_up.status_code == 200, (

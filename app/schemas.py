@@ -2,10 +2,39 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field, field_validator
 
+import json
+
 # Upper bound on a single reported time delta. Clients sync far more often than
 # once a day; anything larger is a bug or a forged payload. See
 # docs/TIMER_AUDIT.md F9.
 MAX_TIME_DELTA_SECONDS = 86400
+
+class AnnotationModel(BaseModel):
+    model_config = {"from_attributes": True, "populate_by_name": True, "extra": "allow"}
+
+    id: str
+    type: str
+    label_id: Optional[str] = Field(None, alias="labelId")
+    points: Optional[List[dict]] = None
+    x: Optional[float] = None
+    y: Optional[float] = None
+    width: Optional[float] = None
+    height: Optional[float] = None
+    text: Optional[str] = None
+    color: Optional[str] = None
+    order: Optional[int] = None
+    group_id: Optional[str] = Field(None, alias="groupId")
+    extra: Optional[dict] = None
+
+    @field_validator("points", "extra", mode="before")
+    @classmethod
+    def parse_json_fields(cls, v):
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except ValueError:
+                return None
+        return v
 
 class WorkspaceData(BaseModel):
     key: str
@@ -291,7 +320,7 @@ class TaskDetail(BaseModel):
     status: Optional[str] = None
     time_spent: Optional[int] = None
     updated_at: Optional[datetime] = None
-    annotations: List[Any] = Field(default_factory=list)
+    annotations: List[AnnotationModel] = Field(default_factory=list)
 
 
 class UserCreate(BaseModel):

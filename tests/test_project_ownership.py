@@ -94,7 +94,7 @@ def test_labels_404_for_non_owner(client, alice, bob):
 
 def test_tasks_list_404_for_non_owner_project(client, alice, bob):
     pid = _new_project(client, alice)
-    assert client.get(f"/api/tasks?projectId={pid}", headers=bob).status_code == 404
+    assert client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=bob).status_code == 404
 
 
 def test_unscoped_task_list_only_returns_own_tasks(client, alice, bob):
@@ -115,7 +115,7 @@ def test_task_update_and_delete_404_for_non_owner(client, alice, bob):
     assert client.post("/api/tasks", json={"id": tid, "description": "hijacked"}, headers=bob).status_code == 404
     assert client.delete(f"/api/tasks/{tid}", headers=bob).status_code == 404
 
-    still = client.get(f"/api/tasks?projectId={pid}", headers=alice).json()
+    still = client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=alice).json()
     assert still[0]["description"] == "t"
 
 
@@ -125,7 +125,7 @@ def test_patch_task_updates_and_requires_ownership(client, alice, bob):
 
     res = client.patch(f"/api/tasks/{tid}", json={"status": "Completed"}, headers=alice)
     assert res.status_code == 200, res.text
-    assert client.get(f"/api/tasks?projectId={pid}", headers=alice).json()[0]["status"] == "Completed"
+    assert client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=alice).json()[0]["status"] == "Completed"
 
     assert client.patch(f"/api/tasks/{tid}", json={"status": "New"}, headers=bob).status_code == 404
 
@@ -136,7 +136,7 @@ def test_approved_status_settable_by_owner(client, alice):
     tid = client.post("/api/tasks", json={"description": "t"}, params={"projectId": pid}, headers=alice).json()["id"]
     res = client.patch(f"/api/tasks/{tid}", json={"status": "Approved"}, headers=alice)
     assert res.status_code == 200
-    assert client.get(f"/api/tasks?projectId={pid}", headers=alice).json()[0]["status"] == "Approved"
+    assert client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=alice).json()[0]["status"] == "Approved"
 
 
 def test_task_creation_requires_owned_project(client, alice, bob):
@@ -160,11 +160,11 @@ def test_bulk_routes_skip_unowned_ids(client, alice, bob):
     assert res.status_code == 200
     assert res.json()["skipped"] == 1
 
-    assert client.get(f"/api/tasks?projectId={a_pid}", headers=alice).json()[0]["status"] != "Completed"
+    assert client.get(f"/api/tasks?projectId={a_pid}&include_annotations=true", headers=alice).json()[0]["status"] != "Completed"
 
     res = client.post("/api/tasks/bulk-delete", json={"ids": [a_tid, b_tid]}, headers=bob)
     assert res.json() == {"status": "ok", "deleted": 1, "skipped": 1}
-    assert len(client.get(f"/api/tasks?projectId={a_pid}", headers=alice).json()) == 1
+    assert len(client.get(f"/api/tasks?projectId={a_pid}&include_annotations=true", headers=alice).json()) == 1
 
 
 # --- Metrics --------------------------------------------------------------
@@ -296,7 +296,7 @@ def test_team_member_cannot_edit_or_delete_task_if_not_creator(client, alice):
         tid = t_res.json()["id"]
 
         # Bob can view the task list and task details
-        assert client.get(f"/api/tasks?projectId={pid}", headers=bob_headers).status_code == 200
+        assert client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=bob_headers).status_code == 200
         assert client.get(f"/api/tasks/{tid}", headers=bob_headers).status_code == 200
 
         # Bob cannot edit (patch) the task

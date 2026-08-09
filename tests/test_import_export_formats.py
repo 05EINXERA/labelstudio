@@ -39,10 +39,10 @@ def _new_task(client, auth, pid, description, annotations=None):
 def test_coco_categories_include_color_and_keypoints(client, alice):
     """T1.1-1.3: COCO categories now include color, skeleton, keypoints, and use label name for supercategory."""
     pid = _new_project(client, alice)
-    _new_label(client, alice, pid, "Cat", "#ef4444")
+    cat_id = _new_label(client, alice, pid, "Cat", "#ef4444")
     _new_label(client, alice, pid, "Dog", "#3b82f6")
     _new_task(client, alice, pid, "test.jpg", annotations=[
-        {"id": "ann1", "labelId": "lbl-Cat", "points": [{"x": 10, "y": 10}, {"x": 20, "y": 20}]}
+        {"id": "ann1", "labelId": cat_id, "points": [{"x": 10, "y": 10}, {"x": 20, "y": 20}]}
     ])
 
     res = client.post("/api/exports", json={"projectId": pid, "format": "json"}, headers=alice)
@@ -673,7 +673,7 @@ def _import_file(client, auth, pid, filename, raw, mode="replace"):
 
 def _task_annotations(client, auth, pid, description):
     """GET /api/tasks already returns annotations parsed."""
-    tasks = client.get("/api/tasks", params={"projectId": pid}, headers=auth).json()
+    tasks = client.get("/api/tasks", params={"projectId": pid, "include_annotations": "true"}, headers=auth).json()
     return next(t for t in tasks if t["description"] == description)["annotations"]
 
 

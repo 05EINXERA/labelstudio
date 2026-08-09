@@ -14,7 +14,7 @@ import logging
 import os
 import secrets
 import re
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple, Any
 
 from PIL import Image, UnidentifiedImageError
 
@@ -173,6 +173,24 @@ def hex_to_rgb(value: Optional[str]) -> Tuple[int, int, int]:
         return (128, 128, 128)
 
 
+def extract_annotations(task: models.Task) -> List[dict]:
+    anns = []
+    for a in getattr(task, 'annotations', []):
+        points_list = []
+        if a.points:
+            try: points_list = json.loads(a.points)
+            except ValueError: pass
+        ann_dict = {
+            "id": a.id, "type": a.type, "labelId": a.label_id,
+            "points": points_list, "x": a.x, "y": a.y, "width": a.width, "height": a.height,
+            "text": a.text, "color": a.color, "order": a.order, "groupId": a.group_id
+        }
+        if a.extra:
+            try: ann_dict.update(json.loads(a.extra))
+            except ValueError: pass
+        anns.append(ann_dict)
+    return anns
+
 def ordered_annotations(task: models.Task) -> List[dict]:
     """A task's real annotations in paint order.
 
@@ -180,13 +198,7 @@ def ordered_annotations(task: models.Task) -> List[dict]:
     an overlap reports. Explicit `order` wins where present; otherwise the
     stored sequence is the order the user drew them in.
     """
-    try:
-        anns = json.loads(task.annotations) if task.annotations else []
-    except (ValueError, TypeError) as exc:
-        logger.warning("Task %s has unparseable annotations, skipping: %s", task.id, exc)
-        return []
-    if not isinstance(anns, list):
-        return []
+    anns = extract_annotations(task)
     real = [a for a in anns if is_annotation(a)]
     ordered = sorted(enumerate(real), key=lambda pair: (pair[1].get("order", pair[0]), pair[0]))
     return [ann for _, ann in ordered]

@@ -96,7 +96,7 @@ def _new_task(client, auth, pid, description, annotations):
 
 
 def _annotations_of(client, auth, pid, tid):
-    tasks = client.get("/api/tasks", params={"projectId": pid}, headers=auth).json()
+    tasks = client.get("/api/tasks", params={"projectId": pid, "include_annotations": "true"}, headers=auth).json()
     task = next(t for t in tasks if t["id"] == tid)
     anns = task["annotations"]
     return json.loads(anns) if isinstance(anns, str) else (anns or [])

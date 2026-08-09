@@ -4,6 +4,7 @@ Maintains 100% backward compatibility for legacy imports and scripts.
 """
 from app.models import (
     AIJob,
+    Annotation,
     Base,
     Label,
     Project,
@@ -18,6 +19,7 @@ from app.models import (
 
 __all__ = [
     "AIJob",
+    "Annotation",
     "Base",
     "Label",
     "Project",

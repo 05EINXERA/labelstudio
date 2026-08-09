@@ -1,16 +1,4 @@
-PS C:\labelstudio> .\scripts\schedule-backup.ps1 -Dest "D:\annotation-backups" -Keep 7
-Register-ScheduledTask: C:\labelstudio\scripts\schedule-backup.ps1:74:1
-Line |
-  74 |  Register-ScheduledTask `
-     |  ~~~~~~~~~~~~~~~~~~~~~~~~
-     | Access is denied. 
-✓ Scheduled task 'AnnotationBackup' registered — runs daily at 17:00.
-  Backup destination : D:\annotation-backups
-  Snapshots to keep  : 7
-
-Verify with:  Get-ScheduledTask -TaskName 'AnnotationBackup' | Get-ScheduledTaskInfo 
-Test run  :   Start-ScheduledTask -TaskName 'AnnotationBackup'
-PS C:\labelstudio> python scripts/create_user.py karuna --resetimport pytest
+import pytest
 from sqlalchemy.orm import Session
 from sqlalchemy import inspect
 
