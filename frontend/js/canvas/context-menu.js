@@ -62,6 +62,9 @@ export function initContextMenu() {
   // any visible effect (both just suppress the native menu); we add our own UI.
   canvas.addEventListener("contextmenu", (event) => {
     if (!view.imageLoaded) return;
+    
+    // Do not show context menu or change selection if the user is in the middle of a drag or drawing a polygon.
+    if (view.drag) return;
     // Right-click is also the pan gesture: pointerdown sets view.isPanning and
     // records view.panStart for *every* right-press, so isPanning alone can't
     // tell a tap from a drag. Distinguish by movement — contextmenu carries the

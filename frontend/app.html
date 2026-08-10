@@ -101,7 +101,19 @@
            silently differs from the project's task set. -->
       <button class="tool-button" id="helpBtnApp" type="button" title="Help & Shortcuts" style="background: var(--surface-2); color: var(--ink);">Help</button>
       <a class="tool-button save-button" id="exportLink" href="#" title="Export this project's annotations" style="background: var(--accent); color: white; text-decoration: none; display: inline-flex; align-items: center; justify-content: center;">Export</a>
-      <button class="tool-button primary save-button" id="saveButton" type="button" title="Save annotations">Save</button>
+      <div class="save-button-group" style="display: inline-flex; position: relative; align-items: center;">
+        <button class="tool-button primary save-button" id="saveButton" type="button" title="Save annotations" style="border-top-right-radius: 0; border-bottom-right-radius: 0;">Save</button>
+        <button class="tool-button primary save-dropdown-toggle" id="saveDropdownToggle" type="button" title="Save as..." style="border-top-left-radius: 0; border-bottom-left-radius: 0; padding: 0 4px; border-left: 1px solid rgba(255,255,255,0.2);">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        </button>
+        <div id="saveDropdownMenu" class="save-dropdown-menu" style="display: none; position: absolute; top: 100%; right: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; box-shadow: var(--shadow); z-index: 100; min-width: 170px; margin-top: 4px; padding: 4px 0;">
+          <button class="dropdown-item" data-status="Completed">✔ Mark as Completed</button>
+          <button class="dropdown-item" data-status="In Progress">◷ Mark as In Progress</button>
+          <button class="dropdown-item owner-only-status" data-status="Approved" style="display: none;">👍 Mark as Approved</button>
+          <button class="dropdown-item owner-only-status" data-status="Declined" style="display: none;">👎 Mark as Declined</button>
+        </div>
+      </div>
+      <span id="currentTaskStatus" style="margin: 0 8px; font-weight: 500; font-size: 13px; color: var(--accent);"></span>
     </div>
   </nav>
 

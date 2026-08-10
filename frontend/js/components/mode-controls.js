@@ -246,6 +246,31 @@ export function initModeControls() {
     saveButton.addEventListener("click", () => manualSaveWithUI());
   }
 
+  const saveDropdownToggle = document.getElementById('saveDropdownToggle');
+  const saveDropdownMenu = document.getElementById('saveDropdownMenu');
+
+  if (saveDropdownToggle && saveDropdownMenu) {
+    saveDropdownToggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isVisible = saveDropdownMenu.style.display === 'block';
+      saveDropdownMenu.style.display = isVisible ? 'none' : 'block';
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!saveDropdownMenu.contains(e.target) && e.target !== saveDropdownToggle) {
+        saveDropdownMenu.style.display = 'none';
+      }
+    });
+
+    saveDropdownMenu.querySelectorAll('.dropdown-item').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        saveDropdownMenu.style.display = 'none';
+        const targetStatus = e.currentTarget.dataset.status;
+        manualSaveWithUI(targetStatus);
+      });
+    });
+  }
+
   // Global Ctrl+S / Cmd+S shortcut for saving annotations
   document.addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === "s") {

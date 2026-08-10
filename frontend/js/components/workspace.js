@@ -63,12 +63,12 @@ export function repairLabelsFromAnnotations() {
   });
 }
 
-export function syncToBackend({ useBeacon = false } = {}) {
+export function syncToBackend({ useBeacon = false, targetStatus = null } = {}) {
   if (typeof state === 'undefined' || state.galleryIndex < 0 || !state.gallery || !state.gallery[state.galleryIndex]) return;
   const currentTask = state.gallery[state.galleryIndex];
   if (!currentTask.id) return;
 
-  let taskStatus = currentTask.status;
+  let taskStatus = targetStatus || currentTask.status;
   if (taskStatus === 'New') taskStatus = 'In Progress';
   currentTask.status = taskStatus;
   currentTask.annotations = [...state.annotations];
@@ -191,7 +191,7 @@ export function save() {
  * This is called when the user clicks the Save button. It shows a spinner overlay
  * while saving, then displays "Saved Successfully" for 3 seconds.
  */
-export async function manualSaveWithUI() {
+export async function manualSaveWithUI(targetStatus = null) {
   const overlay = document.getElementById('saveOverlay');
   if (!overlay) return;
 
@@ -203,7 +203,7 @@ export async function manualSaveWithUI() {
     saveDraft();
     
     // Sync to backend
-    const ok = await syncToBackend();
+    const ok = await syncToBackend({ targetStatus });
     
     // Update status message
     const message = ok === false ? "Not saved—retrying" : "Saved Successfully";
@@ -214,6 +214,12 @@ export async function manualSaveWithUI() {
     
     overlay.classList.remove('is-active');
     
+    // Update the visual status label
+    if (targetStatus && state.gallery && state.galleryIndex >= 0) {
+      const currentStatusLabel = document.getElementById('currentTaskStatus');
+      if (currentStatusLabel) currentStatusLabel.textContent = state.gallery[state.galleryIndex].status;
+    }
+
     // Keep "Saved Successfully" message for 3 seconds, then revert to "Saved"
     await new Promise(resolve => setTimeout(resolve, 3000));
     setStatus("Saved");

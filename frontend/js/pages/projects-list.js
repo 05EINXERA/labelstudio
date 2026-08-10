@@ -48,7 +48,8 @@ function statusPill(status) {
   const s = status || "New";
   const cls = s === "Completed" ? "is-completed"
     : s === "In Progress" ? "is-progress"
-    : s === "Approved" ? "is-approved" : "";
+    : s === "Approved" ? "is-approved"
+    : s === "Declined" ? "is-declined" : "";
   return `<span class="pill ${cls}">${escapeHTML(s)}</span>`;
 }
 

@@ -59,6 +59,8 @@ button {
   padding: 0 18px;
   background: #dbeafe;
   border-bottom: 1px solid #bfdbfe;
+  position: relative;
+  z-index: 1000;
 }
 
 .top-nav-left,
@@ -188,6 +190,21 @@ button {
   height: 28px;
   min-height: 28px;
   font-size: 0.76rem;
+}
+.dropdown-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 16px;
+  background-color: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--ink);
+  transition: background-color 0.15s ease;
+}
+
+.dropdown-item:hover {
+  background-color: #f1f5f9;
 }
 
 .app-shell {
@@ -2082,6 +2099,7 @@ table.data-table tbody tr:last-child td { border-bottom: none; }
 .pill.is-completed { background: rgba(15,139,141,.12); color: var(--accent-dark); border-color: transparent; }
 .pill.is-progress  { background: rgba(234,179,8,.15);  color: #8a6d0b; border-color: transparent; }
 .pill.is-approved  { background: rgba(59,130,246,.14); color: #1e5fbf; border-color: transparent; }
+.pill.is-declined  { background: rgba(224,82,96,.14);  color: #c13b48; border-color: transparent; }
 
 .row-actions { display: flex; gap: 6px; justify-content: center; }
 .row-actions button {

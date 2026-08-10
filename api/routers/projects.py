@@ -211,7 +211,7 @@ def get_projects(db: Session = Depends(get_db), user: models.User = Depends(get_
 @router.get("/{project_id}")
 def get_project(project_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
     p = get_owned_project(project_id, user, db, annotator)
-    return {"id": p.id, "name": p.name, "slug": p.slug, "type": p.type, "status": p.status, "creator": p.creator, "created_at": p.created_at, "team_id": p.team_id}
+    return {"id": p.id, "name": p.name, "slug": p.slug, "type": p.type, "status": p.status, "creator": p.creator, "created_at": p.created_at, "team_id": p.team_id, "is_owner": is_project_creator(p, user, annotator)}
 
 @router.get("/{project_id}/metrics", response_model=ProjectMetrics)
 def get_project_metrics(project_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
