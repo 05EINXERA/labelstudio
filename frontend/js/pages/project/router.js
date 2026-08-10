@@ -8,11 +8,12 @@
  * `ctx` carries the shared project context so views do not each re-fetch it:
  *   { projectId, project, reloadProject(), setStatus(), navigate() }
  */
-import { apiFetch } from "../../api.js?v=1";
+import { apiFetch } from "../../api.js?v=2";
 import { escapeHTML } from "../../utils.js?v=1";
 import { renderNav, setActive, visibleNavItems } from "../../components/project-nav.js?v=3";
 import { renderAppNav, wireLogout } from "../../components/app-nav.js?v=1";
 import { getCurrentUser } from "../../session.js?v=1";
+import { wireAccountSettings } from "../../components/account-settings.js?v=1";
 
 const DEFAULT_ROUTE = "home";
 
@@ -22,7 +23,7 @@ const els = {
   name: document.getElementById("projectName"),
   status: document.getElementById("projectStatus"),
   user: document.getElementById("currentUser"),
-  annotate: document.getElementById("annotateBtn"),
+  settings: document.getElementById("settingsBtn"),
   logout: document.getElementById("logoutBtn"),
 };
 
@@ -148,16 +149,15 @@ async function renderRoute() {
 async function init() {
   renderAppNav(document.getElementById("appNav"), "projects");
   wireLogout(els.logout);
+  // Before the project-id guard: an unreadable id must not also cost the user
+  // the account controls in the header.
+  wireAccountSettings(els.settings);
 
   if (!projectId || !/^\d+$/.test(projectId)) {
     els.name.textContent = "No project selected";
     renderFatal("No project id in the URL. Open a project from the projects list.");
     return;
   }
-
-  els.annotate.addEventListener("click", () => {
-    window.location.href = `app.html?projectId=${encodeURIComponent(projectId)}`;
-  });
 
   // Identity and the project are both needed before anything role-dependent is
   // drawn, and neither depends on the other, so they overlap.

@@ -2088,6 +2088,25 @@ canvas {
 .mgmt-header .spacer { flex: 1; }
 .mgmt-user { color: var(--muted); font-size: .9rem; }
 
+/* Square icon-only header control (account settings). `.icon-button` alone
+   carries no size outside the annotation toolbar, so the header states its
+   own box rather than inheriting a toolbar rule that may change. */
+.mgmt-header .icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0;
+  cursor: pointer;
+  color: var(--muted);
+}
+.mgmt-header .icon-button:hover {
+  border-color: var(--accent);
+  color: var(--accent-dark);
+}
+
 .mgmt-main { padding: 24px; max-width: 1400px; margin: 0 auto; }
 
 .mgmt-title-row {

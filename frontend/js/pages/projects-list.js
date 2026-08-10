@@ -6,12 +6,13 @@
  * their metrics embedded, so this page makes one request instead of pairing
  * /api/projects with /api/projects/metrics/batch.
  */
-import { apiFetch } from "../api.js?v=1";
+import { apiFetch } from "../api.js?v=2";
 import { escapeHTML, formatTime } from "../utils.js?v=1";
 import { createDataTable } from "../components/data-table.js?v=2";
 import { renderAppNav, wireLogout } from "../components/app-nav.js?v=1";
 import { getCurrentUser } from "../session.js?v=1";
 import { roleBadge } from "../components/role-badge.js?v=1";
+import { wireAccountSettings } from "../components/account-settings.js?v=1";
 
 const els = {
   user: document.getElementById("currentUser"),
@@ -20,6 +21,7 @@ const els = {
   search: document.getElementById("searchInput"),
   status: document.getElementById("statusFilter"),
   pageSize: document.getElementById("pageSizeSelect"),
+  settings: document.getElementById("settingsBtn"),
   mount: document.getElementById("tableMount"),
   newBtn: document.getElementById("newProjectBtn"),
   modal: document.getElementById("projectModal"),
@@ -220,6 +222,7 @@ table.onAction("delete", async (row) => {
 async function init() {
   renderAppNav(document.getElementById("appNav"), "projects");
   wireLogout(els.logout);
+  wireAccountSettings(els.settings);
 
   // Real identity rather than the free-text localStorage name (rule 14).
   const user = await getCurrentUser();

@@ -530,6 +530,17 @@ class UserCreate(BaseModel):
     username: str = Field(min_length=1, max_length=64)
     password: str
 
+class PasswordChange(BaseModel):
+    """Self-service password change.
+
+    The current password is required even though the caller is already
+    authenticated: a session cookie left behind on a shared annotation PC must
+    not be enough to lock the real owner out of their account.
+    """
+    current_password: str
+    new_password: str
+
+
 class Token(BaseModel):
     access_token: str
     token_type: str

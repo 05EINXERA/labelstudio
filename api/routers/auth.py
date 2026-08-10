@@ -9,8 +9,8 @@ from sqlalchemy.orm import Session
 
 import models
 from config import ALLOW_REGISTRATION, IS_PRODUCTION, MIN_PASSWORD_LENGTH
-from database import get_db
-from schemas import UserCreate, Token, Me, MeTeam
+from database import get_db, commit_with_retry
+from schemas import UserCreate, Token, Me, MeTeam, PasswordChange
 from api.auth import (
     get_password_hash,
     verify_password,
@@ -151,3 +151,67 @@ def me(
         username=current_user.username,
         teams=[MeTeam(id=t.id, name=t.name, role=role) for t, role in teams],
     )
+
+
+@router.post("/password")
+def change_password(
+    payload: PasswordChange,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+    _csrf: None = Depends(require_csrf),
+):
+    """Change the caller's own password.
+
+    `/api/auth` is the one router without router-level `get_current_user` /
+    `require_csrf` dependencies (it has to serve login), so both are declared
+    here — this is a state-changing, cookie-authenticated call and needs the
+    double-submit check exactly as much as any other write (rule 1a).
+
+    Re-verifying the current password is the point of the endpoint: the session
+    cookie alone must not let a walk-up user on a shared annotator PC take over
+    the account. The failure is logged and answered with 400 rather than 401 —
+    a 401 would trip `apiFetch`'s "session expired" path and bounce the user to
+    the login screen for what is only a typo.
+
+    A successful change reissues the session cookie pair. The JWT is signed with
+    a server-wide secret and carries only `sub`, so it does not become invalid
+    when the hash changes; without this the tab would keep working on a token
+    minted before the change, which is confusing rather than dangerous. Other
+    devices' sessions are *not* revoked — that needs a per-user token version
+    column, which is out of scope here.
+    """
+    if not verify_password(payload.current_password, current_user.hashed_password):
+        logger.warning(
+            "Failed password change for username=%r from %s",
+            current_user.username,
+            request.client.host if request.client else "unknown",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect.",
+        )
+
+    if len(payload.new_password) < MIN_PASSWORD_LENGTH:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Password must be at least {MIN_PASSWORD_LENGTH} characters.",
+        )
+
+    if payload.new_password == payload.current_password:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="New password must be different from the current one.",
+        )
+
+    current_user.hashed_password = get_password_hash(payload.new_password)
+    commit_with_retry(db)
+
+    access_token = create_access_token(
+        data={"sub": current_user.username},
+        expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+    )
+    csrf_token = issue_session_cookies(response, access_token)
+    logger.info("Password changed for username=%r", current_user.username)
+    return {"status": "ok", "csrf_token": csrf_token}
