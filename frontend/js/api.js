@@ -10,6 +10,26 @@ function readCookie(name) {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+/**
+ * Append the CSRF token to a URL as a query parameter.
+ *
+ * Strictly for `navigator.sendBeacon`, which cannot set request headers — so
+ * the header used everywhere else is simply unavailable on that path, and
+ * every beacon was rejected 403. Beacons carry the `pagehide` /
+ * `visibilitychange` flush of unsaved annotations and session time, and
+ * sendBeacon reports only that the request was queued, never that it was
+ * accepted, so those rejections were invisible to the client.
+ *
+ * The server accepts the token here as a fallback (api/auth.py require_csrf)
+ * and still requires it to match the cookie, so the double-submit guarantee is
+ * unchanged. Everything that can send a header must keep using apiFetch.
+ */
+export function withCsrfParam(url) {
+  const csrf = readCookie(CSRF_COOKIE);
+  if (!csrf) return url;
+  return url + (url.includes('?') ? '&' : '?') + 'csrf_token=' + encodeURIComponent(csrf);
+}
+
 export async function apiFetch(url, options = {}) {
   const logged_in = localStorage.getItem('logged_in');
   if (!logged_in) {

@@ -69,6 +69,9 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7 # 7 days
 # it back in a header, and that is exactly what a cross-origin page cannot do.
 CSRF_COOKIE_NAME = "csrf_token"
 CSRF_HEADER_NAME = "X-CSRF-Token"
+# Query-parameter fallback for navigator.sendBeacon, which cannot set headers.
+# See require_csrf() for why this is safe and why it stays a fallback.
+CSRF_QUERY_PARAM = "csrf_token"
 
 
 def issue_session_cookies(response: Response, access_token: str) -> str:
@@ -145,6 +148,25 @@ def require_csrf(request: Request) -> None:
 
     Requests authenticated purely by an `Authorization: Bearer` header are
     exempt — those are not cookie-driven and so are not forgeable this way.
+
+    The token may arrive in the `X-CSRF-Token` header or, failing that, in a
+    `csrf_token` query parameter. The query fallback exists for
+    `navigator.sendBeacon`, which cannot set request headers at all — a fixed
+    property of that API, not something the frontend can work around. Beacons
+    are how the app flushes unsaved annotations and session time on `pagehide`
+    and `visibilitychange`, precisely when a normal fetch may not be delivered,
+    so with header-only checking every unload flush was rejected 403 and the
+    work it carried was dropped (sendBeacon reports queueing, not acceptance,
+    so the client could not even detect it).
+
+    The fallback preserves the double-submit property in full: the value must
+    still equal the `csrf_token` cookie, and a cross-origin page still cannot
+    read that cookie to construct the parameter. What changes is only *where*
+    the echo may be carried, not what has to be proven.
+
+    Query strings are more prone to landing in access logs than headers are, so
+    this is deliberately a fallback and never the preferred path; `apiFetch`
+    continues to send the header for every ordinary request.
     """
     if request.method in ("GET", "HEAD", "OPTIONS", "TRACE"):
         return
@@ -156,7 +178,7 @@ def require_csrf(request: Request) -> None:
         return
 
     cookie_token = request.cookies.get(CSRF_COOKIE_NAME)
-    header_token = request.headers.get(CSRF_HEADER_NAME)
+    header_token = request.headers.get(CSRF_HEADER_NAME) or request.query_params.get(CSRF_QUERY_PARAM)
 
     if not cookie_token or not header_token:
         raise HTTPException(

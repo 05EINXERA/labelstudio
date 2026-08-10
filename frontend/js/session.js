@@ -10,7 +10,7 @@
  * logout is how one annotator ends up labelled as another. One request per page
  * is cheap; being wrong about who someone is, is not.
  */
-import { apiFetch } from "./api.js?v=1";
+import { apiFetch } from "./api.js?v=2";
 
 let cached = null;
 let inFlight = null;

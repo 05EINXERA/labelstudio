@@ -22,7 +22,7 @@
  *   // On switch / pagehide:
  *   releaseTask(taskId, clientId);         // fire-and-forget is fine
  */
-import { apiFetch } from './api.js?v=1';
+import { apiFetch, withCsrfParam } from './api.js?v=2';
 
 /**
  * Claim a task for editing.
@@ -81,8 +81,10 @@ export function releaseTask(taskId, clientId, { useBeacon = false } = {}) {
     // The backend release endpoint is DELETE /{id}/claim, but advisory releases
     // via beacon are best-effort anyway — the TTL will expire in ≤60 s.
     // We fall through to apiFetch for non-beacon paths.
+    // The CSRF token rides in the query string: sendBeacon cannot set headers,
+    // so without it this request is always rejected 403 (api/auth.py).
     navigator.sendBeacon(
-      `/api/tasks/${taskId}/release-beacon?client_id=${encodeURIComponent(clientId)}`,
+      withCsrfParam(`/api/tasks/${taskId}/release-beacon?client_id=${encodeURIComponent(clientId)}`),
       new Blob([], { type: 'application/json' })
     );
     return;

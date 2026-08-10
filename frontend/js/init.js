@@ -1,8 +1,10 @@
 import { generateUUID, clamp, round, normalizeClassName, formatTime, clientId } from "./utils.js?v=1";
-import { apiFetch, pollJob } from "./api.js?v=1";
+import { apiFetch, pollJob } from "./api.js?v=2";
 import {
-  state, snapshot, resetWorkspaceForNewImage
-} from "./state.js?v=3";
+  state, snapshot, resetWorkspaceForNewImage,
+  beginHydration, completeHydration, failHydration, hydrationOk, hydrationFailed,
+  hydrationSaveBlock, currentHydrationGeneration, noteHydratedAnnotationCount
+} from "./state.js?v=5";
 import { view } from "./canvas/view.js?v=1";
 import { commentOverlayRefs } from "./comment-overlay.js?v=1";
 import {
@@ -14,7 +16,7 @@ import { drawAllLayers } from "./canvas/draw.js?v=1";
 import {
   setStatus, syncToBackend, save, loadSaved, saveDraft, restoreDraft,
   render, manualSaveWithUI, refreshSaveStatus, pruneStaleDrafts
-} from "./components/workspace.js?v=5";
+} from "./components/workspace.js?v=7";
 import {
   configureQueue, startQueue, subscribe as subscribeQueue, drainQueue,
   enqueueWrite, retryablePendingCount, noteServerReachable, noteServerUnreachable,
@@ -37,7 +39,7 @@ import {
   reportSaveForbidden, reportSaveRefused, setMyTeams, setMyUserId, updateTaskBanner,
   renderStatusDropdown, renderSaveSplitMenu, updateTaskStatusPill, currentRole,
   taskWriteBlock,
-} from "./canvas-permissions.js?v=5";
+} from "./canvas-permissions.js?v=6";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
 import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=1";
 import { claimTask, heartbeatTask, releaseTask } from "./task-lock.js?v=2";
@@ -179,8 +181,56 @@ function loadImageFromSource(src, name, { autoDetect = false } = {}) {
 }
 
 
+/**
+ * Surface a hydration failure with a retry the user can actually take.
+ *
+ * The failure state is sticky and destructive-adjacent: saves stay blocked
+ * until a fetch succeeds, so a message that merely says "click to retry"
+ * without wiring anything (as the first cut of this fix did) strands the task
+ * for the rest of the session. This renders a real button that re-runs
+ * switchImage for the same index, which takes a fresh generation and retries
+ * the fetch. If it succeeds the gate opens and saving resumes; if it fails
+ * again the button comes back.
+ */
+function showHydrationFailure(index) {
+  const host = document.querySelector("#saveStatus");
+  if (!host) {
+    setStatus("⚠ Failed to load task annotations — reload the page");
+    return;
+  }
+  // setStatus schedules a 3s revert to the resting message; cancel it so the
+  // failure notice does not quietly disappear while saves remain blocked.
+  window.clearTimeout(setStatus.timer);
+  host.textContent = "⚠ Could not load annotations — saving is disabled. ";
+  const retry = document.createElement("button");
+  retry.type = "button";
+  retry.textContent = "Retry";
+  retry.style.cssText =
+    "background:none;border:none;padding:0;color:inherit;font:inherit;" +
+    "text-decoration:underline;cursor:pointer;";
+  retry.addEventListener("click", () => {
+    host.textContent = "Retrying…";
+    switchImage(index);
+  });
+  host.appendChild(retry);
+}
+
 async function switchImage(index) {
   if (index < 0 || index >= state.gallery.length) return;
+
+  // Claim the hydration generation before anything else, and in particular
+  // before `state.galleryIndex` moves below. Between the index moving and the
+  // fetch landing, the open task is the *new* one while `state.annotations` is
+  // still the outgoing (or, after the reset, an empty) set — the exact window
+  // in which a fast Ctrl+S used to save `[]` over real work. Taking the
+  // generation first means every save path is closed for the whole of that
+  // window, including the awaited drain of the outgoing task below.
+  //
+  // It also supersedes any switchImage still in flight: a stale call's
+  // completeHydration() is refused, so rapid paging cannot mark the newest
+  // task hydrated on the strength of an older task's fetch.
+  const generation = beginHydration();
+
   if (state.galleryIndex >= 0 && state.gallery[state.galleryIndex]) {
     const prevTask = state.gallery[state.galleryIndex];
     prevTask.annotations = [...state.annotations];
@@ -192,9 +242,13 @@ async function switchImage(index) {
     // had failed and which nothing would ever retry. drainTaskTime queues the
     // failed payload itself, so all this needs to do is keep the draft (the
     // per-task safety net) alive and tell the user.
-    const saved = await syncTaskTime(prevTask);
+    const saved = await syncTaskTime(prevTask, { annotations: prevTask.annotations });
     if (saved === false) {
-      saveDraft();
+      // Name the task and the set explicitly. The hydration gate is already
+      // shut for the *incoming* task by this point, but the work being
+      // rescued belongs to the outgoing one and is genuine — an implicit
+      // saveDraft() would read the shut gate and discard it.
+      saveDraft({ task: prevTask, annotations: prevTask.annotations });
       refreshSaveStatus();
     }
     // T2.2 — release the soft lock on the outgoing task.
@@ -222,8 +276,13 @@ async function switchImage(index) {
   if (item.id) {
     try {
       const res = await apiFetch(`/api/tasks/${item.id}`);
+      // A newer switchImage has taken over while this fetch was in flight.
+      // Abandon quietly: writing into `item`/`state` now would drop this
+      // task's annotations onto the canvas of a different one.
+      if (generation !== currentHydrationGeneration()) return;
       if (res && res.ok) {
         const detail = await res.json();
+        if (generation !== currentHydrationGeneration()) return;
         // Write the server copy into the gallery slot so subsequent switches
         // don't re-fetch unnecessarily.
         item.annotations = Array.isArray(detail.annotations) ? detail.annotations : [];
@@ -239,23 +298,58 @@ async function switchImage(index) {
         item.assigned_team_id   = detail.assigned_team_id   ?? null;
         item.assigned_team_name = detail.assigned_team_name ?? null;
         item.can_write          = detail.can_write          ?? null;
+        // Record what the server actually held, so a later empty save can be
+        // told apart from a canvas that simply never got populated.
+        noteHydratedAnnotationCount(item.annotations.length);
+        completeHydration(generation);
+      } else {
+        failHydration(generation);
+        showHydrationFailure(index);
       }
     } catch (e) {
       console.error("Failed to hydrate task annotations:", e);
+      failHydration(generation);
+      showHydrationFailure(index);
     }
 
     // T2.2 — claim the soft lock on the new task.
     // If another annotator already holds it, warn but don't block.
     try {
       const lock = await claimTask(item.id, clientId());
-      if (lock.status === 'locked') {
+      // Another switch superseded this one during the claim: stop before the
+      // canvas assignment below, which would otherwise paint this task's
+      // annotations over whichever task is now open.
+      if (generation !== currentHydrationGeneration()) return;
+      // Don't overwrite the hydration-failure notice (and its Retry button)
+      // with a lock warning — the failure is the more important state, and it
+      // is the one gating saves.
+      if (lock.status === 'locked' && !hydrationFailed()) {
         const secsLeft = lock.seconds_remaining || 60;
         setStatus(`⚠ Task locked (~${secsLeft}s)`);
       }
     } catch (e) {
       // Lock errors are never fatal — annotation can continue.
       console.warn('[task-lock] claim on open failed:', e);
+      if (generation !== currentHydrationGeneration()) return;
     }
+  } else {
+    // No server id yet, so there is nothing to hydrate and nothing on the
+    // server that a save could overwrite. Open the gate explicitly — leaving
+    // it shut would block saving this task forever, and the gate must fail
+    // closed only where a wipe is actually possible.
+    completeHydration(generation);
+  }
+
+  // On a failed hydration `item.annotations` is not the server's set — it is
+  // whatever the annotation-free gallery load left there (`[]`) or a stale
+  // copy from a previous open. Painting it would present emptiness as if it
+  // were this task's work; the save gate is already shut, so leave the canvas
+  // as the reset left it and let the Retry button drive recovery.
+  if (hydrationFailed()) {
+    loadImageFromSource(item.url, item.name);
+    updateGalleryUI();
+    refreshTaskPermissionUI();
+    return;
   }
 
   state.annotations = [...item.annotations];
@@ -472,6 +566,17 @@ document.addEventListener("keydown", (e) => {
       setStatus("Read-only — not saved");
       return;
     }
+    // Ctrl+S is the fastest path to a save — fast enough to land inside the
+    // task-switch window before annotations have hydrated, which is exactly
+    // how `[]` reached the server. The gate is positive and opens only on a
+    // confirmed fetch, so pressing Ctrl+S mid-switch is refused rather than
+    // racing. manualSaveWithUI re-checks it too; this check exists to give
+    // the keyboard user the reason instead of a silent no-op.
+    const hydrationBlock = hydrationSaveBlock();
+    if (hydrationBlock) {
+      setStatus(hydrationBlock);
+      return;
+    }
     manualSaveWithUI();
   }
 });
@@ -583,6 +688,27 @@ if (typeof ResizeObserver !== "undefined") {
 // destructive old behaviour — disabling saves outright — cannot recur.
 setConflictHandler((task) => {
   saveDraft();
+
+  // "Keep mine" is only a real choice when "mine" is a trustworthy set. If the
+  // canvas is empty, or the open task never hydrated, keeping it means writing
+  // emptiness (or a never-loaded view) over whatever the other writer saved —
+  // a wipe dressed up as a user decision. Reload instead, without offering it.
+  //
+  // Note the honest wording: saveDraft() above declines to write while the
+  // hydration gate is shut, so in the unhydrated case there is no recoverable
+  // draft. Discarding an unhydrated canvas is the correct trade against
+  // destroying confirmed server work, but the dialog must not promise safety
+  // it is not delivering.
+  if (state.annotations.length === 0 || !hydrationOk()) {
+    alert(
+      "This task was changed by someone else.\n\n" +
+      "Your workspace has no confirmed annotations to keep, so saving now would " +
+      "erase their work. The page will reload to fetch the current version."
+    );
+    window.location.reload();
+    return;
+  }
+
   const reload = confirm(
     "This task was changed by someone else while you were working.\n\n" +
     "OK — reload their version (your unsaved work stays recoverable).\n" +
@@ -1008,6 +1134,12 @@ function refreshTaskPermissionUI() {
   // Keep the legacy reviewControls host empty.
   const reviewHost = document.getElementById("reviewControls");
   if (reviewHost) reviewHost.innerHTML = "";
+
+  // Re-render the sidebar so its per-task write gating is recomputed. The
+  // Objects panel decides once per render whether to draw the "Edit object
+  // class" control, so without this a control drawn for a writable task would
+  // survive onto a task assigned to someone else.
+  render();
 }
 
 /**

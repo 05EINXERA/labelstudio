@@ -12,7 +12,7 @@
  * queued write, and never changes what a save sends. A user who lacks
  * permission still has unsaved work, and that work must survive.
  */
-import { apiFetch } from "./api.js?v=1";
+import { apiFetch } from "./api.js?v=2";
 import { escapeHTML } from "./utils.js?v=1";
 import { canAnnotate, canManage, canReview } from "./permissions.js?v=1";
 
@@ -57,7 +57,15 @@ export function taskWriteBlock(task) {
   const serverSaidNo = task.can_write === false;
 
   if (task.assignee_user_id != null) {
-    if (task.assignee_user_id === state.myUserId) return null;
+    // Assigned to me — but an explicit server "no" still wins. The resolver
+    // may be refusing for a reason this mirror cannot see (a revoked grant, a
+    // team membership dropped mid-session), and drawing an editable control
+    // against a server that will 403 is the failure this whole check exists to
+    // avoid.
+    if (task.assignee_user_id === state.myUserId && !serverSaidNo) return null;
+    if (serverSaidNo && task.assignee_user_id === state.myUserId) {
+      return "You can no longer save changes to this task.";
+    }
     return `This task is assigned to ${task.assignee_name || "someone else"}. `
       + "You can view it, but not save changes.";
   }
@@ -66,9 +74,17 @@ export function taskWriteBlock(task) {
   // (e.g. after a member removal). In both cases the name fields are gone too,
   // so we never say "assigned to Jayash" here.
   if (task.assigned_team_id == null) {
-    // No team and no individual: fully unassigned. Annotators cannot start work
-    // that hasn't been handed to anyone (PLAN.md § 8).
-    if (!serverSaidNo) return null; // server said writable — trust it
+    // Fully unassigned. `can_write_task` in api/permissions.py returns False
+    // here for anyone below manager — unassigned is deliberately NOT a shared
+    // pool (PLAN.md § 8): work nobody has been handed is work nobody below
+    // manager may start.
+    //
+    // This used to return "writable" whenever `can_write` was absent, which is
+    // precisely the case for a gallery row (the list endpoint does not carry
+    // the flag; only GET /api/tasks/{id} does). So every unassigned task
+    // looked editable until the detail fetch landed — and the sidebar renders
+    // from the gallery row. Blocking by default matches the server and fails
+    // safe; an explicit `can_write: true` above already unblocks it.
     return "This task has not been assigned to anyone yet. "
       + "Ask a project manager to assign it to you or your team.";
   }
@@ -78,6 +94,10 @@ export function taskWriteBlock(task) {
     return `This task is assigned to ${task.assigned_team_name || "another team"}, `
       + "which you are not a member of. You can view it, but not save changes.";
   }
+
+  // In my team by this row's fields — but if the server has explicitly said no,
+  // it is right and the row is stale (membership can be revoked mid-session).
+  if (serverSaidNo) return "You can no longer save changes to this task.";
 
   return null;
 }

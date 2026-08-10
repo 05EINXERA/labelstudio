@@ -1,9 +1,10 @@
 import { generateUUID, normalizeClassName } from "../utils.js?v=1";
-import { apiFetch } from "../api.js?v=1";
+import { apiFetch } from "../api.js?v=2";
 import {
   state, storageKey, draftKey, legacyDraftKey, colorForName, labelByName, labelById,
-  labelDisplayName, snapshot, selectedAnnotation
-} from "../state.js?v=3";
+  labelDisplayName, snapshot, selectedAnnotation, hydrationOk, hydrationSaveBlock,
+  clearIsUserIntent
+} from "../state.js?v=5";
 import { pendingCount, retryablePendingCount, isServerUnreachable, peekWrite } from "../offline-queue.js?v=4";
 import { annotationPoints, updateAnnotationBounds } from "../canvas/geometry.js?v=1";
 import { view } from "../canvas/view.js?v=1";
@@ -19,6 +20,11 @@ import {
 } from "../dom.js?v=1";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
 import { toolAvailability } from "../feature-flags.js?v=1";
+// Per-task write gating. `isReadOnly()` is project-role only, so it is false
+// for an annotator who simply is not assigned the open task — the sidepanel
+// needs the per-task answer, which is what taskWriteBlock() gives.
+// canvas-permissions.js does not import this module, so there is no cycle.
+import { taskWriteBlock } from "../canvas-permissions.js?v=6";
 
 
 /**
@@ -76,15 +82,69 @@ export function ensureLabel(className, customColor = null) {
 
   const projectId = new URLSearchParams(window.location.search).get('projectId');
   if (projectId) {
-    // Persist to backend asynchronously
+    // Persist to backend asynchronously.
+    //
+    // The optimistic push above is rolled back when the server refuses the
+    // class, and a refusal is NOT an exception: apiFetch resolves for a 403,
+    // so the old `.catch()` never ran for the case that actually matters. A
+    // class the server rejected therefore lived on in `state.labels` for the
+    // rest of the session, looking to its author exactly like a real one.
+    //
+    // That is the class-panel half of the reported sidepanel bug: an annotator
+    // who is not assigned the open task is refused by /api/labels (it requires
+    // MANAGER), sees the class appear anyway, repoints an annotation at its
+    // id, and every other user then renders that annotation as "Object" —
+    // labelById() falls back to {name:"object"} for an id it does not know.
+    //
+    // Rolling back keeps one rule: `state.labels` contains only classes the
+    // server has, or ones it has not answered on yet. It never keeps one that
+    // was refused.
     apiFetch('/api/labels', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...label, projectId: Number(projectId) })
+    }).then((res) => {
+      if (res && res.ok) return;
+      // A transport failure (res undefined) is left alone deliberately: the
+      // class may well exist once the network recovers, and dropping it would
+      // discard work during an outage. Only an explicit refusal is rolled back.
+      if (!res) return;
+      rollbackLabel(label, res.status);
     }).catch(err => console.error("Failed to save label to backend:", err));
   }
 
   return label;
+}
+
+/**
+ * Undo an optimistic `ensureLabel` push the server refused.
+ *
+ * Any annotation that was repointed at this class in the meantime is returned
+ * to whatever it referenced before, so the canvas never holds a labelId that
+ * exists nowhere. Without that, the annotation renders as "Object" for its
+ * author too, and — if it ever reaches the server by another path — for
+ * everyone else permanently.
+ */
+function rollbackLabel(label, status) {
+  const index = state.labels.findIndex((l) => l.id === label.id);
+  if (index !== -1) state.labels.splice(index, 1);
+
+  const orphaned = state.annotations.filter((a) => a.labelId === label.id);
+  if (orphaned.length) {
+    const fallback = state.labels[0] || null;
+    orphaned.forEach((a) => { a.labelId = fallback ? fallback.id : null; });
+  }
+  if (state.activeLabelId === label.id) state.activeLabelId = null;
+
+  console.warn(
+    `Class "${label.name}" was refused by the server (${status}) and has been removed.`
+  );
+  setStatus(
+    status === 403
+      ? "Not allowed to create classes here"
+      : `Class "${label.name}" was refused`
+  );
+  render();
 }
 
 export function repairLabelsFromAnnotations() {
@@ -95,6 +155,24 @@ export function repairLabelsFromAnnotations() {
     const label = ensureLabel(annotation.detectedClass || "object");
     return { ...annotation, labelId: label.id };
   });
+}
+
+/**
+ * Why the open task may not be edited right now, or null when it may.
+ *
+ * The sidebar panels must consult this rather than `isReadOnly()`. The latter
+ * asks only "can this role annotate the project at all", which is true for an
+ * annotator who is not assigned the open task — so it left the Objects panel's
+ * edit control fully live for exactly the user who must not use it. Every
+ * mutating affordance outside the canvas is gated on this instead.
+ *
+ * Rendering only (rule 18b): the server refuses regardless, and these fixes
+ * are about not showing a control that cannot work and not corrupting local
+ * state when it is used.
+ */
+export function editBlockReason() {
+  const task = currentTask();
+  return taskWriteBlock(task);
 }
 
 /**
@@ -112,6 +190,14 @@ export function syncToBackend({ useBeacon = false, keepStatus = false, allowClea
   if (typeof state === 'undefined' || state.galleryIndex < 0 || !state.gallery || !state.gallery[state.galleryIndex]) return;
   const currentTask = state.gallery[state.galleryIndex];
   if (!currentTask.id) return;
+
+  // Refuse to save unless the open task's annotations came from the server.
+  // Positive gate: anything other than a confirmed hydration blocks, so the
+  // pre-hydration window (and a failed fetch) cannot ship `[]` over real work.
+  if (!hydrationOk()) {
+    console.warn("Save blocked:", hydrationSaveBlock());
+    return Promise.resolve(false);
+  }
 
   // Only touch status when this user can actually write the task. A read-only
   // viewer opening a New task must not silently flip it to In Progress — that
@@ -167,12 +253,27 @@ function currentTask() {
  * once a save succeeds, so a refresh mid-edit — or after a failed save —
  * recovers the work instead of losing it.
  */
-export function saveDraft() {
-  const task = currentTask();
-  if (!task || !task.id) return;
+export function saveDraft({ task = null, annotations = null } = {}) {
+  const target = task || currentTask();
+  if (!target || !target.id) return;
+
+  // Explicit arguments name the task and the set being drafted, and are
+  // trusted as-is. The one caller that passes them is switchImage's
+  // failed-outgoing-save path: there the gate is already shut for the
+  // *incoming* task, but the work being drafted belongs to the *outgoing*
+  // one and is real. Gating that on the incoming task's hydration would drop
+  // precisely the work the draft exists to rescue.
+  const set = annotations || state.annotations;
+
+  // For the implicit case the draft describes the open task, so it is only
+  // trustworthy once that task hydrated. Otherwise this persists the
+  // pre-hydration empty set, which would outlive the session and be
+  // "recovered" over the server copy on next open.
+  if (!task && !hydrationOk()) return;
+
   try {
-    localStorage.setItem(draftKey(task.id), JSON.stringify({
-      annotations: state.annotations,
+    localStorage.setItem(draftKey(target.id), JSON.stringify({
+      annotations: set,
       labels: state.labels,
       savedAt: Date.now()
     }));
@@ -276,6 +377,20 @@ export function restoreDraft(task) {
       clearDraft(task.id);
       return false;
     }
+    // An empty draft never wins over server work.
+    //
+    // A draft exists to carry work the server does not have, so "recovering"
+    // emptiness onto a hydrated non-empty task is always a loss and never a
+    // recovery. Bundles predating the hydration gate could write such a draft
+    // (saveDraft ran during the pre-hydration window when state.annotations was
+    // still `[]`), and module imports are version-pinned — those drafts sit in
+    // localStorage until every annotator hard-reloads. Without this check the
+    // stale draft is restored over the server copy and the next save persists
+    // the wipe, reintroducing the bug the gate just closed.
+    if (draft.annotations.length === 0 && state.annotations.length > 0) {
+      clearDraft(task.id);
+      return false;
+    }
     state.annotations = draft.annotations;
     if (Array.isArray(draft.labels) && draft.labels.length) {
       state.labels = draft.labels;
@@ -297,6 +412,11 @@ export function restoreDraft(task) {
  * warning about unsaved offline work — for an action they deliberately took.
  */
 export function save({ allowClear = false } = {}) {
+  const block = hydrationSaveBlock();
+  if (block) {
+    setStatus(block);
+    return;
+  }
   saveDraft();
   setStatus("Saving…");
 
@@ -324,6 +444,11 @@ export function save({ allowClear = false } = {}) {
  * while saving, then displays "Saved Successfully" for 3 seconds.
  */
 export async function manualSaveWithUI() {
+  const block = hydrationSaveBlock();
+  if (block) {
+    setStatus(block);
+    return;
+  }
   const overlay = document.getElementById('saveOverlay');
   if (!overlay) return;
 
@@ -334,12 +459,21 @@ export async function manualSaveWithUI() {
     // Save the draft locally
     saveDraft();
 
-    // An explicit Save of an empty canvas is an explicit delete-all: the user is
-    // looking at zero annotations and pressing Save. Confirming it past the
-    // server's clear-guard here is what stops the "could not be saved" warning
-    // appearing for an action they deliberately took. The guard still protects
-    // the case it was built for — a background/autosave path never sets this.
-    const ok = await syncToBackend({ allowClear: state.annotations.length === 0 });
+    // An explicit Save of an empty canvas *may* be a deliberate delete-all —
+    // but emptiness alone does not prove it. A canvas is equally empty when
+    // hydration has not populated it yet, or when a reload race left it blank
+    // while the gate happened to be open. Inferring allow_clear from the
+    // emptiness itself therefore switched off the server's clear-guard in
+    // exactly the situation the guard exists to catch, and a fast Ctrl+S on a
+    // still-blank task wiped it.
+    //
+    // clearIsUserIntent() requires proof instead: the task hydrated, and it
+    // hydrated with work that is now gone. That is only true when the user
+    // actually removed annotations they could see. Otherwise the flag stays
+    // off and the server refuses the empty write with a 422.
+    const ok = await syncToBackend({
+      allowClear: clearIsUserIntent(state.annotations.length),
+    });
 
     // A manual save is the one place the user is actively watching, so a
     // failure must be stated plainly rather than dressed up as success.
@@ -468,7 +602,19 @@ export function renderClasses() {
         state.mode = "draw";
       }
 
-      // Reassign class to selected annotations
+      // Reassign class to selected annotations.
+      //
+      // Gated on the per-task check for the same reason as the Objects panel's
+      // edit control: this mutates annotations and saves. Picking a class to
+      // *draw* with is harmless and stays allowed — a read-only viewer can
+      // still highlight a class to see which shapes belong to it — but
+      // relabelling existing work is a write.
+      const relabelBlocked = editBlockReason();
+      if (state.selectedIds.size > 0 && relabelBlocked) {
+        setStatus(relabelBlocked);
+        render();
+        return;
+      }
       if (state.selectedIds.size > 0) {
         snapshot();
         let changed = false;
@@ -505,6 +651,17 @@ export function renderAnnotations() {
   const processedGroups = new Set();
   let displayCount = 0;
 
+  // Resolved once per render, not per row: it is the same answer for every
+  // annotation in the panel and taskWriteBlock() walks the role/assignment
+  // fields each call.
+  //
+  // When set, the per-row "Edit object class" control is not rendered at all.
+  // Hiding rather than disabling is deliberate — the edit opens an inline form
+  // whose Save mints a project-wide class via ensureLabel(), which is a
+  // different permission (MANAGER on /api/labels) from the one that governs
+  // this panel. A user who cannot write the task must not be offered it.
+  const editBlocked = !!editBlockReason();
+
   state.annotations.forEach((annotation, index) => {
     if (annotation.groupId) {
       if (processedGroups.has(annotation.groupId)) return;
@@ -536,9 +693,10 @@ export function renderAnnotations() {
         <span class="ann-pts"></span>
       </div>
       <div class="annotation-actions" style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
+        ${editBlocked ? "" : `
         <span class="edit-ann-btn" title="Edit object class" style="cursor: pointer; color: var(--muted); display: grid; place-items: center; width: 20px; height: 20px;">
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-        </span>
+        </span>`}
         ${visibilityButtonHTML(annHidden, annHidden ? "Show object" : "Hide object")}
       </div>
     `;
@@ -556,8 +714,19 @@ export function renderAnnotations() {
 
     const escapeHTML = (str) => String(str).replace(/[&<>'"]/g, match => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[match]));
 
-    item.querySelector(".edit-ann-btn").addEventListener("click", (e) => {
+    // Absent when editBlocked — the control is not rendered at all above.
+    const editBtn = item.querySelector(".edit-ann-btn");
+    if (editBtn) editBtn.addEventListener("click", (e) => {
       e.stopPropagation();
+      // Re-checked at click time, not only at render time. The panel is not
+      // re-rendered on every permission change (a task can be reassigned from
+      // another tab mid-session), so a button drawn while the task was
+      // writable must still refuse once it is not.
+      const blocked = editBlockReason();
+      if (blocked) {
+        setStatus(blocked);
+        return;
+      }
       const currentName = label.name;
       const options = state.labels.map(l => `<option value="${escapeHTML(l.name)}"></option>`).join("");
       item.innerHTML = `
@@ -576,6 +745,16 @@ export function renderAnnotations() {
       const colorInput = item.querySelector(".edit-ann-color");
 
       const finishEdit = (saveChanges) => {
+        // The last gate before any mutation. ensureLabel() below creates a
+        // project-wide class and the annotation is repointed at it, so a
+        // permission change between opening this form and submitting it must
+        // still stop both. Cancel is always allowed — it changes nothing.
+        const blockedNow = saveChanges ? editBlockReason() : null;
+        if (blockedNow) {
+          setStatus(blockedNow);
+          render();
+          return;
+        }
         if (saveChanges) {
           const newName = input.value.trim();
           const newColor = colorInput.value;

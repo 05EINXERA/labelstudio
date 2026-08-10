@@ -2854,3 +2854,25 @@ body.is-read-only #autoTagButton {
    refused server-side regardless. */
 body.is-read-only .stage-wrap { cursor: not-allowed; }
 body.is-read-only #annotationCanvas { pointer-events: none; }
+
+/* The sidebar's mutating affordances.
+   `updateTaskBanner` already sets .is-read-only from the *per-task* check, so
+   this class is true for an annotator who is not the assignee — but the rules
+   above only ever named the toolbar and the canvas. The Objects panel's "Edit
+   object class" pencil was covered by nothing, so an unassigned annotator
+   could open its inline form, type a class name and mint a project-wide class
+   through a different endpoint (/api/labels) while their annotation save was
+   correctly refused, leaving the class panel and the canvas disagreeing with
+   the server.
+
+   The JS hides the control and re-checks on click and on submit; this is
+   defence in depth for a stale render, not the mechanism. Rows themselves stay
+   clickable so selecting and inspecting annotations still works — only the
+   controls that write are blocked. */
+body.is-read-only .annotation-actions .edit-ann-btn,
+body.is-read-only .edit-ann-form,
+body.is-read-only #clearButton,
+body.is-read-only #deleteButton {
+  opacity: .45;
+  pointer-events: none;
+}

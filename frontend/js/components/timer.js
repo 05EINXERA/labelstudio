@@ -1,5 +1,5 @@
 import { formatTime, clientId } from "../utils.js?v=1";
-import { apiFetch } from "../api.js?v=1";
+import { apiFetch, withCsrfParam } from "../api.js?v=2";
 import { timerState } from "../timer-state.js?v=3";
 import { canvas } from "../dom.js?v=1";
 import {
@@ -112,20 +112,24 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
   // `annotations=None` as "leave the stored set alone", which is exactly what a
   // time-only save means. `[]` means "make it empty" and must be reserved for
   // callers that really mean it.
-  const set = annotations !== undefined ? annotations : task.annotations;
-  if (Array.isArray(set)) {
-    payload.annotations = JSON.stringify(set);
+  if (annotations !== undefined && Array.isArray(annotations)) {
+    payload.annotations = JSON.stringify(annotations);
     // A deliberate delete-all still has to say so, or the server's clear-guard
     // refuses it forever with no way through (the guard's own escape hatch was
     // previously unreachable — nothing in the frontend ever set this).
-    if (allowClear && set.length === 0) payload.allow_clear = true;
+    if (allowClear && annotations.length === 0) payload.allow_clear = true;
   }
 
   // On unload a normal fetch is not guaranteed to be delivered; sendBeacon is
   // (F2). Beacons give us no response, so treat dispatch as success.
   if (useBeacon && navigator.sendBeacon) {
+    // withCsrfParam is load-bearing: sendBeacon cannot set the X-CSRF-Token
+    // header, so without the query fallback the server rejects this 403 and
+    // the unload flush — the last chance to persist this task's work — is
+    // silently dropped. sendBeacon only reports queueing, never acceptance,
+    // so nothing downstream can notice the failure.
     const ok = navigator.sendBeacon(
-      '/api/tasks',
+      withCsrfParam('/api/tasks'),
       new Blob([JSON.stringify(payload)], { type: 'application/json' })
     );
     if (ok) {
@@ -276,7 +280,7 @@ export function syncTimeToServer({ useBeacon = false } = {}) {
 
   if (useBeacon && navigator.sendBeacon) {
     const ok = navigator.sendBeacon(
-      '/api/team/time',
+      withCsrfParam('/api/team/time'),
       new Blob([body], { type: 'application/json' })
     );
     if (ok) timerLocalState.lastSyncedTotalSeconds = syncedUpTo;

@@ -5,7 +5,7 @@
  * owner-only. The router already keeps plain members out entirely; this view
  * gates the owner-only half again, because a manager can legitimately be here.
  */
-import { apiFetch } from "../../api.js?v=1";
+import { apiFetch } from "../../api.js?v=2";
 import { escapeHTML } from "../../utils.js?v=1";
 import { ownsTeam } from "../../permissions.js?v=1";
 

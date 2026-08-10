@@ -95,11 +95,11 @@ def test_different_client_with_stale_timestamp_conflicts(client, alice):
     assert res.status_code == 409
 
 
-def test_missing_updated_at_skips_the_check(client, alice):
-    """A write with no token is accepted rather than silently rejected.
+def test_missing_updated_at_from_different_client_conflicts(client, alice):
+    """A write with no token from a different client is rejected with 409 Conflict.
 
-    The beacon path clears `updated_at` because a beacon returns no body, so a
-    null token must mean "I cannot prove freshness", not "block me".
+    A null token means "I cannot prove freshness". If tab-A wrote last, tab-B
+    sending a null token cannot prove it saw tab-A's write, so it must 409.
     """
     project_id = _project(client, alice)
     task = _create_task(client, alice, project_id)
@@ -112,6 +112,28 @@ def test_missing_updated_at_skips_the_check(client, alice):
     res = client.post("/api/tasks", json={
         "id": task["id"], "annotations": _annotations(3),
         "updated_at": None, "client_id": "tab-B",
+    }, headers=alice)
+    assert res.status_code == 409
+
+
+def test_missing_updated_at_allowed_for_same_client(client, alice):
+    """A write with no token from the SAME client is accepted.
+
+    The beacon path clears `updated_at` because a beacon returns no body.
+    When the same tab saves again with a null token, identity proves it is
+    overwriting its own work.
+    """
+    project_id = _project(client, alice)
+    task = _create_task(client, alice, project_id)
+
+    assert client.post("/api/tasks", json={
+        "id": task["id"], "annotations": _annotations(1),
+        "updated_at": task["updated_at"], "client_id": "tab-A",
+    }, headers=alice).status_code == 200
+
+    res = client.post("/api/tasks", json={
+        "id": task["id"], "annotations": _annotations(3),
+        "updated_at": None, "client_id": "tab-A",
     }, headers=alice)
     assert res.status_code == 200
 

@@ -9,7 +9,7 @@
  * `ctx` carries the shared team context so views do not each re-fetch it:
  *   { teamId, team, currentUser, myRole, reloadTeam(), navigate() }
  */
-import { apiFetch } from "../../api.js?v=1";
+import { apiFetch } from "../../api.js?v=2";
 import { escapeHTML } from "../../utils.js?v=1";
 import { teamRoleBadge } from "../../components/role-badge.js?v=1";
 import { canManageTeam } from "../../permissions.js?v=1";

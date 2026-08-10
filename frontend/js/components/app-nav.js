@@ -9,7 +9,7 @@
  * fourth Level-1 page means editing one array. The markup is small; the
  * duplication is what would bite.
  */
-import { apiFetch } from "../api.js?v=1";
+import { apiFetch } from "../api.js?v=2";
 import { escapeHTML } from "../utils.js?v=1";
 
 const LINKS = [

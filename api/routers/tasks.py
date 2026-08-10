@@ -600,46 +600,58 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
         # primary signal. The timestamp is only consulted when identity is
         # unavailable (an older client, or a row predating the column), where
         # it remains the best available approximation.
-        if task.updated_at:
-            # Parsed even when unused, so a malformed value is still a 422
-            # rather than silently disabling the check (TIMER_AUDIT.md F10).
-            try:
-                client_updated = datetime.datetime.fromisoformat(task.updated_at.replace('Z', '+00:00'))
-            except ValueError:
-                raise HTTPException(status_code=422, detail="Invalid 'updated_at' timestamp format.")
-            if client_updated.tzinfo is None:
-                client_updated = client_updated.replace(tzinfo=datetime.timezone.utc)
+        if db_task.updated_at:
+            if task.updated_at:
+                # Parsed even when unused, so a malformed value is still a 422
+                # rather than silently disabling the check (TIMER_AUDIT.md F10).
+                try:
+                    client_updated = datetime.datetime.fromisoformat(task.updated_at.replace('Z', '+00:00'))
+                except ValueError:
+                    raise HTTPException(status_code=422, detail="Invalid 'updated_at' timestamp format.")
+                if client_updated.tzinfo is None:
+                    client_updated = client_updated.replace(tzinfo=datetime.timezone.utc)
 
-            if task.client_id and db_task.last_client_id:
-                # Both sides identified: a different last writer is a genuine
-                # conflict regardless of how recently it happened.
-                #
-                # Exception: if the client's token already matches the stored
-                # updated_at exactly, the client loaded a fresh copy of this
-                # task (via GET /api/tasks/{id}) and has up-to-date state.
-                # A client_id mismatch in that case means the previous session's
-                # ID is still in last_client_id but this is the same browser —
-                # the localStorage-based clientId persists across reloads, so
-                # this guard should be rare but is included for safety.
-                stored = db_task.updated_at
-                if stored:
+                if task.client_id and db_task.last_client_id:
+                    # Both sides identified: a different last writer is a genuine
+                    # conflict regardless of how recently it happened.
+                    #
+                    # Exception: if the client's token already matches the stored
+                    # updated_at exactly, the client loaded a fresh copy of this
+                    # task (via GET /api/tasks/{id}) and has up-to-date state.
+                    stored = db_task.updated_at
+                    if stored:
+                        if stored.tzinfo is None:
+                            stored = stored.replace(tzinfo=datetime.timezone.utc)
+                        tokens_match = abs((stored - client_updated).total_seconds()) <= 0.001
+                    else:
+                        tokens_match = False
+
+                    if task.client_id != db_task.last_client_id and not tokens_match:
+                        raise HTTPException(
+                            status_code=409,
+                            detail="Task was updated by another user. Please refresh to see latest annotations.",
+                        )
+                elif db_task.updated_at:
+                    # No identity to compare — fall back to the timestamp.
+                    stored = db_task.updated_at
                     if stored.tzinfo is None:
                         stored = stored.replace(tzinfo=datetime.timezone.utc)
-                    tokens_match = abs((stored - client_updated).total_seconds()) <= 0.001
-                else:
-                    tokens_match = False
-
-                if task.client_id != db_task.last_client_id and not tokens_match:
-                    raise HTTPException(
-                        status_code=409,
-                        detail="Task was updated by another user. Please refresh to see latest annotations.",
-                    )
-            elif db_task.updated_at:
-                # No identity to compare — fall back to the timestamp.
-                stored = db_task.updated_at
-                if stored.tzinfo is None:
-                    stored = stored.replace(tzinfo=datetime.timezone.utc)
-                if (stored - client_updated).total_seconds() > CONFLICT_TOLERANCE_SECONDS:
+                    if (stored - client_updated).total_seconds() > CONFLICT_TOLERANCE_SECONDS:
+                        raise HTTPException(
+                            status_code=409,
+                            detail="Task was updated by another user. Please refresh to see latest annotations.",
+                        )
+            else:
+                # task.updated_at is None / missing.
+                # A missing token is only accepted if identity proves this is the SAME client
+                # writing over its own previous save (e.g. after a beacon nulled updated_at).
+                # A different client sending null updated_at cannot prove freshness and must 409.
+                is_same_client = (
+                    task.client_id is not None
+                    and db_task.last_client_id is not None
+                    and task.client_id == db_task.last_client_id
+                )
+                if not is_same_client:
                     raise HTTPException(
                         status_code=409,
                         detail="Task was updated by another user. Please refresh to see latest annotations.",
@@ -673,24 +685,46 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
             # rule cannot cover.
             incoming_is_empty = task.annotations.strip() in ("", "[]", "null")
             existing_has_work = db_task.annotations and db_task.annotations.strip() not in ("", "[]", "null")
-            if incoming_is_empty and existing_has_work and not task.allow_clear:
-                # Deliberately NOT 409: the frontend's 409 handler means "a
-                # different client wrote since you last read — pick a version",
-                # and its "keep mine" path would resend this exact empty
-                # payload with allow_clear still unset, looping forever. 422 is
-                # "the payload itself is refused on the merits" and gets its
-                # own un-retryable handling in timer.js/init.js, same shape as
-                # the existing 403-forbidden path.
-                raise HTTPException(
-                    status_code=422,
-                    detail=(
-                        "Refusing to clear existing annotations. Reload the task to "
-                        "see the current work; if you really mean to delete every "
-                        "annotation, delete them in the UI and save again."
-                    ),
-                )
+            if incoming_is_empty and existing_has_work:
+                if not task.allow_clear:
+                    logger.warning(
+                        "Task %s: incoming save attempted to clear annotations from existing work without allow_clear (client_id=%s, user=%s). Refused with 422.",
+                        db_task.id,
+                        task.client_id,
+                        getattr(user, "username", "unknown"),
+                    )
+                    # Deliberately NOT 409: the frontend's 409 handler means "a
+                    # different client wrote since you last read — pick a version",
+                    # and its "keep mine" path would resend this exact empty
+                    # payload with allow_clear still unset, looping forever. 422 is
+                    # "the payload itself is refused on the merits" and gets its
+                    # own un-retryable handling in timer.js/init.js, same shape as
+                    # the existing 403-forbidden path.
+                    raise HTTPException(
+                        status_code=422,
+                        detail=(
+                            "Refusing to clear existing annotations. Reload the task to "
+                            "see the current work; if you really mean to delete every "
+                            "annotation, delete them in the UI and save again."
+                        ),
+                    )
+                else:
+                    logger.warning(
+                        "Task %s: explicit clear of annotations executed with allow_clear=True (client_id=%s, user=%s).",
+                        db_task.id,
+                        task.client_id,
+                        getattr(user, "username", "unknown"),
+                    )
             db_task.annotations = task.annotations
-        db_task.updated_at = datetime.datetime.now(datetime.timezone.utc)
+        now_utc = datetime.datetime.now(datetime.timezone.utc)
+        if db_task.updated_at:
+            if db_task.updated_at.tzinfo is None:
+                db_task_updated_at_utc = db_task.updated_at.replace(tzinfo=datetime.timezone.utc)
+            else:
+                db_task_updated_at_utc = db_task.updated_at
+            if now_utc <= db_task_updated_at_utc:
+                now_utc = db_task_updated_at_utc + datetime.timedelta(microseconds=1000)
+        db_task.updated_at = now_utc
         task_id = db_task.id
         new_updated_at = db_task.updated_at
     else:

@@ -182,3 +182,118 @@ export function resetWorkspaceForNewImage() {
 export function selectedAnnotation() {
   return state.annotations.find((item) => item.id === state.selectedId) || null;
 }
+
+// --- Hydration gate -------------------------------------------------------
+//
+// A task's annotations are fetched on open (init.js switchImage), and every
+// save is a wholesale replacement of the stored blob. So a save issued while
+// `state.annotations` is the empty array that resetWorkspaceForNewImage() just
+// installed — but before the server copy has landed — writes `[]` over real
+// work. That is the annotation-wipe bug (.agents/annotation-wipe-fix/).
+//
+// Two rules make the gate safe, and both matter:
+//
+//   1. It is *positive*. Only `hydrationOk()` returning true permits a save.
+//      An earlier version tested `task._hydrated === false`, which let the
+//      `undefined` of a not-yet-touched task pass every guard — fail-open on a
+//      destructive operation.
+//
+//   2. It is keyed on a *generation counter*, not a per-task boolean. Rapid
+//      paging re-enters switchImage before the previous call's awaits have
+//      resolved; a per-task flag set by the superseded call would mark the
+//      new task hydrated while its canvas was still empty. Each switch takes a
+//      new generation, and a hydration result is only honoured if its
+//      generation is still current.
+//
+// The gate is module state rather than a field on the gallery item precisely
+// so it cannot be stale-true: there is exactly one current generation, and
+// anything that is not it is by definition not hydrated.
+
+let hydrationGeneration = 0;
+let hydratedGeneration = -1;
+let hydrationFailedGeneration = -1;
+
+// How many annotations the server actually sent for the open task.
+//
+// This is what separates "the user deleted everything" from "the canvas never
+// got populated". Both look identical at save time — `state.annotations` is
+// `[]` either way — but only the first is a legitimate delete-all. Without
+// this, Ctrl+S on a blank canvas inferred `allow_clear` from the emptiness
+// itself and instructed the server to bypass its clear-guard, which is the
+// wipe: the one defence designed to catch an empty overwrite was switched off
+// by the very condition it exists to detect.
+let hydratedAnnotationCount = 0;
+
+/** Open a new hydration attempt. Returns the generation token for it. */
+export function beginHydration() {
+  hydrationGeneration += 1;
+  // Forget the previous task's count immediately. Carrying it across a switch
+  // would let the new task inherit "it had work when it loaded" and so qualify
+  // for a clear it never earned.
+  hydratedAnnotationCount = 0;
+  return hydrationGeneration;
+}
+
+/** Mark `generation` hydrated. Ignored if a newer switch has superseded it. */
+export function completeHydration(generation) {
+  if (generation !== hydrationGeneration) return false;
+  hydratedGeneration = generation;
+  return true;
+}
+
+/** Mark `generation` failed. Ignored if a newer switch has superseded it. */
+export function failHydration(generation) {
+  if (generation !== hydrationGeneration) return false;
+  hydrationFailedGeneration = generation;
+  return true;
+}
+
+/** True only when the open task's annotations came from the server. */
+export function hydrationOk() {
+  return hydratedGeneration === hydrationGeneration;
+}
+
+/** Record what the server sent, so a later delete-all can be proven genuine. */
+export function noteHydratedAnnotationCount(count) {
+  hydratedAnnotationCount = Number.isFinite(count) ? count : 0;
+}
+
+export function getHydratedAnnotationCount() {
+  return hydratedAnnotationCount;
+}
+
+/**
+ * May this save legitimately clear the task?
+ *
+ * Only when the task hydrated (so the count below is real), the canvas is now
+ * empty, and it was *not* empty when it loaded — i.e. the user removed
+ * annotations that demonstrably arrived from the server. A canvas that was
+ * empty on arrival has nothing to delete, so it never needs the override; a
+ * task that never hydrated cannot prove anything and must not get it.
+ */
+export function clearIsUserIntent(currentCount) {
+  return hydrationOk() && currentCount === 0 && hydratedAnnotationCount > 0;
+}
+
+/** True when the current task's hydration fetch was attempted and failed. */
+export function hydrationFailed() {
+  return hydrationFailedGeneration === hydrationGeneration;
+}
+
+/** Current generation token, for callers that need to re-check after an await. */
+export function currentHydrationGeneration() {
+  return hydrationGeneration;
+}
+
+/**
+ * The reason a save must be refused right now, or null when saving is allowed.
+ *
+ * Single source of truth for all four save entry points (Ctrl+S, the debounced
+ * autosave, the manual-save overlay, and syncToBackend itself) so they cannot
+ * drift apart.
+ */
+export function hydrationSaveBlock() {
+  if (hydrationOk()) return null;
+  if (hydrationFailed()) return "Cannot save: task failed to load — reload the page";
+  return "Cannot save: task is still loading…";
+}

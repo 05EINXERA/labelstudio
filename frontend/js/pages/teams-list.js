@@ -4,7 +4,7 @@
  * Any user may create a team (01_DESIGN.md § 5), so `+ New team` is always
  * visible — there is no role that hides it.
  */
-import { apiFetch } from "../api.js?v=1";
+import { apiFetch } from "../api.js?v=2";
 import { escapeHTML } from "../utils.js?v=1";
 import { createDataTable } from "../components/data-table.js?v=2";
 import { createModal } from "../components/modal.js?v=1";
