@@ -2,7 +2,93 @@ import { canvas, ctx, backgroundImage, staticCanvas, staticCtx } from "../dom.js
 import { state, labelById, isAnnotationHidden } from "../state.js?v=1";
 import { annotationSettings, annotationOpacity } from "../feature-flags.js?v=1";
 import { view } from "./view.js?v=1";
-import { annotationPoints, hexToRgba } from "./geometry.js?v=1";
+import { annotationPoints, hexToRgba, isPointInsideOtherGroupPolygons } from "./geometry.js?v=1";
+
+let compositeFillCanvas = null;
+let compositeFillCtx = null;
+let compositeStrokeCanvas = null;
+let compositeStrokeCtx = null;
+
+function getCompositeContexts(width, height) {
+  if (!compositeFillCanvas) {
+    compositeFillCanvas = document.createElement("canvas");
+    compositeFillCtx = compositeFillCanvas.getContext("2d");
+    compositeStrokeCanvas = document.createElement("canvas");
+    compositeStrokeCtx = compositeStrokeCanvas.getContext("2d");
+  }
+  if (compositeFillCanvas.width !== width || compositeFillCanvas.height !== height) {
+    compositeFillCanvas.width = width;
+    compositeFillCanvas.height = height;
+    compositeStrokeCanvas.width = width;
+    compositeStrokeCanvas.height = height;
+  }
+  return { fillCtx: compositeFillCtx, strokeCtx: compositeStrokeCtx };
+}
+
+function drawGroupUnion(groupAnns, selected, targetCtx) {
+  if (groupAnns.length === 0) return;
+  const label = labelById(groupAnns[0].labelId);
+  const { fillCtx, strokeCtx } = getCompositeContexts(targetCtx.canvas.width, targetCtx.canvas.height);
+
+  fillCtx.clearRect(0, 0, fillCtx.canvas.width, fillCtx.canvas.height);
+  strokeCtx.clearRect(0, 0, strokeCtx.canvas.width, strokeCtx.canvas.height);
+
+  // Fill Canvas: draw opaque union
+  fillCtx.fillStyle = label.color;
+  groupAnns.forEach((ann) => {
+    if (ann.type === "comment") return;
+    const points = annotationPoints(ann);
+    if (!points || points.length < 3) return;
+    const screenPoints = points.map((p) => ({
+      x: view.imageBox.x + p.x * view.imageBox.scale,
+      y: view.imageBox.y + p.y * view.imageBox.scale
+    }));
+    fillCtx.beginPath();
+    screenPoints.forEach((pt, i) => {
+      if (i === 0) fillCtx.moveTo(pt.x, pt.y);
+      else fillCtx.lineTo(pt.x, pt.y);
+    });
+    fillCtx.closePath();
+    fillCtx.fill();
+  });
+
+  // Stroke Canvas: draw thick strokes
+  strokeCtx.strokeStyle = label.color;
+  strokeCtx.lineWidth = (selected ? 3 : 2) * 2;
+  strokeCtx.lineJoin = "round";
+  
+  groupAnns.forEach((ann) => {
+    if (ann.type === "comment") return;
+    const points = annotationPoints(ann);
+    if (!points || points.length < 3) return;
+    const screenPoints = points.map((p) => ({
+      x: view.imageBox.x + p.x * view.imageBox.scale,
+      y: view.imageBox.y + p.y * view.imageBox.scale
+    }));
+    strokeCtx.beginPath();
+    screenPoints.forEach((pt, i) => {
+      if (i === 0) strokeCtx.moveTo(pt.x, pt.y);
+      else strokeCtx.lineTo(pt.x, pt.y);
+    });
+    strokeCtx.closePath();
+    strokeCtx.stroke();
+  });
+
+  // Erase inner strokes using the fill mask
+  strokeCtx.globalCompositeOperation = "destination-out";
+  strokeCtx.drawImage(fillCtx.canvas, 0, 0);
+  strokeCtx.globalCompositeOperation = "source-over";
+
+  // Composite them to the target canvas
+  targetCtx.save();
+  // We use normal or selected opacity (groups don't include drafts usually)
+  const fillAlpha = selected ? annotationOpacity.selected : annotationOpacity.normal;
+  targetCtx.globalAlpha = fillAlpha;
+  targetCtx.drawImage(fillCtx.canvas, 0, 0);
+  targetCtx.globalAlpha = 1.0;
+  targetCtx.drawImage(strokeCtx.canvas, 0, 0);
+  targetCtx.restore();
+}
 
 export function computeImageBox() {
   if (!view.imageLoaded) {
@@ -44,12 +130,23 @@ export function drawStaticLayer() {
   staticCtx.clearRect(0, 0, rect.width, rect.height);
   if (!view.imageLoaded) return;
 
+  const drawnGroups = new Set();
+
   state.annotations.forEach((annotation) => {
     if (isAnnotationHidden(annotation)) return;
     const isSelected = state.selectedIds.has(annotation.id);
     const isDragging = view.drag?.annotationId === annotation.id || view.drag?.originals?.find(a => a.id === annotation.id);
     if (!isSelected && !isDragging) {
-      drawAnnotation(annotation, false, staticCtx);
+      if (annotation.groupId) {
+        if (!drawnGroups.has(annotation.groupId)) {
+          drawnGroups.add(annotation.groupId);
+          const groupAnns = state.annotations.filter(a => a.groupId === annotation.groupId && !isAnnotationHidden(a) && !state.selectedIds.has(a.id) && !(view.drag?.annotationId === a.id || view.drag?.originals?.find(orig => orig.id === a.id)));
+          drawGroupUnion(groupAnns, false, staticCtx);
+          groupAnns.forEach(ann => drawAnnotation(ann, false, staticCtx, true, groupAnns));
+        }
+      } else {
+        drawAnnotation(annotation, false, staticCtx);
+      }
     }
   });
 }
@@ -68,6 +165,8 @@ export function draw() {
 
   if (!view.imageLoaded) return;
 
+  const drawnGroups = new Set();
+
   state.annotations.forEach((annotation) => {
     // Filtered here as well as in drawStaticLayer: without this a hidden
     // annotation would reappear the moment it became selected.
@@ -75,7 +174,16 @@ export function draw() {
     const isSelected = state.selectedIds.has(annotation.id);
     const isDragging = view.drag?.annotationId === annotation.id || view.drag?.originals?.find(a => a.id === annotation.id);
     if (isSelected || isDragging) {
-      drawAnnotation(annotation, isSelected, ctx);
+      if (annotation.groupId) {
+        if (!drawnGroups.has(annotation.groupId)) {
+          drawnGroups.add(annotation.groupId);
+          const groupAnns = state.annotations.filter(a => a.groupId === annotation.groupId && !isAnnotationHidden(a) && (state.selectedIds.has(a.id) || view.drag?.annotationId === a.id || view.drag?.originals?.find(orig => orig.id === a.id)));
+          drawGroupUnion(groupAnns, true, ctx);
+          groupAnns.forEach(ann => drawAnnotation(ann, true, ctx, true, groupAnns));
+        }
+      } else {
+        drawAnnotation(annotation, isSelected, ctx);
+      }
     }
   });
 
@@ -145,7 +253,7 @@ export function draw() {
   }
 }
 
-export function drawAnnotation(annotation, selected = false, targetCtx = ctx) {
+export function drawAnnotation(annotation, selected = false, targetCtx = ctx, skipBaseLayer = false, groupAnns = null) {
   if (annotation.type === "comment") {
     const screenPoint = {
       x: view.imageBox.x + annotation.x * view.imageBox.scale,
@@ -197,20 +305,24 @@ export function drawAnnotation(annotation, selected = false, targetCtx = ctx) {
     return;
   }
 
-  targetCtx.beginPath();
-  screenPoints.forEach((point, index) => {
-    if (index === 0) {
-      targetCtx.moveTo(point.x, point.y);
-    } else {
-      targetCtx.lineTo(point.x, point.y);
+  if (!skipBaseLayer) {
+    targetCtx.beginPath();
+    screenPoints.forEach((point, index) => {
+      if (index === 0) {
+        targetCtx.moveTo(point.x, point.y);
+      } else {
+        targetCtx.lineTo(point.x, point.y);
+      }
+    });
+    const isBeingDrawn = view.drag?.type === "draw-polygon" && view.drag?.annotationId === annotation.id;
+    if (screenPoints.length >= 3 && !isBeingDrawn) {
+      targetCtx.closePath();
+      targetCtx.fill();
     }
-  });
-  const isBeingDrawn = view.drag?.type === "draw-polygon" && view.drag?.annotationId === annotation.id;
-  if (screenPoints.length >= 3 && !isBeingDrawn) {
-    targetCtx.closePath();
-    targetCtx.fill();
+    targetCtx.stroke();
   }
-  targetCtx.stroke();
+  
+  const isBeingDrawn = view.drag?.type === "draw-polygon" && view.drag?.annotationId === annotation.id;
 
   // No class-name tag is drawn on the canvas: the Objects panel lists every
   // annotation, and on-image text obscures the pixels being annotated.
@@ -258,7 +370,13 @@ export function drawAnnotation(annotation, selected = false, targetCtx = ctx) {
   }
 
   if (selected) {
-    drawVertexHandles(screenPoints, label.color, targetCtx, isBeingDrawn);
+    const visibleScreenPoints = screenPoints.map((sp, i) => {
+      if (groupAnns && isPointInsideOtherGroupPolygons(points[i], annotation, groupAnns)) {
+        return null;
+      }
+      return sp;
+    });
+    drawVertexHandles(visibleScreenPoints, label.color, targetCtx, isBeingDrawn);
   }
   targetCtx.restore();
 }
@@ -268,6 +386,7 @@ export function drawVertexHandles(points, color, targetCtx = ctx, isBeingDrawn =
   targetCtx.strokeStyle = color;
   targetCtx.lineWidth = 2;
   points.forEach((point, i) => {
+    if (!point) return;
     targetCtx.beginPath();
     targetCtx.arc(point.x, point.y, radius, 0, Math.PI * 2);
     if (i === 0 && isBeingDrawn) {

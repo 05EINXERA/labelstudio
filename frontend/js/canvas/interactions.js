@@ -4,6 +4,7 @@ import {
   annotationPoints,
   updateAnnotationBounds,
   pointInPolygon,
+  isPointInsideOtherGroupPolygons,
   addPolygonPointResolvingIntersections,
   resolvePolygonClosingIntersections,
   resolveClosedPolygonIntersections
@@ -62,8 +63,10 @@ export function hitTestPoint(point, annotation) {
   // where the comparison happens — so the grab area stays a constant physical
   // size on screen instead of shrinking as the annotator zooms in.
   const threshold = annotationSettings.vertexGrabRadius / view.imageBox.scale;
+  const groupAnns = annotation.groupId ? state.annotations.filter(a => a.groupId === annotation.groupId) : null;
   for (let i = 0; i < annotation.points.length; i++) {
     const pt = annotation.points[i];
+    if (groupAnns && isPointInsideOtherGroupPolygons(pt, annotation, groupAnns)) continue;
     if (Math.hypot(pt.x - img.x, pt.y - img.y) < threshold) {
       return i;
     }
@@ -77,6 +80,7 @@ export function hitTestLine(point, annotation) {
   // Screen pixels -> image space; see hitTestPoint above.
   const threshold = annotationSettings.edgeGrabRadius / view.imageBox.scale;
   const pts = annotation.points;
+  const groupAnns = annotation.groupId ? state.annotations.filter(a => a.groupId === annotation.groupId) : null;
   for (let i = 0; i < pts.length; i++) {
     const p1 = pts[i];
     const p2 = pts[(i + 1) % pts.length];
@@ -89,6 +93,8 @@ export function hitTestLine(point, annotation) {
 
     const projX = p1.x + t * (p2.x - p1.x);
     const projY = p1.y + t * (p2.y - p1.y);
+
+    if (groupAnns && isPointInsideOtherGroupPolygons({x: projX, y: projY}, annotation, groupAnns)) continue;
 
     if (Math.hypot(img.x - projX, img.y - projY) < threshold) {
       return i;

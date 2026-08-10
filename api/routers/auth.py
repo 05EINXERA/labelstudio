@@ -29,6 +29,10 @@ from api.auth import (
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
+@router.get("/config")
+def get_auth_config():
+    return {"allow_registration": ALLOW_REGISTRATION}
+
 @router.post("/register", response_model=Token)
 def register(user: UserCreate, response: Response, db: Session = Depends(get_db)):
     """Register a new user.

@@ -58,7 +58,7 @@
         <div class="spinner"></div>
       </button>
 
-      <div style="text-align: center; margin-top: 1rem;">
+      <div id="registerLinkContainer" style="text-align: center; margin-top: 1rem; display: none;">
         <a href="#" id="toggleMode" style="color: var(--accent); text-decoration: none; font-size: 0.9rem;">Need an account? Register</a>
       </div>
     </form>
@@ -98,6 +98,16 @@
         toggleModeBtn.textContent = 'Already have an account? Sign In';
       }
     });
+
+    // Check if registration is enabled
+    fetch('/api/auth/config')
+      .then(res => res.json())
+      .then(data => {
+        if (data.allow_registration) {
+          document.getElementById('registerLinkContainer').style.display = 'block';
+        }
+      })
+      .catch(err => console.error('Failed to fetch auth config:', err));
 
     document.getElementById('loginForm').addEventListener('submit', async function (e) {
       e.preventDefault();

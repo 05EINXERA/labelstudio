@@ -47,6 +47,45 @@ export function pointInPolygon(point, polygon) {
   return inside;
 }
 
+export function pointInOrOnPolygon(point, polygon) {
+  if (!polygon?.length) return false;
+
+  let inside = false;
+  for (let index = 0, nextIndex = polygon.length - 1; index < polygon.length; nextIndex = index, index += 1) {
+    const current = polygon[index];
+    const previous = polygon[nextIndex];
+    
+    // Check if on boundary
+    const crossProduct = (point.y - current.y) * (previous.x - current.x) - (point.x - current.x) * (previous.y - current.y);
+    if (Math.abs(crossProduct) < 1e-3) {
+      const dotProduct = (point.x - current.x) * (previous.x - current.x) + (point.y - current.y) * (previous.y - current.y);
+      if (dotProduct >= -1e-3) {
+        const sqLen = (previous.x - current.x)**2 + (previous.y - current.y)**2;
+        if (dotProduct <= sqLen + 1e-3) {
+          return true;
+        }
+      }
+    }
+
+    const intersects = ((current.y > point.y) !== (previous.y > point.y)) &&
+      (point.x < ((previous.x - current.x) * (point.y - current.y) / (previous.y - current.y + Number.EPSILON)) + current.x);
+    if (intersects) inside = !inside;
+  }
+  return inside;
+}
+
+export function isPointInsideOtherGroupPolygons(point, currentAnn, groupAnns) {
+  if (!groupAnns || groupAnns.length <= 1) return false;
+  for (const otherAnn of groupAnns) {
+    if (otherAnn === currentAnn) continue;
+    const otherPoints = annotationPoints(otherAnn);
+    if (pointInOrOnPolygon(point, otherPoints)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function hexToRgba(hex, alpha) {
   const clean = hex.replace("#", "");
   const value = parseInt(clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean, 16);
