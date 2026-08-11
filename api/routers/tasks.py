@@ -144,6 +144,7 @@ def get_tasks(
     offset: int = Query(0),
     search: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
+    assignee: Optional[str] = Query(None),
     sort_by: Optional[str] = Query("updated_at"),
     sort_desc: bool = Query(True),
     db: Session = Depends(get_db),
@@ -161,8 +162,10 @@ def get_tasks(
 
     if search:
         query = query.filter(models.Task.description.ilike(f"%{search}%"))
-    if status and status != "All":
+    if status and status.lower() != "all":
         query = query.filter(models.Task.status == status)
+    if assignee:
+        query = query.filter(models.Task.assignee == assignee)
 
     total = query.count()
 

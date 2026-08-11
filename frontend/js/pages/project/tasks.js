@@ -96,6 +96,9 @@ function template(isCreator) {
         <option value="All">All statuses</option>
         ${STATUSES.map((s) => `<option value="${s}">${s}</option>`).join("")}
       </select>
+      <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:0.9rem; margin-left: 12px; color: var(--ink);">
+        <input type="checkbox" id="myTasksFilter"> My Tasks
+      </label>
       <div style="position: relative; margin-left: auto;">
         <button type="button" class="tool-button" id="exportMenuBtn">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
@@ -230,6 +233,9 @@ async function fetchServerTasks(state) {
   }
   if (state.filters.status && state.filters.status !== "All") {
     params.set("status", state.filters.status);
+  }
+  if (state.filters.assignee) {
+    params.set("assignee", state.filters.assignee);
   }
   
   const res = await apiFetch(`/api/tasks?${params.toString()}`);
@@ -715,6 +721,15 @@ export async function mount(hostRoot, hostCtx) {
     el("searchInput").addEventListener("input", (e) => table.setQuery(e.target.value));
     el("statusFilter").addEventListener("change", (e) => table.setFilter("status", e.target.value));
     
+    el("myTasksFilter").addEventListener("change", (e) => {
+      const username = localStorage.getItem("dataset_username") || "";
+      if (e.target.checked && username) {
+        table.setFilter("assignee", username);
+      } else {
+        table.setFilter("assignee", "");
+      }
+    });
+
     // Toggle Export Dropdown
     el("exportMenuBtn").addEventListener("click", (e) => {
       e.stopPropagation();
