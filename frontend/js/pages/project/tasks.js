@@ -17,7 +17,7 @@
  * the "X / N uploaded" counter. An abort button cancels mid-flight.
  */
 import { apiFetch } from "../../api.js?v=2";
-import { escapeHTML, formatTime } from "../../utils.js?v=1";
+import { escapeHTML, formatTime, clientId } from "../../utils.js?v=1";
 import { createDataTable } from "../../components/data-table.js?v=3";
 import { fillTeamSelect } from "../../components/team-picker.js?v=1";
 import { canManage, canReview } from "../../permissions.js?v=1";
@@ -590,15 +590,30 @@ function bindEditModal() {
     e.preventDefault();
     const id = el("editId").value;
     try {
+      // Same identity requirement as the inline status dropdown: a PATCH with
+      // no client_id could not prove it was not a stranger's write, so every
+      // edit came back 409.
+      const editRow = table.getRows?.().find((r) => String(r.id) === String(id));
       const res = await apiFetch(`/api/tasks/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           description: el("editDescription").value,
           status: el("editStatus").value,
+          client_id: clientId(),
+          updated_at: editRow?.updated_at ?? null,
         }),
       });
       if (!res) return;
+      if (res.status === 409) {
+        showError(
+          "Someone else changed this task while the form was open. " +
+          "The list has been refreshed — please reopen it and try again."
+        );
+        closeEditModal();
+        await loadTasks();
+        return;
+      }
       if (!res.ok) {
         showError(`Could not save the task (${res.status}).`);
         return;
@@ -969,11 +984,36 @@ export async function mount(hostRoot, hostCtx, hashParams) {
         body: JSON.stringify({ action, note: note || null }),
       });
     } else {
+      // `client_id` and `updated_at` are both required, not optional extras.
+      // Without them the server cannot tell this write apart from a stranger's
+      // and refuses every status change with a 409 that blames "another user"
+      // — for a task nobody else had touched. `updated_at` comes from the row
+      // the table already holds, so a genuine concurrent edit is still caught.
+      const row = table.getRows?.().find((r) => String(r.id) === String(taskId));
       res = await apiFetch(`/api/tasks/${encodeURIComponent(taskId)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: newStatus }),
+        body: JSON.stringify({
+          status: newStatus,
+          client_id: clientId(),
+          updated_at: row?.updated_at ?? null,
+        }),
       });
+    }
+
+    if (res && res.status === 409) {
+      // A real conflict: someone else wrote this task since the table loaded.
+      // Reloading is the actionable response — it brings in their change and a
+      // fresh token, so the user can look at the current status and decide
+      // again, rather than being told to refresh and left to do it by hand.
+      showError(
+        "Someone else changed this task while the list was open. " +
+        "The list has been refreshed — please try again."
+      );
+      sel.value = originalStatus;
+      sel.className = `status-select ${statusSelectClass(originalStatus)}`;
+      await loadTasks();
+      return;
     }
 
     if (!res || !res.ok) {

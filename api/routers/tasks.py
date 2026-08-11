@@ -888,11 +888,22 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
                             status_code=409,
                             detail="Task was updated by another user. Please refresh to see latest annotations.",
                         )
-            else:
-                # task.updated_at is None / missing.
+            elif task.annotations is not None:
+                # task.updated_at is None / missing, and this write carries an
+                # annotation set.
+                #
                 # A missing token is only accepted if identity proves this is the SAME client
                 # writing over its own previous save (e.g. after a beacon nulled updated_at).
                 # A different client sending null updated_at cannot prove freshness and must 409.
+                #
+                # Scoped to writes that actually carry annotations: this whole
+                # branch exists to stop a client clobbering annotation work it
+                # never saw. A metadata-only write (status, assignee,
+                # description — the Tasks page's status dropdown and edit form)
+                # touches no annotations and therefore cannot destroy any, so
+                # judging it by this rule refused every such edit with a 409
+                # blaming "another user" even when the caller was alone on the
+                # task. The annotation path below is unchanged.
                 is_same_client = (
                     task.client_id is not None
                     and db_task.last_client_id is not None

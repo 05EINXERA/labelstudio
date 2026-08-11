@@ -468,3 +468,116 @@ def test_get_task_by_id_updated_at_matches_after_save(client, alice):
         f"Token from GET /{task['id']} should be accepted as fresh; "
         f"save token was {token_from_save!r}, detail token was {detail['updated_at']!r}"
     )
+
+
+# --- Metadata-only writes (Tasks page status dropdown / edit form) ----------
+#
+# These cover the bug where every status change from the Tasks page came back
+# 409 "Task was updated by another user" — for a task nobody else had touched.
+# The page sent no client_id and no updated_at, which made the missing-token
+# branch unable to prove the write was not a stranger's, so it refused all of
+# them. A write carrying no annotations cannot destroy annotation work, which
+# is the only thing that branch defends.
+
+
+def test_status_only_patch_without_token_is_not_a_conflict(client, alice):
+    """The exact payload the Tasks page dropdown used to send: status alone."""
+    project_id = _project(client, alice)
+    task = _create_task(client, alice, project_id)
+
+    # A prior annotation save stamps last_client_id, as a canvas save would.
+    client.post("/api/tasks", json={
+        "id": task["id"], "status": "Completed", "annotations": _annotations(3),
+        "updated_at": task["updated_at"], "client_id": "canvas-tab",
+    }, headers=alice)
+
+    res = client.patch(f"/api/tasks/{task['id']}",
+                       json={"status": "In Progress"}, headers=alice)
+    assert res.status_code == 200, (
+        f"A metadata-only status change must not 409: {res.text}"
+    )
+    detail = client.get(f"/api/tasks/{task['id']}", headers=alice).json()
+    assert detail["status"] == "In Progress"
+    # The annotations must be untouched by a status-only write.
+    assert len(detail["annotations"]) == 3
+
+
+def test_metadata_patch_does_not_disturb_annotations(client, alice):
+    """Description/status edits leave the stored annotation set alone."""
+    project_id = _project(client, alice)
+    task = _create_task(client, alice, project_id)
+    client.post("/api/tasks", json={
+        "id": task["id"], "annotations": _annotations(5),
+        "updated_at": task["updated_at"], "client_id": "canvas-tab",
+    }, headers=alice)
+
+    res = client.patch(f"/api/tasks/{task['id']}",
+                       json={"description": "renamed.jpg", "status": "Completed"},
+                       headers=alice)
+    assert res.status_code == 200, res.text
+    detail = client.get(f"/api/tasks/{task['id']}", headers=alice).json()
+    assert len(detail["annotations"]) == 5, "metadata edit must not drop annotations"
+
+
+def test_annotation_write_without_token_from_other_client_still_conflicts(client, alice):
+    """The guard this fix must NOT weaken.
+
+    A write that carries annotations, has no freshness token, and comes from a
+    different client is still a 409 — that is the save-loss rule from
+    04_ANNOTATION_SAVE_LOSS.md and it is unchanged.
+    """
+    project_id = _project(client, alice)
+    task = _create_task(client, alice, project_id)
+    client.post("/api/tasks", json={
+        "id": task["id"], "annotations": _annotations(3),
+        "updated_at": task["updated_at"], "client_id": "tab-A",
+    }, headers=alice)
+
+    res = client.post("/api/tasks", json={
+        "id": task["id"], "annotations": _annotations(1),
+        "client_id": "tab-B",          # different client, no updated_at
+    }, headers=alice)
+    assert res.status_code == 409, (
+        "an annotation write from another client with no token must still conflict"
+    )
+
+
+def test_annotation_write_without_token_same_client_still_allowed(client, alice):
+    """The beacon path: same client, token nulled by a beacon, still accepted."""
+    project_id = _project(client, alice)
+    task = _create_task(client, alice, project_id)
+    client.post("/api/tasks", json={
+        "id": task["id"], "annotations": _annotations(3),
+        "updated_at": task["updated_at"], "client_id": "tab-A",
+    }, headers=alice)
+
+    res = client.post("/api/tasks", json={
+        "id": task["id"], "annotations": _annotations(4),
+        "client_id": "tab-A",          # same client, no updated_at
+    }, headers=alice)
+    assert res.status_code == 200, res.text
+
+
+def test_empty_annotation_clear_guard_still_refuses(client, alice):
+    """INCIDENT_692's guard is untouched: an empty set over real work is 422."""
+    project_id = _project(client, alice)
+    task = _create_task(client, alice, project_id)
+    saved = client.post("/api/tasks", json={
+        "id": task["id"], "annotations": _annotations(3),
+        "updated_at": task["updated_at"], "client_id": "tab-A",
+    }, headers=alice).json()
+
+    res = client.post("/api/tasks", json={
+        "id": task["id"], "annotations": "[]",
+        "updated_at": saved["updated_at"], "client_id": "tab-A",
+    }, headers=alice)
+    assert res.status_code == 422, (
+        f"the clear-guard must still refuse an unconfirmed wipe: {res.text}"
+    )
+
+    # And the explicit escape hatch still works.
+    ok = client.post("/api/tasks", json={
+        "id": task["id"], "annotations": "[]", "allow_clear": True,
+        "updated_at": saved["updated_at"], "client_id": "tab-A",
+    }, headers=alice)
+    assert ok.status_code == 200, ok.text

@@ -3,8 +3,8 @@ import { apiFetch } from "../api.js?v=2";
 import {
   state, storageKey, draftKey, legacyDraftKey, colorForName, labelByName, labelById,
   labelDisplayName, snapshot, selectedAnnotation, hydrationOk, hydrationSaveBlock,
-  clearIsUserIntent
-} from "../state.js?v=5";
+  clearIsUserIntent, annotationsChangedSinceHydration, noteHydratedAnnotations
+} from "../state.js?v=6";
 import { pendingCount, retryablePendingCount, isServerUnreachable, peekWrite } from "../offline-queue.js?v=4";
 import { annotationPoints, updateAnnotationBounds } from "../canvas/geometry.js?v=1";
 import { view } from "../canvas/view.js?v=1";
@@ -186,7 +186,7 @@ export function editBlockReason() {
  * elsewhere deliberately omit the annotation set entirely rather than sending
  * an empty one, so they can never reach that guard at all.
  */
-export function syncToBackend({ useBeacon = false, keepStatus = false, allowClear = false } = {}) {
+export function syncToBackend({ useBeacon = false, keepStatus = false, allowClear = false, forceStatus = null } = {}) {
   if (typeof state === 'undefined' || state.galleryIndex < 0 || !state.gallery || !state.gallery[state.galleryIndex]) return;
   const currentTask = state.gallery[state.galleryIndex];
   if (!currentTask.id) return;
@@ -205,7 +205,15 @@ export function syncToBackend({ useBeacon = false, keepStatus = false, allowClea
   // the next real annotator would see a confusing "In Progress" with no work.
   const canWrite = currentTask.can_write !== false;
 
-  let taskStatus = currentTask.status;
+  // An explicitly chosen status ("Save as Complete") is the user's instruction,
+  // not a derived value, so it is read from the argument rather than from
+  // `currentTask.status`. Threading it through as data fixes a save that
+  // reported success while storing the wrong status: `saveAndComplete` mutated
+  // `currentTask.status` and relied on that mutation surviving until the
+  // payload was built, but the pill was already repainted locally, so a
+  // payload that went out as "In Progress" still looked Completed on screen
+  // until the next reload. The request now carries exactly what was asked for.
+  let taskStatus = forceStatus || currentTask.status;
 
   if (canWrite && !keepStatus) {
     // Opening a New task and doing any work naturally starts it.
@@ -214,9 +222,22 @@ export function syncToBackend({ useBeacon = false, keepStatus = false, allowClea
     // Saving while Completed means the annotator revised their work — flip back
     // to In Progress so a reviewer re-reviews it rather than silently passing
     // amended annotations as already-approved.
+    //
+    // Gated on the annotations having actually changed since the task
+    // hydrated. Not every save is an edit: the 30s time drain, the gallery
+    // switch flush and the visibilitychange beacon all run this path having
+    // touched nothing, and demoting on those meant simply *opening* a
+    // Completed task — or completing one and paging away — silently reverted
+    // it to In Progress. `annotationsChangedSinceHydration` fails safe,
+    // reporting "changed" whenever it cannot prove otherwise, so a genuine
+    // revision is still demoted exactly as before.
+    //
     // NOTE: keepStatus=true bypasses this so "Save as Complete" can lock the
     // status in place rather than having syncToBackend immediately revert it.
-    if (taskStatus === 'Completed') taskStatus = 'In Progress';
+    if (taskStatus === 'Completed' &&
+        annotationsChangedSinceHydration(state.annotations)) {
+      taskStatus = 'In Progress';
+    }
   }
 
   currentTask.status = taskStatus;
@@ -234,7 +255,15 @@ export function syncToBackend({ useBeacon = false, keepStatus = false, allowClea
     // The draft exists to cover work the server does not have. Once it has
     // taken the write, the draft is stale and must go, or the next load would
     // "recover" it over fresher server data.
-    if (ok !== false && currentTask.id) clearDraft(currentTask.id);
+    if (ok !== false && currentTask.id) {
+      clearDraft(currentTask.id);
+      // The server now holds exactly what was sent, so that becomes the new
+      // baseline for "has this been edited?". Without this the fingerprint
+      // stays pinned to the original hydration and every later save still
+      // counts as an edit — which would demote a just-completed task on the
+      // very next time drain.
+      noteHydratedAnnotations(currentTask.annotations);
+    }
     return ok;
   });
 }

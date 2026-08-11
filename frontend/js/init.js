@@ -3,8 +3,9 @@ import { apiFetch, pollJob } from "./api.js?v=2";
 import {
   state, snapshot, resetWorkspaceForNewImage,
   beginHydration, completeHydration, failHydration, hydrationOk, hydrationFailed,
-  hydrationSaveBlock, currentHydrationGeneration, noteHydratedAnnotationCount
-} from "./state.js?v=5";
+  hydrationSaveBlock, currentHydrationGeneration, noteHydratedAnnotationCount,
+  noteHydratedAnnotations
+} from "./state.js?v=6";
 import { view } from "./canvas/view.js?v=1";
 import { commentOverlayRefs } from "./comment-overlay.js?v=1";
 import {
@@ -16,7 +17,7 @@ import { drawAllLayers } from "./canvas/draw.js?v=1";
 import {
   setStatus, syncToBackend, save, loadSaved, saveDraft, restoreDraft,
   render, manualSaveWithUI, refreshSaveStatus, pruneStaleDrafts
-} from "./components/workspace.js?v=7";
+} from "./components/workspace.js?v=9";
 import {
   configureQueue, startQueue, subscribe as subscribeQueue, drainQueue,
   enqueueWrite, retryablePendingCount, noteServerReachable, noteServerUnreachable,
@@ -311,6 +312,10 @@ async function switchImage(index) {
         // Record what the server actually held, so a later empty save can be
         // told apart from a canvas that simply never got populated.
         noteHydratedAnnotationCount(item.annotations.length);
+        // And the set itself, so an incidental save (time drain, gallery
+        // switch) can be told apart from a real edit — only the latter may
+        // demote a Completed task back to In Progress.
+        noteHydratedAnnotations(item.annotations);
         completeHydration(generation);
       } else {
         failHydration(generation);
@@ -1166,10 +1171,12 @@ async function saveAndComplete(targetStatus) {
     : null;
   if (!task || !task.id) return;
 
-  // Force the target status onto the task object before syncing so
-  // syncToBackend sends it (it reads currentTask.status).
+  // The target status is passed to syncToBackend as `forceStatus` rather than
+  // being written onto the task first. Mutating `task.status` here and hoping
+  // the payload picked it up is what let a save report success while storing
+  // something else: the pill repainted from local state immediately, so the
+  // mismatch only became visible on the next reload.
   const previousStatus = task.status;
-  task.status = targetStatus;
 
   // saveDraft then sync.
   saveDraft();
@@ -1181,12 +1188,18 @@ async function saveAndComplete(targetStatus) {
   }
 
   try {
-    const ok = await Promise.resolve(syncToBackend({ keepStatus: true }));
+    const ok = await Promise.resolve(
+      syncToBackend({ keepStatus: true, forceStatus: targetStatus })
+    );
     if (ok === false) {
       // Sync failed — restore the previous status so the client isn't lying.
       task.status = previousStatus;
       refreshSaveStatus();
     } else {
+      // Only now is the status real: the server took the write. Setting it
+      // after confirmation (rather than before the request) means the pill can
+      // never show a status the database does not hold.
+      task.status = targetStatus;
       setStatus(`Saved as ${targetStatus}`);
       // Re-render the menu so options update (e.g. now Completed → show Approve/Reject).
       updateTaskStatusPill(task);

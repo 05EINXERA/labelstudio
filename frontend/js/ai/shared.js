@@ -1,4 +1,4 @@
-import { state } from "../state.js?v=5";
+import { state } from "../state.js?v=6";
 import { view } from "../canvas/view.js?v=1";
 
 /**

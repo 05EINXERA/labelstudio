@@ -224,6 +224,17 @@ let hydrationFailedGeneration = -1;
 // by the very condition it exists to detect.
 let hydratedAnnotationCount = 0;
 
+// Fingerprint of the annotation set as it arrived from the server, used to
+// answer "has the user actually edited anything since this task opened?".
+//
+// The count alone cannot answer that: moving a box or relabelling it leaves the
+// count identical. This exists because "saving a Completed task demotes it to
+// In Progress" must fire only for a real content change. Time-only and
+// incidental saves (the 30s drain, a gallery switch, an autosave triggered by a
+// non-content action) otherwise silently un-completed a task the annotator had
+// just finished — including on merely opening it.
+let hydratedAnnotationFingerprint = null;
+
 /** Open a new hydration attempt. Returns the generation token for it. */
 export function beginHydration() {
   hydrationGeneration += 1;
@@ -231,6 +242,9 @@ export function beginHydration() {
   // would let the new task inherit "it had work when it loaded" and so qualify
   // for a clear it never earned.
   hydratedAnnotationCount = 0;
+  // Same reasoning for the fingerprint: an inherited one would make the new
+  // task's untouched annotations look edited (or vice versa).
+  hydratedAnnotationFingerprint = null;
   return hydrationGeneration;
 }
 
@@ -260,6 +274,34 @@ export function noteHydratedAnnotationCount(count) {
 
 export function getHydratedAnnotationCount() {
   return hydratedAnnotationCount;
+}
+
+/** Record the server's annotation set verbatim, for change detection. */
+export function noteHydratedAnnotations(annotations) {
+  try {
+    hydratedAnnotationFingerprint = JSON.stringify(annotations ?? []);
+  } catch {
+    // Unserialisable state should not break saving; fall back to "unknown",
+    // which annotationsChangedSinceHydration() treats as "assume edited" —
+    // the same behaviour as before this check existed.
+    hydratedAnnotationFingerprint = null;
+  }
+}
+
+/**
+ * Have the open task's annotations changed since it hydrated?
+ *
+ * Fails safe: with no fingerprint (hydration failed, or an older bundle) this
+ * reports `true`, so the caller behaves exactly as it did before — the status
+ * demotion is applied. Only a positive, verified match suppresses it.
+ */
+export function annotationsChangedSinceHydration(annotations) {
+  if (hydratedAnnotationFingerprint === null) return true;
+  try {
+    return JSON.stringify(annotations ?? []) !== hydratedAnnotationFingerprint;
+  } catch {
+    return true;
+  }
 }
 
 /**
