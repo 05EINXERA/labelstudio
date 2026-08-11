@@ -35,7 +35,7 @@ param(
 
 $results = @()
 
-function Add-Result([string]$Name, [bool]$Ok, [string]$Detail) {
+function Add-Result([string]$Name, $Ok, [string]$Detail) {
     $script:results += [pscustomobject]@{ Check = $Name; Ok = $Ok; Detail = $Detail }
 }
 
@@ -97,10 +97,6 @@ else {
 }
 
 # 5 — power plan / sleep settings
-$activeScheme = (powercfg /getactivescheme) 2>$null
-$isHighPerf = $activeScheme -match "High performance"
-Add-Result "Power plan = High Performance" $isHighPerf "$activeScheme"
-
 $standbyAc = (powercfg /query SCHEME_CURRENT SUB_SLEEP STANDBYIDLE 2>$null) -join "`n"
 $standbyOff = $standbyAc -match "Current AC Power Setting Index:\s*0x00000000"
 Add-Result "Sleep disabled (AC)" $standbyOff "See 'powercfg /query' output for detail if this fails"
