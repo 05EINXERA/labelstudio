@@ -2491,5 +2491,60 @@ button.switch[aria-checked="true"] .switch-knob {
   margin: 6px 0;
 }
 
+/* --- Print Styles for Tasks Table --- */
+@media print {
+  /* Hide all surrounding chrome */
+  .mgmt-header,
+  .project-nav,
+  .mgmt-title-row,
+  #dropZone,
+  #bulkBar,
+  .mgmt-toolbar,
+  .modal-overlay,
+  .row-actions {
+    display: none !important;
+  }
 
+  /* Reset layout constraints so table can expand */
+  body, html, .project-shell, .project-view {
+    height: auto !important;
+    min-height: auto !important;
+    overflow: visible !important;
+    display: block !important;
+    background: white !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
 
+  /* Ensure the table mount fits the page */
+  #tableMount {
+    width: 100% !important;
+    display: block !important;
+  }
+
+  /* Make sure data table expands properly and removes max-heights */
+  .data-table-container,
+  .data-table-wrapper {
+    max-height: none !important;
+    height: auto !important;
+    overflow: visible !important;
+    border: none !important;
+    box-shadow: none !important;
+    display: block !important;
+  }
+
+  table {
+    width: 100% !important;
+    page-break-inside: auto;
+  }
+  
+  tr {
+    page-break-inside: avoid;
+    page-break-after: auto;
+  }
+
+  th, td {
+    border-bottom: 1px solid #ccc !important;
+    color: black !important;
+  }
+}

@@ -96,6 +96,18 @@ function template(isCreator) {
         <option value="All">All statuses</option>
         ${STATUSES.map((s) => `<option value="${s}">${s}</option>`).join("")}
       </select>
+      <div style="position: relative; margin-left: auto;">
+        <button type="button" class="tool-button" id="exportMenuBtn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+          Export ▼
+        </button>
+        <div id="exportMenuContent" style="display: none; position: absolute; top: 100%; right: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); z-index: 1000; min-width: 130px; flex-direction: column; overflow: hidden; margin-top: 4px;">
+          <button type="button" id="printTableBtn" class="dropdown-item" style="background: none; border: none; padding: 10px 16px; text-align: left; width: 100%; cursor: pointer; color: var(--ink);">PDF / Print</button>
+          <button type="button" id="exportCsvBtn" class="dropdown-item" style="background: none; border: none; padding: 10px 16px; text-align: left; width: 100%; cursor: pointer; border-top: 1px solid var(--line); color: var(--ink);">CSV File</button>
+          <button type="button" id="exportXlsBtn" class="dropdown-item" style="background: none; border: none; padding: 10px 16px; text-align: left; width: 100%; cursor: pointer; border-top: 1px solid var(--line); color: var(--ink);">Excel File</button>
+          <button type="button" id="exportDocBtn" class="dropdown-item" style="background: none; border: none; padding: 10px 16px; text-align: left; width: 100%; cursor: pointer; border-top: 1px solid var(--line); color: var(--ink);">DOC File</button>
+        </div>
+      </div>
     </div>
 
     <div id="tableMount"></div>
@@ -233,7 +245,14 @@ async function fetchServerTasks(state) {
   clearError();
   const data = await res.json();
   table.setServerData(data.items, data.total);
-  _refreshLockCache(data.items).then(() => table.render());
+  
+  // Prevent overwhelming the single-worker backend with hundreds of concurrent 
+  // lock-status requests when printing (which sets pageSize to 100,000).
+  if (data.items.length <= 50) {
+    _refreshLockCache(data.items).then(() => table.render());
+  } else {
+    table.render();
+  }
 }
 
 async function loadTasks() {
@@ -695,6 +714,157 @@ export async function mount(hostRoot, hostCtx) {
 
     el("searchInput").addEventListener("input", (e) => table.setQuery(e.target.value));
     el("statusFilter").addEventListener("change", (e) => table.setFilter("status", e.target.value));
+    
+    // Toggle Export Dropdown
+    el("exportMenuBtn").addEventListener("click", (e) => {
+      e.stopPropagation();
+      const menu = el("exportMenuContent");
+      menu.style.display = menu.style.display === "none" ? "flex" : "none";
+    });
+    
+    // Close dropdown when clicking outside
+    document.addEventListener("click", () => {
+      const menu = el("exportMenuContent");
+      if (menu) menu.style.display = "none";
+    });
+    
+    // Hover effects for dropdown items
+    document.querySelectorAll(".dropdown-item").forEach(item => {
+      item.addEventListener("mouseenter", () => item.style.backgroundColor = "var(--panel-2)");
+      item.addEventListener("mouseleave", () => item.style.backgroundColor = "transparent");
+    });
+    
+    el("printTableBtn").addEventListener("click", async () => {
+      const btn = el("printTableBtn");
+      const originalText = btn.innerHTML;
+      btn.innerHTML = "Preparing Print...";
+      btn.disabled = true;
+      try {
+        await table.setPageSize(100000); // Fetch all rows for printing
+        await new Promise(r => setTimeout(r, 100)); // Ensure DOM is fully updated
+        window.print();
+      } finally {
+        await table.setPageSize(10); // Restore default page size
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+      }
+    });
+
+    async function fetchAllForExport() {
+      const res = await apiFetch(`/api/tasks?projectId=${encodeURIComponent(ctx.projectId)}&limit=100000&offset=0`);
+      if (!res || !res.ok) throw new Error("Failed to fetch tasks");
+      const data = await res.json();
+      return data.items;
+    }
+
+    el("exportCsvBtn").addEventListener("click", async () => {
+      try {
+        const btn = el("exportCsvBtn");
+        const originalText = btn.textContent;
+        btn.textContent = "Loading...";
+        btn.disabled = true;
+        
+        const tasks = await fetchAllForExport();
+        const headers = ["Filename", "Assignee", "Status", "Updated", "Classes", "Comments"];
+        const rows = tasks.map(t => {
+          const c = countAnnotations(t);
+          return [
+            t.description || "",
+            t.assignee || "",
+            t.status || "",
+            t.updated_at || "",
+            c.classes,
+            c.comments
+          ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(",");
+        });
+        const csv = [headers.join(","), ...rows].join("\\n");
+        
+        const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `tasks_${ctx.projectId}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+        
+        btn.textContent = originalText;
+        btn.disabled = false;
+      } catch (err) {
+        console.error(err);
+        showError("Failed to export CSV");
+      }
+    });
+
+    el("exportXlsBtn").addEventListener("click", async () => {
+      try {
+        const btn = el("exportXlsBtn");
+        const originalText = btn.textContent;
+        btn.textContent = "Loading...";
+        btn.disabled = true;
+        
+        const tasks = await fetchAllForExport();
+        const headers = ["Filename", "Assignee", "Status", "Updated", "Classes", "Comments"];
+        const rows = tasks.map(t => {
+          const c = countAnnotations(t);
+          return `<tr><td>${escapeHTML(t.description || "")}</td><td>${escapeHTML(t.assignee || "")}</td><td>${escapeHTML(t.status || "")}</td><td>${escapeHTML(t.updated_at || "")}</td><td>${c.classes}</td><td>${c.comments}</td></tr>`;
+        });
+        
+        const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+        <head><meta charset="utf-8"><!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Tasks</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]--></head>
+        <body><table border="1">${headers.map(h => `<th>${h}</th>`).join("")}${rows.join("\\n")}</table></body></html>`;
+        
+        const blob = new Blob([html], { type: "application/vnd.ms-excel;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `tasks_${ctx.projectId}.xls`;
+        a.click();
+        URL.revokeObjectURL(url);
+        
+        btn.textContent = originalText;
+        btn.disabled = false;
+      } catch (err) {
+        console.error(err);
+        showError("Failed to export Excel");
+      }
+    });
+
+    el("exportDocBtn").addEventListener("click", async () => {
+      try {
+        const btn = el("exportDocBtn");
+        const originalText = btn.textContent;
+        btn.textContent = "Loading...";
+        btn.disabled = true;
+        
+        const tasks = await fetchAllForExport();
+        const headers = ["Filename", "Assignee", "Status", "Updated", "Classes", "Comments"];
+        const rows = tasks.map(t => {
+          const c = countAnnotations(t);
+          return `<tr><td>${escapeHTML(t.description || "")}</td><td>${escapeHTML(t.assignee || "")}</td><td>${escapeHTML(t.status || "")}</td><td>${escapeHTML(t.updated_at || "")}</td><td>${c.classes}</td><td>${c.comments}</td></tr>`;
+        });
+        
+        const html = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+        <head><meta charset='utf-8'></head><body>
+        <table border="1" style="border-collapse:collapse; width:100%; font-family:sans-serif;">
+          <tr style="background:#f0f0f0;">${headers.map(h => `<th>${h}</th>`).join("")}</tr>
+          ${rows.join("\\n")}
+        </table></body></html>`;
+        
+        const blob = new Blob([html], { type: "application/msword;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `tasks_${ctx.projectId}.doc`;
+        a.click();
+        URL.revokeObjectURL(url);
+        
+        btn.textContent = originalText;
+        btn.disabled = false;
+      } catch (err) {
+        console.error(err);
+        showError("Failed to export DOC");
+      }
+    });
 
     table.onAction("edit", (row) => {
       if (!isCreator) return;

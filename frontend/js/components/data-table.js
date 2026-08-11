@@ -230,6 +230,7 @@ export function createDataTable(opts) {
   }
 
   function showLoading(count = 5) {
+    count = Math.min(count, 50); // Bound count to prevent freezing on large page sizes
     const head = columns
       .map((c) => {
         const style = `${c.width ? `width:${c.width};` : ""}${c.align ? `text-align:${c.align};` : ""}`;
@@ -279,10 +280,10 @@ export function createDataTable(opts) {
       state.selected.forEach((id) => { if (!live.has(id)) state.selected.delete(id); });
       render();
     },
-    setQuery(q) { state.query = q || ""; state.page = 1; if (onFetchData) onFetchData(state); else render(); },
-    setFilter(key, value) { state.filters[key] = value; state.page = 1; if (onFetchData) onFetchData(state); else render(); },
-    setPageSize(n) { state.pageSize = Number(n) || 10; state.page = 1; if (onFetchData) onFetchData(state); else render(); },
-    reload() { if (onFetchData) onFetchData(state); else render(); },
+    setQuery(q) { state.query = q || ""; state.page = 1; if (onFetchData) return onFetchData(state); else render(); },
+    setFilter(key, value) { state.filters[key] = value; state.page = 1; if (onFetchData) return onFetchData(state); else render(); },
+    setPageSize(n) { state.pageSize = Number(n) || 10; state.page = 1; if (onFetchData) return onFetchData(state); else render(); },
+    reload() { if (onFetchData) return onFetchData(state); else render(); },
     clearSelection() { state.selected.clear(); render(); onSelectionChange?.(state.selected); },
     getSelection() { return new Set(state.selected); },
     getRows() { return [...state.rows]; },
