@@ -286,6 +286,16 @@ async function switchImage(index) {
         // Write the server copy into the gallery slot so subsequent switches
         // don't re-fetch unnecessarily.
         item.annotations = Array.isArray(detail.annotations) ? detail.annotations : [];
+        // The gallery is built from bare ids, so the image and filename arrive
+        // here rather than from a list response. Assigned unconditionally: on
+        // a re-open they are already correct, and re-deriving them is cheaper
+        // than branching on whether this is the first hydrate.
+        if (detail.image_path) {
+          item.url = "/" + String(detail.image_path).replace(/\\/g, "/");
+        }
+        if (detail.description != null) item.name = detail.description;
+        if (detail.status != null) item.status = detail.status;
+        if (detail.assignee != null) item.assignee = detail.assignee;
         // Always refresh the concurrency token from the server response —
         // omitting this was the root of the annotation-loss bug.
         if (detail.updated_at) item.updated_at = detail.updated_at;
@@ -1192,13 +1202,71 @@ async function saveAndComplete(targetStatus) {
   }
 }
 
+// Set by the tasks view when an annotator opens a task from the table. Must
+// match CAME_FROM_TASKS_KEY in pages/project/tasks.js — there is no build step
+// to share one constant, so the two files name each other.
+const CAME_FROM_TASKS_KEY = "tasks_nav_origin";
+
+// How long the marker stays trustworthy. It is written immediately before the
+// navigation, so anything older belongs to an earlier visit — a tab left open
+// overnight and returned to via a bookmark must not pop history it no longer
+// owns. Generous, because the only cost of being wrong in the safe direction
+// is following the href.
+const CAME_FROM_TASKS_TTL_MS = 60 * 60 * 1000;
+
+/** True when this workspace was opened from the tasks table in this tab. */
+function cameFromTasksPage() {
+  try {
+    const raw = sessionStorage.getItem(CAME_FROM_TASKS_KEY);
+    if (!raw) return false;
+    const age = Date.now() - Number(raw);
+    return Number.isFinite(age) && age >= 0 && age < CAME_FROM_TASKS_TTL_MS;
+  } catch {
+    return false;   // private mode / storage disabled: fall back to the href
+  }
+}
+
+function clearCameFromTasks() {
+  try {
+    sessionStorage.removeItem(CAME_FROM_TASKS_KEY);
+  } catch { /* nothing to clear */ }
+}
+
 // Points the back arrow at the project this workspace was opened from, and
 // fills the breadcrumb's project half.
 async function initWorkspaceContext() {
   if (!projectId) return;
 
   if (backToProject) {
-    backToProject.href = `project.html?id=${projectId}#/tasks`;
+    // Rebuild the tasks-view hash from the params the link into this workspace
+    // carried, so "back" returns to the page (and sort/filters) the annotator
+    // left rather than resetting them to page 1.
+    //
+    // This href is the fallback: it is what a middle-click, a bookmark or a
+    // direct visit needs, and what runs when there is no history to pop.
+    const view = new URLSearchParams();
+    for (const key of ["page", "sort", "order", "q", "status", "team", "assignee"]) {
+      const value = urlParams.get(key);
+      if (value) view.set(key, value);
+    }
+    const qs = view.toString();
+    backToProject.href =
+      `project.html?id=${encodeURIComponent(projectId)}#/tasks${qs ? `?${qs}` : ""}`;
+
+    backToProject.addEventListener("click", (e) => {
+      // Let the browser handle modifier-clicks (open in new tab) normally.
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+      if (!cameFromTasksPage()) return;   // no history to pop; follow the href
+
+      // Step back instead of navigating forward. Following the href would push
+      // a third entry (tasks → canvas → tasks), leaving the browser Back button
+      // pointing at the canvas — a loop the annotator cannot get out of.
+      // Going back also restores the tasks page's own scroll position and its
+      // already-loaded page, which a fresh navigation would discard.
+      e.preventDefault();
+      clearCameFromTasks();
+      history.back();
+    });
   }
   // exportLink.href is set conditionally by initIdentityAndPermissions after
   // the role is known — annotators get no href, reviewer+ get the exports tab.
@@ -1220,37 +1288,51 @@ async function initWorkspaceContext() {
 async function loadWorkspaceTasks() {
   if (!projectId) return;
   try {
-    // T1.2 — Fetch the gallery shell without annotation blobs. At 25 clients
-    // each refreshing at shift start, shipping every task's full annotation
-    // JSON through one process was O(project size × clients). The per-task
-    // detail endpoint (GET /api/tasks/{id}) hydrates annotations when the
-    // task is actually opened (switchImage → T1.3).
-    const res = await apiFetch(`/api/tasks?projectId=${projectId}&include_annotations=false`);
+    // The gallery is built from the *ordered id list*, not from task rows.
+    //
+    // The canvas needs the whole sequence — "what is the image after this
+    // one?", and the "39 / 50" readout — but the Tasks table is now paginated
+    // server-side, so fetching the list would only give it one page. Fetching
+    // every row instead would undo T1.2's payload work.
+    //
+    // GET /api/tasks/order returns ids only (~22 KB for 4,000 tasks) in exactly
+    // the order the table displays, because both go through the same ordering
+    // helper server-side. That shared order is what makes prev/next from image
+    // 39/50 land on 38/50 and 40/50 — previously the endpoint had no ORDER BY
+    // at all, so the canvas's neighbours were not the table's neighbours and a
+    // save could move a task (.devnotes/tasks-pagination/PLAN.md § 2.1).
+    //
+    // Each entry starts as a placeholder and is hydrated on open by
+    // GET /api/tasks/{id} (switchImage → T1.3), which returns image_path,
+    // description, the assignment fields and the annotations.
+    const params = new URLSearchParams({ projectId });
+    // Carry the table's sort/filters so the canvas walks the set the user was
+    // actually looking at, rather than the whole project.
+    for (const key of ["sort", "order", "q", "status", "team", "assignee"]) {
+      const value = urlParams.get(key);
+      if (value) params.set(key, value);
+    }
+
+    const res = await apiFetch(`/api/tasks/order?${params.toString()}`);
     if (res.ok) {
-      const tasks = await res.json();
-      state.gallery = tasks.map(t => ({
-        id: t.id,
-        name: t.description,
-        url: "/" + t.image_path.replace(/\\/g, "/"),
-        // Starts empty; hydrated on open via GET /api/tasks/{id}.
+      const { ids } = await res.json();
+      state.gallery = (Array.isArray(ids) ? ids : []).map(id => ({
+        id,
+        // Filled in by the per-task hydrate on open. `url` stays null until
+        // then; switchImage awaits the detail fetch before drawing.
+        name: null,
+        url: null,
         annotations: [],
         width: 0,
         height: 0,
-        status: t.status,
-        assignee: t.assignee,
-        // Assignment fields — needed by the permission banner before the
-        // per-task detail fetch completes. The server returns all four on the
-        // list endpoint (include_annotations=false path in tasks.py).
-        assignee_user_id: t.assignee_user_id ?? null,
-        assignee_name: t.assignee_name ?? null,
-        assigned_team_id: t.assigned_team_id ?? null,
-        assigned_team_name: t.assigned_team_name ?? null,
-        // Persisted per-task total; the workspace "Total" readout is scoped to
-        // the open task, so it needs this as its base.
-        time_spent: t.time_spent || 0,
-        // Optimistic-concurrency token — refreshed from the detail fetch on
-        // open, but initialised here so the field is always present.
-        updated_at: t.updated_at || null
+        status: null,
+        assignee: null,
+        assignee_user_id: null,
+        assignee_name: null,
+        assigned_team_id: null,
+        assigned_team_name: null,
+        time_spent: 0,
+        updated_at: null
       }));
 
       if (state.gallery.length > 0) {

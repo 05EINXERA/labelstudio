@@ -18,7 +18,7 @@
  */
 import { apiFetch } from "../../api.js?v=2";
 import { escapeHTML, formatTime } from "../../utils.js?v=1";
-import { createDataTable } from "../../components/data-table.js?v=2";
+import { createDataTable } from "../../components/data-table.js?v=3";
 import { fillTeamSelect } from "../../components/team-picker.js?v=1";
 import { canManage, canReview } from "../../permissions.js?v=1";
 import { openAssignDialog } from "./assign-modal.js?v=1";
@@ -30,7 +30,7 @@ import {
   showsSelection,
   showsUpload,
   statusPill,
-} from "./task-columns.js?v=7";
+} from "./task-columns.js?v=8";
 
 let root = null;
 let ctx = null;
@@ -84,6 +84,10 @@ async function _refreshLockCache() {
 // incrementally. Keep this well below MAX_UPLOAD_FILES (server default 200).
 // ---------------------------------------------------------------------------
 const BATCH_SIZE = 15;
+
+// Rows per page. Must stay <= the server's MAX_PAGE_SIZE (100), which rejects
+// anything larger rather than silently clamping.
+const PAGE_SIZE = 10;
 
 // CSRF cookie name — must match api/auth.py.
 const CSRF_COOKIE = "csrf_token";
@@ -305,36 +309,67 @@ function clearError() {
 
 // --- data --------------------------------------------------------------
 
-async function loadTasks() {
-  // include_annotations=false: this view never reads annotation *contents*, only
-  // the Classes and Comments counts, which the server now returns as two
-  // integers per row (class_count / comment_count). Fetching the blobs meant
-  // ~8.9 MB on a 120-task project to render two columns — the same mistake the
-  // canvas page already avoids (CLAUDE.md rule 17).
-  // See .devnotes/server-optimization/03_TASKS_PAGE.md.
-  const res = await apiFetch(
-    `/api/tasks?projectId=${encodeURIComponent(ctx.projectId)}&include_annotations=false`
-  );
-  if (!res) return;
-  if (!res.ok) {
-    showError(`Could not load tasks (${res.status}).`);
-    return;
-  }
-  clearError();
-  const tasks = await res.json();
-  table.setRows(tasks);
+// Column key -> server sort field. The server whitelists sort fields
+// (api/routers/tasks.py `_SORT_COLUMNS`), so a column that is sortable in the
+// UI but unknown there would 422. Anything absent here falls back to the
+// filename, which is the default order.
+const SERVER_SORT_KEYS = {
+  description: "description",
+  status: "status",
+  updated_at: "updated_at",
+  time_spent: "time_spent",
+  id: "id",
+};
 
-  // Re-apply derived-key filters. setRows() replaces all row objects, so the
-  // _assigneeFilter and _teamFilter keys written onto rows by applyAssigneeFilter /
-  // applyTeamFilter are gone. Without this, an active filter makes the table
-  // appear empty after every reload.
-  _reapplyFilters();
+/**
+ * Fetch one page of tasks.
+ *
+ * Passed to the table as `server.fetchPage`; the table owns page/sort/filter
+ * state and calls this whenever any of it changes.
+ *
+ * include_annotations=false: this view never reads annotation *contents*, only
+ * the Classes and Comments counts, which the server returns as two integers per
+ * row (class_count / comment_count). Fetching the blobs meant ~8.9 MB on a
+ * 120-task project to render two columns — the same mistake the canvas page
+ * already avoids (CLAUDE.md rule 17).
+ * See .devnotes/server-optimization/03_TASKS_PAGE.md.
+ */
+async function fetchTaskPage({ page, pageSize, sortKey, sortDesc, query, filters }) {
+  const params = new URLSearchParams({
+    projectId: ctx.projectId,
+    include_annotations: "false",
+    page: String(page),
+    page_size: String(pageSize),
+    sort: SERVER_SORT_KEYS[sortKey] || "description",
+    order: sortDesc ? "desc" : "asc",
+  });
+  // Filtering and search run in SQL now. With only one page in memory the
+  // client could otherwise search 10 rows out of thousands and report "no
+  // matches" for a task that exists on page 30.
+  if (query) params.set("q", query);
+  for (const [key, value] of [
+    ["status", filters.status],
+    ["team", filters.team],
+    ["assignee", filters.assignee],
+  ]) {
+    if (value && value !== "All") params.set(key, value);
+  }
+
+  const res = await apiFetch(`/api/tasks?${params.toString()}`);
+  if (!res) return null;                     // apiFetch handled a 401 redirect
+  if (!res.ok) throw new Error(`Could not load tasks (${res.status}).`);
+  clearError();
+  return res.json();
+}
+
+/** Reload the current page in place (after an edit, delete or upload). */
+async function loadTasks() {
+  await table.load();
 
   // T2.2 — refresh lock badges after the table renders (async, non-blocking).
-  _refreshLockCache().then(() => {
-    table.setRows(tasks);
-    _reapplyFilters();
-  });
+  // Only the rendered page's locks matter, and the badge renderer reads
+  // `_lockCache` by task id, so a re-render is all that is needed.
+  _refreshLockCache().then(() => table.render());
 }
 
 // --- upload --------------------------------------------------------------
@@ -652,30 +687,84 @@ async function loadLookups() {
   }
 }
 
-function _reapplyFilters() {
-  if (_activeFilters.assignee !== "All") applyAssigneeFilter(_activeFilters.assignee);
-  if (_activeFilters.team !== "All") applyTeamFilter(_activeFilters.team);
+// `applyAssigneeFilter` / `applyTeamFilter` / `_reapplyFilters` lived here.
+// They stamped a derived `_assigneeFilter` / `_teamFilter` key onto every row
+// so the client-side table could filter on it, and had to be re-applied after
+// every setRows() because those keys did not survive a reload. All three are
+// gone: the server filters now, and the sentinel values the selects emit
+// ("unassigned", "mine", "user-<id>") are understood by it directly.
+
+// --- view state in the URL ----------------------------------------------
+//
+// The page number lives in the hash (`#/tasks?page=4`) so the browser Back
+// button returns an annotator to the page they opened an image from, rather
+// than dumping them on page 1 — the single most-reported annoyance with the
+// old table. Refresh and shared links get the same behaviour for free.
+
+/** Serialise the table's state into the hash, without adding a history entry. */
+function writeViewStateToHash(view) {
+  const params = new URLSearchParams();
+  if (view.page > 1) params.set("page", String(view.page));
+  // Only non-default sort is recorded, so the common case stays a clean URL.
+  if (view.sortKey && view.sortKey !== "description") params.set("sort", view.sortKey);
+  if (view.sortDesc) params.set("order", "desc");
+  if (view.query) params.set("q", view.query);
+  for (const key of ["status", "team", "assignee"]) {
+    const value = view.filters?.[key];
+    if (value && value !== "All") params.set(key, value);
+  }
+
+  const qs = params.toString();
+  const hash = `#/tasks${qs ? `?${qs}` : ""}`;
+  if (window.location.hash === hash) return;
+  // replaceState, not pushState: paging is not a navigation the user wants to
+  // walk back through one page at a time. Back should leave the tasks view,
+  // and returning from the canvas should restore whatever page was last shown.
+  history.replaceState(history.state, "", window.location.pathname + window.location.search + hash);
 }
 
-function applyAssigneeFilter(value) {
-  _activeFilters.assignee = value;
-  const myId = ctx.currentUser?.id;
-  for (const row of table.getRows()) {
-    row._assigneeFilter =
-      row.assignee_user_id == null
-        ? "unassigned"
-        : (row.assignee_user_id === myId ? "mine" : `user-${row.assignee_user_id}`);
-  }
-  table.setFilter("_assigneeFilter", value === "All" ? "All" : value);
+// Key marking "the canvas was opened from this tab's tasks page", read by the
+// workspace's back arrow. See CAME_FROM_TASKS_KEY in init.js — the two must
+// agree, and there is no build step to share one constant.
+//
+// sessionStorage rather than history.state: the canvas is a separate document,
+// and history.state does not travel across that navigation. Per-tab, so a
+// canvas opened directly in a second tab is correctly treated as having no
+// tasks page to return to.
+const CAME_FROM_TASKS_KEY = "tasks_nav_origin";
+
+/**
+ * Mark that the annotator is leaving for the canvas via a task link.
+ *
+ * Lets the workspace's back arrow step *back* through history instead of
+ * pushing a third entry. Without it the stack grows tasks → canvas → tasks, and
+ * the browser Back button returns to the canvas — a loop the annotator cannot
+ * escape without repeatedly pressing Back
+ * (.devnotes/tasks-pagination/PLAN.md § 8).
+ */
+function markCanvasNavigation(e) {
+  const link = e.target.closest?.("a.task-filename");
+  if (!link) return;
+  // Modifier-clicks and middle-clicks open a new tab; that tab has no history
+  // to go back through, so it must not be told otherwise.
+  if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+  try {
+    sessionStorage.setItem(CAME_FROM_TASKS_KEY, String(Date.now()));
+  } catch { /* private mode: the back arrow just falls back to its href */ }
 }
 
-function applyTeamFilter(value) {
-  _activeFilters.team = value;
-  const rows = table.getRows();
-  for (const row of rows) {
-    row._teamFilter = row.assigned_team_id == null ? "unassigned" : String(row.assigned_team_id);
-  }
-  table.setFilter("_teamFilter", value === "All" ? "All" : value);
+/** Read the view state the router parsed off the hash. */
+function readViewStateFromHash(params) {
+  const page = parseInt(params?.get("page") ?? "", 10);
+  return {
+    page: Number.isFinite(page) && page >= 1 ? page : 1,
+    sortKey: params?.get("sort") || "description",
+    sortDesc: params?.get("order") === "desc",
+    query: params?.get("q") || "",
+    status: params?.get("status") || "All",
+    team: params?.get("team") || "All",
+    assignee: params?.get("assignee") || "All",
+  };
 }
 
 async function assignTasks(row) {
@@ -754,22 +843,33 @@ async function review(row, action) {
 
 // --- mount -------------------------------------------------------------
 
-export async function mount(hostRoot, hostCtx) {
+export async function mount(hostRoot, hostCtx, hashParams) {
   root = hostRoot;
   ctx = hostCtx;
   root.innerHTML = template();
 
   const role = ctx.myRole;
+  const view = readViewStateFromHash(hashParams);
+  _activeFilters.status = view.status;
+  _activeFilters.team = view.team;
+  _activeFilters.assignee = view.assignee;
 
   table = createDataTable({
     mount: el("tableMount"),
     rowId: (r) => r.id,
     selectable: showsSelection(role),
-    sortKey: "updated_at",
-    sortDesc: true,
+    // Filename ascending, by default and without the user clicking a header.
+    // Was `updated_at` descending, which floated whichever task was last saved
+    // to the front and made the canvas's prev/next wander
+    // (.devnotes/tasks-pagination/PLAN.md § 2.1).
+    sortKey: "description",
+    sortDesc: false,
+    pageSize: PAGE_SIZE,
     emptyMessage: "No tasks yet. Upload images to get started.",
     onSelectionChange: updateBulkBar,
-    matches: (row, q) => String(row.description || "").toLowerCase().includes(q),
+    // No `matches`: search is a server query now, not a client predicate.
+    server: { fetchPage: fetchTaskPage },
+    onStateChange: writeViewStateToHash,
     columns: buildColumns({
       role,
       projectId: ctx.projectId,
@@ -777,6 +877,9 @@ export async function mount(hostRoot, hostCtx) {
       usersById,
       lockCache: _lockCache,
       currentUser: ctx.currentUser,
+      // Read lazily: columns are built once here, but the sort and filters
+      // they encode into each canvas link change as the user works.
+      viewState: () => (table ? table.getState() : null),
     }),
   });
 
@@ -793,13 +896,28 @@ export async function mount(hostRoot, hostCtx) {
   if (showsBulkBar(role)) bindBulkActions();
   else el("bulkBar")?.remove();
 
+  // All four narrow the query server-side now. The team/assignee selects keep
+  // emitting the same sentinel values they always did ("unassigned", "mine",
+  // "user-<id>"); the server understands that vocabulary directly, so no
+  // translation is needed here and the derived per-row `_teamFilter` /
+  // `_assigneeFilter` keys are gone.
   el("searchInput").addEventListener("input", (e) => table.setQuery(e.target.value));
   el("statusFilter").addEventListener("change", (e) => {
     _activeFilters.status = e.target.value;
     table.setFilter("status", e.target.value);
   });
-  el("teamFilter")?.addEventListener("change", (e) => applyTeamFilter(e.target.value));
-  el("assigneeFilter")?.addEventListener("change", (e) => applyAssigneeFilter(e.target.value));
+  el("teamFilter")?.addEventListener("change", (e) => {
+    _activeFilters.team = e.target.value;
+    table.setFilter("team", e.target.value);
+  });
+  el("assigneeFilter")?.addEventListener("change", (e) => {
+    _activeFilters.assignee = e.target.value;
+    table.setFilter("assignee", e.target.value);
+  });
+
+  // Delegated on the mount, which survives every re-render; the filename links
+  // themselves are replaced on each page change.
+  el("tableMount").addEventListener("click", markCanvasNavigation);
 
   table.onAction("edit", (row) => openEditModal(row));
   table.onAction("delete", async (row) => {
@@ -872,8 +990,49 @@ export async function mount(hostRoot, hostCtx) {
     await loadTasks();
   });
 
+  // Restore the view the URL describes *before* the first fetch, so a return
+  // from the canvas issues one request for page 4 rather than fetching page 1
+  // and then correcting itself.
+  table.setInitialState({
+    page: view.page,
+    sortKey: view.sortKey,
+    sortDesc: view.sortDesc,
+  });
+  if (view.query) el("searchInput").value = view.query;
+  for (const [id, value] of [
+    ["statusFilter", view.status],
+    ["teamFilter", view.team],
+    ["assigneeFilter", view.assignee],
+  ]) {
+    const node = el(id);
+    if (node && value && value !== "All") node.value = value;
+  }
+
+  // loadLookups() populates the team/assignee selects, so it must finish before
+  // the restored values above can stick — it rebuilds those <option> lists.
   await loadLookups();
+  for (const [id, value] of [["teamFilter", view.team], ["assigneeFilter", view.assignee]]) {
+    const node = el(id);
+    if (node && value && value !== "All") node.value = value;
+  }
+
   await loadTasks();
+}
+
+/**
+ * The hash changed while this view stayed mounted — e.g. the Back button
+ * stepping from `#/tasks?page=5` to `#/tasks?page=4`.
+ *
+ * Only the page is honoured. Re-applying sort and filters here would fight the
+ * user's own edits to those controls, whereas the page is exactly what Back is
+ * expected to move.
+ */
+export function onParamsChange(hashParams) {
+  if (!table) return;
+  const view = readViewStateFromHash(hashParams);
+  if (view.page === table.getState().page) return;
+  table.setInitialState({ page: view.page });
+  table.load();
 }
 
 export function unmount() {

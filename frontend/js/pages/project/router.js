@@ -33,7 +33,7 @@ const projectId = new URLSearchParams(window.location.search).get("id");
 // it stays statically analysable.
 const VIEWS = {
   home: () => import("./home.js?v=1"),
-  tasks: () => import("./tasks.js?v=8"),
+  tasks: () => import("./tasks.js?v=10"),
   classes: () => import("./classes.js?v=2"),
   imports: () => import("./imports.js?v=1"),
   exports: () => import("./exports.js?v=1"),
@@ -100,6 +100,19 @@ async function loadProject() {
 
 // --- routing ---------------------------------------------------------------
 
+/**
+ * The query string carried on the hash, e.g. `#/tasks?page=4` -> URLSearchParams.
+ *
+ * Views own their own query vocabulary; the router only splits it off and hands
+ * it over. The Tasks view uses it to restore the page an annotator was on when
+ * they opened an image, so Back from the canvas does not dump them on page 1.
+ */
+function paramsFromHash() {
+  const raw = window.location.hash || "";
+  const qs = raw.includes("?") ? raw.slice(raw.indexOf("?") + 1) : "";
+  return new URLSearchParams(qs);
+}
+
 function routeFromHash() {
   const raw = (window.location.hash || "").replace(/^#\/?/, "").split("?")[0];
   // Role-filtered, not just validated: deep-linking to a route above your role
@@ -112,7 +125,20 @@ function routeFromHash() {
 
 async function renderRoute() {
   const route = routeFromHash();
-  if (route === currentRoute) return;
+  if (route === currentRoute) {
+    // Same view, different query (e.g. `#/tasks?page=4` -> `#/tasks?page=5`).
+    // Remounting would throw away the table and its scroll position, so the
+    // view is offered the new params instead and decides what to do. This is
+    // what makes Back step through pages rather than leaving the view.
+    if (currentView?.onParamsChange) {
+      try {
+        currentView.onParamsChange(paramsFromHash());
+      } catch (err) {
+        console.error(`Failed to apply params for "${route}"`, err);
+      }
+    }
+    return;
+  }
 
   const token = ++loadToken;
 
@@ -135,7 +161,7 @@ async function renderRoute() {
     // A newer navigation started while this module was loading; discard.
     if (token !== loadToken) return;
     currentView = mod;
-    await mod.mount(els.view, ctx);
+    await mod.mount(els.view, ctx, paramsFromHash());
   } catch (err) {
     if (token !== loadToken) return;
     console.error(`Failed to load view "${route}"`, err);

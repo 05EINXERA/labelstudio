@@ -163,7 +163,39 @@ function actionsCell(row, role) {
  * @param {object} opts.lockCache    taskId → { locked, locked_by }
  * @param {object} opts.currentUser  the signed-in user object (for assignee check)
  */
-export function buildColumns({ role, projectId, teamsById, usersById, lockCache, currentUser }) {
+/**
+ * Query string for the canvas link: the task to open, plus the sort and
+ * filters that define the sequence it should page through.
+ *
+ * Only non-default values are emitted, so the ordinary case stays a short URL.
+ *
+ * `page` rides along without affecting the canvas, which walks the whole
+ * ordered set rather than a page of it. It is carried so the workspace's own
+ * "back to tasks" link can return to the page the annotator left — the browser
+ * Back button restores it from history, but that link builds a fresh URL.
+ */
+export function canvasQuery(projectId, taskId, view) {
+  const params = new URLSearchParams({ projectId, taskId });
+  if (view) {
+    if (view.page > 1) params.set("page", String(view.page));
+    if (view.sortKey && view.sortKey !== "description") params.set("sort", view.sortKey);
+    if (view.sortDesc) params.set("order", "desc");
+    if (view.query) params.set("q", view.query);
+    for (const key of ["status", "team", "assignee"]) {
+      const value = view.filters?.[key];
+      if (value && value !== "All") params.set(key, value);
+    }
+  }
+  return params.toString();
+}
+
+/**
+ * @param {() => object} [viewState]  returns the table's current
+ *        page/sort/filter state, used to build the canvas link. A function
+ *        rather than a value because columns are built once at mount while the
+ *        state changes on every sort, filter and page.
+ */
+export function buildColumns({ role, projectId, teamsById, usersById, lockCache, currentUser, viewState }) {
   const isReviewer = canReview(role);
   const isAnnotatorOnly = canAnnotate(role) && !isReviewer;
 
@@ -180,8 +212,12 @@ export function buildColumns({ role, projectId, teamsById, usersById, lockCache,
     {
       key: "description",
       label: "Filename",
+      // The link carries the table's sort and filters. The canvas rebuilds its
+      // image sequence from GET /api/tasks/order using exactly these, so
+      // prev/next walks the list the user was looking at — filtered to
+      // "Rejected", say — instead of the whole project.
       render: (r) =>
-        `<a class="task-filename" href="app.html?projectId=${encodeURIComponent(projectId)}&taskId=${encodeURIComponent(r.id)}" title="${escapeHTML(r.description || "")}">${escapeHTML(r.description || "")}</a>`,
+        `<a class="task-filename" href="app.html?${canvasQuery(projectId, r.id, viewState?.())}" title="${escapeHTML(r.description || "")}">${escapeHTML(r.description || "")}</a>`,
     },
     { key: "assigned_team_id", label: "Team", render: (r) => teamCell(r, teamsById) },
     { key: "assignee", label: "Assignee", render: (r) => assigneeCell(r, usersById) },

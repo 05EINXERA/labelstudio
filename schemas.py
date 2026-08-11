@@ -303,6 +303,36 @@ class TaskDetail(BaseModel):
     can_write: bool = True
 
 
+class TaskPage(BaseModel):
+    """One page of tasks, returned by GET /api/tasks when `page` is given.
+
+    Only the paged form is wrapped. Without `page` the endpoint still returns a
+    bare array, so existing callers are untouched
+    (.devnotes/tasks-pagination/PLAN.md § 3.2).
+
+    `items` is `List[Any]` rather than a task model on purpose: the list
+    endpoint serves two different row shapes depending on `include_annotations`,
+    and pinning one here would either force the annotation blobs into the
+    annotation-free response or silently drop fields from the other. The rows
+    are hand-built dicts in the router; this schema documents the *envelope*.
+    """
+    items: List[Any] = Field(default_factory=list)
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
+
+class TaskOrder(BaseModel):
+    """Every task id for a project, in display order — GET /api/tasks/order.
+
+    Ids only, deliberately: the canvas needs the sequence (to walk prev/next and
+    to show "39 / 50") but not the rows, and fetching rows for that would undo
+    the payload savings of per-task hydration (CLAUDE.md rule 17).
+    """
+    ids: List[int] = Field(default_factory=list)
+
+
 # --- Teams -------------------------------------------------------------------
 #
 # Roles are `Literal`, not `str`: an invalid role is then a 422 at the boundary

@@ -8,6 +8,17 @@
  * The caller supplies column definitions; this module owns the state and the
  * rendering, and re-binds row listeners on every render (rows are replaced
  * wholesale, so listeners cannot be bound once up front).
+ *
+ * Two modes:
+ *
+ *  - **client** (default): the caller hands over every row via `setRows()`, and
+ *    this module filters, sorts and slices in memory. Right for the small,
+ *    bounded lists (projects, classes, teams, members, grants).
+ *  - **server** (`opts.server`): the caller supplies a `fetchPage` function and
+ *    this module asks for one page at a time. Filtering, sorting and slicing
+ *    all happen in SQL; doing any of them here would reorder a 10-row page
+ *    against the other 3,990 rows the user cannot see.
+ *    See .devnotes/tasks-pagination/PLAN.md § 3.3.
  */
 import { escapeHTML } from "../utils.js?v=1";
 
@@ -23,6 +34,10 @@ import { escapeHTML } from "../utils.js?v=1";
  * @param {(row:object, q:string)=>boolean} [opts.matches]  custom search predicate
  * @param {string}  [opts.emptyMessage]
  * @param {(ids:Set)=>void} [opts.onSelectionChange]
+ * @param {object}  [opts.server]         server-side mode; omit for client mode
+ * @param {(q:object)=>Promise<{items:Array,total:number,total_pages:number}>}
+ *        opts.server.fetchPage           receives {page,pageSize,sortKey,sortDesc,query,filters}
+ * @param {(state:object)=>void} [opts.onStateChange]  fired when page/sort/filter changes
  */
 export function createDataTable(opts) {
   const {
@@ -33,6 +48,8 @@ export function createDataTable(opts) {
     matches,
     emptyMessage = "No rows match your filters.",
     onSelectionChange,
+    server = null,
+    onStateChange,
   } = opts;
 
   const state = {
@@ -44,7 +61,18 @@ export function createDataTable(opts) {
     query: "",
     filters: {},
     selected: new Set(),
+    // Server mode only: totals come from the response rather than rows.length.
+    total: 0,
+    totalPages: 1,
+    loading: false,
+    error: null,
   };
+
+  // Server responses are async and can land out of order: click page 4 then
+  // page 5, and if 4's request is slower it resolves last and overwrites 5.
+  // Every fetch takes the next sequence number and a response is applied only
+  // if it is still the newest one outstanding.
+  let fetchSeq = 0;
 
   // --- derivation ---------------------------------------------------------
 
@@ -82,10 +110,119 @@ export function createDataTable(opts) {
   }
 
   function pageInfo(rows) {
+    // Server mode: the server already sliced and counted. Re-slicing here would
+    // show 10 of the 10 rows we were given as "page 1 of 1".
+    if (server) {
+      return {
+        totalPages: state.totalPages,
+        start: (state.page - 1) * state.pageSize,
+        slice: rows,
+        total: state.total,
+      };
+    }
     const totalPages = Math.max(1, Math.ceil(rows.length / state.pageSize));
     if (state.page > totalPages) state.page = totalPages;
     const start = (state.page - 1) * state.pageSize;
-    return { totalPages, start, slice: rows.slice(start, start + state.pageSize) };
+    return {
+      totalPages,
+      start,
+      slice: rows.slice(start, start + state.pageSize),
+      total: rows.length,
+    };
+  }
+
+  /**
+   * Fetch the current page from the server and render it.
+   *
+   * Clamps and retries once when the requested page has fallen off the end —
+   * deleting the last row of the last page, or applying a filter that shrinks
+   * the set, otherwise leaves the user on an empty page that reports rows.
+   */
+  async function loadPage({ clamped = false } = {}) {
+    const seq = ++fetchSeq;
+    state.loading = true;
+    state.error = null;
+    render();
+
+    let body;
+    try {
+      body = await server.fetchPage({
+        page: state.page,
+        pageSize: state.pageSize,
+        sortKey: state.sortKey,
+        sortDesc: state.sortDesc,
+        query: state.query,
+        filters: { ...state.filters },
+      });
+    } catch (err) {
+      if (seq !== fetchSeq) return;      // superseded; its error is irrelevant
+      state.loading = false;
+      state.error = err?.message || "Could not load this page.";
+      render();
+      return;
+    }
+
+    // A newer request went out while this one was in flight. Dropping the
+    // response is the whole point of the sequence guard.
+    if (seq !== fetchSeq) return;
+
+    state.loading = false;
+    if (!body) {
+      state.error = "Could not load this page.";
+      render();
+      return;
+    }
+
+    state.rows = Array.isArray(body.items) ? body.items : [];
+    state.total = Number(body.total) || 0;
+    state.totalPages = Math.max(1, Number(body.total_pages) || 1);
+
+    // Past the end: clamp and re-fetch, once. `clamped` stops a server that
+    // keeps reporting a smaller total_pages from looping forever.
+    if (state.page > state.totalPages && !clamped) {
+      state.page = state.totalPages;
+      onStateChange?.(publicState());
+      return loadPage({ clamped: true });
+    }
+
+    // Drop selections for rows no longer present, matching client mode.
+    const live = new Set(state.rows.map(rowId));
+    state.selected.forEach((id) => { if (!live.has(id)) state.selected.delete(id); });
+
+    render();
+  }
+
+  function publicState() {
+    return {
+      page: state.page,
+      pageSize: state.pageSize,
+      sortKey: state.sortKey,
+      sortDesc: state.sortDesc,
+      query: state.query,
+      filters: { ...state.filters },
+      total: state.total,
+      totalPages: state.totalPages,
+    };
+  }
+
+  /** Re-fetch (server) or re-render (client) after a state change. */
+  function refresh() {
+    onStateChange?.(publicState());
+    if (server) loadPage();
+    else render();
+  }
+
+  // Typing "cat.png" is 7 keystrokes; without this it is 7 requests, and the
+  // stale-response guard would discard 6 of them after the server had already
+  // done the work.
+  const SEARCH_DEBOUNCE_MS = 300;
+  let debounceTimer = null;
+  function debouncedRefresh() {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      debounceTimer = null;
+      refresh();
+    }, SEARCH_DEBOUNCE_MS);
   }
 
   /**
@@ -111,8 +248,12 @@ export function createDataTable(opts) {
   // --- rendering ----------------------------------------------------------
 
   function render() {
-    const rows = sorted(filtered());
-    const { totalPages, start, slice } = pageInfo(rows);
+    // Server mode already filtered and sorted in SQL. Running the client
+    // predicates over the page would filter 10 rows against a query the server
+    // has applied to all 4,000, and re-sorting would order the page against
+    // itself rather than against the full set.
+    const rows = server ? state.rows : sorted(filtered());
+    const { totalPages, start, slice, total } = pageInfo(rows);
 
     const head = columns
       .map((c) => {
@@ -146,7 +287,9 @@ export function createDataTable(opts) {
             return `<tr data-id="${escapeHTML(id)}">${box}${cells}</tr>`;
           })
           .join("")
-      : `<tr><td colspan="${columns.length + (selectable ? 1 : 0)}" style="text-align:center;color:var(--muted);padding:24px;">${escapeHTML(emptyMessage)}</td></tr>`;
+      : `<tr><td colspan="${columns.length + (selectable ? 1 : 0)}" style="text-align:center;color:var(--muted);padding:24px;">${escapeHTML(
+            state.loading ? "Loading…" : state.error || emptyMessage
+          )}</td></tr>`;
 
     const atStart = state.page <= 1;
     const atEnd = state.page >= totalPages;
@@ -168,7 +311,7 @@ export function createDataTable(opts) {
         </table>
       </div>
       <div class="data-table-footer">
-        <span class="data-table-info">Showing ${rows.length ? start + 1 : 0} to ${Math.min(start + state.pageSize, rows.length)} of ${rows.length} entries</span>
+        <span class="data-table-info">Showing ${total ? start + 1 : 0} to ${Math.min(start + slice.length, total)} of ${total} entries</span>
         <div class="data-table-pager">
           <button type="button" class="pager-btn" data-role="first" title="First page" aria-label="First page" ${atStart ? "disabled" : ""}>«</button>
           <button type="button" class="pager-btn" data-role="prev" title="Previous page" aria-label="Previous page" ${atStart ? "disabled" : ""}>‹</button>
@@ -190,30 +333,38 @@ export function createDataTable(opts) {
           state.sortKey = key;
           state.sortDesc = false;
         }
-        render();
+        // Re-sorting changes which rows are on page 1, so the old page number
+        // is meaningless — a user on page 7 of "name asc" has no reason to be
+        // on page 7 of "status desc".
+        state.page = 1;
+        refresh();
       });
     });
 
-    // pageInfo() clamps state.page down on the next render, so "last" can just
-    // aim past the end rather than recomputing the page count here.
+    // "Last" needs a real page number in server mode: there is no full row
+    // array to clamp against locally, and MAX_SAFE_INTEGER would ask the server
+    // for an absurd offset. state.totalPages is authoritative there; in client
+    // mode pageInfo() still clamps on the next render.
     const goto = {
       first: () => 1,
       prev: () => state.page - 1,
       next: () => state.page + 1,
-      last: () => Number.MAX_SAFE_INTEGER,
+      last: () => (server ? state.totalPages : Number.MAX_SAFE_INTEGER),
     };
     Object.entries(goto).forEach(([role, to]) => {
       const btn = mount.querySelector(`[data-role="${role}"]`);
       if (btn) btn.addEventListener("click", () => {
-        state.page = Math.max(1, to());
-        render();
+        const next = Math.max(1, to());
+        if (next === state.page) return;
+        state.page = next;
+        refresh();
       });
     });
 
     mount.querySelectorAll('[data-role="page"]').forEach((btn) => {
       btn.addEventListener("click", () => {
         const p = Number(btn.dataset.page);
-        if (p && p !== state.page) { state.page = p; render(); }
+        if (p && p !== state.page) { state.page = p; refresh(); }
       });
     });
 
@@ -257,12 +408,38 @@ export function createDataTable(opts) {
       state.selected.forEach((id) => { if (!live.has(id)) state.selected.delete(id); });
       render();
     },
-    setQuery(q) { state.query = q || ""; state.page = 1; render(); },
-    setFilter(key, value) { state.filters[key] = value; state.page = 1; render(); },
-    setPageSize(n) { state.pageSize = Number(n) || 10; state.page = 1; render(); },
+    setQuery(q) {
+      state.query = q || "";
+      state.page = 1;
+      // Debounced in server mode only: each keystroke would otherwise be a
+      // round trip. Client mode filters an array already in memory, so
+      // debouncing there would only add lag.
+      if (server) debouncedRefresh();
+      else render();
+    },
+    setFilter(key, value) { state.filters[key] = value; state.page = 1; refresh(); },
+    setPageSize(n) { state.pageSize = Number(n) || 10; state.page = 1; refresh(); },
     clearSelection() { state.selected.clear(); render(); onSelectionChange?.(state.selected); },
     getSelection() { return new Set(state.selected); },
     getRows() { return [...state.rows]; },
+    getState() { return publicState(); },
+
+    /**
+     * Server mode: jump to a page without emitting onStateChange.
+     *
+     * Used to restore the page from the URL on load. Going through setPage()
+     * would fire onStateChange and rewrite the very URL being read, which is
+     * harmless but circular; more importantly the caller wants the initial sort
+     * applied in the same pass rather than as a second fetch.
+     */
+    setInitialState({ page, sortKey, sortDesc } = {}) {
+      if (Number.isFinite(page) && page >= 1) state.page = Math.floor(page);
+      if (sortKey) state.sortKey = sortKey;
+      if (sortDesc !== undefined) state.sortDesc = !!sortDesc;
+    },
+
+    /** Server mode: (re)load the current page. */
+    load() { return server ? loadPage() : Promise.resolve(render()); },
     render,
     /** Delegate a click on a row action button, e.g. onAction('edit', row => …) */
     onAction(name, handler) {

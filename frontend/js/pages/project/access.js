@@ -7,7 +7,7 @@
  */
 import { apiFetch } from "../../api.js?v=2";
 import { escapeHTML } from "../../utils.js?v=1";
-import { createDataTable } from "../../components/data-table.js?v=2";
+import { createDataTable } from "../../components/data-table.js?v=3";
 import { fetchMyTeams, fillTeamSelect } from "../../components/team-picker.js?v=1";
 
 const GRANT_ROLES = [

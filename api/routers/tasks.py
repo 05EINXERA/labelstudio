@@ -21,6 +21,8 @@ from schemas import (
     TaskAssignment,
     TaskAssignmentResult,
     TaskDetail,
+    TaskOrder,
+    TaskPage,
     TaskUpdate,
 )
 from api.auth import get_current_user, require_csrf
@@ -278,17 +280,217 @@ def _annotation_counts(task_ids: List[int], db: Session) -> Dict[int, dict]:
     return counts
 
 
-@router.get("")
-def get_tasks(projectId: Optional[int] = Query(None), include_annotations: bool = Query(True), db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+# ---------------------------------------------------------------------------
+# Task list ordering (.devnotes/tasks-pagination/PLAN.md § 3.1)
+#
+# Until this existed, GET /api/tasks had no ORDER BY at all: rows came back in
+# whatever order the database chose. That is not merely untidy, it is unstable
+# — on Postgres an UPDATE can move a row within a heap scan, so saving a task
+# reordered the list under the user. The Tasks table and the annotation canvas
+# each fetch this list separately, so an unstable order meant the canvas's
+# "next image" was not the table's next row, and prev/next from image 39/50
+# jumped to an unrelated task.
+#
+# Ordering therefore lives here, in one helper used by *every* endpoint that
+# lists or walks tasks. Two copies of the same .order_by() would be free to
+# drift apart, and the resulting bug (canvas order disagreeing with table
+# order) is exactly the one being fixed.
+# ---------------------------------------------------------------------------
+
+# Sortable columns, whitelisted. User input selects a key from this dict; it is
+# never interpolated into SQL. An unknown key is rejected rather than silently
+# ignored, so a typo surfaces as a 422 instead of a mystery ordering.
+_SORT_COLUMNS = {
+    "description": models.Task.description,
+    "status": models.Task.status,
+    "updated_at": models.Task.updated_at,
+    "time_spent": models.Task.time_spent,
+    "id": models.Task.id,
+}
+
+DEFAULT_SORT = "description"
+DEFAULT_ORDER = "asc"
+
+# Page size bounds. The cap matters: without it a caller could pass
+# page_size=100000 and pull the whole table in one request, reintroducing
+# precisely the payload problem that per-task hydration (rule 17) removed.
+DEFAULT_PAGE_SIZE = 10
+MAX_PAGE_SIZE = 100
+
+
+def _apply_ordering(query, sort: str, order: str):
+    """Order `query` deterministically by `sort`, tie-broken by id.
+
+    The id tiebreaker is not cosmetic, it is what makes pagination correct.
+    `ORDER BY description` alone leaves rows with duplicate filenames — routine
+    here, since uploads collide on names like `image.jpg` — in an arbitrary
+    order that the database may resolve differently between two queries. Under
+    LIMIT/OFFSET that means a row can appear on both page 1 and page 2, or on
+    neither, depending on how each page's query happened to sort. Appending a
+    unique column makes the total order strict, so every row appears exactly
+    once across the pages.
+
+    Sorting by any column other than the filename still ends in `description,
+    id`, so tasks with equal status (the common case — most are "pending") keep
+    a stable, human-meaningful order rather than shuffling per request.
+    """
+    column = _SORT_COLUMNS.get(sort)
+    if column is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown sort field '{sort}'. Allowed: {', '.join(sorted(_SORT_COLUMNS))}",
+        )
+    if order not in ("asc", "desc"):
+        raise HTTPException(
+            status_code=422, detail=f"Unknown sort order '{order}'. Allowed: asc, desc"
+        )
+
+    direction = (lambda c: c.desc()) if order == "desc" else (lambda c: c.asc())
+    keys = [direction(column)]
+    if sort != "description":
+        keys.append(models.Task.description.asc())
+    keys.append(models.Task.id.asc())
+    return query.order_by(*keys)
+
+
+def _visible_tasks_query(projectId: Optional[int], user: models.User, db: Session):
+    """Base query for tasks the caller may see, scoped to one project or all.
+
+    Shared by the list, the paged list and the id-order endpoint so all three
+    apply identical permission scoping. If these diverged, the canvas could walk
+    tasks the table never showed the user.
+    """
     if projectId:
         require_project(projectId, user, db, minimum=ProjectRole.VIEWER)
-        query = db.query(models.Task).filter(models.Task.project_id == projectId)
-    else:
-        # No project given: return tasks across every project the caller can
-        # reach, never the whole table.
-        query = db.query(models.Task).filter(
-            models.Task.project_id.in_(accessible_project_ids(user, db))
-        )
+        return db.query(models.Task).filter(models.Task.project_id == projectId)
+    # No project given: return tasks across every project the caller can
+    # reach, never the whole table.
+    return db.query(models.Task).filter(
+        models.Task.project_id.in_(accessible_project_ids(user, db))
+    )
+
+
+def _apply_filters(
+    query,
+    q: Optional[str],
+    status: Optional[str],
+    team: Optional[str],
+    assignee: Optional[str],
+    user: models.User,
+):
+    """Narrow `query` by the Tasks view's search box and three filter selects.
+
+    These moved server-side with pagination and are not optional polish: the
+    client used to filter the full in-memory list, and once it only holds one
+    page, a client-side filter would search 10 rows out of 4,000 and report
+    "no matches" for a task that plainly exists.
+
+    `team` and `assignee` carry the sentinel vocabulary the UI already speaks
+    ("unassigned", "mine", "user-<id>"), so the select values pass straight
+    through without the caller translating them.
+    """
+    if q:
+        # Filename substring, case-insensitive. `ilike` rather than lower(...)
+        # so Postgres can still use a suitable index; the wildcards are bound as
+        # a parameter, never concatenated into SQL.
+        query = query.filter(models.Task.description.ilike(f"%{q}%"))
+
+    if status and status != "All":
+        query = query.filter(models.Task.status == status)
+
+    if team and team != "All":
+        if team == "unassigned":
+            query = query.filter(models.Task.assigned_team_id.is_(None))
+        else:
+            try:
+                query = query.filter(models.Task.assigned_team_id == int(team))
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=422, detail=f"Invalid team filter '{team}'")
+
+    if assignee and assignee != "All":
+        if assignee == "unassigned":
+            query = query.filter(models.Task.assignee_user_id.is_(None))
+        elif assignee == "mine":
+            query = query.filter(models.Task.assignee_user_id == user.id)
+        else:
+            # "user-<id>", the value the assignee select emits.
+            raw = assignee[5:] if assignee.startswith("user-") else assignee
+            try:
+                query = query.filter(models.Task.assignee_user_id == int(raw))
+            except (TypeError, ValueError):
+                raise HTTPException(
+                    status_code=422, detail=f"Invalid assignee filter '{assignee}'"
+                )
+
+    return query
+
+
+def _as_page(rows: list, page: Optional[int], page_size: int, total: Optional[int]):
+    """Wrap `rows` in the paging envelope, or hand them back bare when unpaged.
+
+    Both branches of get_tasks funnel through here so the two shapes are decided
+    in exactly one place; building the envelope at each return site invites the
+    branches to disagree about a field.
+    """
+    if page is None:
+        return rows
+    # Built through the schema rather than as a loose dict. The endpoint serves
+    # two shapes so it cannot declare a single `response_model` (rule 6), and
+    # this is the next best thing: the envelope's fields are validated here, and
+    # a typo in a key fails at the source instead of reaching the client.
+    return TaskPage(
+        items=rows,
+        total=total,
+        page=page,
+        page_size=page_size,
+        # ceil, with an explicit floor of 1: an empty project has one (empty)
+        # page, not zero, so the pager always has a page to be on.
+        total_pages=max(1, -(-total // page_size)),
+    )
+
+
+@router.get("")
+def get_tasks(
+    projectId: Optional[int] = Query(None),
+    include_annotations: bool = Query(True),
+    page: Optional[int] = Query(None, ge=1),
+    page_size: int = Query(DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    sort: str = Query(DEFAULT_SORT),
+    order: str = Query(DEFAULT_ORDER),
+    q: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    team: Optional[str] = Query(None),
+    assignee: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """List tasks, ordered by filename ascending unless told otherwise.
+
+    **Two response shapes, selected by `page`.** Without `page` this returns a
+    bare JSON array, exactly as it always has. With `page` it returns a
+    `TaskPage` envelope carrying the totals a pager needs.
+
+    The split is deliberate back-compat: this endpoint has several callers (the
+    Tasks table, the canvas, ad-hoc scripts), so unconditionally wrapping the
+    array would break every one of them at once. Callers opt in by asking for a
+    page. `tests/test_tasks_pagination.py` pins the unpaged shape so a later
+    refactor cannot quietly drop it.
+
+    An out-of-range `page` returns empty `items` with the true `total` rather
+    than a 404: deleting the last row of the last page is then recoverable —
+    the client sees `total_pages` shrink and clamps — instead of a dead end.
+    """
+    query = _visible_tasks_query(projectId, user, db)
+    query = _apply_filters(query, q, status, team, assignee, user)
+    query = _apply_ordering(query, sort, order)
+
+    total = None
+    if page is not None:
+        # COUNT before LIMIT/OFFSET. order_by is stripped first: ordering a
+        # count is wasted work, and Postgres rejects an ORDER BY over a column
+        # that isn't grouped or selected in some count formulations.
+        total = query.order_by(None).count()
+        query = query.offset((page - 1) * page_size).limit(page_size)
 
     if not include_annotations:
         # The annotations column is deliberately absent from this projection:
@@ -304,7 +506,7 @@ def get_tasks(projectId: Optional[int] = Query(None), include_annotations: bool 
         tasks = query.all()
         team_names, user_names = _assignment_names(tasks, db)
         counts = _annotation_counts([t.id for t in tasks], db)
-        return [{"id": t.id, "description": t.description, "assignee": t.assignee,
+        rows = [{"id": t.id, "description": t.description, "assignee": t.assignee,
                  "image_path": t.image_path, "status": t.status, "time_spent": t.time_spent,
                  "updated_at": t.updated_at,
                  "assigned_team_id": t.assigned_team_id,
@@ -315,6 +517,7 @@ def get_tasks(projectId: Optional[int] = Query(None), include_annotations: bool 
                  # Comments columns still render without shipping every blob.
                  **counts.get(t.id, _EMPTY_COUNTS),
                  "annotations": []} for t in tasks]
+        return _as_page(rows, page, page_size, total)
 
     tasks = query.all()
     team_names, user_names = _assignment_names(tasks, db)
@@ -353,7 +556,51 @@ def get_tasks(projectId: Optional[int] = Query(None), include_annotations: bool 
             "class_count": class_count,
             "annotations": annotations_data
         })
-    return result
+    return _as_page(result, page, page_size, total)
+
+@router.get("/order", response_model=TaskOrder)
+def get_task_order(
+    projectId: Optional[int] = Query(None),
+    sort: str = Query(DEFAULT_SORT),
+    order: str = Query(DEFAULT_ORDER),
+    q: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    team: Optional[str] = Query(None),
+    assignee: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """The full ordered list of task ids — ids only, no row data.
+
+    This exists for the annotation canvas. The canvas needs to know the whole
+    sequence in order to answer "what is the image after this one?" and to show
+    "39 / 50", but under server-side pagination it can no longer get that from
+    the list endpoint, which now returns one page.
+
+    Fetching every *row* just to learn the order would undo the payload work
+    that rule 17 did, so this returns bare integers: a 4,000-task project is
+    ~30 KB here versus megabytes of rows. The canvas builds its gallery from
+    these ids and hydrates each task's real data through GET /api/tasks/{id}
+    when it is actually opened.
+
+    Ordering and permission scoping come from the same helpers as the list
+    endpoint, so the canvas's sequence is identical to the table's by
+    construction — which is the whole point, and what makes prev/next from
+    39/50 land on 38/50 and 40/50.
+
+    Declared before `GET /{task_id}` deliberately, for the same reason as
+    `/lock-status`: FastAPI matches in declaration order, and a literal path
+    registered after a parameterised sibling is swallowed as
+    `task_id="order"` and fails as a 422.
+    """
+    query = _visible_tasks_query(projectId, user, db)
+    # Same filters as the list. The canvas walks what the table showed, so a
+    # user who filtered to "Rejected" pages through only rejected tasks rather
+    # than silently walking into ones the table had excluded.
+    query = _apply_filters(query, q, status, team, assignee, user)
+    query = _apply_ordering(query, sort, order)
+    return {"ids": [row_id for (row_id,) in query.with_entities(models.Task.id).all()]}
+
 
 @router.get("/lock-status")
 def bulk_lock_status(projectId: int = Query(...), db: Session = Depends(get_db),
