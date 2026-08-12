@@ -7,6 +7,7 @@ import {
   isAnnotationHidden
 } from "../state.js?v=7";
 import { visibleRows, hiddenRowCount } from "../objects-filter.js?v=1";
+import { MAX_CLASS_SHORTCUTS } from "../shortcuts.js?v=1";
 import { pendingCount, retryablePendingCount, isServerUnreachable, peekWrite } from "../offline-queue.js?v=4";
 import { annotationPoints, updateAnnotationBounds } from "../canvas/geometry.js?v=1";
 import { view } from "../canvas/view.js?v=1";
@@ -559,6 +560,78 @@ function visibilityButtonHTML(isHidden, title) {
   return `<span class="eye-btn${isHidden ? " is-hidden-state" : ""}" title="${title}">${isHidden ? EYE_OFF_SVG : EYE_SVG}</span>`;
 }
 
+/**
+ * Make a class active, and relabel the current selection with it.
+ *
+ * Shared by the class row's click handler and the digit-key shortcut in
+ * canvas/interactions.js. It lives outside renderClasses() so the two paths
+ * cannot drift: everything past the first line is load-bearing, in particular
+ * the editBlockReason() gate — a keyboard path that set `activeLabelId`
+ * directly would relabel other people's work without the permission check.
+ */
+export function activateLabel(label) {
+  if (!label) return;
+
+  state.activeLabelId = label.id;
+  state.needsLabelSelection = false;
+  // The pending shape has been dealt with by this action, so the next canvas
+  // click is an ordinary one — leaving this set would deselect spuriously.
+  state.justFinalized = false;
+
+  // Picking a class with nothing selected means "start the next annotation",
+  // so drop back into draw mode instead of making the user press Draw. With a
+  // selection the action means "relabel that", which must not change the mode.
+  if (state.selectedIds.size === 0) {
+    state.mode = "draw";
+  }
+
+  // Reassign class to selected annotations.
+  //
+  // Gated on the per-task check for the same reason as the Objects panel's
+  // edit control: this mutates annotations and saves. Picking a class to
+  // *draw* with is harmless and stays allowed — a read-only viewer can
+  // still highlight a class to see which shapes belong to it — but
+  // relabelling existing work is a write.
+  const relabelBlocked = editBlockReason();
+  if (state.selectedIds.size > 0 && relabelBlocked) {
+    setStatus(relabelBlocked);
+    render();
+    return;
+  }
+  if (state.selectedIds.size > 0) {
+    snapshot();
+    let changed = false;
+    state.annotations.forEach(a => {
+      if (state.selectedIds.has(a.id) && a.type !== "comment" && a.labelId !== label.id) {
+        a.labelId = label.id;
+        changed = true;
+      }
+    });
+    if (changed) {
+      save();
+    } else {
+      state.history.pop();
+    }
+  }
+
+  render();
+}
+
+/**
+ * Hide or show a set of annotations together.
+ *
+ * Shared by the Objects row eye button and the "H" shortcut. Visibility is a
+ * view concern: no snapshot() (not undoable) and no save() (nothing persisted
+ * changed) — see GOTCHAS #18, filtering and hiding must never reach the saved
+ * annotation set.
+ */
+export function toggleAnnotationsHidden(ids, hide) {
+  (ids || []).forEach((id) => {
+    if (hide) state.hiddenAnnotationIds.add(id);
+    else state.hiddenAnnotationIds.delete(id);
+  });
+}
+
 export function renderClasses() {
   classesList.innerHTML = "";
 
@@ -609,6 +682,13 @@ export function renderClasses() {
     `;
     item.querySelector(".class-name").textContent = `${index + 1}. ${labelDisplayName(label)}`;
 
+    // Only the first ten rows have a single-key binding — 1-9 then 0 — so only
+    // those advertise one. See shortcuts.js for why there is no eleventh key.
+    if (index < MAX_CLASS_SHORTCUTS) {
+      const digit = index === MAX_CLASS_SHORTCUTS - 1 ? 0 : index + 1;
+      item.title = `${labelDisplayName(label)} — press ${digit}`;
+    }
+
     item.querySelector(".eye-btn").addEventListener("click", (e) => {
       // Without this the row's own handler would also fire and make a class
       // active merely because its visibility was toggled.
@@ -620,51 +700,7 @@ export function renderClasses() {
     });
 
     // Click on the item itself sets it as active
-    item.addEventListener("click", (e) => {
-      state.activeLabelId = label.id;
-      state.needsLabelSelection = false;
-      // The pending shape has been dealt with by this click, so the next canvas
-      // click is an ordinary one — leaving this set would deselect spuriously.
-      state.justFinalized = false;
-
-      // Picking a class with nothing selected means "start the next annotation",
-      // so drop back into draw mode instead of making the user press Draw. With a
-      // selection the click means "relabel that", which must not change the mode.
-      if (state.selectedIds.size === 0) {
-        state.mode = "draw";
-      }
-
-      // Reassign class to selected annotations.
-      //
-      // Gated on the per-task check for the same reason as the Objects panel's
-      // edit control: this mutates annotations and saves. Picking a class to
-      // *draw* with is harmless and stays allowed — a read-only viewer can
-      // still highlight a class to see which shapes belong to it — but
-      // relabelling existing work is a write.
-      const relabelBlocked = editBlockReason();
-      if (state.selectedIds.size > 0 && relabelBlocked) {
-        setStatus(relabelBlocked);
-        render();
-        return;
-      }
-      if (state.selectedIds.size > 0) {
-        snapshot();
-        let changed = false;
-        state.annotations.forEach(a => {
-          if (state.selectedIds.has(a.id) && a.type !== "comment" && a.labelId !== label.id) {
-            a.labelId = label.id;
-            changed = true;
-          }
-        });
-        if (changed) {
-          save();
-        } else {
-          state.history.pop();
-        }
-      }
-
-      render();
-    });
+    item.addEventListener("click", () => activateLabel(label));
 
     classesList.appendChild(item);
   });
@@ -807,7 +843,7 @@ export function renderAnnotations() {
         <span class="edit-ann-btn" title="Edit object class" style="cursor: pointer; color: var(--muted); display: grid; place-items: center; width: 20px; height: 20px;">
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
         </span>`}
-        ${visibilityButtonHTML(annHidden, annHidden ? "Show object" : "Hide object")}
+        ${visibilityButtonHTML(annHidden, annHidden ? "Show object (H)" : "Hide object (H)")}
       </div>
     `;
 
@@ -905,13 +941,7 @@ export function renderAnnotations() {
       // A grouped row stands for every member, so it toggles them together —
       // matching how the row is drawn and selected as a unit.
       const ids = isGroup ? groupAnns.map(a => a.id) : [annotation.id];
-      const nowHidden = !state.hiddenAnnotationIds.has(annotation.id);
-      ids.forEach((id) => {
-        if (nowHidden) state.hiddenAnnotationIds.add(id);
-        else state.hiddenAnnotationIds.delete(id);
-      });
-      // Visibility is a view concern: no snapshot() (not undoable) and no
-      // save() (nothing persisted changed).
+      toggleAnnotationsHidden(ids, !state.hiddenAnnotationIds.has(annotation.id));
       render();
     });
 

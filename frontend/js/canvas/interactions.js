@@ -6,7 +6,8 @@ import { view } from "./view.js?v=1";
 import { draw, drawAllLayers } from "./draw.js?v=1";
 import { canvas, undoButton } from "../dom.js?v=2";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
-import { setStatus, save, render } from "../components/workspace.js?v=10";
+import { setStatus, save, render, activateLabel, toggleAnnotationsHidden } from "../components/workspace.js?v=11";
+import { labelIndexForCode, hideTargetIds, shouldHide } from "../shortcuts.js?v=1";
 import { performMagicWandSegmentation } from "../ai/detect.js?v=1";
 import { applyAutoSmooth } from "../fft-controls.js?v=1";
 import { annotationSettings } from "../feature-flags.js?v=1";
@@ -1381,6 +1382,54 @@ window.addEventListener("keydown", (event) => {
     event.preventDefault();
     if (event.shiftKey) bringToFront();
     else bringForward();
+    return;
+  }
+
+  // Digit keys pick the class at that position in the Classes panel — the same
+  // number the panel prints in front of the name. Modifiers are left alone so
+  // Ctrl+1 and friends stay with the browser's tab switching.
+  if (!event.ctrlKey && !event.metaKey && !event.altKey) {
+    const labelIndex = labelIndexForCode(event.code);
+    if (labelIndex !== -1) {
+      event.preventDefault();
+      const label = state.labels[labelIndex];
+      if (!label) {
+        setStatus(`No class ${labelIndex + 1}`);
+        return;
+      }
+      // Everything the class row's click does, permission gate included.
+      //
+      // With a selection this is a *relabel*, and activateLabel reports its own
+      // outcome — including the refusal a read-only viewer gets. Announcing the
+      // class unconditionally here would paint over that refusal with a
+      // cheerful "Class: X" and tell them a write succeeded when it did not.
+      const wasRelabel = state.selectedIds.size > 0;
+      activateLabel(label);
+      if (!wasRelabel) setStatus(`Class: ${label.name}`);
+      return;
+    }
+  }
+
+  // "H" hides or shows the selected object(s).
+  //
+  // Selection-only by design: an active *class* lives in state.activeLabelId and
+  // puts nothing in selectedIds, so highlighting a class and pressing H is a
+  // no-op rather than hiding the whole class. Class visibility stays with the
+  // Classes panel's own eye (state.hiddenLabelIds), which this never touches.
+  if (event.key.toLowerCase() === "h") {
+    event.preventDefault();
+    const ids = hideTargetIds(state.selectedIds, state.annotations);
+    if (ids.length === 0) {
+      setStatus("Select an object first");
+      return;
+    }
+    const hide = shouldHide(ids, state.selectedId, (id) => state.hiddenAnnotationIds.has(id));
+    toggleAnnotationsHidden(ids, hide);
+    // The selection is deliberately kept: hiding the only selected shape makes
+    // it vanish from the canvas, and the selection is the handle that keeps its
+    // row in the Objects panel so H can bring it back.
+    render();
+    setStatus(hide ? "Object hidden" : "Object shown");
     return;
   }
 

@@ -1,11 +1,11 @@
 import { canvas } from "../dom.js?v=2";
 import { state } from "../state.js?v=7";
 import { view } from "./view.js?v=1";
-import { render } from "../components/workspace.js?v=10";
+import { render } from "../components/workspace.js?v=11";
 import {
   canvasPoint, hitTest,
   sendToBack, sendBackward, bringToFront, bringForward
-} from "./interactions.js?v=3";
+} from "./interactions.js?v=4";
 
 // Right-click z-order menu for annotations.
 //
