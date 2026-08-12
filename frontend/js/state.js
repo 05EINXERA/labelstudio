@@ -49,6 +49,10 @@ export const state = {
   // annotation shape is unaffected. Cleared naturally on reload.
   hiddenLabelIds: new Set(),
   hiddenAnnotationIds: new Set(),
+  // Objects panel: when true the panel lists only the hidden objects. Same
+  // nature as the two sets above — session-only view state, never persisted,
+  // never sent to the backend, and read only at render time.
+  hiddenFilterActive: false,
   activeLabelId: null,
   mode: "select",
   shape: "polygon",
@@ -170,6 +174,15 @@ export function resetWorkspaceForNewImage() {
   // state.labels is deliberately not cleared to persist classes across images
   state.annotations = [];
   state.selectedId = null;
+  // View state from the sidebar's eye controls does not survive a task switch.
+  // Annotation ids are per-task, so a carried-over hidden id is at best dead
+  // weight; a carried-over *class* hide genuinely leaks (hide "car" on one task
+  // and it stays hidden on the next, with nothing on screen explaining why);
+  // and a carried-over filter would open the next task on an empty
+  // "hidden only" list. See .devnotes/object-selection/01_DESIGN.md § 5.1.
+  state.hiddenAnnotationIds.clear();
+  state.hiddenLabelIds.clear();
+  state.hiddenFilterActive = false;
   clearHistory();
   // Re-arm the label gate for each new task: the annotator must pick a class
   // before drawing, rather than inheriting the previous task's armed state.
