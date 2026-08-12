@@ -1,6 +1,6 @@
 """
-Restore one task's annotations from a JSON file (typically extracted from a
-pg_dump backup) back into the live database.
+Restore one task's annotations back into the live database, from either the
+stored per-task history or a JSON file (e.g. extracted from a pg_dump backup).
 
 Written for the 2026-08-06 incident on task 707: a stale undo stack let a fresh
 Ctrl+Z restore an empty annotation array over 34 hydrated polygons and save the
@@ -13,8 +13,25 @@ It is deliberately conservative:
   * refuses to shrink a task unless --allow-shrink is passed,
   * shows a diff and requires --commit to actually write (dry-run by default).
 
+Two sources:
+
+  --from-history   reads task_annotation_history, the blob the task held
+                   immediately before a replacing write. Version 1 (default) is
+                   what the most recent write destroyed, which is what you want
+                   after a wipe. Nothing predating the deploy that added the
+                   table is available. See .devnotes/task-history/01_DESIGN.md.
+
+  --file           a JSON array, for anything older than the retained window —
+                   typically extracted from an hourly pg_dump snapshot.
+
+Restoring is deliberately a human decision, never automatic: the server cannot
+tell a wipe from a genuine delete-all (both arrive as `[]` against a task that
+had work), and guessing is what caused the incident this guards against.
+
 Usage (dry run first, always):
-    python scripts/restore_task_annotations.py --task 707 --file recovered.json
+    python scripts/restore_task_annotations.py --task 707 --list-history
+    python scripts/restore_task_annotations.py --task 707 --from-history
+    python scripts/restore_task_annotations.py --task 707 --from-history --commit
     python scripts/restore_task_annotations.py --task 707 --file recovered.json --commit
 """
 import argparse
@@ -32,10 +49,39 @@ import models  # noqa: E402
 from database import SessionLocal, commit_with_retry  # noqa: E402
 
 
+def _count(blob) -> int:
+    """Objects in an annotations blob, or 0 when absent/unparseable."""
+    if not blob:
+        return 0
+    try:
+        parsed = json.loads(blob)
+    except (ValueError, TypeError):
+        return 0
+    return len(parsed) if isinstance(parsed, list) else 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--task", type=int, required=True, help="task id to restore")
-    parser.add_argument("--file", required=True, help="JSON file holding the annotation array")
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument("--file", help="JSON file holding the annotation array")
+    source.add_argument(
+        "--from-history",
+        action="store_true",
+        help="restore from task_annotation_history instead of a file",
+    )
+    parser.add_argument(
+        "--version",
+        type=int,
+        default=1,
+        help="with --from-history: which version back to take (1 = newest, the "
+             "value replaced by the most recent write). Default 1.",
+    )
+    parser.add_argument(
+        "--list-history",
+        action="store_true",
+        help="show the stored versions for this task and exit without writing",
+    )
     parser.add_argument("--commit", action="store_true", help="actually write (default: dry run)")
     parser.add_argument(
         "--allow-shrink",
@@ -49,19 +95,27 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    payload_path = pathlib.Path(args.file)
-    try:
-        payload = json.loads(payload_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        print(f"ERROR: could not read {payload_path}: {exc}")
+    if not (args.file or args.from_history or args.list_history):
+        print("ERROR: pass --file, --from-history, or --list-history.")
         return 1
 
-    if not isinstance(payload, list):
-        print(f"ERROR: expected a JSON array of annotations, got {type(payload).__name__}")
-        return 1
-    if not payload and not args.allow_shrink:
-        print("ERROR: payload is empty. Pass --allow-shrink if you really mean to clear the task.")
-        return 1
+    payload = None
+    payload_source = None
+    if args.file:
+        payload_path = pathlib.Path(args.file)
+        try:
+            payload = json.loads(payload_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"ERROR: could not read {payload_path}: {exc}")
+            return 1
+        payload_source = str(payload_path)
+
+        if not isinstance(payload, list):
+            print(f"ERROR: expected a JSON array of annotations, got {type(payload).__name__}")
+            return 1
+        if not payload and not args.allow_shrink:
+            print("ERROR: payload is empty. Pass --allow-shrink if you really mean to clear the task.")
+            return 1
 
     db = SessionLocal()
     try:
@@ -72,6 +126,73 @@ def main() -> int:
             print(f"ERROR: task {args.task} does not exist.")
             return 1
 
+        # Stored versions, newest first. Row N is what the task held *before*
+        # the Nth-most-recent replacing write, so version 1 is the value the
+        # latest write destroyed — which is what you want after a wipe.
+        history = list(
+            db.execute(
+                select(models.TaskAnnotationHistory)
+                .where(models.TaskAnnotationHistory.task_id == task.id)
+                .order_by(models.TaskAnnotationHistory.id.desc())
+            ).scalars()
+        )
+
+        if args.list_history:
+            if not history:
+                print(f"task {task.id}: no stored history.")
+                print(
+                    "  History accumulates only from the deploy that added it, and only "
+                    "on writes that actually changed the annotations."
+                )
+                return 0
+            print(f"task {task.id}  project {task.project_id}  status {task.status}")
+            print(f"  current: {_count(task.annotations)} object(s), updated_at {task.updated_at}")
+            print("\n  ver  objects  ->  replaced with  when                        by")
+            for i, row in enumerate(history, start=1):
+                who = row.replaced_by_user_id
+                user = db.get(models.User, who) if who else None
+                print(
+                    f"  {i:>3}  {row.annotation_count:>7}  ->  {row.replaced_with_count:>13}"
+                    f"  {row.created_at:%Y-%m-%d %H:%M:%S %Z}  "
+                    f"{(user.username if user else '?')} / {row.client_id or '?'}"
+                )
+            print("\n  Restore version N with: --from-history --version N")
+            return 0
+
+        if args.from_history:
+            if not history:
+                print(f"ERROR: task {task.id} has no stored history to restore from.")
+                return 1
+            if args.version < 1 or args.version > len(history):
+                print(
+                    f"ERROR: --version {args.version} out of range; "
+                    f"task {task.id} has {len(history)} stored version(s). "
+                    "Use --list-history to see them."
+                )
+                return 1
+            chosen = history[args.version - 1]
+            try:
+                payload = json.loads(chosen.annotations)
+            except json.JSONDecodeError as exc:
+                print(f"ERROR: stored version {args.version} is not valid JSON: {exc}")
+                return 1
+            if not isinstance(payload, list):
+                print(
+                    f"ERROR: stored version {args.version} is not a JSON array "
+                    f"(got {type(payload).__name__})."
+                )
+                return 1
+            if not payload and not args.allow_shrink:
+                print(
+                    f"ERROR: stored version {args.version} is empty. "
+                    "Pass --allow-shrink if you really mean to clear the task."
+                )
+                return 1
+            payload_source = (
+                f"history version {args.version} "
+                f"(recorded {chosen.created_at:%Y-%m-%d %H:%M:%S %Z})"
+            )
+
         try:
             current = json.loads(task.annotations) if task.annotations else []
         except json.JSONDecodeError:
@@ -81,7 +202,7 @@ def main() -> int:
 
         print(f"task {task.id}  project {task.project_id}  status {task.status}")
         print(f"  current : {len(current)} object(s), updated_at {task.updated_at}")
-        print(f"  incoming: {len(payload)} object(s), from {payload_path}")
+        print(f"  incoming: {len(payload)} object(s), from {payload_source}")
 
         if len(payload) < len(current) and not args.allow_shrink:
             print(

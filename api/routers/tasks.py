@@ -88,6 +88,124 @@ CONFLICT_TOLERANCE_SECONDS = float(
 REVIEW_STATUSES = frozenset({"Approved", "Rejected"})
 
 
+# How many superseded annotation blobs to keep per task.
+#
+# Five, not ten: hourly backups (schedule-backup.ps1, -Keep 20) are the coarse
+# floor underneath this, so history only has to cover the window between
+# snapshots plus a short chain of bad edits — enough to walk back
+# good → bad → worse without unbounded growth across ~25 annotators autosaving.
+# See .devnotes/task-history/01_DESIGN.md § 4.2.
+ANNOTATION_HISTORY_KEEP = int(os.environ.get("ANNOTATION_HISTORY_KEEP", "5"))
+
+
+def _blob_is_empty(blob: Optional[str]) -> bool:
+    """True when an annotations blob holds no work.
+
+    The three spellings a client can send for "nothing", matching the
+    clear-guard below so the two cannot disagree about what empty means.
+    """
+    return not blob or blob.strip() in ("", "[]", "null")
+
+
+def _count_annotations(blob: Optional[str]) -> int:
+    """Number of objects in an annotations blob, or 0 if unparseable.
+
+    Only ever used for the denormalised history counters, so a malformed blob
+    must degrade to a number rather than raise: failing a save because its
+    *history* row could not be counted would make this feature the cause of the
+    data loss it exists to prevent.
+    """
+    if _blob_is_empty(blob):
+        return 0
+    try:
+        parsed = json.loads(blob)
+    except (ValueError, TypeError):
+        return -1  # distinguishable from a genuine 0 in the loss scan
+    return len(parsed) if isinstance(parsed, list) else -1
+
+
+def _record_annotation_history(
+    db: Session,
+    db_task: models.Task,
+    incoming: str,
+    user: Optional[models.User],
+    client_id: Optional[str],
+) -> None:
+    """Preserve the blob this write is about to replace, then prune to N.
+
+    Called immediately before `db_task.annotations` is reassigned, inside the
+    caller's transaction: if the annotation write rolls back the history row
+    must roll back with it, or the log claims something that never happened.
+
+    Skipped when there is nothing worth keeping — an empty stored value has no
+    work to preserve — and when the incoming blob is byte-identical to the
+    stored one. That second condition is load-bearing rather than tidy: one tab
+    writes the same task from the debounced autosave, the visibilitychange
+    beacon and the 30s timer drain, so without it every task would accumulate
+    five identical rows within seconds and the real previous value would be
+    pushed out of the retention window.
+
+    Never raises, and never poisons the caller's transaction. The whole body
+    runs inside a SAVEPOINT (`db.begin_nested()`), which is what makes that
+    guarantee real: a failed INSERT — a missing table on a box where the
+    migration has not been applied yet, a constraint surprise — marks the
+    session as needing a rollback, so merely catching the exception would still
+    leave the caller unable to commit the annotation write. Rolling back to the
+    savepoint discards only the history attempt and leaves the surrounding
+    transaction usable.
+
+    That is not hypothetical: writing this against an un-migrated database
+    turned a working save into a 500 until the savepoint was added. History is
+    a safety net, and a net that can drop the thing it is catching is worse
+    than no net at all.
+    """
+    try:
+        if _blob_is_empty(db_task.annotations):
+            return
+        if db_task.annotations == incoming:
+            return
+
+        with db.begin_nested():
+            db.add(
+                models.TaskAnnotationHistory(
+                    task_id=db_task.id,
+                    annotations=db_task.annotations,
+                    annotation_count=_count_annotations(db_task.annotations),
+                    replaced_with_count=_count_annotations(incoming),
+                    replaced_by_user_id=getattr(user, "id", None),
+                    client_id=client_id,
+                )
+            )
+            # Flush so the new row has an id and is visible to the prune below.
+            # Still the caller's transaction; nothing is committed here.
+            db.flush()
+
+            # Retention. The one sanctioned DELETE on this table — it drops
+            # rows that have aged out, never rewrites what happened.
+            keep_ids = [
+                row_id
+                for (row_id,) in db.query(models.TaskAnnotationHistory.id)
+                .filter(models.TaskAnnotationHistory.task_id == db_task.id)
+                .order_by(models.TaskAnnotationHistory.id.desc())
+                .limit(ANNOTATION_HISTORY_KEEP)
+                .all()
+            ]
+            if keep_ids:
+                (
+                    db.query(models.TaskAnnotationHistory)
+                    .filter(
+                        models.TaskAnnotationHistory.task_id == db_task.id,
+                        ~models.TaskAnnotationHistory.id.in_(keep_ids),
+                    )
+                    .delete(synchronize_session=False)
+                )
+    except Exception:
+        logger.exception(
+            "Task %s: failed to record annotation history; the save itself is unaffected.",
+            db_task.id,
+        )
+
+
 def _require_review_role_for_status(
     db_task: models.Task, new_status: Optional[str], user: models.User, db: Session
 ) -> None:
@@ -973,6 +1091,13 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
                         task.client_id,
                         getattr(user, "username", "unknown"),
                     )
+            # Preserve what this write is about to destroy, in this same
+            # transaction. Placed after the clear-guard so a refused write
+            # leaves no history row — the blob was never replaced, so there is
+            # nothing superseded to record.
+            _record_annotation_history(
+                db, db_task, task.annotations, user, task.client_id
+            )
             db_task.annotations = task.annotations
         now_utc = datetime.datetime.now(datetime.timezone.utc)
         if db_task.updated_at:

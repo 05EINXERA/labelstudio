@@ -259,3 +259,62 @@ class TaskReview(Base):
     created_at = Column(
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
     )
+
+
+class TaskAnnotationHistory(Base):
+    """Append-only log of superseded annotation blobs for a task.
+
+    Not the authority on current annotations — `Task.annotations` is. Each row
+    holds what the task contained immediately *before* a replacing write, so
+    the newest row is the previous value, never the current one.
+
+    Why this exists: annotations are one JSON blob replaced wholesale on every
+    save, so a single empty or stale write destroys the task and the prior
+    value is gone once the commit returns. That has been fixed three times on
+    three different paths (INCIDENT_692, task 707's stale undo stack, and the
+    2026-08-11 pre-hydration save). Every fix was a guard, and a guard only
+    covers the path someone thought of; this makes the outcome recoverable
+    whichever path produced it. See .devnotes/task-history/01_DESIGN.md.
+
+    Deliberately NOT read by the application. Restoring is a human decision
+    driven by scripts/, because the server cannot tell a wipe from a genuine
+    delete-all — both arrive as `[]` against a task that had work, and guessing
+    is what caused the incident this guards against (01_DESIGN.md § 3).
+
+    No UPDATE from application code. DELETE only via the retention prune in
+    api/routers/tasks.py, never to rewrite what happened.
+    """
+
+    __tablename__ = "task_annotation_history"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    # CASCADE, matching task_reviews: the history describes a task that no
+    # longer exists once the task is deleted, and keeping it would require
+    # soft-deleting tasks, which this codebase does nowhere.
+    task_id = Column(
+        Integer, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # The superseded blob, verbatim. Text rather than JSON because it is never
+    # queried by content — only read back whole — and storing the exact bytes
+    # avoids a re-serialisation quietly changing what gets restored.
+    annotations = Column(Text, nullable=False)
+    # Denormalised so the "what got wiped" scan never parses JSON across the
+    # table. This is the column scripts/find_annotation_loss.py reads.
+    annotation_count = Column(Integer, nullable=False)
+    # The count the *replacing* write carried. With annotation_count above, a
+    # wipe is self-evident from one row: 403 → 0.
+    replaced_with_count = Column(Integer, nullable=False)
+    # Nullable with no cascade, as in task_reviews: if a user is ever deleted
+    # the audit line survives with a null actor rather than vanishing.
+    replaced_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    client_id = Column(String(64), nullable=True)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+
+    __table_args__ = (
+        # The two access patterns, both per task and newest-first: the retention
+        # prune, and --list-history / --from-history in
+        # scripts/restore_task_annotations.py.
+        Index("ix_task_annotation_history_task_id_id", "task_id", "id"),
+    )
