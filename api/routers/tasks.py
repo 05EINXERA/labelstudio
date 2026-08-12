@@ -161,7 +161,12 @@ def get_tasks(
         )
 
     if search:
-        query = query.filter(models.Task.description.ilike(f"%{search}%"))
+        query = query.filter(
+            or_(
+                models.Task.description.ilike(f"%{search}%"),
+                models.Task.assignee.ilike(f"%{search}%")
+            )
+        )
     if status and status.lower() != "all":
         query = query.filter(models.Task.status == status)
     if assignee:
