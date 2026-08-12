@@ -65,7 +65,7 @@ old pattern into new code.
 
 ### Frontend
 
-13. **New frontend code goes in ES modules under `frontend/js/`**, imported from the page scripts. Do not add more code to `frontend/app.js` (4,500-line monolith being decomposed) unless you are wiring in a module. Module imports are version-pinned (`./foo.js?v=1`); a JS change that clients must pick up needs a hard reload (content-hashing is a deferred item — see tasks.md D4).
+13. **All frontend code lives in ES modules under `frontend/js/`**, imported from the page scripts. The old `frontend/app.js` monolith is gone — the canvas page is fully decomposed (`init.js` is the entry point, with `components/`, `canvas/`, `pages/` beneath it); do not recreate a catch-all file. Module imports are version-pinned (`./foo.js?v=1`); a JS change that clients must pick up needs a hard reload (content-hashing is a deferred item — see tasks.md D4). **Bump the pin at *every* import site of a changed module, plus the entry `<script>` tag in the page** — a partial bump ships clients a mix of old and new modules.
 14. **Auth state lives in the httpOnly cookie.** `localStorage['logged_in']` is only a UI hint for redirects — never treat it as security.
 15. **Modals:** toggle with `classList.add/remove('is-active')`, never `style.display` (CSS transitions depend on the class — see `.agents/AGENTS.md`).
 16. All backend calls from authenticated pages go through the `apiFetch` wrapper (handles 401 → redirect), not raw `fetch`.
@@ -108,7 +108,8 @@ old pattern into new code.
 | `api/routers/grants.py` | `/api/projects/{id}/grants` — the *access* axis (what a team may do on one project). Owner-only |
 | `formats/` | Import/export format logic (COCO, task JSON, YOLO, masks), one module per format; pure, testable without a server. See docs/ARCHITECTURE.md § 2.1 |
 | `detector.py` | ML model loading + inference (YOLO, SAM, CLIP) |
-| `frontend/app.html` + `app.js` | The annotation canvas page (the monolith) |
+| `frontend/app.html` | The annotation canvas page. Markup only — its behaviour is `frontend/js/init.js` and the modules it imports |
+| `frontend/js/objects-filter.js` | Which rows the Objects panel lists (selection filter / hidden filter) and the hidden count. Pure: no DOM, no `state` import — filtering must never reach the saved annotation set (GOTCHAS #18) |
 | `frontend/js/` | Shared ES modules — new frontend code goes here (`utils.js`, `state.js`, `task-lock.js`, `components/`, `pages/`) |
 | `frontend/js/permissions.js` | Client-side role ranking. Deliberate mirror of `api/permissions.py`; **rendering only**, never a security boundary (rule 18b) |
 | `frontend/js/session.js` | `getCurrentUser()` — real identity from `/api/auth/me`, cached per page load (rule 18c) |

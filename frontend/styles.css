@@ -878,6 +878,52 @@ h2 {
   opacity: 1;
 }
 
+/* Objects pane header: the hidden-objects filter sits beside the total count. */
+.sidebar-pane-objects .header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Reuses the .eye-btn visual language, widened to carry its count. A real
+   <button> rather than the rows' <span>s because this one is a toggle: it needs
+   keyboard focus and a pressed state. */
+.hidden-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 5px;
+  flex-shrink: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  line-height: 1;
+}
+
+.hidden-filter-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--ink);
+}
+
+/* Pressed = the list is filtered to hidden objects only. This must read as a
+   sustained state rather than a hover, since the panel it controls can
+   otherwise look inexplicably short. */
+.hidden-filter-btn[aria-pressed="true"] {
+  color: var(--accent-dark);
+  border-color: var(--accent-dark);
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.hidden-filter-count {
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Dims the row's content, not its controls — the eye must stay readable so the
    row can be un-hidden. */
 .class-item.is-row-hidden > div:first-child,

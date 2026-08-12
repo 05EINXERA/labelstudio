@@ -3,8 +3,10 @@ import { apiFetch } from "../api.js?v=2";
 import {
   state, storageKey, draftKey, legacyDraftKey, colorForName, labelByName, labelById,
   labelDisplayName, snapshot, selectedAnnotation, hydrationOk, hydrationSaveBlock,
-  clearIsUserIntent, annotationsChangedSinceHydration, noteHydratedAnnotations
-} from "../state.js?v=6";
+  clearIsUserIntent, annotationsChangedSinceHydration, noteHydratedAnnotations,
+  isAnnotationHidden
+} from "../state.js?v=7";
+import { visibleRows, hiddenRowCount } from "../objects-filter.js?v=1";
 import { pendingCount, retryablePendingCount, isServerUnreachable, peekWrite } from "../offline-queue.js?v=4";
 import { annotationPoints, updateAnnotationBounds } from "../canvas/geometry.js?v=1";
 import { view } from "../canvas/view.js?v=1";
@@ -13,11 +15,12 @@ import { detectState } from "../ai/detect-state.js?v=3";
 import { draw, drawAllLayers } from "../canvas/draw.js?v=1";
 import {
   emptyState, classesList, annotationList, annotationCount, selectedInfo,
+  hiddenFilterButton, hiddenCount,
   drawMode, selectMode, boxMode, polygonMode, commentMode, magicWandMode,
   autoDetectButton, aiSettingsMenuButton, autoTagButton, fftToolGroup,
   undoButton, redoButton, deleteButton, clearButton, exportLink,
   shapeHint, saveStatus
-} from "../dom.js?v=1";
+} from "../dom.js?v=2";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
 import { toolAvailability } from "../feature-flags.js?v=1";
 // Per-task write gating. `isReadOnly()` is project-role only, so it is false
@@ -667,18 +670,79 @@ export function renderClasses() {
   });
 }
 
+/**
+ * Collapse `state.annotations` into the panel's row list.
+ *
+ * One row per annotation, except that a group contributes a single row (its
+ * first member) standing for every member — the same rule the panel has always
+ * used, now computed up front instead of inline while appending.
+ *
+ * `index` is the row's permanent 1-based position in the *unfiltered* sequence.
+ * It is assigned here, before any filtering, so a filtered list still numbers
+ * its rows by where they really sit: selecting the 7th object shows "7.", not
+ * "1.". See .devnotes/object-selection/01_DESIGN.md § 3.
+ *
+ * Read-only — it never mutates `state.annotations` or the annotations in it.
+ */
+function buildRows() {
+  const processedGroups = new Set();
+  const rows = [];
+
+  state.annotations.forEach((annotation) => {
+    if (annotation.groupId) {
+      if (processedGroups.has(annotation.groupId)) return;
+      processedGroups.add(annotation.groupId);
+    }
+    const isGroup = !!annotation.groupId;
+    rows.push({
+      annotation,
+      isGroup,
+      groupAnns: isGroup
+        ? state.annotations.filter(a => a.groupId === annotation.groupId)
+        : [annotation],
+      index: rows.length + 1
+    });
+  });
+
+  return rows;
+}
+
+/**
+ * Repaint the Objects header's hidden-filter toggle and its count.
+ *
+ * Takes the row list the caller already built rather than recomputing it, and
+ * derives the count fresh on every render instead of maintaining a tally — a
+ * stored number would have to be adjusted by every path that hides or reveals
+ * something (the two eye buttons, a class hide, a delete, a task switch), and
+ * the first one missed would leave a permanently wrong badge.
+ */
+export function renderHiddenFilter(rows) {
+  if (!hiddenFilterButton || !hiddenCount) return;
+  hiddenCount.textContent = String(hiddenRowCount(rows, isAnnotationHidden));
+  hiddenFilterButton.setAttribute("aria-pressed", String(!!state.hiddenFilterActive));
+  hiddenFilterButton.title = state.hiddenFilterActive
+    ? "Show all objects"
+    : "Show only hidden objects";
+}
+
+// Wired once at module load, not inside renderHiddenFilter(): the panel
+// re-renders on nearly every interaction, so attaching there would stack a new
+// listener each time and a single click would end up toggling the filter dozens
+// of times (i.e. randomly, depending on parity).
+//
+// A view concern only — no snapshot() (not undoable) and no save()/saveDraft()
+// (nothing persisted changed), exactly like the per-row eye buttons.
+hiddenFilterButton?.addEventListener("click", () => {
+  state.hiddenFilterActive = !state.hiddenFilterActive;
+  render();
+});
+
 export function renderAnnotations() {
   annotationList.innerHTML = "";
 
-  if (!state.annotations.length) {
-    const empty = document.createElement("p");
-    empty.className = "chip-count";
-    empty.textContent = "No annotations yet";
-    annotationList.appendChild(empty);
-  }
-
-  const processedGroups = new Set();
-  let displayCount = 0;
+  // Built before anything is appended: the filters below decide which rows are
+  // rendered, but never what a row *is* or what number it carries.
+  const rows = buildRows();
 
   // Resolved once per render, not per row: it is the same answer for every
   // annotation in the panel and taskWriteBlock() walks the role/assignment
@@ -691,15 +755,32 @@ export function renderAnnotations() {
   // this panel. A user who cannot write the task must not be offered it.
   const editBlocked = !!editBlockReason();
 
-  state.annotations.forEach((annotation, index) => {
-    if (annotation.groupId) {
-      if (processedGroups.has(annotation.groupId)) return;
-      processedGroups.add(annotation.groupId);
-    }
+  // Filters are render-time only. `shown` is a new array of the same row
+  // descriptors; nothing here touches `state.annotations`, which is what
+  // syncToBackend()/saveDraft() serialise and what the hydration fingerprint is
+  // taken over. A filtered panel therefore cannot truncate a save, a draft, or
+  // make an untouched task look edited. See 01_DESIGN.md § 5.
+  const shown = visibleRows(rows, {
+    selectedIds: state.selectedIds,
+    hiddenFilterActive: state.hiddenFilterActive,
+    isHidden: isAnnotationHidden
+  });
 
-    displayCount++;
-    const isGroup = !!annotation.groupId;
-    const groupAnns = isGroup ? state.annotations.filter(a => a.groupId === annotation.groupId) : [annotation];
+  if (!shown.length) {
+    const empty = document.createElement("p");
+    empty.className = "chip-count";
+    // An empty *result* is not the same as an empty task: un-hiding the last
+    // object while the hidden filter is on leaves a list with nothing in it and
+    // annotations still on the canvas. Saying "No annotations yet" there reads
+    // as data loss.
+    empty.textContent = rows.length && state.hiddenFilterActive
+      ? "No hidden objects"
+      : "No annotations yet";
+    annotationList.appendChild(empty);
+  }
+
+  shown.forEach((row) => {
+    const { annotation, isGroup, groupAnns, index: displayCount } = row;
 
     const label = annotation.type === "comment" ? { name: "Comment", color: "#e85d75" } : labelById(annotation.labelId);
     const totalPoints = groupAnns.reduce((sum, a) => sum + annotationPoints(a).length, 0);
@@ -860,7 +941,12 @@ export function renderAnnotations() {
     annotationList.appendChild(item);
   });
 
-  annotationCount.textContent = String(displayCount);
+  // Deliberately the *unfiltered* total: it answers "how many objects are in
+  // this image", which does not change because the user clicked one of them.
+  // The hidden badge beside it carries the hidden number. (01_DESIGN.md § 4.)
+  annotationCount.textContent = String(rows.length);
+
+  renderHiddenFilter(rows);
 
   const selected = state.annotations.find((item) => item.id === state.selectedId);
   if (selected) {

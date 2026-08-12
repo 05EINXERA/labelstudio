@@ -316,3 +316,30 @@ a collision there corrupts every class index in the export.
 collisions across the whole class set and suffixes them (`AB`, `AB-2`) with a
 warning. Never re-derive a value inline with a local `.replace(...)` chain —
 that's the duplication this helper replaced, and it can't see collisions.
+
+---
+
+## 18. The Objects panel list is filtered; its header count is not
+
+**Where:** `frontend/js/components/workspace.js` `renderAnnotations()` /
+`buildRows()`, `frontend/js/objects-filter.js`.
+
+**What happens:** the Objects panel does not always list every annotation. A
+non-empty selection filters it to the selected object, and the header's eye
+toggle filters it to the hidden ones. Meanwhile `#annotationCount` deliberately
+keeps showing the *unfiltered* row total. So a panel reading "12" with one row
+visible is correct, not a bug — and "fixing" the count to match the visible rows
+makes the number mean different things at different times.
+
+Row numbers are likewise assigned in `buildRows()` over the unfiltered sequence
+and survive filtering, so a filtered list can legitimately read "7." as its only
+row. That is the point: the number cross-references the canvas.
+
+**Do instead:** treat the filters as render-time only. They must never mutate
+`state.annotations` — that array is what `syncToBackend()` and `saveDraft()`
+serialise and what the hydration fingerprint is taken over, so a filter that
+touched it would let a user who selected one object save that object over all
+their other work. Keep new filter logic in `objects-filter.js` (pure, no DOM, no
+`state` import) and assert non-mutation, as `tests/js/objects_filter_spec.mjs`
+does. Visibility and selection are also not undoable: no `snapshot()`, no
+`save()`.
