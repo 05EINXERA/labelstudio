@@ -144,6 +144,13 @@ async function initWorkspaceContext() {
     if (project && breadcrumbProject) {
       breadcrumbProject.textContent = project.name || "Untitled project";
       breadcrumbProject.title = project.name || "Untitled project";
+      
+      const username = localStorage.getItem("dataset_username") || "";
+      if (project.creator && project.creator === username) {
+        document.querySelectorAll(".owner-only-status").forEach(el => {
+          el.style.display = "block";
+        });
+      }
     }
   } catch (e) {
     console.error("Failed to resolve project name for breadcrumb", e);

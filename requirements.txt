@@ -24,3 +24,4 @@ transformers>=4.40.0
 # Tests
 pytest>=9.0.0
 httpx>=0.28.0
+pyinstaller>=6.0.0
