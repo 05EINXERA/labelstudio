@@ -12,7 +12,7 @@
  * queued write, and never changes what a save sends. A user who lacks
  * permission still has unsaved work, and that work must survive.
  */
-import { apiFetch } from "./api.js?v=2";
+import { apiFetch } from "./api.js?v=3";
 import { escapeHTML } from "./utils.js?v=1";
 import { canAnnotate, canManage, canReview } from "./permissions.js?v=1";
 

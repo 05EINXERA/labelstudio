@@ -5,7 +5,7 @@
  * mode matters more than its success one: a mistyped username must leave the
  * modal open with the value intact so it can be corrected.
  */
-import { apiFetch } from "../../api.js?v=2";
+import { apiFetch } from "../../api.js?v=3";
 import { escapeHTML } from "../../utils.js?v=1";
 import { createDataTable } from "../../components/data-table.js?v=3";
 import { createModal, setFieldError, clearFieldError } from "../../components/modal.js?v=1";

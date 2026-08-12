@@ -1,5 +1,5 @@
 import { generateUUID, normalizeClassName } from "../utils.js?v=1";
-import { apiFetch } from "../api.js?v=2";
+import { apiFetch } from "../api.js?v=3";
 import {
   state, storageKey, draftKey, legacyDraftKey, colorForName, labelByName, labelById,
   labelDisplayName, snapshot, selectedAnnotation, hydrationOk, hydrationSaveBlock,
@@ -488,6 +488,21 @@ export async function manualSaveWithUI() {
   // Show the overlay
   overlay.classList.add('is-active');
 
+  // Belt-and-braces dismissal. apiFetch now bounds every request, so the await
+  // below is guaranteed to settle — but this overlay covers the whole screen
+  // and blocks the annotator completely, so it must not depend on any single
+  // promise behaving. A stuck overlay is what made a save that never reached
+  // the server look like annotations had been wiped: the canvas kept showing
+  // local state, and the reload that followed revealed the last *completed*
+  // save instead.
+  //
+  // Cleared in the finally block, so on the normal path this never fires.
+  const failsafe = setTimeout(() => {
+    overlay.classList.remove('is-active');
+    setStatus("Save is taking longer than expected — your work is kept locally");
+    refreshSaveStatus();
+  }, 60_000);
+
   try {
     // Save the draft locally
     saveDraft();
@@ -518,16 +533,32 @@ export async function manualSaveWithUI() {
 
     // Keep the overlay visible for a brief moment, then fade it out
     await new Promise(resolve => setTimeout(resolve, 800));
-    
+
     overlay.classList.remove('is-active');
-    
+
     // Then settle on whatever is actually true — "Saved" only if the outbox is
     // empty, otherwise the pending count.
     await new Promise(resolve => setTimeout(resolve, 3000));
     refreshSaveStatus();
   } catch (err) {
+    // An aborted request (the 45s timeout in apiFetch) lands here, as does any
+    // transport failure. The payload is already in the offline queue and the
+    // draft is on disk, so nothing is lost — say so, rather than leaving the
+    // annotator to infer it from a vanished overlay.
+    const aborted = err && (err.name === 'AbortError' || err.name === 'TimeoutError');
     console.error('Manual save failed:', err);
+    setStatus(
+      aborted
+        ? "Server did not respond — your work is kept locally and will retry"
+        : "Save failed — your work is kept locally and will retry"
+    );
     refreshSaveStatus();
+  } finally {
+    // The single guaranteed dismissal point. Previously the overlay was
+    // removed on the success path and in the catch, which covered a *thrown*
+    // failure but not a promise that never settled — and that is precisely the
+    // case that occurred.
+    clearTimeout(failsafe);
     overlay.classList.remove('is-active');
   }
 }

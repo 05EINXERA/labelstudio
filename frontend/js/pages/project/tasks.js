@@ -16,7 +16,7 @@
  * all at once at the end. An XHR progress event drives the progress bar and
  * the "X / N uploaded" counter. An abort button cancels mid-flight.
  */
-import { apiFetch } from "../../api.js?v=2";
+import { apiFetch } from "../../api.js?v=3";
 import { escapeHTML, formatTime, clientId } from "../../utils.js?v=1";
 import { createDataTable } from "../../components/data-table.js?v=3";
 import { fillTeamSelect } from "../../components/team-picker.js?v=1";

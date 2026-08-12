@@ -1,5 +1,5 @@
 import { generateUUID, clamp, round, normalizeClassName, formatTime, clientId } from "./utils.js?v=1";
-import { apiFetch, pollJob } from "./api.js?v=2";
+import { apiFetch, pollJob } from "./api.js?v=3";
 import {
   state, snapshot, resetWorkspaceForNewImage,
   beginHydration, completeHydration, failHydration, hydrationOk, hydrationFailed,

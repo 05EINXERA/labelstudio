@@ -90,12 +90,23 @@ REVIEW_STATUSES = frozenset({"Approved", "Rejected"})
 
 # How many superseded annotation blobs to keep per task.
 #
-# Five, not ten: hourly backups (schedule-backup.ps1, -Keep 20) are the coarse
-# floor underneath this, so history only has to cover the window between
-# snapshots plus a short chain of bad edits — enough to walk back
-# good → bad → worse without unbounded growth across ~25 annotators autosaving.
+# Was 5, sized on the assumption that saves are minutes apart. Real usage
+# disproved that immediately: task 1211 recorded five saves in 61 seconds
+# (an annotator deleting shapes one per second, each triggering the debounced
+# autosave), so the entire window covered barely a minute of a multi-hour
+# session and the values from earlier in the shift were already evicted by the
+# time anyone looked. History that only reaches back one minute cannot answer
+# "what did this task hold before the thing that went wrong".
+#
+# 50 covers a working session at that observed rate. The cost is bounded and
+# small: rows are capped at 50 x task count regardless of how much editing
+# happens, and a blob is annotation JSON, not image data.
+#
+# Hourly snapshots (schedule-backup.ps1) remain the coarse floor underneath
+# this; history is the fine-grained layer that catches what a snapshot cadence
+# cannot — including a bad value that is itself overwritten within the hour.
 # See .devnotes/task-history/01_DESIGN.md § 4.2.
-ANNOTATION_HISTORY_KEEP = int(os.environ.get("ANNOTATION_HISTORY_KEEP", "5"))
+ANNOTATION_HISTORY_KEEP = int(os.environ.get("ANNOTATION_HISTORY_KEEP", "50"))
 
 
 def _blob_is_empty(blob: Optional[str]) -> bool:

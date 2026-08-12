@@ -30,6 +30,31 @@ export function withCsrfParam(url) {
   return url + (url.includes('?') ? '&' : '?') + 'csrf_token=' + encodeURIComponent(csrf);
 }
 
+/**
+ * How long to wait for the server before treating a request as failed.
+ *
+ * `fetch()` has NO default timeout. A request that is never answered — the
+ * server accepted the connection but the reply never comes (process wedged
+ * mid-restart, a dropped LAN link that never RSTs, a stalled proxy) — leaves
+ * its promise pending forever: it neither resolves nor rejects, so `await`
+ * never returns and no `catch` can fire.
+ *
+ * That is not theoretical. It is what produced the stuck "Saving Task"
+ * overlay: manualSaveWithUI awaited a promise that never settled, so the
+ * overlay was never removed and the annotator sat looking at a save that
+ * appeared to be in progress indefinitely. Their canvas kept showing local
+ * state the server had never received, which on reload looked exactly like
+ * annotations had been wiped — the count dropped back to whatever the last
+ * *completed* save had stored.
+ *
+ * 45s is deliberately generous: a large annotation blob over a busy LAN with
+ * ~25 clients can legitimately take several seconds, and a false timeout would
+ * queue a write that actually succeeded. It only has to be shorter than "the
+ * user gives up and reloads", which is the behaviour that made this look like
+ * data loss.
+ */
+const REQUEST_TIMEOUT_MS = 45_000;
+
 export async function apiFetch(url, options = {}) {
   const logged_in = localStorage.getItem('logged_in');
   if (!logged_in) {
@@ -47,7 +72,22 @@ export async function apiFetch(url, options = {}) {
     if (csrf) options.headers[CSRF_HEADER] = csrf;
   }
 
-  const res = await fetch(url, options);
+  // Bound every request so a hung connection surfaces as a rejection the
+  // caller can handle, instead of a promise that never settles. A caller that
+  // passes its own `signal` keeps it — the queue's own cancellation must win.
+  let timer = null;
+  if (!options.signal && typeof AbortController !== 'undefined') {
+    const controller = new AbortController();
+    options.signal = controller.signal;
+    timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  }
+
+  let res;
+  try {
+    res = await fetch(url, options);
+  } finally {
+    if (timer !== null) clearTimeout(timer);
+  }
 
   if (res.status === 401) {
     localStorage.removeItem('logged_in');

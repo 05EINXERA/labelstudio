@@ -8,7 +8,7 @@
  * `ctx` carries the shared project context so views do not each re-fetch it:
  *   { projectId, project, reloadProject(), setStatus(), navigate() }
  */
-import { apiFetch } from "../../api.js?v=2";
+import { apiFetch } from "../../api.js?v=3";
 import { escapeHTML } from "../../utils.js?v=1";
 import { renderNav, setActive, visibleNavItems } from "../../components/project-nav.js?v=3";
 import { renderAppNav, wireLogout } from "../../components/app-nav.js?v=1";

@@ -183,12 +183,19 @@ def test_refused_clear_records_nothing(client, alice):
 
 
 def test_retention_keeps_only_the_newest_n(client, alice):
-    """Bounded at ANNOTATION_HISTORY_KEEP per task, newest kept."""
+    """Bounded at ANNOTATION_HISTORY_KEEP per task, newest kept.
+
+    Driven off the constant rather than a literal, so raising the limit does
+    not silently stop testing the prune. The limit was raised from 5 to 50
+    after production showed five saves landing in 61 seconds — a window of 5
+    covered barely a minute of a multi-hour session.
+    """
     project_id = _project(client, alice)
     task = _create_task(client, alice, project_id)
 
     updated = task["updated_at"]
-    counts = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    # Enough saves to overflow the window and prove eviction happens.
+    counts = list(range(1, ANNOTATION_HISTORY_KEEP + 5))
     for n in counts:
         res = _save(client, alice, task["id"], n, updated)
         assert res.status_code == 200, res.text

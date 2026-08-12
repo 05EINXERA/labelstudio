@@ -5,7 +5,7 @@
  * could grant could grant their own team `manager` elsewhere. The router keeps
  * everyone else out; this view assumes it has an owner.
  */
-import { apiFetch } from "../../api.js?v=2";
+import { apiFetch } from "../../api.js?v=3";
 import { escapeHTML } from "../../utils.js?v=1";
 import { createDataTable } from "../../components/data-table.js?v=3";
 import { fetchMyTeams, fillTeamSelect } from "../../components/team-picker.js?v=1";
