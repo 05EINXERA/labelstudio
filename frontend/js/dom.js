@@ -14,6 +14,10 @@ export const emptyState = document.querySelector("#emptyState");
 export const classesList = document.querySelector("#classesList");
 export const annotationList = document.querySelector("#annotationList");
 export const annotationCount = document.querySelector("#annotationCount");
+// Objects pane header: toggle that filters the list to hidden objects, and the
+// live count of hidden rows shown inside it.
+export const hiddenFilterButton = document.querySelector("#hiddenFilterButton");
+export const hiddenCount = document.querySelector("#hiddenCount");
 export const selectedInfo = document.querySelector("#selectedInfo");
 export const drawMode = document.querySelector("#drawMode");
 export const selectMode = document.querySelector("#selectMode");
