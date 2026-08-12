@@ -173,7 +173,9 @@ def get_tasks(
         sort_col = getattr(models.Task, sort_by, models.Task.updated_at)
         if sort_desc:
             sort_col = sort_col.desc()
-        query = query.order_by(sort_col)
+        query = query.order_by(sort_col, models.Task.id.desc())
+    else:
+        query = query.order_by(models.Task.id.desc())
 
     query = query.with_entities(
         models.Task.id, models.Task.description, models.Task.assignee,

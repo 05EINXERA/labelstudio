@@ -42,12 +42,12 @@ export function createDataTable(opts) {
 
   const state = {
     rows: [],
-    sortKey: opts.sortKey || null,
-    sortDesc: opts.sortDesc || false,
-    page: 1,
+    sortKey: opts.sortKey !== undefined ? opts.sortKey : null,
+    sortDesc: opts.sortDesc !== undefined ? opts.sortDesc : false,
+    page: opts.initialPage || 1,
     pageSize: opts.pageSize || 10,
-    query: "",
-    filters: {},
+    query: opts.initialQuery || "",
+    filters: opts.initialFilters || {},
     selected: new Set(),
     priorityRowId: opts.priorityRowId || null,
     totalRows: 0,

@@ -220,6 +220,14 @@ function clearError() {
 // --- data --------------------------------------------------------------
 
 async function fetchServerTasks(state) {
+  sessionStorage.setItem(`tasks_table_state_${ctx.projectId}`, JSON.stringify({
+    page: state.page,
+    pageSize: state.pageSize,
+    query: state.query,
+    filters: state.filters,
+    sortKey: state.sortKey,
+    sortDesc: state.sortDesc
+  }));
   table.showLoading(state.pageSize);
   const params = new URLSearchParams({
     projectId: ctx.projectId,
@@ -657,12 +665,21 @@ export async function mount(hostRoot, hostCtx) {
 
   root.innerHTML = template(isCreator);
 
+  let initialState = {};
+  try {
+    const saved = sessionStorage.getItem(`tasks_table_state_${ctx.projectId}`);
+    if (saved) initialState = JSON.parse(saved);
+  } catch (e) {}
+
   table = createDataTable({
     mount: el("tableMount"),
     rowId: (r) => r.id,
     selectable: isCreator,
-    sortKey: "updated_at",
-    sortDesc: true,
+    sortKey: initialState.sortKey !== undefined ? initialState.sortKey : "updated_at",
+    sortDesc: initialState.sortDesc !== undefined ? initialState.sortDesc : true,
+    initialPage: initialState.page,
+    initialQuery: initialState.query,
+    initialFilters: initialState.filters,
     priorityRowId: activeTaskId,
     rowClass: (r) => (activeTaskId && String(r.id) === String(activeTaskId) ? "row-recent-task" : ""),
     emptyMessage: "No tasks yet. Upload images to get started.",
@@ -717,6 +734,10 @@ export async function mount(hostRoot, hostCtx) {
     bindUpload();
     bindEditModal();
     bindBulkActions();
+
+    if (initialState.query) el("searchInput").value = initialState.query;
+    if (initialState.filters?.status) el("statusFilter").value = initialState.filters.status;
+    if (initialState.filters?.assignee) el("myTasksFilter").checked = true;
 
     el("searchInput").addEventListener("input", (e) => table.setQuery(e.target.value));
     el("statusFilter").addEventListener("change", (e) => table.setFilter("status", e.target.value));
