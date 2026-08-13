@@ -35,6 +35,7 @@ export const fftToolGroup = document.querySelector(".fft-tool-group");
 export const undoButton = document.querySelector("#undoButton");
 export const redoButton = document.querySelector("#redoButton");
 export const deleteButton = document.querySelector("#deleteButton");
+export const unhideAllButton = document.querySelector("#unhideAllButton");
 export const clearButton = document.querySelector("#clearButton");
 // Link to the project's Exports tab. An <a>, not a <button>: export is a
 // project-level operation handled there, not on the canvas.

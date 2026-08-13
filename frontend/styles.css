@@ -1946,6 +1946,25 @@ canvas {
   font-size: 0.72rem;
 }
 
+/* The Edit group carries seven buttons — one more than the six it was sized
+   for — which at common window widths was enough to wrap the group onto its
+   own row and push the rest of the toolbar down. The width is bought back
+   evenly from every button in the group rather than by shrinking or dropping
+   any one of them, so the row keeps its default single-line layout and the
+   buttons stay the same height (26px) as every other group's.
+   Scoped to the Edit group: no other group is under width pressure. */
+.tool-group[aria-label="Edit controls"] .icon-button {
+  padding: 0 5px;
+}
+
+.tool-group[aria-label="Edit controls"] .btn-icon {
+  margin-right: 2px;
+}
+
+.tool-group[aria-label="Edit controls"] .tool-group-buttons {
+  gap: 2px;
+}
+
 /* Back arrow + "<project> / <image>" breadcrumb, replacing the old sidebar
    brand block. */
 .toolbar .back-button,

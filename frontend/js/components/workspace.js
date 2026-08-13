@@ -21,7 +21,7 @@ import {
   autoDetectButton, aiSettingsMenuButton, autoTagButton, fftToolGroup,
   undoButton, redoButton, deleteButton, clearButton, exportLink,
   shapeHint, saveStatus
-} from "../dom.js?v=2";
+} from "../dom.js?v=3";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
 import { toolAvailability } from "../feature-flags.js?v=1";
 // Per-task write gating. `isReadOnly()` is project-role only, so it is false
@@ -661,6 +661,33 @@ export function toggleAnnotationsHidden(ids, hide) {
     if (hide) state.hiddenAnnotationIds.add(id);
     else state.hiddenAnnotationIds.delete(id);
   });
+}
+
+/**
+ * Reveal every object hidden from the Objects panel, in one go.
+ *
+ * Shared by the Unhide button and the "U" shortcut. Returns how many rows were
+ * revealed (0 if nothing was hidden) so the caller can report it — the shapes
+ * coming back may sit off-screen at the current zoom, which makes the count the
+ * only confirmation the user gets.
+ *
+ * Objects only: `state.hiddenLabelIds` is a separate axis owned by the Classes
+ * panel's own eye, and an object hidden *by its class* stays hidden here —
+ * correctly, since this never hid it. Same split the "H" shortcut observes.
+ *
+ * Also clears the hidden-only filter. Leaving it on would strand the user on an
+ * empty "No hidden objects" list, because the filter's entire subject has just
+ * ceased to exist.
+ *
+ * View-only, like every other visibility path: no snapshot() (not undoable) and
+ * no save() (nothing persisted changed) — GOTCHAS #18.
+ */
+export function unhideAllObjects() {
+  const revealed = state.hiddenAnnotationIds.size;
+  if (!revealed) return 0;
+  state.hiddenAnnotationIds.clear();
+  state.hiddenFilterActive = false;
+  return revealed;
 }
 
 export function renderClasses() {

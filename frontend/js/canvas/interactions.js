@@ -4,9 +4,9 @@ import { annotationPoints, updateAnnotationBounds, pointInPolygon } from "./geom
 import { untangleRing } from "./untangle.js?v=1";
 import { view } from "./view.js?v=1";
 import { draw, drawAllLayers } from "./draw.js?v=2";
-import { canvas, undoButton } from "../dom.js?v=2";
+import { canvas, undoButton } from "../dom.js?v=3";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
-import { setStatus, save, render, activateLabel, toggleAnnotationsHidden } from "../components/workspace.js?v=12";
+import { setStatus, save, render, activateLabel, toggleAnnotationsHidden, unhideAllObjects } from "../components/workspace.js?v=13";
 import { labelIndexForCode, hideTargetIds, shouldHide } from "../shortcuts.js?v=1";
 import { performMagicWandSegmentation } from "../ai/detect.js?v=1";
 import { applyAutoSmooth } from "../fft-controls.js?v=1";
@@ -1430,6 +1430,24 @@ window.addEventListener("keydown", (event) => {
     // row in the Objects panel so H can bring it back.
     render();
     setStatus(hide ? "Object hidden" : "Object shown");
+    return;
+  }
+
+  // "U" brings every hidden object back at once — the escape hatch from "H",
+  // and the only way back when the hidden shape is off-screen at this zoom.
+  //
+  // Ctrl+U (view-source) is excluded so the browser keeps it. No selection is
+  // required and none is cleared: unlike "H" this is not about the selection.
+  if (event.key.toLowerCase() === "u" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    event.preventDefault();
+    const revealed = unhideAllObjects();
+    if (!revealed) {
+      // A true no-op — no render(), so a stray "U" costs nothing.
+      setStatus("Nothing hidden");
+      return;
+    }
+    render();
+    setStatus(`Shown ${revealed} hidden object${revealed === 1 ? "" : "s"}`);
     return;
   }
 

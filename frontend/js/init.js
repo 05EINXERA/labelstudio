@@ -11,13 +11,14 @@ import { commentOverlayRefs } from "./comment-overlay.js?v=1";
 import {
   canvas, ctx, imageCanvas, imageCtx, staticCanvas, staticCtx, stageWrap,
   emptyState, drawMode, selectMode, boxMode, polygonMode, commentMode, magicWandMode,
-  autoDetectButton, undoButton, redoButton, deleteButton, clearButton, exportLink, saveButton
-} from "./dom.js?v=2";
+  autoDetectButton, undoButton, redoButton, deleteButton, clearButton, unhideAllButton,
+  exportLink, saveButton
+} from "./dom.js?v=3";
 import { drawAllLayers } from "./canvas/draw.js?v=2";
 import {
   setStatus, syncToBackend, save, loadSaved, saveDraft, restoreDraft,
-  render, manualSaveWithUI, refreshSaveStatus, pruneStaleDrafts
-} from "./components/workspace.js?v=12";
+  render, manualSaveWithUI, refreshSaveStatus, pruneStaleDrafts, unhideAllObjects
+} from "./components/workspace.js?v=13";
 import {
   configureQueue, startQueue, subscribe as subscribeQueue, drainQueue,
   enqueueWrite, retryablePendingCount, noteServerReachable, noteServerUnreachable,
@@ -31,7 +32,7 @@ import {
 } from "./components/timer.js?v=3";
 import {
   finalizePolygon, deleteSelected, undoAction, redoAction, setZoomChangeHandler
-} from "./canvas/interactions.js?v=5";
+} from "./canvas/interactions.js?v=6";
 import { initContextMenu } from "./canvas/context-menu.js?v=2";
 import { getCurrentUser } from "./session.js?v=1";
 import { canReview } from "./permissions.js?v=1";
@@ -521,6 +522,23 @@ redoButton.addEventListener("click", () => {
 deleteButton.addEventListener("click", () => {
   deleteSelected();
 });
+
+// Unhide all: the button twin of the "U" shortcut. Both go through
+// unhideAllObjects() so they cannot drift. Deliberately always enabled — the
+// count of hidden objects is not visible from the toolbar, so a disabled
+// button would look broken to someone who cannot see why; pressing it with
+// nothing hidden simply says so.
+if (unhideAllButton) {
+  unhideAllButton.addEventListener("click", () => {
+    const revealed = unhideAllObjects();
+    if (!revealed) {
+      setStatus("Nothing hidden");
+      return;
+    }
+    render();
+    setStatus(`Shown ${revealed} hidden object${revealed === 1 ? "" : "s"}`);
+  });
+}
 
 clearButton.addEventListener("click", () => {
   const total = state.annotations.length;
