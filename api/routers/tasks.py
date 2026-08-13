@@ -5,7 +5,7 @@ import datetime
 from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Query, HTTPException
-from sqlalchemy import case, func
+from sqlalchemy import case, false, func
 from sqlalchemy.orm import Session
 
 import models
@@ -446,6 +446,12 @@ DEFAULT_ORDER = "asc"
 DEFAULT_PAGE_SIZE = 10
 MAX_PAGE_SIZE = 100
 
+# Upper bound on the comma-separated id list the assignee *name* search sends.
+# It is generated from the project's assignable-members roster (~20-25 people in
+# the target deployment), so this is slack, not a working limit — it exists so a
+# hand-crafted URL cannot build an unbounded IN clause.
+MAX_ASSIGNEE_FILTER_IDS = 200
+
 
 def _apply_ordering(query, sort: str, order: str):
     """Order `query` deterministically by `sort`, tie-broken by id.
@@ -517,6 +523,15 @@ def _apply_filters(
     `team` and `assignee` carry the sentinel vocabulary the UI already speaks
     ("unassigned", "mine", "user-<id>"), so the select values pass straight
     through without the caller translating them.
+
+    `assignee` additionally accepts a comma-separated id list
+    ("user-3,user-7,user-9") and the sentinel "none". Both serve the assignee
+    *name* search: the client matches the typed text against the roster it
+    already holds from `/api/projects/{id}/assignable-members` and sends the
+    resulting ids, so searching by name costs no join here and no request per
+    keystroke. "none" is what a query matching nobody sends — it must return an
+    empty page rather than every task, which is what dropping the filter would
+    silently do.
     """
     if q:
         # Filename substring, case-insensitive. `ilike` rather than lower(...)
@@ -541,15 +556,35 @@ def _apply_filters(
             query = query.filter(models.Task.assignee_user_id.is_(None))
         elif assignee == "mine":
             query = query.filter(models.Task.assignee_user_id == user.id)
+        elif assignee == "none":
+            # A name search that matched nobody. `false()` rather than an
+            # impossible id: it says what is meant, and no real id can collide
+            # with it.
+            query = query.filter(false())
         else:
-            # "user-<id>", the value the assignee select emits.
-            raw = assignee[5:] if assignee.startswith("user-") else assignee
-            try:
-                query = query.filter(models.Task.assignee_user_id == int(raw))
-            except (TypeError, ValueError):
+            # "user-<id>", the value the assignee select emits, or a comma-
+            # separated list of them from the name search.
+            parts = [p.strip() for p in assignee.split(",") if p.strip()]
+            if len(parts) > MAX_ASSIGNEE_FILTER_IDS:
                 raise HTTPException(
-                    status_code=422, detail=f"Invalid assignee filter '{assignee}'"
+                    status_code=422,
+                    detail=(
+                        f"Too many assignee ids ({len(parts)}); "
+                        f"the limit is {MAX_ASSIGNEE_FILTER_IDS}."
+                    ),
                 )
+            ids = []
+            for part in parts:
+                raw = part[5:] if part.startswith("user-") else part
+                try:
+                    ids.append(int(raw))
+                except (TypeError, ValueError):
+                    raise HTTPException(
+                        status_code=422, detail=f"Invalid assignee filter '{assignee}'"
+                    )
+            # `in_` even for one id, so the single-select and the name search
+            # take exactly the same path — one shape to reason about and test.
+            query = query.filter(models.Task.assignee_user_id.in_(ids))
 
     return query
 

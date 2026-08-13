@@ -2177,6 +2177,16 @@ canvas {
 }
 .mgmt-toolbar input[type="search"] { min-width: 240px; }
 
+/* --- assignee name search ------------------------------------------------ */
+/* Always visible, beside the assignee select. Narrower than the filename
+   search (which the generic `.mgmt-toolbar input[type="search"]` rule sizes at
+   240px) because a username is shorter than a filename. */
+
+.mgmt-toolbar input[type="search"].assignee-search-input { min-width: 170px; }
+
+/* Disabled while the roster it matches against is still loading. */
+.assignee-search-input:disabled { opacity: .6; cursor: not-allowed; }
+
 /* --- data table --------------------------------------------------------- */
 
 .data-table-wrap {

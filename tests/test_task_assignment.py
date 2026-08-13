@@ -547,3 +547,146 @@ def test_assignable_members_requires_project_access(client, alice, bob):
     res = client.get(f"/api/projects/{project_id}/assignable-members", headers=bob)
 
     assert res.status_code == 404
+
+
+# --- assignee filter: multi-id and the no-match sentinel ---------------------
+#
+# `GET /api/tasks?assignee=` backs both the dropdown (one id, or "mine" /
+# "unassigned") and the assignee *name* search, which resolves the typed name
+# against the roster on the client and sends the resulting ids. See
+# frontend/js/pages/project/assignee-search.js.
+
+
+def _assign(client, owner, task_id, team_id, user_id=None):
+    payload = {"assigned_team_id": team_id}
+    if user_id is not None:
+        payload["assignee_user_id"] = user_id
+    return client.patch(
+        f"/api/tasks/{task_id}/assignment", json=payload, headers=owner
+    )
+
+
+def _named_task(client, owner, project_id, name):
+    return client.post(
+        f"/api/tasks?projectId={project_id}",
+        json={"description": name, "status": "New"},
+        headers=owner,
+    ).json()["id"]
+
+
+def _ids(client, headers, project_id, **params):
+    qs = "".join(f"&{k}={v}" for k, v in params.items())
+    body = client.get(
+        f"/api/tasks?projectId={project_id}&include_annotations=false{qs}",
+        headers=headers,
+    ).json()
+    items = body["items"] if isinstance(body, dict) else body
+    return {t["id"] for t in items}
+
+
+def test_assignee_filter_accepts_multiple_ids(client, alice, bob, carol):
+    """The name search sends every id whose username matched, so the filter
+    must return their union — not just the first."""
+    project_id = _project(client, alice)
+    team = _team_with_grant(client, alice, project_id, "Alpha", members=[bob, carol])
+    bob_id, carol_id = _me(client, bob)["id"], _me(client, carol)["id"]
+
+    bob_task = _named_task(client, alice, project_id, "b.jpg")
+    carol_task = _named_task(client, alice, project_id, "c.jpg")
+    other_task = _named_task(client, alice, project_id, "d.jpg")
+    _assign(client, alice, bob_task, team["id"], bob_id)
+    _assign(client, alice, carol_task, team["id"], carol_id)
+
+    both = _ids(client, alice, project_id, assignee=f"user-{bob_id},user-{carol_id}")
+
+    assert both == {bob_task, carol_task}
+    assert other_task not in both
+
+
+def test_assignee_filter_single_id_still_works(client, alice, bob):
+    """The dropdown's own one-id value takes the same path and is unchanged."""
+    project_id = _project(client, alice)
+    team = _team_with_grant(client, alice, project_id, "Alpha", members=[bob])
+    bob_id = _me(client, bob)["id"]
+
+    mine = _named_task(client, alice, project_id, "b.jpg")
+    other = _named_task(client, alice, project_id, "d.jpg")
+    _assign(client, alice, mine, team["id"], bob_id)
+
+    found = _ids(client, alice, project_id, assignee=f"user-{bob_id}")
+
+    assert found == {mine}
+    assert other not in found
+
+
+def test_assignee_none_sentinel_returns_nothing(client, alice, bob):
+    """A name matching nobody must yield an empty page. Dropping the filter
+    instead would show every task — the opposite of what was asked for."""
+    project_id = _project(client, alice)
+    team = _team_with_grant(client, alice, project_id, "Alpha", members=[bob])
+    task_id = _named_task(client, alice, project_id, "b.jpg")
+    _assign(client, alice, task_id, team["id"], _me(client, bob)["id"])
+
+    assert _ids(client, alice, project_id, assignee="none") == set()
+    # Guard the premise: without the filter the task is plainly there.
+    assert _ids(client, alice, project_id) == {task_id}
+
+
+def test_assignee_filter_composes_with_status_and_sort(client, alice, bob, carol):
+    """Search, the status select and the sort all narrow one query; a filter
+    that only worked alone would be useless in the real toolbar."""
+    project_id = _project(client, alice)
+    team = _team_with_grant(client, alice, project_id, "Alpha", members=[bob, carol])
+    bob_id, carol_id = _me(client, bob)["id"], _me(client, carol)["id"]
+
+    keep = _named_task(client, alice, project_id, "b.jpg")
+    wrong_status = _named_task(client, alice, project_id, "c.jpg")
+    _assign(client, alice, keep, team["id"], bob_id)
+    _assign(client, alice, wrong_status, team["id"], carol_id)
+    client.patch(
+        f"/api/tasks/{wrong_status}",
+        json={"status": "Done", "client_id": "t", "updated_at": None},
+        headers=alice,
+    )
+
+    both = f"user-{bob_id},user-{carol_id}"
+    found = _ids(
+        client, alice, project_id, assignee=both, status="New", sort="description",
+        order="desc",
+    )
+
+    assert found == {keep}
+
+
+def test_assignee_filter_rejects_a_bad_id_in_the_list(client, alice):
+    project_id = _project(client, alice)
+
+    res = client.get(
+        f"/api/tasks?projectId={project_id}&assignee=user-1,notanumber", headers=alice
+    )
+
+    assert res.status_code == 422
+
+
+def test_assignee_filter_rejects_an_overlong_id_list(client, alice):
+    """A hand-crafted URL must not be able to build an unbounded IN clause."""
+    project_id = _project(client, alice)
+    too_many = ",".join(f"user-{i}" for i in range(201))
+
+    res = client.get(
+        f"/api/tasks?projectId={project_id}&assignee={too_many}", headers=alice
+    )
+
+    assert res.status_code == 422
+
+
+def test_assignee_mine_and_unassigned_unaffected(client, alice, bob):
+    """The sentinels the dropdown already emitted keep their meaning."""
+    project_id = _project(client, alice)
+    team = _team_with_grant(client, alice, project_id, "Alpha", members=[bob])
+    assigned = _named_task(client, alice, project_id, "b.jpg")
+    free = _named_task(client, alice, project_id, "d.jpg")
+    _assign(client, alice, assigned, team["id"], _me(client, alice)["id"])
+
+    assert _ids(client, alice, project_id, assignee="mine") == {assigned}
+    assert _ids(client, alice, project_id, assignee="unassigned") == {free}

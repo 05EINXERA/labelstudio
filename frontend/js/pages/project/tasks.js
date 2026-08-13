@@ -22,6 +22,7 @@ import { createDataTable } from "../../components/data-table.js?v=3";
 import { fillTeamSelect } from "../../components/team-picker.js?v=1";
 import { canManage, canReview } from "../../permissions.js?v=1";
 import { openAssignDialog } from "./assign-modal.js?v=1";
+import { matchAssignees, isSearchFilterValue } from "./assignee-search.js?v=1";
 import {
   STATUSES,
   buildColumns,
@@ -259,6 +260,9 @@ function template() {
         <option value="mine">My tasks</option>
         <option value="unassigned">Nobody specific</option>
       </select>
+      <input type="search" id="assigneeSearch" class="assignee-search-input"
+             placeholder="Assignee name…" aria-label="Search by assignee name"
+             autocomplete="off">
     </div>
 
     <div id="tableMount"></div>
@@ -702,6 +706,73 @@ async function loadLookups() {
   }
 }
 
+// --- assignee name search ---------------------------------------------------
+//
+// A search box sitting beside the assignee select, always visible — the same
+// shape as the filename search at the head of the toolbar. Typing resolves the
+// name against the roster already in `assignableMembers` (see
+// assignee-search.js) and drives the *same* `assignee` filter the dropdown does
+// — so search, the dropdown, the status/team filters and the sort all compose
+// through one server query rather than fighting each other.
+//
+// Text wins over the dropdown while it is non-empty: two live assignee filters
+// would be ambiguous, and the select is visibly disabled to say which one is in
+// charge. Clearing the box hands control back.
+
+// Matching is local (no request), so this only coalesces renders — the 300ms
+// used for the filename search would be needless lag here.
+const ASSIGNEE_SEARCH_DEBOUNCE_MS = 150;
+let _assigneeSearchTimer = null;
+
+/** Push the current assignee filter — from the search box if it has text,
+ *  otherwise from the dropdown — into the table. */
+function _applyAssigneeFilter() {
+  const box = el("assigneeSearch");
+  const select = el("assigneeFilter");
+  if (!box || !select) return;
+
+  const searched = matchAssignees(assignableMembers, box.value);
+  const value = searched ?? select.value ?? "All";
+
+  select.disabled = searched != null;
+
+  _activeFilters.assignee = value;
+  table.setFilter("assignee", value);
+}
+
+/** Enable the box once the roster it matches against has arrived.
+ *
+ *  Until then typing would match an empty list and send NO_MATCH — an empty
+ *  table for a name that does exist. Disabled is the honest state: mount()
+ *  binds this before `await loadLookups()`, and on a slow LAN that gap is
+ *  visible. */
+function _setAssigneeSearchReady(ready) {
+  const box = el("assigneeSearch");
+  if (box) box.disabled = !ready;
+}
+
+function bindAssigneeSearch() {
+  const box = el("assigneeSearch");
+  if (!box) return;
+
+  _setAssigneeSearchReady(false);
+
+  box.addEventListener("input", () => {
+    if (_assigneeSearchTimer) clearTimeout(_assigneeSearchTimer);
+    _assigneeSearchTimer = setTimeout(() => {
+      _assigneeSearchTimer = null;
+      _applyAssigneeFilter();
+    }, ASSIGNEE_SEARCH_DEBOUNCE_MS);
+  });
+
+  // Escape clears rather than collapses. The box stays put; only the filter goes.
+  box.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || !box.value) return;
+    box.value = "";
+    _applyAssigneeFilter();
+  });
+}
+
 // `applyAssigneeFilter` / `applyTeamFilter` / `_reapplyFilters` lived here.
 // They stamped a derived `_assigneeFilter` / `_teamFilter` key onto every row
 // so the client-side table could filter on it, and had to be re-applied after
@@ -925,10 +996,10 @@ export async function mount(hostRoot, hostCtx, hashParams) {
     _activeFilters.team = e.target.value;
     table.setFilter("team", e.target.value);
   });
-  el("assigneeFilter")?.addEventListener("change", (e) => {
-    _activeFilters.assignee = e.target.value;
-    table.setFilter("assignee", e.target.value);
-  });
+  // Goes through _applyAssigneeFilter() rather than setting the filter
+  // directly, so the search box keeps precedence if it holds text.
+  el("assigneeFilter")?.addEventListener("change", () => _applyAssigneeFilter());
+  bindAssigneeSearch();
 
   // Delegated on the mount, which survives every re-render; the filename links
   // themselves are replaced on each page change.
@@ -1039,10 +1110,15 @@ export async function mount(hostRoot, hostCtx, hashParams) {
     sortDesc: view.sortDesc,
   });
   if (view.query) el("searchInput").value = view.query;
+
+  // An assignee value produced by the name search ("user-3,user-7" or "none")
+  // has no matching <option>; assigning it would blank the select instead. Such
+  // a value is restored onto the search box below, once the roster has loaded.
+  const assigneeFromSearch = isSearchFilterValue(view.assignee);
   for (const [id, value] of [
     ["statusFilter", view.status],
     ["teamFilter", view.team],
-    ["assigneeFilter", view.assignee],
+    ["assigneeFilter", assigneeFromSearch ? "All" : view.assignee],
   ]) {
     const node = el(id);
     if (node && value && value !== "All") node.value = value;
@@ -1051,9 +1127,26 @@ export async function mount(hostRoot, hostCtx, hashParams) {
   // loadLookups() populates the team/assignee selects, so it must finish before
   // the restored values above can stick — it rebuilds those <option> lists.
   await loadLookups();
-  for (const [id, value] of [["teamFilter", view.team], ["assigneeFilter", view.assignee]]) {
+  _setAssigneeSearchReady(true);
+  for (const [id, value] of [
+    ["teamFilter", view.team],
+    ["assigneeFilter", assigneeFromSearch ? "All" : view.assignee],
+  ]) {
     const node = el(id);
     if (node && value && value !== "All") node.value = value;
+  }
+
+  if (assigneeFromSearch) {
+    // The URL carries ids, not the text that produced them, so recover a name
+    // to show. Any matched member's username re-derives the same id set for a
+    // full-name query; "none" has nobody to name, so the box is left empty and
+    // the filter simply stands until the user types.
+    const ids = new Set(
+      view.assignee.split(",").map((part) => parseInt(part.replace(/^user-/, ""), 10))
+    );
+    const named = assignableMembers.find((m) => ids.has(m.user_id));
+    el("assigneeSearch").value = named?.username ?? "";
+    el("assigneeFilter").disabled = true;
   }
 
   await loadTasks();
@@ -1081,9 +1174,15 @@ export function unmount() {
     _uploadAbortCtrl.abort();
     _uploadAbortCtrl = null;
   }
+  if (_assigneeSearchTimer) {
+    clearTimeout(_assigneeSearchTimer);
+    _assigneeSearchTimer = null;
+  }
+
   root = null;
   ctx = null;
   table = null;
   teamsById.clear();
   usersById.clear();
+  assignableMembers = [];
 }
