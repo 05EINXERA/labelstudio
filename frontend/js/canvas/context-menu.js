@@ -1,11 +1,11 @@
 import { canvas } from "../dom.js?v=2";
 import { state } from "../state.js?v=7";
 import { view } from "./view.js?v=1";
-import { render } from "../components/workspace.js?v=11";
+import { render } from "../components/workspace.js?v=12";
 import {
   canvasPoint, hitTest,
   sendToBack, sendBackward, bringToFront, bringForward
-} from "./interactions.js?v=4";
+} from "./interactions.js?v=5";
 
 // Right-click z-order menu for annotations.
 //
@@ -103,6 +103,12 @@ export function initContextMenu() {
       }
       state.selectedId = hitId;
       state.mode = "select";
+      // Edge hover/selection was measured against the previously selected
+      // shape; carrying it over onto a different one points at an edge that
+      // may not exist there. Every other selection-changing path in
+      // interactions.js clears both indices for the same reason.
+      view.hoveredLineIndex = -1;
+      view.selectedLineIndex = -1;
       render();
     }
 

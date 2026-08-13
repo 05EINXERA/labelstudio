@@ -257,7 +257,12 @@ export function drawAnnotation(annotation, selected = false, targetCtx = ctx) {
   // Draw highlighted/selected line segments on the selected annotation
   if (selected && annotation.id === state.selectedId && screenPoints.length >= 3) {
     // Draw hovered line highlight
-    if (view.hoveredLineIndex !== -1 && view.hoveredLineIndex !== view.selectedLineIndex) {
+    // The index is bounds-checked as well as compared: it can outlive the
+    // polygon it was measured on (selection changing to a smaller shape,
+    // points deleted mid-hover) and would then index past screenPoints.
+    if (view.hoveredLineIndex !== -1 &&
+        view.hoveredLineIndex !== view.selectedLineIndex &&
+        view.hoveredLineIndex < screenPoints.length) {
       const p1 = screenPoints[view.hoveredLineIndex];
       const p2 = screenPoints[(view.hoveredLineIndex + 1) % screenPoints.length];
       targetCtx.save();

@@ -13,11 +13,11 @@ import {
   emptyState, drawMode, selectMode, boxMode, polygonMode, commentMode, magicWandMode,
   autoDetectButton, undoButton, redoButton, deleteButton, clearButton, exportLink, saveButton
 } from "./dom.js?v=2";
-import { drawAllLayers } from "./canvas/draw.js?v=1";
+import { drawAllLayers } from "./canvas/draw.js?v=2";
 import {
   setStatus, syncToBackend, save, loadSaved, saveDraft, restoreDraft,
   render, manualSaveWithUI, refreshSaveStatus, pruneStaleDrafts
-} from "./components/workspace.js?v=11";
+} from "./components/workspace.js?v=12";
 import {
   configureQueue, startQueue, subscribe as subscribeQueue, drainQueue,
   enqueueWrite, retryablePendingCount, noteServerReachable, noteServerUnreachable,
@@ -31,8 +31,8 @@ import {
 } from "./components/timer.js?v=3";
 import {
   finalizePolygon, deleteSelected, undoAction, redoAction, setZoomChangeHandler
-} from "./canvas/interactions.js?v=4";
-import { initContextMenu } from "./canvas/context-menu.js?v=1";
+} from "./canvas/interactions.js?v=5";
+import { initContextMenu } from "./canvas/context-menu.js?v=2";
 import { getCurrentUser } from "./session.js?v=1";
 import { canReview } from "./permissions.js?v=1";
 import {
@@ -42,7 +42,7 @@ import {
   taskWriteBlock,
 } from "./canvas-permissions.js?v=6";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
-import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=1";
+import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=2";
 import { claimTask, heartbeatTask, releaseTask } from "./task-lock.js?v=2";
 import { initFftControls } from "./fft-controls.js?v=1";
 
