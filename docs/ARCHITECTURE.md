@@ -186,28 +186,14 @@ weights directory — genuinely confusing to every newcomer).
 - `tests/`: Automated test suite.
 - `frontend/`: Static browser assets and ES modules.
 
-### 3.4 In-process state caps the app at one worker
+### 3.4 In-process state caps the app at one worker - partially resolved
 
-Three plain Python dicts live in one process and would not be shared across
-workers: `JOBS` (`detect.py` — AI inference job status/results), `_models`
-(`detector.py` — loaded ML model singletons), and `_TASK_LOCKS`
-(`api/routers/tasks.py` — the soft per-task open/heartbeat lock, TTL 60s).
-Run uvicorn with `--workers 2` and, for `JOBS`, polls will land on a worker
-that has never heard of the job_id → spurious 404s; for `_TASK_LOCKS`, two
-workers would each think they own the lock. `JOBS` also leaks: a job whose
-client never polls (closed tab) stays in the dict forever, holding full
-inference results in memory. See CLAUDE.md rule 9 — none of this is
-persisted across a process restart either (a crash or supervised restart
-silently drops all three; annotation data itself is DB-committed and
-unaffected).
+**Status: partially fixed.** The in-process state bottlenecks that prevented multi-worker scaling have mostly been resolved:
+- `JOBS` (AI Inference) has been moved from an in-process dict to the `AIJob` database model in `detect.py`, safely allowing polling from any worker. Stale unpolled jobs are automatically evicted (10-minute TTL).
+- `_TASK_LOCKS` has been moved to the `TaskLock` database model, preventing multiple workers from claiming the same lock concurrently.
+- `_models` remains an in-process singleton cache for ML weights by design, which is safe to duplicate across workers (though memory intensive).
 
-**Direction:** acceptable for the current single-worker deployment, but (a)
-add a TTL sweep that evicts finished jobs older than ~10 minutes, and (b) if
-multi-worker or multi-machine scaling is ever needed, replace `JOBS` with
-jobs stored in SQLite/Postgres (status + result columns) — same polling API,
-no shared-memory assumption — and move `_TASK_LOCKS` into the DB too. This is
-tracked as the deferred D3 item in `.devnotes/deployment-hardening/tasks.md`.
-Never "fix" scaling by just adding workers.
+**Remaining issue:** The `exports.py` router still uses an in-process `JOBS` dictionary for long-running export tasks. This needs to be moved to the database (similar to `AIJob`) to fully uncap the application for multi-worker scaling.
 
 ### 3.5 `detector.py` decomposition into `ml/` sub-package
 
@@ -234,17 +220,9 @@ requires auth and is scoped per-user (`owner_id`), per `01_AUDIT.md` A-5a and
 they are not. Do not reintroduce a whole-blob sync path — new frontend state
 goes through real per-resource endpoints.
 
-### 3.7 Schema management is split-brain
+### 3.7 Schema management is split-brain - resolved
 
-`main.py` runs `Base.metadata.create_all()` on startup *and* Alembic exists
-with one initial migration. `create_all` only creates missing tables — it
-never adds columns — so once real users have databases, column additions
-made "the easy way" will silently not apply to them.
-
-**Direction:** all future schema changes ship as Alembic migrations, and
-startup should run migrations (or at minimum, developers run
-`alembic upgrade head` after pulling). Keep `create_all` only as a
-convenience for a brand-new empty database.
+**Status: fixed.** The split-brain schema generation hazard has been removed. `Base.metadata.create_all()` is no longer run unconditionally in `app/main.py`. Database structure and migrations are strictly managed through Alembic.
 
 ### 3.8 Repo hygiene debris
 
@@ -254,7 +232,7 @@ convenience for a brand-new empty database.
 
 ## 4. Constraints to respect (not bugs — load-bearing decisions)
 
-- **Single uvicorn worker.** Required by the `JOBS` dict. Don't add `--workers N`.
+- **Worker count.** While `JOBS` and `_TASK_LOCKS` are now safely in the DB, multiple workers will duplicate ML models (`_models`) in RAM. Be mindful of memory limits if adding `--workers N`.
 - **SQLite for local/dev, Postgres for the LAN deployment.** SQLite (WAL mode + short transactions) is fine for a single developer, but the current ~20-25 person LAN deployment runs Postgres on the same box — see CLAUDE.md and `config.IS_SQLITE`. Don't assume SQLite is the production target when reasoning about scale, pooling, or backups.
 - **No frontend build step is deliberate.** Plain ES modules keep setup at "run uvicorn, open browser". Adopting a bundler/framework is a team decision, not something to sneak in with a feature.
 - **`DATA_DIR` indirection matters.** All persistent writes (db, uploads, downloaded weights) must go under `DATA_DIR`, because in production that's the mounted persistent disk — writes anywhere else vanish on redeploy.

@@ -96,13 +96,11 @@ def _new_task(client, auth, pid, description, annotations):
 
 
 def _annotations_of(client, auth, pid, tid):
-    tasks = client.get("/api/tasks", params={"projectId": pid, "include_annotations": "true"}, headers=auth).json()
-    task = next(t for t in tasks if t["id"] == tid)
-    anns = task["annotations"]
-    return json.loads(anns) if isinstance(anns, str) else (anns or [])
+    task = client.get(f"/api/tasks/{tid}", headers=auth).json()
+    return task.get("annotations", [])
 
 
-def test_delete_label_deletes_its_annotations(client, alice):
+def test_delete_label_orphans_its_annotations(client, alice):
     pid = _new_project(client, alice)
     id_a, id_b = _lid(), _lid()
     client.post("/api/labels", json=_label(id_a, "cat", "#111", pid), headers=alice)
@@ -114,13 +112,14 @@ def test_delete_label_deletes_its_annotations(client, alice):
     ])
 
     res = client.delete(f"/api/labels/{id_a}?projectId={pid}", headers=alice)
-    assert res.json() == {"status": "ok", "annotationsDeleted": 1}
+    assert res.json() == {"status": "ok", "annotationsDeleted": 0}
 
     remaining = _annotations_of(client, alice, pid, tid)
-    assert [a["id"] for a in remaining] == ["2", "3"]
+    assert [a["id"] for a in remaining] == ["1", "2", "3"]
+    assert next(a for a in remaining if a["id"] == "1").get("labelId") is None
 
 
-def test_bulk_delete_cascades_across_tasks(client, alice):
+def test_bulk_delete_orphans_across_tasks(client, alice):
     pid = _new_project(client, alice)
     id_a, id_b, id_c = _lid(), _lid(), _lid()
     for lid, name in ((id_a, "cat"), (id_b, "dog"), (id_c, "bird")):
@@ -134,10 +133,16 @@ def test_bulk_delete_cascades_across_tasks(client, alice):
     ])
 
     res = client.post("/api/labels/bulk-delete", json={"projectId": pid, "ids": [id_a, id_b]}, headers=alice)
-    assert res.json() == {"status": "ok", "deleted": 2, "annotationsDeleted": 2}
+    assert res.json() == {"status": "ok", "deleted": 2, "annotationsDeleted": 0}
 
-    assert [a["id"] for a in _annotations_of(client, alice, pid, t1)] == ["2"]
-    assert _annotations_of(client, alice, pid, t2) == []
+    rem_t1 = _annotations_of(client, alice, pid, t1)
+    assert [a["id"] for a in rem_t1] == ["1", "2"]
+    assert next(a for a in rem_t1 if a["id"] == "1").get("labelId") is None
+    assert next(a for a in rem_t1 if a["id"] == "2").get("labelId") == id_c
+
+    rem_t2 = _annotations_of(client, alice, pid, t2)
+    assert [a["id"] for a in rem_t2] == ["3"]
+    assert next(a for a in rem_t2 if a["id"] == "3").get("labelId") is None
 
 
 def test_delete_label_leaves_other_projects_untouched(client, alice):
@@ -154,7 +159,7 @@ def test_delete_label_leaves_other_projects_untouched(client, alice):
     assert [a["id"] for a in _annotations_of(client, alice, other, other_tid)] == ["9"]
 
 
-def test_import_replace_deletes_orphaned_annotations(client, alice):
+def test_import_replace_orphans_annotations(client, alice):
     pid = _new_project(client, alice)
     lid = _lid()
     client.post("/api/labels", json=_label(lid, "obsolete", "#000", pid), headers=alice)
@@ -166,7 +171,9 @@ def test_import_replace_deletes_orphaned_annotations(client, alice):
         headers=alice,
     )
 
-    assert _annotations_of(client, alice, pid, tid) == []
+    rem = _annotations_of(client, alice, pid, tid)
+    assert [a["id"] for a in rem] == ["1"]
+    assert rem[0].get("labelId") is None
 
 
 # --- export ------------------------------------------------------------------

@@ -6,11 +6,11 @@ import uuid
 from typing import Dict, Optional, List
 
 from fastapi import APIRouter, Depends, Query, HTTPException, Header
-from sqlalchemy import case, func, or_
+from sqlalchemy import case, func, or_, distinct
 from sqlalchemy.orm import Session, selectinload
 
 import models
-from database import get_db, commit_with_retry
+from database import get_db, commit_with_retry, SessionLocal
 from schemas import TaskUpdate, BulkDelete, BulkUpdate, TaskDetail, PaginatedTasks, TaskSequenceItem
 from api.auth import get_current_user, require_csrf, get_current_annotator
 from api.routers.projects import get_owned_project, get_user_accessible_team_ids, is_project_creator
@@ -38,7 +38,6 @@ def _sweep_stale_locks(db: Optional[Session] = None, ttl_seconds: int = TASK_LOC
     """Proactively evict expired task locks to prevent table growth over long uptimes."""
     close_on_exit = False
     if db is None:
-        from database import SessionLocal
         db = SessionLocal()
         close_on_exit = True
     try:
@@ -135,6 +134,10 @@ def _get_owned_task(task_id: int, user: models.User, db: Session, annotator: Opt
     )
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
+        
+    if annotator and task.assignee and task.assignee != annotator.name:
+        raise HTTPException(status_code=403, detail="Task is assigned to another user")
+        
     return task
 
 @router.get("", response_model=PaginatedTasks)
@@ -188,10 +191,31 @@ def get_tasks(
     )
     
     tasks = query.offset(offset).limit(limit).all()
+    task_ids = [t.id for t in tasks]
     
-    items = [{"id": t.id, "description": t.description, "assignee": t.assignee, 
+    comment_counts = dict(
+        db.query(models.Annotation.task_id, func.count(models.Annotation.id))
+        .filter(models.Annotation.task_id.in_(task_ids), models.Annotation.type == "comment")
+        .group_by(models.Annotation.task_id)
+        .all()
+    ) if task_ids else {}
+    
+    class_counts = dict(
+        db.query(models.Annotation.task_id, func.count(distinct(models.Annotation.label_id)))
+        .filter(models.Annotation.task_id.in_(task_ids), models.Annotation.label_id.isnot(None))
+        .group_by(models.Annotation.task_id)
+        .all()
+    ) if task_ids else {}
+    
+    items = []
+    for t in tasks:
+        items.append({
+             "id": t.id, "description": t.description, "assignee": t.assignee, 
              "image_path": t.image_path, "status": t.status, "time_spent": t.time_spent, 
-             "updated_at": t.updated_at, "annotations": []} for t in tasks]
+             "updated_at": t.updated_at, "annotations": [],
+             "comment_count": comment_counts.get(t.id, 0),
+             "class_count": class_counts.get(t.id, 0)
+        })
              
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 

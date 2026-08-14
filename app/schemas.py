@@ -321,6 +321,8 @@ class TaskDetail(BaseModel):
     time_spent: Optional[int] = None
     updated_at: Optional[datetime] = None
     annotations: List[AnnotationModel] = Field(default_factory=list)
+    comment_count: int = 0
+    class_count: int = 0
 
 
 class UserCreate(BaseModel):

@@ -51,6 +51,9 @@ function statusPill(status) {
 }
 
 function countAnnotations(task) {
+  if (task.comment_count !== undefined && task.class_count !== undefined) {
+    return { comments: task.comment_count, classes: task.class_count };
+  }
   let anns = task.annotations;
   if (typeof anns === "string") {
     try { anns = JSON.parse(anns); } catch { anns = []; }

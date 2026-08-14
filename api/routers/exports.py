@@ -56,7 +56,7 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session, selectinload
 
 import models
-from database import get_db
+from database import get_db, SessionLocal
 from schemas import (
     ExportRequest,
     EXPORT_FORMATS,
@@ -236,7 +236,6 @@ def _build_csv(tasks: List[models.Task], labels_by_id: dict) -> str:
 
 
 def _run_export_job(job_id: str, req: ExportRequest, project_id: int):
-    from database import SessionLocal
     db = SessionLocal()
     try:
         # Resolve deprecated single-axis codes (json, masks_index, …) into the
