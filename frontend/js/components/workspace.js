@@ -55,10 +55,11 @@ export function ensureLabel(className, customColor = null) {
 
 export function repairLabelsFromAnnotations() {
   state.annotations = state.annotations.map((annotation) => {
+    if (annotation.type === "comment") return annotation;
     const existing = state.labels.find((label) => label.id === annotation.labelId);
     if (existing) return annotation;
 
-    const label = ensureLabel(annotation.detectedClass || "object");
+    const label = ensureLabel(annotation.detectedClass || "Unlabeled");
     return { ...annotation, labelId: label.id };
   });
 }

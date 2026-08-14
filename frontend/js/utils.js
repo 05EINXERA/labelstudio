@@ -57,7 +57,7 @@ export function round(value) {
 }
 
 export function normalizeClassName(className) {
-  return String(className || "object").trim().toLowerCase().replace(/_/g, " ");
+  return String(className || "Unlabeled").trim().toLowerCase().replace(/_/g, " ");
 }
 
 export function formatClassName(className) {

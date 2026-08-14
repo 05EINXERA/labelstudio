@@ -119,11 +119,11 @@ export function isAnnotationHidden(annotation) {
 export function labelById(id) {
   const label = state.labels.find((item) => item.id === id);
   if (label) return label;
-  return { id, name: "object", color: "#65727f" };
+  return { id, name: "Unlabeled", color: "#65727f" };
 }
 
 export function labelDisplayName(label) {
-  return formatClassName(label?.name || "object");
+  return formatClassName(label?.name || "Unlabeled");
 }
 
 export function snapshot() {
