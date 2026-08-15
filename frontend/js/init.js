@@ -18,7 +18,7 @@ import { drawAllLayers } from "./canvas/draw.js?v=2";
 import {
   setStatus, syncToBackend, save, loadSaved, saveDraft, restoreDraft,
   render, manualSaveWithUI, refreshSaveStatus, pruneStaleDrafts, unhideAllObjects
-} from "./components/workspace.js?v=13";
+} from "./components/workspace.js?v=14";
 import {
   configureQueue, startQueue, subscribe as subscribeQueue, drainQueue,
   enqueueWrite, retryablePendingCount, noteServerReachable, noteServerUnreachable,
@@ -41,7 +41,7 @@ import {
   reportSaveForbidden, reportSaveRefused, setMyTeams, setMyUserId, updateTaskBanner,
   renderStatusDropdown, renderSaveSplitMenu, updateTaskStatusPill, currentRole,
   taskWriteBlock,
-} from "./canvas-permissions.js?v=6";
+} from "./canvas-permissions.js?v=7";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
 import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=2";
 import { claimTask, heartbeatTask, releaseTask } from "./task-lock.js?v=2";

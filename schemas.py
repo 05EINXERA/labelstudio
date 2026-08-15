@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional, List, Dict, Any, Literal
+from typing import Optional, List, Dict, Any, Literal, get_args
 from pydantic import BaseModel, Field, field_validator
 
 # Upper bound on a single reported time delta. Clients sync far more often than
@@ -61,7 +61,10 @@ class ProjectSummary(BaseModel):
     creator: Optional[str] = None
     created_at: Optional[datetime] = None
     total: int = 0
+    # `completed` counts approved-group tasks (signed off), not tasks merely
+    # marked 'Completed' by an annotator — those are `awaiting_review`.
     completed: int = 0
+    awaiting_review: int = 0
     in_progress: int = 0
     progress: int = 0
     comments: int = 0
@@ -79,7 +82,10 @@ class ProjectSummary(BaseModel):
 
 class ProjectMetrics(BaseModel):
     total: int
+    # Signed-off tasks — any APPROVED_STATUSES member. Tasks sitting at
+    # 'Completed' are counted in `awaiting_review` instead.
     completed: int
+    awaiting_review: int = 0
     progress: int
     comments: int
     # Seconds aggregated from Task.time_spent. See docs/TIMER_AUDIT.md F12.
@@ -177,20 +183,57 @@ class LabelImportResult(BaseModel):
 
 # Fixed task-status vocabulary shared by the export filter and the Tasks view.
 #
-# 'Approved' and 'Rejected' are the two review states. Both are gated on the
-# Reviewer project role — the note that used to sit here, saying the ownership
-# check *was* the review gate, described a single-owner world and collapsed to
-# nothing under a shared login. Teams replaced it with a real check
-# (.devnotes/teams/01_DESIGN.md § 4).
+# ---------------------------------------------------------------------------
+# THE APPROVED GROUP — the one place to add a new approval status.
+# ---------------------------------------------------------------------------
 #
+# 'Approved', 'Verified', 'Checked' and 'Passed' are synonyms: they mean exactly
+# the same thing about the work (a reviewer signed it off) and differ only in
+# *which batch* the sign-off belongs to. The workflow is export-by-batch: tasks
+# approved before the last export carry 'Approved', the next week's carry
+# 'Verified', and so on, so exporting one status yields only the new work
+# instead of re-exporting everything ever approved.
+#
+# Every rule that applies to 'Approved' applies to all of them, without
+# exception — the reviewer-role gate, the completion statistics, the export
+# filter, the demote-on-edit rule and the interop mapping all derive from this
+# tuple rather than naming a status. **Adding a batch status is one line here.**
+#
+# Order matters only for display: this is the order the export checkboxes and
+# the status dropdowns list them in.
+#
+# NOTE: a status is a coarse batch marker — one name per batch, and a new name
+# means a deploy. If this outlives a handful of batches, the durable fix is an
+# `exported_at` column stamped by the export job, which needs no vocabulary at
+# all. Deliberately deferred.
+APPROVED_STATUSES = ("Approved", "Verified", "Checked", "Passed")
+
+# The working (non-approval) vocabulary, in display order.
+WORKING_STATUSES = ("New", "In Progress", "Completed")
+
 # 'Rejected' means "sent back for rework". Without it a reviewer's only way to
 # signal a problem is to flip the status back to 'In Progress', which is
 # indistinguishable from an annotator re-opening their own work.
 #
-# Anything added here must also be mapped in formats/common.py's
-# TO_EXTERNAL_STATUS / FROM_EXTERNAL_STATUS — the export filter and the import
+# Anything added to APPROVED_STATUSES is mapped automatically in
+# formats/common.py's TO_EXTERNAL_STATUS — the export filter and the import
 # mapping both consume this vocabulary (E-28).
-TASK_STATUSES = ["New", "In Progress", "Completed", "Approved", "Rejected"]
+TASK_STATUSES = [*WORKING_STATUSES, *APPROVED_STATUSES, "Rejected"]
+
+# Transitions that require the Reviewer project role. Approving *and* rejecting
+# are both review verdicts; only a reviewer may record either.
+# .devnotes/teams/01_DESIGN.md § 4.
+REVIEW_STATUSES = frozenset(APPROVED_STATUSES) | {"Rejected"}
+
+# Statuses that assert "this work is finished", so editing the annotations
+# afterwards must demote the task back to 'In Progress' rather than let amended
+# work keep a finished status a reviewer granted to a previous version.
+TERMINAL_STATUSES = frozenset(APPROVED_STATUSES) | {"Completed"}
+
+
+def is_approved(status: Optional[str]) -> bool:
+    """True when `status` is any member of the approved group."""
+    return status in APPROVED_STATUSES
 
 # Export "include" options actually implemented. Mask rendering and image
 # bundling are explicit TODOs (see REFACTOR_MANAGEMENT.md §3 Phase 4) — the
@@ -514,8 +557,41 @@ class BulkAssignResult(BaseModel):
     warnings: List[str] = Field(default_factory=list)
 
 
+# Review verbs. Every member of APPROVED_STATUSES gets a verb (its lowercased
+# status name) so a batch approval goes through the review endpoint and lands in
+# the TaskReview audit log exactly like a plain 'Approved' does — a batch marker
+# must not cost us the record of who signed the work off.
+#
+# 'approved' is the historical spelling and stays first so cached bundles that
+# only know it keep working unchanged.
+APPROVAL_ACTIONS = tuple(s.lower() for s in APPROVED_STATUSES)
+REVIEW_ACTIONS = (*APPROVAL_ACTIONS, "rejected", "reopened")
+
+# Verb -> the status it sets. 'reopened' is not a status of its own: sending a
+# task back into the working vocabulary is what re-opening means.
+REVIEW_ACTION_STATUS = {
+    **{s.lower(): s for s in APPROVED_STATUSES},
+    "rejected": "Rejected",
+    "reopened": "In Progress",
+}
+
+# Pydantic needs a literal type, which cannot be built from a variable, so the
+# verbs are spelled out once more here. The assert below is the drift guard:
+# adding a status to APPROVED_STATUSES without adding its verb here fails at
+# import time rather than shipping an endpoint that 422s on the new batch.
+ReviewActionLiteral = Literal[
+    "approved", "verified", "checked", "passed", "rejected", "reopened"
+]
+
+assert set(get_args(ReviewActionLiteral)) == set(REVIEW_ACTIONS), (
+    "ReviewActionLiteral is out of sync with APPROVED_STATUSES — add the new "
+    f"verb(s) {sorted(set(REVIEW_ACTIONS) - set(get_args(ReviewActionLiteral)))} "
+    "to the Literal."
+)
+
+
 class ReviewCreate(BaseModel):
-    action: Literal["approved", "rejected", "reopened"]
+    action: ReviewActionLiteral
     note: Optional[str] = Field(default=None, max_length=1000)
 
 

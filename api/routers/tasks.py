@@ -11,6 +11,9 @@ from sqlalchemy.orm import Session
 import models
 from database import get_db, commit_with_retry
 from schemas import (
+    APPROVED_STATUSES,
+    REVIEW_ACTION_STATUS,
+    REVIEW_STATUSES,
     BulkAssign,
     BulkAssignResult,
     BulkDelete,
@@ -82,10 +85,11 @@ CONFLICT_TOLERANCE_SECONDS = float(
 )
 
 
-# Statuses that represent a review decision. Moving a task *into* or *out of*
-# either one requires the Reviewer role: un-approving is exactly as privileged
-# as approving (.devnotes/teams/01_DESIGN.md § 4).
-REVIEW_STATUSES = frozenset({"Approved", "Rejected"})
+# Statuses that represent a review decision — the whole approved group (every
+# batch synonym) plus 'Rejected'. Moving a task *into* one requires the Reviewer
+# role: approving under any batch name is exactly as privileged as approving
+# (.devnotes/teams/01_DESIGN.md § 4). Defined in schemas.py so the export
+# filter, the metrics and this gate cannot disagree about what counts.
 
 
 # How many superseded annotation blobs to keep per task.
@@ -217,13 +221,57 @@ def _record_annotation_history(
         )
 
 
+def _sync_project_status(project_id: Optional[int], db: Session) -> None:
+    """Re-derive the project's status from its tasks. Does not commit.
+
+    Project status is derived from its tasks. It used to be written by the
+    GET /metrics endpoint; deriving it on write keeps that read side-effect free
+    (CLAUDE.md rule 4 / docs/TIMER_AUDIT.md F13).
+
+    "Done" means *signed off* — any approved-group status — which is the same
+    definition `_aggregate_metrics` uses for the completion statistics, so the
+    project badge and the Overview progress bar cannot disagree.
+
+    Called from every endpoint that changes a task's status. The review endpoint
+    used to skip it, so approving the last task of a project left the project
+    sitting at its old status until some unrelated task update happened to
+    refresh it — invisible while completion was counted on 'Completed' (which
+    review never sets) and glaring now that approving *is* what completes a
+    project.
+    """
+    if project_id is None:
+        return
+
+    # Push the pending task change to the DB so the aggregate below counts it;
+    # without this the project never reaches 'Completed' on the update that
+    # approves its last task.
+    db.flush()
+    counts = db.query(
+        func.count(models.Task.id),
+        func.sum(case((models.Task.status.in_(APPROVED_STATUSES), 1), else_=0)),
+    ).filter(models.Task.project_id == project_id).one()
+    total, completed = counts[0] or 0, counts[1] or 0
+
+    new_status = None
+    if total > 0 and completed == total:
+        new_status = 'Completed'
+    elif completed > 0:
+        new_status = 'In Progress'
+
+    if new_status:
+        project = db.query(models.Project).filter(models.Project.id == project_id).first()
+        if project and project.status != new_status:
+            project.status = new_status
+
+
 def _require_review_role_for_status(
     db_task: models.Task, new_status: Optional[str], user: models.User, db: Session
 ) -> None:
     """403 unless the caller may make this status transition.
 
     Rules:
-    - Setting Approved or Rejected always requires Reviewer role.
+    - Setting any approved-group status (Approved / Verified / Checked /
+      Passed) or Rejected always requires Reviewer role.
     - Moving *away* from a review status (e.g. Approved → In Progress to
       re-open for rework) is allowed for any annotator-capable user — the
       annotator who was assigned the task must be able to act on feedback and
@@ -237,7 +285,11 @@ def _require_review_role_for_status(
     if new_status in REVIEW_STATUSES:
         role = effective_project_role(user, db_task.project_id, db)
         if not at_least(role, ProjectRole.REVIEWER):
-            verb = "Approving" if new_status == "Approved" else "Rejecting"
+            # Keyed off Rejected, not Approved: every other member of
+            # REVIEW_STATUSES is an approval under some batch name, so testing
+            # for "Approved" alone would tell a blocked reviewer that
+            # "Rejecting requires..." when they tried to mark a task Verified.
+            verb = "Rejecting" if new_status == "Rejected" else "Approving"
             raise HTTPException(
                 status_code=403,
                 detail=f"{verb} requires the Reviewer role on this project.",
@@ -1176,32 +1228,7 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
         task_id = db_task.id
         new_updated_at = db_task.updated_at
         
-    # Project status is derived from its tasks. It used to be written by the
-    # GET /metrics endpoint; deriving it here keeps that read side-effect free
-    # (CLAUDE.md rule 4 / docs/TIMER_AUDIT.md F13).
-    project_id = db_task.project_id
-    if project_id is not None:
-        # Push the pending task change to the DB so the aggregate below counts
-        # it; without this the project never reaches 'Completed' on the update
-        # that completes its last task.
-        db.flush()
-        counts = db.query(
-            func.count(models.Task.id),
-            func.sum(case((models.Task.status == 'Completed', 1), else_=0)),
-        ).filter(models.Task.project_id == project_id).one()
-        total, completed = counts[0] or 0, counts[1] or 0
-
-        new_status = None
-        if total > 0 and completed == total:
-            new_status = 'Completed'
-        elif completed > 0:
-            new_status = 'In Progress'
-
-        if new_status:
-            project = db.query(models.Project).filter(models.Project.id == project_id).first()
-            if project and project.status != new_status:
-                project.status = new_status
-
+    _sync_project_status(db_task.project_id, db)
     commit_with_retry(db)
     return {"id": task_id, "status": "ok", "updated_at": new_updated_at.isoformat()}
 
@@ -1295,6 +1322,19 @@ def bulk_update_tasks(payload: BulkUpdate, db: Session = Depends(get_db), user: 
     if update_data and owned:
         update_data[models.Task.updated_at] = datetime.datetime.now(datetime.timezone.utc)
         db.query(models.Task).filter(models.Task.id.in_(owned)).update(update_data, synchronize_session=False)
+        # A bulk approval is the normal way a batch gets signed off, so it can
+        # complete a project just as a single approval can. The ids may span
+        # projects (the caller passes ids, not a project), hence the distinct
+        # set rather than one id.
+        if payload.status is not None:
+            affected = {
+                pid for (pid,) in db.query(models.Task.project_id)
+                .filter(models.Task.id.in_(owned))
+                .distinct()
+                if pid is not None
+            }
+            for pid in affected:
+                _sync_project_status(pid, db)
         commit_with_retry(db)
 
     return {"status": "ok", "updated": len(owned) if update_data else 0, "skipped": skipped}
@@ -1309,13 +1349,10 @@ def bulk_update_tasks(payload: BulkUpdate, db: Session = Depends(get_db), user: 
 # approval is a bug generator.
 # ---------------------------------------------------------------------------
 
-_REVIEW_ACTION_STATUS = {
-    "approved": "Approved",
-    "rejected": "Rejected",
-    # "Reopened" is not a status of its own: sending a task back into the
-    # working vocabulary is what re-opening means.
-    "reopened": "In Progress",
-}
+# Verb -> status. Defined in schemas.py alongside APPROVED_STATUSES so a new
+# batch status brings its review verb with it and every approval — whatever
+# batch it belongs to — is recorded in the TaskReview log.
+_REVIEW_ACTION_STATUS = REVIEW_ACTION_STATUS
 
 
 def _review_out(review: models.TaskReview, username: Optional[str] = None) -> ReviewOut:
@@ -1364,6 +1401,9 @@ def review_task(
         previous_status=previous_status,
     )
     db.add(review)
+    # Approving can complete a project, so the derived project status has to be
+    # refreshed here too — not only on the task-update path.
+    _sync_project_status(task.project_id, db)
     # One commit, deliberately: the review row and the status change land
     # together or not at all. A review without its status change (or the
     # reverse) is worse than neither, because the audit trail would then be

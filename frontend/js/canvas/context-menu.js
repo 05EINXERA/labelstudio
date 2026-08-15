@@ -1,7 +1,7 @@
 import { canvas } from "../dom.js?v=3";
 import { state } from "../state.js?v=7";
 import { view } from "./view.js?v=1";
-import { render } from "../components/workspace.js?v=13";
+import { render } from "../components/workspace.js?v=14";
 import {
   canvasPoint, hitTest,
   sendToBack, sendBackward, bringToFront, bringForward

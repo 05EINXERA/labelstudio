@@ -13,25 +13,30 @@
  */
 import { escapeHTML, formatTime } from "../../utils.js?v=1";
 import { canAnnotate, canManage, canReview } from "../../permissions.js?v=1";
+import {
+  TASK_STATUSES,
+  isApproved,
+  isReviewStatus,
+  statusClass,
+  statusSelectClass as statusSelectClassFor,
+} from "../../task-status.js?v=1";
 
 const ICON_EDIT = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></svg>`;
 const ICON_DELETE = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>`;
 // A person with a "+" — the same visual language as the Assignee column.
 const ICON_ASSIGN = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>`;
 
-/** Task statuses shown in the filter, mirroring `schemas.TASK_STATUSES`. */
-export const STATUSES = ["New", "In Progress", "Completed", "Approved", "Rejected"];
+/**
+ * Task statuses shown in the filter. Re-exported from `task-status.js` (the
+ * single mirror of `schemas.TASK_STATUSES`) rather than listed again here —
+ * this module used to keep its own copy *and* a second inline copy in the
+ * status <select> below, so adding a status meant finding both.
+ */
+export const STATUSES = TASK_STATUSES;
 
 export function statusPill(status) {
   const s = status || "New";
-  const cls =
-    s === "Completed" ? "is-completed"
-      : s === "In Progress" ? "is-progress"
-      : s === "Approved" ? "is-approved"
-      // Rejected is a warning colour, deliberately distinct from Approved:
-      // "reviewed and sent back" must not read as "reviewed and accepted".
-      : s === "Rejected" ? "is-rejected" : "";
-  return `<span class="pill ${cls}">${escapeHTML(s)}</span>`;
+  return `<span class="pill ${statusClass(s)}">${escapeHTML(s)}</span>`;
 }
 
 /**
@@ -39,13 +44,7 @@ export function statusPill(status) {
  * Exported so tasks.js can swap the class on `change` without a full re-render.
  */
 export function statusSelectClass(status) {
-  switch (status) {
-    case 'In Progress': return 'status-inprogress';
-    case 'Completed':   return 'status-completed';
-    case 'Approved':    return 'status-approved';
-    case 'Rejected':    return 'status-rejected';
-    default:            return 'status-new';
-  }
+  return statusSelectClassFor(status);
 }
 
 /**
@@ -130,10 +129,14 @@ function actionsCell(row, role) {
   const buttons = [];
 
   if (canReview(role)) {
+    // Approve is offered on anything not already signed off; Reject on anything
+    // not already sent back. Using the group rather than naming "Approved"
+    // means a task approved into any batch offers Reject, not a pointless
+    // second Approve.
     if (row.status === "Completed" || row.status === "Rejected") {
       buttons.push(`<button type="button" data-action="approve" title="Approve">✓</button>`);
     }
-    if (row.status === "Completed" || row.status === "Approved") {
+    if (row.status === "Completed" || isApproved(row.status)) {
       buttons.push(`<button type="button" data-action="reject" title="Reject — send back for rework">✗</button>`);
     }
   }
@@ -240,7 +243,7 @@ export function buildColumns({ role, projectId, teamsById, usersById, lockCache,
         // Reviewers+ see a select with all status options so they can Approve /
         // Reject directly from the table without opening each task.
         if (isReviewer) {
-          const opts = ['New', 'In Progress', 'Completed', 'Approved', 'Rejected']
+          const opts = TASK_STATUSES
             .map((s) => `<option value="${s}"${r.status === s ? ' selected' : ''}>${s}</option>`)
             .join('');
           return `<select class="status-select ${statusSelectClass(r.status)}" data-task-id="${r.id}" data-original="${escapeHTML(r.status || '')}" aria-label="Task status">${opts}</select>`;
@@ -248,16 +251,19 @@ export function buildColumns({ role, projectId, teamsById, usersById, lockCache,
 
         // Annotators assigned to this task can move it between their own states
         // (New / In Progress / Completed) and re-open it from a reviewer state
-        // (Approved / Rejected → In Progress). The select always shows the real
-        // current status so the displayed value is never wrong.
+        // (any approved-group status / Rejected → In Progress). The select
+        // always shows the real current status so the displayed value is never
+        // wrong.
         const assignedToMe = currentUser && r.assignee_user_id === currentUser.id;
         if (isAnnotatorOnly && assignedToMe) {
-          // Base options the annotator can set.
+          // Base options the annotator can set. Deliberately excludes every
+          // approved-group status: approving is the reviewer's verdict, and the
+          // server refuses it here regardless of what this select offers.
           const writableStatuses = ['In Progress', 'Completed'];
           // If the task is currently in a reviewer state, add it as a
           // display-only option (so the select shows the right label) and
           // allow In Progress to re-open it.
-          const inReviewState = r.status === 'Approved' || r.status === 'Rejected';
+          const inReviewState = isReviewStatus(r.status);
           const displayStatuses = inReviewState
             ? [r.status, ...writableStatuses]
             : ['New', ...writableStatuses];

@@ -187,18 +187,38 @@ def test_projects_list_scopes_to_owner(client, alice, bob):
 
 
 def test_project_list_embeds_metrics(client, alice):
-    """P1.1: the list page must not need a second metrics request."""
+    """P1.1: the list page must not need a second metrics request.
+
+    Completion counts *approved* tasks, not tasks an annotator marked
+    'Completed' — see tests/test_project_metrics.py for why. So the task is
+    approved here; the 'Completed' case is asserted immediately below.
+    """
     pid = _new_project(client, alice)
     client.post("/api/labels", json={"id": "k1", "name": "cat", "color": "#fff", "projectId": pid}, headers=alice)
     t1 = client.post("/api/tasks", json={"description": "a"}, params={"projectId": pid}, headers=alice).json()["id"]
     client.post("/api/tasks", json={"description": "b"}, params={"projectId": pid}, headers=alice)
-    client.post("/api/tasks", json={"id": t1, "status": "Completed"}, headers=alice)
+    client.post(f"/api/tasks/{t1}/review", json={"action": "approved"}, headers=alice)
 
     row = next(p for p in client.get("/api/projects", headers=alice).json() if p["id"] == pid)
     assert row["total"] == 2
     assert row["completed"] == 1
     assert row["progress"] == 50
     assert row["classes"] == 1
+
+
+def test_project_list_counts_completed_as_awaiting_review(client, alice):
+    """A task the annotator marked 'Completed' is submitted, not signed off: it
+    contributes to `awaiting_review` and leaves progress at zero until a
+    reviewer approves it."""
+    pid = _new_project(client, alice)
+    t1 = client.post("/api/tasks", json={"description": "a"}, params={"projectId": pid}, headers=alice).json()["id"]
+    client.post("/api/tasks", json={"id": t1, "status": "Completed"}, headers=alice)
+
+    row = next(p for p in client.get("/api/projects", headers=alice).json() if p["id"] == pid)
+    assert row["total"] == 1
+    assert row["completed"] == 0
+    assert row["awaiting_review"] == 1
+    assert row["progress"] == 0
 
 
 def test_list_and_single_metrics_agree(client, alice):
@@ -208,7 +228,8 @@ def test_list_and_single_metrics_agree(client, alice):
 
     row = next(p for p in client.get("/api/projects", headers=alice).json() if p["id"] == pid)
     single = client.get(f"/api/projects/{pid}/metrics", headers=alice).json()
-    for key in ("total", "completed", "in_progress", "progress", "comments", "classes", "total_time"):
+    for key in ("total", "completed", "awaiting_review", "in_progress", "progress",
+                "comments", "classes", "total_time"):
         assert row[key] == single[key], key
 
 

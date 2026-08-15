@@ -8,6 +8,7 @@
  */
 import { apiFetch } from "../api.js?v=3";
 import { escapeHTML, formatTime } from "../utils.js?v=1";
+import { statusClass } from "../task-status.js?v=1";
 import { createDataTable } from "../components/data-table.js?v=3";
 import { renderAppNav, wireLogout } from "../components/app-nav.js?v=1";
 import { getCurrentUser } from "../session.js?v=1";
@@ -39,10 +40,9 @@ const ICON_DELETE = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none"
 
 function statusPill(status) {
   const s = status || "New";
-  const cls = s === "Completed" ? "is-completed"
-    : s === "In Progress" ? "is-progress"
-    : s === "Approved" ? "is-approved" : "";
-  return `<span class="pill ${cls}">${escapeHTML(s)}</span>`;
+  // Project status, a narrower vocabulary than task status — `statusClass`
+  // covers it as a superset so pill colouring lives in one place.
+  return `<span class="pill ${statusClass(s)}">${escapeHTML(s)}</span>`;
 }
 
 function showError(message) {

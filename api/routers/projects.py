@@ -12,7 +12,7 @@ import models
 import schemas
 from config import DATA_DIR, MAX_UPLOAD_FILES
 from database import get_db, commit_with_retry
-from schemas import ProjectModel, ProjectMetrics, ProjectSummary
+from schemas import ProjectModel, ProjectMetrics, ProjectSummary, is_approved
 from api.auth import get_current_user, require_csrf
 from api.permissions import (
     ProjectRole,
@@ -58,7 +58,12 @@ def _count_comments(annotations: Optional[str]) -> int:
 
 
 def _derive_status(total: int, completed: int) -> Optional[str]:
-    """Project status implied by its task counts, or None if unchanged."""
+    """Project status implied by its task counts, or None if unchanged.
+
+    `completed` is the signed-off count (approved group), matching
+    `_aggregate_metrics` and the derivation in tasks.py — a project is only
+    'Completed' once its tasks have been reviewed, not merely submitted.
+    """
     if total > 0 and completed == total:
         return "Completed"
     if completed > 0:
@@ -72,8 +77,9 @@ def _aggregate_metrics(project_ids: List[int], db: Session) -> dict:
     page does not fan out per row. Ids with no tasks still get a zeroed entry.
     """
     metrics = {
-        pid: {"total": 0, "completed": 0, "in_progress": 0, "comments": 0,
-              "progress": 0, "classes": 0, "total_time": 0, "avg_time_per_task": 0}
+        pid: {"total": 0, "completed": 0, "awaiting_review": 0, "in_progress": 0,
+              "comments": 0, "progress": 0, "classes": 0, "total_time": 0,
+              "avg_time_per_task": 0}
         for pid in project_ids
     }
     if not project_ids:
@@ -87,8 +93,16 @@ def _aggregate_metrics(project_ids: List[int], db: Session) -> dict:
     for t in tasks:
         entry = metrics[t.project_id]
         entry["total"] += 1
-        if t.status == 'Completed':
+        # Completion means *signed off*, not merely submitted. A task an
+        # annotator marked 'Completed' is waiting for a reviewer, so counting it
+        # as done overstated progress: the project read 100% while none of it had
+        # been checked. Any approved-group status (Approved and its batch
+        # synonyms) counts; 'Completed' is reported separately as
+        # `awaiting_review` so the queue stays visible.
+        if is_approved(t.status):
             entry["completed"] += 1
+        elif t.status == 'Completed':
+            entry["awaiting_review"] += 1
         elif t.status == 'In Progress':
             entry["in_progress"] += 1
         entry["comments"] += _count_comments(t.annotations)

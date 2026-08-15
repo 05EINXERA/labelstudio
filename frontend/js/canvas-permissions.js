@@ -15,6 +15,13 @@
 import { apiFetch } from "./api.js?v=3";
 import { escapeHTML } from "./utils.js?v=1";
 import { canAnnotate, canManage, canReview } from "./permissions.js?v=1";
+import {
+  APPROVED_STATUSES,
+  isApproved,
+  isReviewStatus,
+  statusClass,
+  statusForReviewAction,
+} from "./task-status.js?v=1";
 
 const state = {
   project: null,
@@ -256,7 +263,7 @@ export function renderSaveSplitMenu(task, saveAndComplete, onStatusChange) {
   // what the isReviewer block below handles.
   const isReviewer = canReview(state.role);
   const isAnnotatorOnly = !isReviewer;
-  const inReviewState = task.status === 'Approved' || task.status === 'Rejected';
+  const inReviewState = isReviewStatus(task.status);
 
   chevron.hidden = false;
 
@@ -276,10 +283,16 @@ export function renderSaveSplitMenu(task, saveAndComplete, onStatusChange) {
   if (isReviewer) {
     items.push({ divider: true });
     if (task.status === 'Completed' || task.status === 'Rejected') {
-      items.push({ label: '✓ Approve', action: 'approve' });
+      // One entry per approval batch. They are identical verdicts — the batch
+      // only decides which export picks the task up — so they are listed
+      // together rather than hidden behind a second menu. `action` carries the
+      // review verb, which is the status lowercased.
+      for (const s of APPROVED_STATUSES) {
+        items.push({ label: `✓ ${s}`, action: `review:${s.toLowerCase()}` });
+      }
     }
-    if (task.status === 'Completed' || task.status === 'Approved') {
-      items.push({ label: '✗ Reject', action: 'reject', danger: true });
+    if (task.status === 'Completed' || isApproved(task.status)) {
+      items.push({ label: '✗ Reject', action: 'review:rejected', danger: true });
     }
   }
 
@@ -308,8 +321,11 @@ export function renderSaveSplitMenu(task, saveAndComplete, onStatusChange) {
         return;
       }
 
-      // Review actions — use the review endpoint so they are logged.
-      const reviewAction = action === 'approve' ? 'approved' : 'rejected';
+      // Review actions — use the review endpoint so they are logged. The verb
+      // rides in the action itself ("review:verified"), so every batch goes
+      // through the same path and lands in the audit trail.
+      if (!action.startsWith('review:')) return;
+      const reviewAction = action.slice('review:'.length);
       let note = null;
       if (reviewAction === 'rejected') {
         note = prompt('Why is this task being sent back?');
@@ -330,7 +346,9 @@ export function renderSaveSplitMenu(task, saveAndComplete, onStatusChange) {
       }
 
       const result = await res.json().catch(() => null);
-      task.status = result?.task_status ?? (action === 'approve' ? 'Approved' : 'Rejected');
+      // Prefer the server's answer; the local fallback maps the verb back to
+      // its status the same way REVIEW_ACTION_STATUS does server-side.
+      task.status = result?.task_status ?? statusForReviewAction(reviewAction);
       onStatusChange?.(task.status);
       // Re-render menu and pill for the new status.
       renderSaveSplitMenu(task, saveAndComplete, onStatusChange);
@@ -373,13 +391,8 @@ export function updateTaskStatusPill(task) {
     return;
   }
   const s = task.status || 'New';
-  const cls = {
-    'New':         'is-new',
-    'In Progress': 'is-progress',
-    'Completed':   'is-completed',
-    'Approved':    'is-approved',
-    'Rejected':    'is-rejected',
-  }[s] || 'is-new';
+  // Every approved-group status shares the approved colour — see statusClass.
+  const cls = statusClass(s) || 'is-new';
   pill.className = `status-pill task-status-pill ${cls}`;
   pill.textContent = s;
   pill.hidden = false;

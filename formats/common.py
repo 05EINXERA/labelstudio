@@ -20,6 +20,7 @@ from PIL import Image, UnidentifiedImageError
 
 import models
 from config import DATA_DIR
+from schemas import APPROVED_STATUSES
 
 logger = logging.getLogger(__name__)
 
@@ -413,7 +414,14 @@ TO_EXTERNAL_STATUS: Dict[str, Tuple[str, str]] = {
     "New": ("registered", ""),
     "In Progress": ("in_progress", ""),
     "Completed": ("completed", ""),
-    "Approved": ("completed", "approved"),
+    # Every approved-group status (Approved, Verified, Checked, Passed …) is the
+    # same fact to an outside consumer: reviewed and signed off. The batch
+    # synonym only means something inside this app — it is which export the task
+    # belongs to — so it is flattened to "approved" on the way out rather than
+    # leaking a vocabulary no interop consumer knows. Generated from the group so
+    # a new batch status is exported correctly the day it is added, instead of
+    # falling through to the unknown-status warning and being re-imported as New.
+    **{s: ("completed", "approved") for s in APPROVED_STATUSES},
     # "Rejected" means "reviewed and sent back for rework", so the base status
     # is in_progress (there *is* more work to do) with the review outcome in
     # externalStatus. Exporting it as "completed" would tell a consumer the work
@@ -424,6 +432,13 @@ TO_EXTERNAL_STATUS: Dict[str, Tuple[str, str]] = {
 # The inverse. externalStatus wins when it names a review outcome, because that
 # is the only way the interop format distinguishes a reviewed task from an
 # unreviewed one at the same base status.
+#
+# Deliberately lossy in one direction: every approved-group status exports as
+# "approved" and comes back as "Approved", so a re-imported task loses the batch
+# it belonged to. That is correct — the batch is a marker for *our* export
+# bookkeeping, and a task arriving from outside was never in one of our batches.
+# It keeps the round trip closed (approved stays approved) without inventing a
+# batch membership that would then be re-exported as new work.
 FROM_EXTERNAL_STATUS: Dict[str, str] = {
     "registered": "New",
     "in_progress": "In Progress",

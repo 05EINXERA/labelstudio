@@ -28,7 +28,8 @@ import { toolAvailability } from "../feature-flags.js?v=1";
 // for an annotator who simply is not assigned the open task — the sidepanel
 // needs the per-task answer, which is what taskWriteBlock() gives.
 // canvas-permissions.js does not import this module, so there is no cycle.
-import { taskWriteBlock } from "../canvas-permissions.js?v=6";
+import { taskWriteBlock } from "../canvas-permissions.js?v=7";
+import { isTerminal } from "../task-status.js?v=1";
 
 
 /**
@@ -223,9 +224,14 @@ export function syncToBackend({ useBeacon = false, keepStatus = false, allowClea
     // Opening a New task and doing any work naturally starts it.
     if (taskStatus === 'New') taskStatus = 'In Progress';
 
-    // Saving while Completed means the annotator revised their work — flip back
-    // to In Progress so a reviewer re-reviews it rather than silently passing
-    // amended annotations as already-approved.
+    // Saving while the task claims to be finished — 'Completed', or any
+    // approved-group status — means the annotator revised their work, so flip
+    // back to In Progress and let a reviewer re-review it rather than silently
+    // passing amended annotations under a sign-off granted to the *previous*
+    // version. This matters more with batch statuses than it did with
+    // 'Approved' alone: a task edited after being marked 'Verified' would
+    // otherwise stay in the Verified batch and be exported as reviewed work
+    // nobody has actually reviewed.
     //
     // Gated on the annotations having actually changed since the task
     // hydrated. Not every save is an edit: the 30s time drain, the gallery
@@ -238,7 +244,7 @@ export function syncToBackend({ useBeacon = false, keepStatus = false, allowClea
     //
     // NOTE: keepStatus=true bypasses this so "Save as Complete" can lock the
     // status in place rather than having syncToBackend immediately revert it.
-    if (taskStatus === 'Completed' &&
+    if (isTerminal(taskStatus) &&
         annotationsChangedSinceHydration(state.annotations)) {
       taskStatus = 'In Progress';
     }
