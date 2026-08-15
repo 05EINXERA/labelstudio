@@ -37,8 +37,9 @@ export const redoButton = document.querySelector("#redoButton");
 export const deleteButton = document.querySelector("#deleteButton");
 export const unhideAllButton = document.querySelector("#unhideAllButton");
 export const clearButton = document.querySelector("#clearButton");
-// Link to the project's Exports tab. An <a>, not a <button>: export is a
-// project-level operation handled there, not on the canvas.
-export const exportLink = document.querySelector("#exportLink");
+// Assign the open task to a team / person. Replaced the old Export link, which
+// was only a link to the project's Exports tab (still reachable there).
+// Hidden until a `manager` role is confirmed — see canvas-assign.js.
+export const assignTaskButton = document.querySelector("#assignTaskButton");
 export const shapeHint = document.querySelector("#shapeHint");
 export const saveButton = document.querySelector("#saveButton");

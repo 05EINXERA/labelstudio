@@ -1,7 +1,7 @@
 import { formatTime, clientId } from "../utils.js?v=1";
 import { apiFetch, withCsrfParam } from "../api.js?v=3";
 import { timerState } from "../timer-state.js?v=3";
-import { canvas } from "../dom.js?v=3";
+import { canvas } from "../dom.js?v=4";
 import {
   enqueueWrite, discardWrite, noteServerReachable, noteServerUnreachable
 } from "../offline-queue.js?v=4";

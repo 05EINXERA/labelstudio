@@ -21,8 +21,9 @@ import { escapeHTML, formatTime, clientId } from "../../utils.js?v=1";
 import { createDataTable } from "../../components/data-table.js?v=3";
 import { fillTeamSelect } from "../../components/team-picker.js?v=1";
 import { canManage, canReview } from "../../permissions.js?v=1";
-import { openAssignDialog } from "./assign-modal.js?v=1";
+import { openAssignDialog } from "./assign-modal.js?v=2";
 import { matchAssignees, isSearchFilterValue } from "./assignee-search.js?v=1";
+import { APPROVED_STATUSES, isReviewStatus } from "../../task-status.js?v=1";
 import {
   STATUSES,
   buildColumns,
@@ -31,7 +32,7 @@ import {
   showsSelection,
   showsUpload,
   statusPill,
-} from "./task-columns.js?v=8";
+} from "./task-columns.js?v=9";
 
 let root = null;
 let ctx = null;
@@ -244,6 +245,14 @@ function template() {
 
     <div class="bulk-bar" id="bulkBar">
       <span class="count" id="bulkCount"></span>
+      <!-- Approving a week's work is the batch workflow's whole point, so it
+           needs to be one action over a selection rather than N clicks. The
+           select names the batch; the server re-checks the reviewer role on
+           every id (E-11). -->
+      <select class="tool-button" id="bulkApproveSelect" aria-label="Approve selected tasks as">
+        <option value="">Approve as…</option>
+        ${APPROVED_STATUSES.map((s) => `<option value="${escapeHTML(s)}">${escapeHTML(s)}</option>`).join("")}
+      </select>
       <button type="button" class="tool-button" id="bulkTeamBtn">Assign…</button>
       <button type="button" class="tool-button" id="bulkDeleteBtn" style="color:#e05260;border-color:rgba(224,82,96,.3);">Bulk delete</button>
     </div>
@@ -640,6 +649,16 @@ function updateBulkBar(selection) {
 }
 
 function bindBulkActions() {
+  // Gated per control, not per bar: approving is the *reviewer's* job, while
+  // assigning and deleting are administrative. A single canManage() gate over
+  // the whole bar would have hidden bulk approval from exactly the role that
+  // needs it.
+  if (canReview(ctx.myRole)) {
+    bindBulkApprove();
+  } else {
+    el("bulkApproveSelect")?.remove();
+  }
+
   if (!canManage(ctx.myRole)) {
     el("bulkTeamBtn")?.remove();
     el("bulkDeleteBtn")?.remove();
@@ -668,6 +687,65 @@ function bindBulkActions() {
     } catch (err) {
       console.error("Bulk delete failed", err);
       showError("Could not delete the selected tasks.");
+    }
+  });
+}
+
+/**
+ * Bulk approval into a chosen batch.
+ *
+ * Uses POST /api/tasks/bulk-update rather than looping the review endpoint: one
+ * request for a week's work instead of hundreds, and the server applies the
+ * reviewer gate to the whole set (E-11 — bulk-update is *not* a way around the
+ * per-task check).
+ *
+ * The trade-off is deliberate and worth naming: bulk-update writes the status
+ * without writing a TaskReview row, so a bulk approval is not itemised in each
+ * task's review history the way a single approve is. The batch status itself
+ * records the verdict, and the alternative — N review requests through the
+ * single-worker process (rule 9) — would tie up the box for minutes.
+ */
+function bindBulkApprove() {
+  const select = el("bulkApproveSelect");
+  if (!select) return;
+
+  select.addEventListener("change", async () => {
+    const status = select.value;
+    // Always reset: the select is an action trigger, not a persistent setting,
+    // and leaving it showing "Verified" would suggest the selection still is.
+    select.value = "";
+    if (!status) return;
+
+    const ids = [...table.getSelection()];
+    if (!ids.length) return;
+    if (!confirm(`Mark ${ids.length} task${ids.length === 1 ? "" : "s"} as ${status}?`)) return;
+
+    try {
+      const res = await apiFetch("/api/tasks/bulk-update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids, status }),
+      });
+      if (!res) return;
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        showError(body?.detail || `Could not approve the selected tasks (${res.status}).`);
+        return;
+      }
+      // `skipped` counts ids the caller could not act on — surfaced rather than
+      // swallowed, so "I approved 200" never quietly means 180.
+      const result = await res.json().catch(() => null);
+      if (result?.skipped) {
+        showError(`${result.updated} task${result.updated === 1 ? "" : "s"} marked ${status}; ` +
+                  `${result.skipped} skipped (you may not have permission on those).`);
+      } else {
+        clearError();
+      }
+      table.clearSelection();
+      await loadTasks();
+    } catch (err) {
+      console.error("Bulk approve failed", err);
+      showError("Could not approve the selected tasks.");
     }
   });
 }
@@ -1023,6 +1101,10 @@ export async function mount(hostRoot, hostCtx, hashParams) {
   });
 
   table.onAction("assign", (row) => assignTasks(row));
+  // The one-click ✓ approves into the default batch. Approving into a specific
+  // batch (Verified, Checked, …) is done from the row's status dropdown, or in
+  // bulk from the toolbar — a per-row button per batch would crowd the row for
+  // an action that is naturally taken over a whole week's work at once.
   table.onAction("approve", (row) => review(row, "approved"));
   table.onAction("reject", (row) => review(row, "rejected"));
 
@@ -1039,16 +1121,20 @@ export async function mount(hostRoot, hostCtx, hashParams) {
     // Optimistic colour update so the user sees instant feedback.
     sel.className = `status-select ${statusSelectClass(newStatus)}`;
 
-    const isReviewStatus = newStatus === "Approved" || newStatus === "Rejected";
-
+    // Every reviewer verdict — a rejection, or an approval under any batch
+    // status — goes through the review endpoint rather than PATCH, so it is
+    // recorded in the TaskReview audit log with the actor. Routing only
+    // "Approved" there would have left a whole batch of approvals with no trail
+    // of who signed them off.
     let res;
-    if (isReviewStatus) {
+    if (isReviewStatus(newStatus)) {
       let note = null;
       if (newStatus === "Rejected") {
         note = prompt(`Why is this task being sent back?`);
         if (note == null) { sel.value = originalStatus; return; }
       }
-      const action = newStatus === "Approved" ? "approved" : "rejected";
+      // The review verb is the status lowercased (see REVIEW_ACTION_STATUS).
+      const action = newStatus.toLowerCase();
       res = await apiFetch(`/api/tasks/${encodeURIComponent(taskId)}/review`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

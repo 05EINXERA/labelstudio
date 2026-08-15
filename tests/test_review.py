@@ -7,7 +7,10 @@ role. Under a shared account the single user owns everything, so the owner
 short-circuit still lets them approve — it only bites once individual accounts
 exist, which is the point.
 """
+import pytest
+
 import models
+import schemas
 from database import SessionLocal
 from formats.common import from_external_status, to_external_status
 
@@ -355,6 +358,194 @@ def test_rejected_status_round_trips_through_the_interop_vocabulary():
 
     assert (status, external) == ("in_progress", "rejected")
     assert from_external_status(status, external) == "Rejected"
+
+
+# --- the approval batch statuses ---------------------------------------------
+#
+# 'Verified', 'Checked' and 'Passed' are 'Approved' under a different batch
+# name. Every test below asserts that a batch status behaves *identically* to
+# 'Approved' — if any of these ever diverges, the group has stopped being a
+# group and the export batching is no longer trustworthy.
+
+
+@pytest.mark.parametrize("status", schemas.APPROVED_STATUSES)
+def test_annotator_cannot_set_any_batch_status(client, alice, bob, status):
+    """The reviewer gate covers the whole group. A batch status that an
+    annotator could set would be an authorization hole dressed as a feature."""
+    project_id = _project(client, alice)
+    _member_with_role(client, alice, bob, project_id, "annotator")
+    task_id = _task(client, alice, project_id)
+
+    via_patch = client.post(
+        "/api/tasks", json={"id": task_id, "status": status}, headers=bob
+    )
+    via_verb = client.post(
+        f"/api/tasks/{task_id}/review",
+        json={"action": status.lower()},
+        headers=bob,
+    )
+
+    assert via_patch.status_code == 403
+    assert "Reviewer" in via_patch.json()["detail"]
+    # The message must name the right verb: keying it off "Approved" told a
+    # blocked reviewer that "Rejecting requires…" when they tried to Verify.
+    assert "Approving" in via_patch.json()["detail"]
+    assert via_verb.status_code == 403
+
+
+@pytest.mark.parametrize("status", schemas.APPROVED_STATUSES)
+def test_reviewer_can_set_any_batch_status(client, alice, bob, status):
+    project_id = _project(client, alice)
+    _member_with_role(client, alice, bob, project_id, "reviewer")
+    task_id = _task(client, alice, project_id)
+
+    res = client.post(
+        f"/api/tasks/{task_id}/review",
+        json={"action": status.lower()},
+        headers=bob,
+    )
+
+    assert res.status_code == 200, res.text
+    assert res.json()["task_status"] == status
+
+
+@pytest.mark.parametrize("status", schemas.APPROVED_STATUSES)
+def test_batch_approval_is_recorded_in_the_audit_log(client, alice, status):
+    """A batch marker must not cost us the record of who signed the work off."""
+    project_id = _project(client, alice)
+    task_id = _task(client, alice, project_id)
+
+    client.post(
+        f"/api/tasks/{task_id}/review",
+        json={"action": status.lower(), "note": "weekly batch"},
+        headers=alice,
+    )
+
+    history = client.get(f"/api/tasks/{task_id}/reviews", headers=alice).json()
+    assert len(history) == 1
+    assert history[0]["action"] == status.lower()
+    assert history[0]["previous_status"] == "Completed"
+    assert history[0]["reviewer_username"].startswith("alice-")
+
+
+@pytest.mark.parametrize("status", schemas.APPROVED_STATUSES)
+def test_batch_status_is_a_valid_export_filter(client, alice, status):
+    """The point of the whole feature: exporting one batch, not everything ever
+    approved. A batch that 422s here is a batch nobody can ship."""
+    project_id = _project(client, alice)
+    task_id = _task(client, alice, project_id)
+    client.post(
+        f"/api/tasks/{task_id}/review",
+        json={"action": status.lower()},
+        headers=alice,
+    )
+
+    res = client.post(
+        "/api/exports",
+        json={"projectId": project_id, "format": "coco", "statusFilter": [status]},
+        headers=alice,
+    )
+
+    assert res.status_code in (200, 202), res.text
+
+
+def test_batches_are_independently_exportable(client, alice):
+    """The scenario the feature exists for: last week's work is 'Approved' and
+    already shipped, this week's is 'Verified'. Exporting 'Verified' must yield
+    only this week's tasks."""
+    project_id = _project(client, alice)
+    last_week = _task(client, alice, project_id)
+    this_week = _task(client, alice, project_id)
+
+    client.post(
+        f"/api/tasks/{last_week}/review", json={"action": "approved"}, headers=alice
+    )
+    client.post(
+        f"/api/tasks/{this_week}/review", json={"action": "verified"}, headers=alice
+    )
+
+    with SessionLocal() as db:
+        verified = (
+            db.query(models.Task)
+            .filter(
+                models.Task.project_id == project_id,
+                models.Task.status == "Verified",
+            )
+            .all()
+        )
+
+    assert [t.id for t in verified] == [this_week]
+
+
+@pytest.mark.parametrize("status", schemas.APPROVED_STATUSES)
+def test_bulk_update_applies_the_reviewer_gate_to_batch_statuses(
+    client, alice, bob, status
+):
+    """E-11 for the whole group: bulk-update must not be a one-request bypass
+    for approval under a batch name."""
+    project_id = _project(client, alice)
+    _member_with_role(client, alice, bob, project_id, "annotator")
+    task_id = _task(client, alice, project_id)
+
+    res = client.post(
+        "/api/tasks/bulk-update",
+        json={"ids": [task_id], "status": status},
+        headers=bob,
+    )
+
+    # Either a hard refusal or a no-op with the id skipped — never an approval.
+    assert res.status_code == 403 or res.json().get("updated") == 0
+    with SessionLocal() as db:
+        assert db.get(models.Task, task_id).status == "Completed"
+
+
+@pytest.mark.parametrize("status", schemas.APPROVED_STATUSES)
+def test_reviewer_can_bulk_approve_into_a_batch(client, alice, bob, status):
+    """The practical path for a week's work — a reviewer who cannot bulk-approve
+    would have to click through a thousand tasks one at a time."""
+    project_id = _project(client, alice)
+    _member_with_role(client, alice, bob, project_id, "reviewer")
+    ids = [_task(client, alice, project_id) for _ in range(3)]
+
+    res = client.post(
+        "/api/tasks/bulk-update", json={"ids": ids, "status": status}, headers=bob
+    )
+
+    assert res.status_code == 200, res.text
+    assert res.json()["updated"] == 3
+    with SessionLocal() as db:
+        assert {db.get(models.Task, i).status for i in ids} == {status}
+
+
+@pytest.mark.parametrize("status", schemas.APPROVED_STATUSES)
+def test_annotator_can_reopen_any_batch_status(client, alice, bob, status):
+    """Moving *away* from a sign-off is not a review verdict — the annotator who
+    has to act on feedback must be able to re-open without a reviewer resetting
+    the state by hand."""
+    project_id = _project(client, alice)
+    team = _member_with_role(client, alice, bob, project_id, "annotator")
+    task_id = _task(client, alice, project_id)
+    client.post(
+        f"/api/tasks/{task_id}/review",
+        json={"action": status.lower()},
+        headers=alice,
+    )
+    # The task must be assigned to the annotator's team for them to write it.
+    client.patch(
+        f"/api/tasks/{task_id}/assignment",
+        json={"assigned_team_id": team["id"]},
+        headers=alice,
+    )
+
+    res = client.post(
+        "/api/tasks",
+        json={"id": task_id, "status": "In Progress"},
+        headers=bob,
+    )
+
+    assert res.status_code == 200, res.text
+    with SessionLocal() as db:
+        assert db.get(models.Task, task_id).status == "In Progress"
 
 
 def test_approved_still_round_trips():

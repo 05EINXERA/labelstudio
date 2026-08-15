@@ -3,7 +3,10 @@
  *
  * Builder UI for creating an annotation export job on two independent axes,
  * bundled into one project-named ZIP:
- *   - Status filter: all | New | In Progress | Completed | Approved
+ *   - Status filter: all, or any subset of the task-status vocabulary. The
+ *     approved group (Approved / Verified / Checked / …) is listed separately
+ *     because those are the export *batches*: same verdict, different batch, so
+ *     ticking only the new batch exports only work that has not gone out yet
  *   - Format (pick one): COCO | Task JSON (single / per-task) | YOLO
  *   - Image output (pick one): none | original | annotated | mask (direct /
  *                              index / binary)
@@ -19,6 +22,21 @@
  */
 import { apiFetch } from "../../api.js?v=3";
 import { escapeHTML } from "../../utils.js?v=1";
+import { APPROVED_STATUSES, WORKING_STATUSES } from "../../task-status.js?v=1";
+
+/**
+ * One status checkbox. Generated rather than hand-written: the hardcoded list
+ * this replaced had silently fallen behind the vocabulary (it was missing
+ * "Rejected" entirely), which is exactly the drift a batch workflow cannot
+ * afford — an un-tickable status is an unexportable batch.
+ */
+function statusCheckbox(status) {
+  return `
+    <label style="display:flex; align-items:center; gap:8px; font-size:.9rem;">
+      <input type="checkbox" name="statusFilter" value="${escapeHTML(status)}">
+      ${escapeHTML(status)}
+    </label>`;
+}
 
 let root = null;
 let ctx = null;
@@ -55,22 +73,18 @@ function template() {
           Choose which tasks to include based on their status. Leave all unchecked to export everything.
         </p>
         <div style="display:flex; flex-wrap:wrap; gap:12px;">
-          <label style="display:flex; align-items:center; gap:8px; font-size:.9rem;">
-            <input type="checkbox" name="statusFilter" value="New">
-            New
-          </label>
-          <label style="display:flex; align-items:center; gap:8px; font-size:.9rem;">
-            <input type="checkbox" name="statusFilter" value="In Progress">
-            In Progress
-          </label>
-          <label style="display:flex; align-items:center; gap:8px; font-size:.9rem;">
-            <input type="checkbox" name="statusFilter" value="Completed">
-            Completed
-          </label>
-          <label style="display:flex; align-items:center; gap:8px; font-size:.9rem;">
-            <input type="checkbox" name="statusFilter" value="Approved">
-            Approved
-          </label>
+          ${WORKING_STATUSES.map(statusCheckbox).join("")}
+          ${statusCheckbox("Rejected")}
+        </div>
+
+        <p class="label" style="margin-top:16px;">Approved — by batch</p>
+        <p style="font-size:.85rem; color:var(--muted); margin:6px 0 10px;">
+          These all mean approved and differ only in which batch the sign-off
+          belongs to. Tick just the batches you have not exported yet to avoid
+          re-exporting work that already went out.
+        </p>
+        <div style="display:flex; flex-wrap:wrap; gap:12px;">
+          ${APPROVED_STATUSES.map(statusCheckbox).join("")}
         </div>
       </div>
 

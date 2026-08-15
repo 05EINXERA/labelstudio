@@ -24,7 +24,13 @@ function tile({ label, value, sub, href }) {
 
 function render(root, project, m) {
   const total = m.total || 0;
+  // `completed` is the *approved* count — tasks a reviewer signed off under any
+  // batch status (Approved / Verified / Checked / …), not tasks an annotator
+  // merely marked 'Completed'. Those are `awaiting_review`, shown as their own
+  // tile so the review queue stays visible rather than being folded into
+  // progress that nobody has checked.
   const completed = m.completed || 0;
+  const awaitingReview = m.awaiting_review || 0;
   const remaining = Math.max(0, total - completed);
 
   root.innerHTML = `
@@ -43,12 +49,13 @@ function render(root, project, m) {
         </div>
         <span style="font-weight: 800; font-size: 1.1rem;">${m.progress || 0}%</span>
       </div>
-      <p class="sub">${completed} of ${total} task${total === 1 ? "" : "s"} completed${remaining ? ` · ${remaining} remaining` : ""}</p>
+      <p class="sub">${completed} of ${total} task${total === 1 ? "" : "s"} approved${remaining ? ` · ${remaining} remaining` : ""}</p>
     </div>
 
     <div class="metric-grid">
       ${tile({ label: "Total tasks", value: total, sub: "Images in this project", href: "#/tasks" })}
-      ${tile({ label: "Completed", value: completed, href: "#/tasks" })}
+      ${tile({ label: "Approved", value: completed, sub: "Signed off by a reviewer", href: "#/tasks" })}
+      ${tile({ label: "Awaiting review", value: awaitingReview, sub: "Marked complete, not yet approved", href: "#/tasks" })}
       ${tile({ label: "In progress", value: m.in_progress || 0, href: "#/tasks" })}
       ${tile({ label: "Total classes", value: m.classes || 0, sub: "Labels available to every task", href: "#/classes" })}
       ${tile({ label: "Comments", value: m.comments || 0 })}

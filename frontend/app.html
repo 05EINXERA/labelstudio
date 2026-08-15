@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Label Studio</title>
   <link rel="icon" type="image/png" href="logo.png">
-  <link rel="stylesheet" href="styles.css?v=26">
+  <link rel="stylesheet" href="styles.css?v=27">
   <!-- sync.js (legacy global annotation-slot sync to /api/data) removed in T3.1.
        Under a shared account the 'image-annotation-mvp-v1' row was last-writer-wins
        across all 25 clients. Per-task localStorage drafts (workspace.js restoreDraft)
@@ -91,12 +91,19 @@
         </div>
         
       </div>
-      <!-- Export is a project-level operation (status filters, per-task ZIP,
-           preview-before-import) and lives in the project's Exports tab, backed
-           by /api/exports. This is a link there, not a second implementation:
-           a canvas-side export could only ever see the loaded gallery, which
-           silently differs from the project's task set. -->
-      <a class="tool-button save-button" id="exportLink" href="#" title="Export this project's annotations" style="background: var(--accent); color: white; text-decoration: none; display: inline-flex; align-items: center; justify-content: center;">Export</a>
+      <!-- Assign this task to a team / person, without leaving the canvas.
+           A manager walking the gallery with prev/next crosses task-list pages,
+           so going back to the Tasks table to assign what they just looked at
+           means re-finding a row on a page they may no longer be on.
+
+           Replaces the old Export link, which was only ever a link to the
+           project's Exports tab — still reachable there and from the project
+           nav. Hidden below `manager`, mirroring the endpoint's minimum role;
+           the server enforces it regardless (rule 18b). Wired by
+           js/canvas-assign.js; the popover itself is appended to <body>. -->
+      <button class="tool-button assign-task-button" id="assignTaskButton" type="button"
+        hidden aria-haspopup="dialog" aria-expanded="false"
+        title="Assign this task to a team or a person">Assign</button>
 
       <!-- Split save button: left half = plain Save, right half = ▾ opens
            a small action menu. Wired by canvas-permissions.js. -->
@@ -522,7 +529,7 @@
     </div>
   </div>
 
-  <script type="module" src="js/init.js?v=12"></script>
+  <script type="module" src="js/init.js?v=14"></script>
 
 </body>
 

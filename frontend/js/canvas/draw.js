@@ -1,4 +1,4 @@
-import { canvas, ctx, imageCanvas, imageCtx, staticCanvas, staticCtx } from "../dom.js?v=3";
+import { canvas, ctx, imageCanvas, imageCtx, staticCanvas, staticCtx } from "../dom.js?v=4";
 import { state, labelById, isAnnotationHidden } from "../state.js?v=7";
 import { annotationSettings, annotationOpacity } from "../feature-flags.js?v=1";
 import { view } from "./view.js?v=1";
