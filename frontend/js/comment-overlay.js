@@ -1,4 +1,4 @@
-import { stageWrap } from "./dom.js?v=3";
+import { stageWrap } from "./dom.js?v=4";
 
 // The #commentOverlay markup ships in app.html on most pages, but this
 // fallback injects it if missing. commentOverlay/commentOverlayInput are

@@ -12,8 +12,8 @@ import {
   canvas, ctx, imageCanvas, imageCtx, staticCanvas, staticCtx, stageWrap,
   emptyState, drawMode, selectMode, boxMode, polygonMode, commentMode, magicWandMode,
   autoDetectButton, undoButton, redoButton, deleteButton, clearButton, unhideAllButton,
-  exportLink, saveButton
-} from "./dom.js?v=3";
+  assignTaskButton, saveButton
+} from "./dom.js?v=4";
 import { drawAllLayers } from "./canvas/draw.js?v=2";
 import {
   setStatus, syncToBackend, save, loadSaved, saveDraft, restoreDraft,
@@ -35,7 +35,7 @@ import {
 } from "./canvas/interactions.js?v=6";
 import { initContextMenu } from "./canvas/context-menu.js?v=2";
 import { getCurrentUser } from "./session.js?v=1";
-import { canReview } from "./permissions.js?v=1";
+import { initCanvasAssign, renderAssignButton } from "./canvas-assign.js?v=1";
 import {
   applyReadOnlyMode, isReadOnly, loadProjectPermissions, renderReviewControls,
   reportSaveForbidden, reportSaveRefused, setMyTeams, setMyUserId, updateTaskBanner,
@@ -1125,25 +1125,6 @@ async function initIdentityAndPermissions() {
 
   applyReadOnlyMode();
   refreshTaskPermissionUI();
-
-  // Disable the Export link for annotator-only users. Reviewer+ and managers
-  // may export; an annotator bulk-downloading the full dataset is not the
-  // intent (04_UI_UX.md § 6.1). Same treatment as the AI buttons: the element
-  // stays in the DOM but loses its href and is visually greyed out so the
-  // reason is obvious rather than mysterious.
-  if (exportLink) {
-    if (canReview(currentRole())) {
-      // Reviewer+: set the destination now that the role is confirmed.
-      exportLink.href = `project.html?id=${encodeURIComponent(projectId)}#/exports`;
-    } else {
-      // Annotator: remove any href, grey it out, block keyboard activation.
-      exportLink.removeAttribute('href');
-      exportLink.classList.add('is-disabled');
-      exportLink.setAttribute('aria-disabled', 'true');
-      exportLink.title = 'Export is not available for annotators';
-      exportLink.addEventListener('click', (e) => e.preventDefault(), { capture: true });
-    }
-  }
 }
 
 /**
@@ -1157,6 +1138,11 @@ function refreshTaskPermissionUI() {
   if (!task) return;
 
   updateTaskBanner(task);
+
+  // Keep the Assign button's label truthful for the task now open — walking the
+  // gallery must not leave the previous task's assignee on screen. Also the
+  // gate that reveals it at all, once the role is known.
+  renderAssignButton(currentRole());
 
   // Wire the save split-button menu (chevron + action options + task status pill).
   renderSaveSplitMenu(task, saveAndComplete, (newStatus) => {
@@ -1299,8 +1285,22 @@ async function initWorkspaceContext() {
       history.back();
     });
   }
-  // exportLink.href is set conditionally by initIdentityAndPermissions after
-  // the role is known — annotators get no href, reviewer+ get the exports tab.
+  // The Assign button stays hidden until initIdentityAndPermissions confirms a
+  // `manager` role; renderAssignButton (called from refreshTaskPermissionUI)
+  // reveals it and keeps its label in step with the open task.
+  initCanvasAssign({
+    projectId,
+    button: assignTaskButton,
+    getTask: () =>
+      state.gallery && state.galleryIndex >= 0 ? state.gallery[state.galleryIndex] : null,
+    onAssigned: () => {
+      // The assignment fields gate read-only mode and the save menu, so the
+      // permission surface must be recomputed — not just the button. This also
+      // re-renders the button itself with the new assignee.
+      refreshTaskPermissionUI();
+      setStatus("Assignment updated");
+    },
+  });
 
   try {
     const res = await apiFetch('/api/projects');

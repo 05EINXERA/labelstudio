@@ -266,6 +266,113 @@ button {
   margin: 4px 0;
 }
 
+/* --- assign task (canvas toolbar) ---------------------------------------- */
+
+/* Sits where the Export link used to, so it keeps that slot's weight. The
+   assigned state is deliberately quieter than the unassigned one: "nobody has
+   this yet" is the state a manager needs to notice. */
+.assign-task-button {
+  background: var(--accent);
+  color: #fff;
+  border-color: transparent;
+  font-weight: 700;
+  white-space: nowrap;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.assign-task-button.is-assigned {
+  background: var(--panel-2);
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+
+.assign-task-button[hidden] { display: none; }
+
+/* The popover is positioned in JS (fixed, anchored under the button) because it
+   must escape the toolbar's stacking/overflow context. */
+.assign-popover {
+  position: fixed;
+  width: 320px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(23, 32, 38, 0.18);
+  /* Above the toolbar and the save menu (z-index 200), below modal overlays. */
+  z-index: 400;
+  padding: 14px 16px 12px;
+}
+
+.assign-popover[hidden] { display: none; }
+
+.assign-pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.assign-pop-head h3 {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.assign-pop-close {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.assign-pop-close:hover { color: var(--ink); }
+
+.assign-pop-current {
+  margin: 0 0 12px;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.assign-pop-current strong { color: var(--ink); }
+.assign-pop-none { font-style: italic; }
+
+.assign-pop-body { display: grid; gap: 12px; }
+
+.assign-pop-body select {
+  width: 100%;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 0.85rem;
+}
+
+.assign-pop-body select:disabled {
+  background: var(--panel-2);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.assign-pop-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.assign-pop-spacer { flex: 1; }
+
+/* Unassign is destructive-ish but not dangerous — it returns the task to the
+   pool. Tinted, not red: red would overstate it next to Cancel. */
+.assign-pop-clear { color: var(--danger); }
+
 /* Task status pill — mirrors the saveStatus pill; shows live task status. */
 .task-status-pill {
   font-size: 0.72rem;

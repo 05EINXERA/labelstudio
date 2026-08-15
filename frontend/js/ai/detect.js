@@ -5,7 +5,7 @@ import { updateAnnotationBounds } from "../canvas/geometry.js?v=1";
 import { view } from "../canvas/view.js?v=1";
 import { detectState } from "./detect-state.js?v=3";
 import { getImageSrcForAPI } from "./shared.js?v=1";
-import { autoDetectButton } from "../dom.js?v=3";
+import { autoDetectButton } from "../dom.js?v=4";
 import {
   setStatus, ensureLabel, save, render
 } from "../components/workspace.js?v=14";

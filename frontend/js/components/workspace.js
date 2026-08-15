@@ -19,9 +19,9 @@ import {
   hiddenFilterButton, hiddenCount,
   drawMode, selectMode, boxMode, polygonMode, commentMode, magicWandMode,
   autoDetectButton, aiSettingsMenuButton, autoTagButton, fftToolGroup,
-  undoButton, redoButton, deleteButton, clearButton, exportLink,
+  undoButton, redoButton, deleteButton, clearButton,
   shapeHint, saveStatus
-} from "../dom.js?v=3";
+} from "../dom.js?v=4";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
 import { toolAvailability } from "../feature-flags.js?v=1";
 // Per-task write gating. `isReadOnly()` is project-role only, so it is false
@@ -1137,12 +1137,10 @@ export function renderControls() {
     ungroupButton.disabled = !state.annotations.some(a => state.selectedIds.has(a.id) && a.groupId);
   }
   clearButton.disabled = state.annotations.length === 0;
-  const noData = !view.imageLoaded && state.annotations.length === 0;
-  // An <a> has no .disabled — dim it and drop it out of the tab order instead.
-  if (exportLink) {
-    exportLink.classList.toggle("is-disabled", noData);
-    exportLink.tabIndex = noData ? -1 : 0;
-  }
+  // The old Export link was dimmed here when there was nothing to export. Its
+  // replacement (Assign) is gated by *role*, not by canvas contents — a task
+  // with no annotations yet is exactly one a manager may want to hand out — so
+  // its visibility belongs to canvas-assign.js alone and is not touched here.
   emptyState.classList.toggle("is-hidden", view.imageLoaded);
 }
 

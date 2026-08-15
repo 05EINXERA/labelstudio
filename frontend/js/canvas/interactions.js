@@ -4,7 +4,7 @@ import { annotationPoints, updateAnnotationBounds, pointInPolygon } from "./geom
 import { untangleRing } from "./untangle.js?v=1";
 import { view } from "./view.js?v=1";
 import { draw, drawAllLayers } from "./draw.js?v=2";
-import { canvas, undoButton } from "../dom.js?v=3";
+import { canvas, undoButton } from "../dom.js?v=4";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
 import { setStatus, save, render, activateLabel, toggleAnnotationsHidden, unhideAllObjects } from "../components/workspace.js?v=14";
 import { labelIndexForCode, hideTargetIds, shouldHide } from "../shortcuts.js?v=1";
