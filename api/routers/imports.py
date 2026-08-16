@@ -452,7 +452,7 @@ async def import_annotations(
             points = json.dumps(a['points']) if a.get('points') is not None else None
             
             task.annotations.append(models.Annotation(
-                id=a.get('id') or str(uuid.uuid4()),
+                id=str(uuid.uuid4()),
                 label_id=a.get('labelId'),
                 type=a.get('type', 'polygon'),
                 points=points,

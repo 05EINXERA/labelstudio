@@ -452,15 +452,21 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
                 db_task.annotations.clear()
                 db.flush()
                 new_annotations = []
+                seen_ids = set()
                 for a in anns:
                     if not isinstance(a, dict): continue
+                    ann_id = a.get('id')
+                    if not ann_id or ann_id in seen_ids:
+                        ann_id = str(uuid.uuid4())
+                    seen_ids.add(ann_id)
+                    
                     known_keys = {'id', 'type', 'labelId', 'points', 'x', 'y', 'width', 'height', 'text', 'color', 'order', 'groupId'}
                     extra_dict = {k: v for k, v in a.items() if k not in known_keys}
                     extra = json.dumps(extra_dict) if extra_dict else None
                     points = json.dumps(a['points']) if a.get('points') is not None else None
                     
                     new_annotations.append(models.Annotation(
-                        id=a.get('id') or str(uuid.uuid4()),
+                        id=ann_id,
                         label_id=a.get('labelId'),
                         type=a.get('type', 'polygon'),
                         points=points,
@@ -501,7 +507,7 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
                     points = json.dumps(a['points']) if a.get('points') is not None else None
                     
                     new_annotations.append(models.Annotation(
-                        id=a.get('id') or str(uuid.uuid4()),
+                        id=str(uuid.uuid4()),
                         label_id=a.get('labelId'),
                         type=a.get('type', 'polygon'),
                         points=points,
