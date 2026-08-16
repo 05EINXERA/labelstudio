@@ -445,14 +445,27 @@ async def import_annotations(
         if mode == "replace":
             task.annotations.clear()
 
+        # Check for conflicts with existing IDs in the database
+        incoming_ids = {a.get('id') for a in resolved if a.get('id')}
+        conflicting_ids = set()
+        if incoming_ids:
+            conflicts = db.query(models.Annotation.id).filter(models.Annotation.id.in_(incoming_ids)).all()
+            conflicting_ids = {row[0] for row in conflicts}
+
+        seen_ids = set()
         for a in resolved:
             known_keys = {'id', 'type', 'labelId', 'points', 'x', 'y', 'width', 'height', 'text', 'color', 'order', 'groupId'}
             extra_dict = {k: v for k, v in a.items() if k not in known_keys}
             extra = json.dumps(extra_dict) if extra_dict else None
             points = json.dumps(a['points']) if a.get('points') is not None else None
             
+            ann_id = a.get('id')
+            if not ann_id or ann_id in seen_ids or ann_id in conflicting_ids:
+                ann_id = str(uuid.uuid4())
+            seen_ids.add(ann_id)
+            
             task.annotations.append(models.Annotation(
-                id=str(uuid.uuid4()),
+                id=ann_id,
                 label_id=a.get('labelId'),
                 type=a.get('type', 'polygon'),
                 points=points,

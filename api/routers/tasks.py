@@ -449,14 +449,33 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
         if task.annotations is not None:
             try:
                 anns = json.loads(task.annotations)
-                db_task.annotations.clear()
+                existing_map = {a.id: a for a in db_task.annotations}
+                
+                # Find IDs in the payload that are new to this task
+                incoming_ids = {a.get('id') for a in anns if isinstance(a, dict) and a.get('id')}
+                new_to_task = incoming_ids - set(existing_map.keys())
+                
+                # Check if any of these new IDs already exist in the database (e.g. copied from another task)
+                conflicting_ids = set()
+                if new_to_task:
+                    conflicts = db.query(models.Annotation.id).filter(models.Annotation.id.in_(new_to_task)).all()
+                    conflicting_ids = {row[0] for row in conflicts}
+                
+                # Remove annotations that are no longer in the payload
+                to_remove = [a for a in db_task.annotations if a.id not in incoming_ids]
+                for a in to_remove:
+                    db_task.annotations.remove(a)
+                    # explicitly delete to handle passive_deletes=True
+                    db.delete(a)
                 db.flush()
-                new_annotations = []
+                
                 seen_ids = set()
                 for a in anns:
                     if not isinstance(a, dict): continue
                     ann_id = a.get('id')
-                    if not ann_id or ann_id in seen_ids:
+                    
+                    # Regenerate if: no ID, duplicate in payload, or belongs to another task
+                    if not ann_id or ann_id in seen_ids or ann_id in conflicting_ids:
                         ann_id = str(uuid.uuid4())
                     seen_ids.add(ann_id)
                     
@@ -465,16 +484,30 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
                     extra = json.dumps(extra_dict) if extra_dict else None
                     points = json.dumps(a['points']) if a.get('points') is not None else None
                     
-                    new_annotations.append(models.Annotation(
-                        id=ann_id,
-                        label_id=a.get('labelId'),
-                        type=a.get('type', 'polygon'),
-                        points=points,
-                        x=a.get('x'), y=a.get('y'), width=a.get('width'), height=a.get('height'),
-                        text=a.get('text'), color=a.get('color'), order=a.get('order'), group_id=a.get('groupId'),
-                        extra=extra
-                    ))
-                db_task.annotations = new_annotations
+                    if ann_id in existing_map:
+                        existing = existing_map[ann_id]
+                        existing.label_id = a.get('labelId')
+                        existing.type = a.get('type', 'polygon')
+                        existing.points = points
+                        existing.x = a.get('x')
+                        existing.y = a.get('y')
+                        existing.width = a.get('width')
+                        existing.height = a.get('height')
+                        existing.text = a.get('text')
+                        existing.color = a.get('color')
+                        existing.order = a.get('order')
+                        existing.group_id = a.get('groupId')
+                        existing.extra = extra
+                    else:
+                        db_task.annotations.append(models.Annotation(
+                            id=ann_id,
+                            label_id=a.get('labelId'),
+                            type=a.get('type', 'polygon'),
+                            points=points,
+                            x=a.get('x'), y=a.get('y'), width=a.get('width'), height=a.get('height'),
+                            text=a.get('text'), color=a.get('color'), order=a.get('order'), group_id=a.get('groupId'),
+                            extra=extra
+                        ))
             except ValueError:
                 raise HTTPException(status_code=400, detail="Invalid annotations JSON")
         db_task.updated_at = datetime.datetime.now(datetime.timezone.utc)
@@ -498,16 +531,34 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
         if task.annotations is not None:
             try:
                 anns = json.loads(task.annotations)
+                
+                # Find IDs in the payload
+                incoming_ids = {a.get('id') for a in anns if isinstance(a, dict) and a.get('id')}
+                
+                # Check if any of these IDs already exist in the database (e.g. copied from another task)
+                conflicting_ids = set()
+                if incoming_ids:
+                    conflicts = db.query(models.Annotation.id).filter(models.Annotation.id.in_(incoming_ids)).all()
+                    conflicting_ids = {row[0] for row in conflicts}
+                
                 new_annotations = []
+                seen_ids = set()
                 for a in anns:
                     if not isinstance(a, dict): continue
+                    ann_id = a.get('id')
+                    
+                    # Regenerate if: no ID, duplicate in payload, or belongs to another task
+                    if not ann_id or ann_id in seen_ids or ann_id in conflicting_ids:
+                        ann_id = str(uuid.uuid4())
+                    seen_ids.add(ann_id)
+                    
                     known_keys = {'id', 'type', 'labelId', 'points', 'x', 'y', 'width', 'height', 'text', 'color', 'order', 'groupId'}
                     extra_dict = {k: v for k, v in a.items() if k not in known_keys}
                     extra = json.dumps(extra_dict) if extra_dict else None
                     points = json.dumps(a['points']) if a.get('points') is not None else None
                     
                     new_annotations.append(models.Annotation(
-                        id=str(uuid.uuid4()),
+                        id=ann_id,
                         label_id=a.get('labelId'),
                         type=a.get('type', 'polygon'),
                         points=points,

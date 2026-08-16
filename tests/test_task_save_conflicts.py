@@ -61,8 +61,8 @@ def test_same_client_may_overwrite_its_own_write(client, alice):
     }, headers=alice)
     assert second.status_code == 200, "a client must never 409 against itself"
 
-    got = client.get(f"/api/tasks?projectId={project_id}&include_annotations=true", headers=alice).json()
-    assert len(got[0]["annotations"]) == 2
+    got = client.get(f"/api/tasks/{task['id']}", headers=alice).json()
+    assert len(got["annotations"]) == 2
 
 
 def test_different_client_with_stale_timestamp_conflicts(client, alice):
