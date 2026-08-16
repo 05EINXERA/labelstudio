@@ -107,12 +107,12 @@
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
         </button>
         <div id="saveDropdownMenu" class="save-dropdown-menu" style="display: none; position: absolute; top: 100%; right: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; box-shadow: var(--shadow); z-index: 100; min-width: 170px; margin-top: 4px; padding: 4px 0;">
-          <button class="dropdown-item" data-status="Completed">✔ Mark as Completed</button>
-          <button class="dropdown-item" data-status="In Progress">◷ Mark as In Progress</button>
-          <button class="dropdown-item owner-only-status" data-status="Approved" style="display: none;">👍 Mark as Approved</button>
-          <button class="dropdown-item owner-only-status" data-status="Declined" style="display: none;">👎 Mark as Declined</button>
-          <button class="dropdown-item owner-only-status" data-status="Verified" style="display: none;">✅ Mark as Verified</button>
-          <button class="dropdown-item owner-only-status" data-status="Checked" style="display: none;">✔️ Mark as Checked</button>
+          <button class="dropdown-item" data-status="Completed" style="display: flex; align-items: center; gap: 6px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Mark as Completed</button>
+          <button class="dropdown-item" data-status="In Progress" style="display: flex; align-items: center; gap: 6px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg> Mark as In Progress</button>
+          <button class="dropdown-item owner-only-status" data-status="Approved" style="display: none; align-items: center; gap: 6px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg> Mark as Approved</button>
+          <button class="dropdown-item owner-only-status" data-status="Declined" style="display: none; align-items: center; gap: 6px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg> Mark as Declined</button>
+          <button class="dropdown-item owner-only-status" data-status="Verified" style="display: none; align-items: center; gap: 6px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/><path d="m9 12 2 2 4-4"/></svg> Mark as Verified</button>
+          <button class="dropdown-item owner-only-status" data-status="Checked" style="display: none; align-items: center; gap: 6px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11 3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg> Mark as Checked</button>
         </div>
       </div>
       <span id="currentTaskStatus" style="margin: 0 8px; font-weight: 500; font-size: 13px; color: var(--accent);"></span>
