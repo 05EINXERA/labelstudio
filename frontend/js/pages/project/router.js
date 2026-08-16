@@ -85,7 +85,10 @@ function renderHeader() {
   els.status.className = "pill " + (
     status === "Completed" ? "is-completed"
       : status === "In Progress" ? "is-progress"
-      : status === "Approved" ? "is-approved" : ""
+      : status === "Approved" ? "is-approved"
+      : status === "Declined" ? "is-declined"
+      : status === "Verified" ? "is-verified"
+      : status === "Checked" ? "is-checked" : ""
   );
 }
 

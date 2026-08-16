@@ -71,6 +71,18 @@ function template() {
             <input type="checkbox" name="statusFilter" value="Approved">
             Approved
           </label>
+          <label style="display:flex; align-items:center; gap:8px; font-size:.9rem;">
+            <input type="checkbox" name="statusFilter" value="Declined">
+            Declined
+          </label>
+          <label style="display:flex; align-items:center; gap:8px; font-size:.9rem;">
+            <input type="checkbox" name="statusFilter" value="Verified">
+            Verified
+          </label>
+          <label style="display:flex; align-items:center; gap:8px; font-size:.9rem;">
+            <input type="checkbox" name="statusFilter" value="Checked">
+            Checked
+          </label>
         </div>
       </div>
 

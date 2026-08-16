@@ -280,15 +280,21 @@ TO_EXTERNAL_STATUS: Dict[str, Tuple[str, str]] = {
     "In Progress": ("in_progress", ""),
     "Completed": ("completed", ""),
     "Approved": ("completed", "approved"),
+    "Declined": ("completed", "declined"),
+    "Verified": ("completed", "verified"),
+    "Checked": ("completed", "checked"),
 }
 
-# The inverse. externalStatus wins when it says "approved", because that is the
-# only way the interop format distinguishes an approved task from a merely completed one.
+# The inverse. externalStatus wins when it is set, because that is the
+# only way the interop format distinguishes these tasks from merely completed ones.
 FROM_EXTERNAL_STATUS: Dict[str, str] = {
     "registered": "New",
     "in_progress": "In Progress",
     "completed": "Completed",
     "approved": "Approved",
+    "declined": "Declined",
+    "verified": "Verified",
+    "checked": "Checked",
 }
 
 
@@ -302,8 +308,9 @@ def to_external_status(status: Optional[str]) -> Tuple[str, str]:
 
 def from_external_status(status: Optional[str], external_status: Optional[str] = None) -> str:
     """the interop (status, externalStatus) -> our status."""
-    if (external_status or "").lower() == "approved":
-        return "Approved"
+    ext = (external_status or "").lower()
+    if ext in FROM_EXTERNAL_STATUS and ext not in ["registered", "in_progress", "completed"]:
+        return FROM_EXTERNAL_STATUS[ext]
     key = (status or "").lower()
     if key in FROM_EXTERNAL_STATUS:
         return FROM_EXTERNAL_STATUS[key]

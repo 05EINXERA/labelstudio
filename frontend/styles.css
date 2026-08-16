@@ -2100,6 +2100,8 @@ table.data-table tbody tr:last-child td { border-bottom: none; }
 .pill.is-progress  { background: rgba(234,179,8,.15);  color: #8a6d0b; border-color: transparent; }
 .pill.is-approved  { background: rgba(59,130,246,.14); color: #1e5fbf; border-color: transparent; }
 .pill.is-declined  { background: rgba(224,82,96,.14);  color: #c13b48; border-color: transparent; }
+.pill.is-verified  { background: rgba(16,185,129,.14); color: #047857; border-color: transparent; }
+.pill.is-checked   { background: rgba(107,114,128,.14); color: #374151; border-color: transparent; }
 
 .row-actions { display: flex; gap: 6px; justify-content: center; }
 .row-actions button {

@@ -49,7 +49,9 @@ function statusPill(status) {
   const cls = s === "Completed" ? "is-completed"
     : s === "In Progress" ? "is-progress"
     : s === "Approved" ? "is-approved"
-    : s === "Declined" ? "is-declined" : "";
+    : s === "Declined" ? "is-declined"
+    : s === "Verified" ? "is-verified"
+    : s === "Checked" ? "is-checked" : "";
   return `<span class="pill ${cls}">${escapeHTML(s)}</span>`;
 }
 
