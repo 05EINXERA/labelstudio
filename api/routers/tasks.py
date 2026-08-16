@@ -135,9 +135,6 @@ def _get_owned_task(task_id: int, user: models.User, db: Session, annotator: Opt
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
         
-    if annotator and task.assignee and task.assignee != annotator.name:
-        raise HTTPException(status_code=403, detail="Task is assigned to another user")
-        
     return task
 
 @router.get("", response_model=PaginatedTasks)
@@ -452,6 +449,8 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
         if task.annotations is not None:
             try:
                 anns = json.loads(task.annotations)
+                db_task.annotations.clear()
+                db.flush()
                 new_annotations = []
                 for a in anns:
                     if not isinstance(a, dict): continue

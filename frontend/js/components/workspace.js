@@ -68,6 +68,7 @@ export function syncToBackend({ useBeacon = false, targetStatus = null } = {}) {
   if (typeof state === 'undefined' || state.galleryIndex < 0 || !state.gallery || !state.gallery[state.galleryIndex]) return;
   const currentTask = state.gallery[state.galleryIndex];
   if (!currentTask.id) return;
+  if (!currentTask.isFullyLoaded) return Promise.resolve(false);
 
   let taskStatus = targetStatus || currentTask.status;
   if (taskStatus === 'New') taskStatus = 'In Progress';

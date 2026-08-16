@@ -70,15 +70,11 @@ export async function heartbeatTask(taskId, clientId) {
 export function releaseTask(taskId, clientId, { useBeacon = false } = {}) {
   if (!taskId || !clientId) return;
   const url = `/api/tasks/${taskId}/claim?client_id=${encodeURIComponent(clientId)}`;
-  if (useBeacon && navigator.sendBeacon) {
-    // sendBeacon does not support DELETE; use a tiny POST-shaped blob instead.
-    // The backend release endpoint is DELETE /{id}/claim, but advisory releases
-    // via beacon are best-effort anyway — the TTL will expire in ≤60 s.
-    // We fall through to apiFetch for non-beacon paths.
-    navigator.sendBeacon(
-      `/api/tasks/${taskId}/release-beacon?client_id=${encodeURIComponent(clientId)}`,
-      new Blob([], { type: 'application/json' })
-    );
+  if (useBeacon) {
+    apiFetch(`/api/tasks/${taskId}/release-beacon?client_id=${encodeURIComponent(clientId)}`, {
+      method: 'POST',
+      keepalive: true
+    }).catch(() => {});
     return;
   }
   apiFetch(url, { method: 'DELETE' }).catch(e =>

@@ -85,7 +85,6 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
     id: taskId,
     time_spent_delta: timeDelta,
     status: status || task.status || 'In Progress',
-    annotations: JSON.stringify(annotations || task.annotations || []),
     // Sent explicitly as null rather than left undefined when unknown:
     // JSON.stringify drops undefined keys, and an absent updated_at silently
     // disables conflict detection instead of declaring "I have no token".
@@ -94,28 +93,28 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
     client_id: clientId()
   };
 
-  // On unload a normal fetch is not guaranteed to be delivered; sendBeacon is
-  // (F2). Beacons give us no response, so treat dispatch as success.
-  if (useBeacon && navigator.sendBeacon) {
-    const ok = navigator.sendBeacon(
-      '/api/tasks',
-      new Blob([JSON.stringify(payload)], { type: 'application/json' })
-    );
-    if (ok) {
-      task.time_spent = (task.time_spent || 0) + timeDelta;
-      // A beacon returns no body, so the updated_at this write just produced
-      // is unknowable. Holding on to the old one would send a stale token on
-      // the next save and 409 against ourselves — the exact sequence that lost
-      // annotations after a tab switch. Clearing it makes the next save
-      // declare "no token"; `client_id` still identifies us, so a genuine
-      // conflict with another user is still caught.
-      task.updated_at = null;
-    } else {
-      timerState.taskSessionSeconds += timeDelta;
-    }
+  if (annotations !== undefined) {
+    payload.annotations = JSON.stringify(annotations);
+  } else if (task.isFullyLoaded) {
+    payload.annotations = JSON.stringify(task.annotations || []);
+  }
+
+  // On unload a normal fetch is not guaranteed to be delivered; fetch with keepalive is
+  // (F2). This allows us to send standard authorization and CSRF headers.
+  if (useBeacon) {
+    apiFetch('/api/tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      keepalive: true
+    }).catch(() => {});
+    
+    task.time_spent = (task.time_spent || 0) + timeDelta;
+    // Clearing it makes the next save declare "no token"; `client_id` still identifies us
+    task.updated_at = null;
+    
     updateTimerDisplays();
-    // Dispatch is the only signal a beacon gives; treat it as provisional
-    // success so the draft survives until a normal save confirms.
+    // Dispatch is the only signal a beacon gives; treat it as provisional success
     return false;
   }
 
@@ -226,12 +225,15 @@ export function syncTimeToServer({ useBeacon = false } = {}) {
     time_logged: delta
   });
 
-  if (useBeacon && navigator.sendBeacon) {
-    const ok = navigator.sendBeacon(
-      '/api/team/time',
-      new Blob([body], { type: 'application/json' })
-    );
-    if (ok) timerLocalState.lastSyncedTotalSeconds = syncedUpTo;
+  if (useBeacon) {
+    apiFetch('/api/team/time', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+      keepalive: true
+    }).then(res => {
+      if (res && res.ok) timerLocalState.lastSyncedTotalSeconds = syncedUpTo;
+    }).catch(() => {});
     return;
   }
 

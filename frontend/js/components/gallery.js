@@ -118,7 +118,9 @@ export async function switchImage(index) {
   if (!state.gallery || index < 0 || index >= state.gallery.length) return;
   if (state.galleryIndex >= 0 && state.gallery[state.galleryIndex]) {
     const prevTask = state.gallery[state.galleryIndex];
-    prevTask.annotations = [...state.annotations];
+    if (prevTask.isFullyLoaded) {
+      prevTask.annotations = [...state.annotations];
+    }
     // Drains the accumulator against the outgoing task. Bound to prevTask, so
     // it stays correct even though galleryIndex moves before it resolves.
     syncTaskTime(prevTask);
@@ -162,6 +164,7 @@ export async function switchImage(index) {
           item.annotations = Array.isArray(detail.annotations) ? detail.annotations : [];
           if (detail.updated_at) item.updated_at = detail.updated_at;
           if (detail.time_spent != null) item.time_spent = detail.time_spent;
+          item.isFullyLoaded = true;
         }
       })
       .catch((e) => {
@@ -228,7 +231,8 @@ export async function loadWorkspaceTasks(projectId, targetTaskId = null) {
         status: "New",
         assignee: null,
         time_spent: 0,
-        updated_at: null
+        updated_at: null,
+        isFullyLoaded: false
       }));
 
       if (state.gallery.length > 0) {

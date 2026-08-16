@@ -49,7 +49,7 @@ import os
 import traceback
 import uuid
 import zipfile
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import Response
