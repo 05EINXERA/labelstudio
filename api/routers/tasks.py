@@ -8,6 +8,9 @@ from typing import Dict, Optional, List
 from fastapi import APIRouter, Depends, Query, HTTPException, Header
 from sqlalchemy import case, func, or_, distinct
 from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm.exc import StaleDataError
+from sqlalchemy.exc import IntegrityError
+import time
 
 import models
 from database import get_db, commit_with_retry, SessionLocal
@@ -377,6 +380,20 @@ def get_lock_status(task_id: int,
 
 @router.post("")
 def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(None), db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
+    for attempt in range(3):
+        try:
+            return _update_or_create_task_impl(task, projectId, db, user, annotator)
+        except (IntegrityError, StaleDataError) as e:
+            db.rollback()
+            is_unique = isinstance(e, IntegrityError) and ("unique" in str(e).lower() or "duplicate" in str(e).lower())
+            is_stale = isinstance(e, StaleDataError)
+            if attempt == 2 or not (is_unique or is_stale):
+                raise
+            delay = 0.1 * (2 ** attempt)
+            logger.warning("Concurrent insert/update race detected on task %s (attempt %d/3), retrying in %.2fs: %s", task.id, attempt + 1, delay, type(e).__name__)
+            time.sleep(delay)
+
+def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: Session, user: models.User, annotator: Optional[models.TeamMember]):
     if task.id:
         db_task = _get_owned_task(task.id, user, db, annotator)
         # Conflict detection guards one thing: a client overwriting a write it
