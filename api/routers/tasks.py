@@ -281,24 +281,30 @@ def claim_task(task_id: int, client_id: str = Query(..., max_length=64),
     is already editing, not to block them outright.
     """
     _get_owned_task(task_id, user, db, annotator)      # 404 if not owned/accessible
-    _sweep_stale_locks(db)
-    now = datetime.datetime.now(datetime.timezone.utc)
-    existing = _lock_status(task_id, db)
-    if existing and existing.client_id != client_id:
-        claimed_at = existing.claimed_at
-        if claimed_at.tzinfo is None:
-            claimed_at = claimed_at.replace(tzinfo=datetime.timezone.utc)
-        age = (now - claimed_at).total_seconds()
-        return {"status": "locked",
-                "locked_by": existing.client_id,
-                "seconds_remaining": max(0, TASK_LOCK_TTL_SECONDS - int(age))}
-    if existing:
-        existing.claimed_at = now
-    else:
-        new_lock = models.TaskLock(task_id=task_id, client_id=client_id, claimed_at=now)
-        db.add(new_lock)
-    commit_with_retry(db)
-    return {"status": "ok", "ttl": TASK_LOCK_TTL_SECONDS}
+    for attempt in range(2):
+        try:
+            _sweep_stale_locks(db)
+            now = datetime.datetime.now(datetime.timezone.utc)
+            existing = _lock_status(task_id, db)
+            if existing and existing.client_id != client_id:
+                claimed_at = existing.claimed_at
+                if claimed_at.tzinfo is None:
+                    claimed_at = claimed_at.replace(tzinfo=datetime.timezone.utc)
+                age = (now - claimed_at).total_seconds()
+                return {"status": "locked",
+                        "locked_by": existing.client_id,
+                        "seconds_remaining": max(0, TASK_LOCK_TTL_SECONDS - int(age))}
+            if existing:
+                existing.claimed_at = now
+            else:
+                new_lock = models.TaskLock(task_id=task_id, client_id=client_id, claimed_at=now)
+                db.add(new_lock)
+            commit_with_retry(db)
+            return {"status": "ok", "ttl": TASK_LOCK_TTL_SECONDS}
+        except (IntegrityError, StaleDataError):
+            db.rollback()
+            if attempt == 1:
+                return {"status": "locked", "locked_by": "unknown", "seconds_remaining": TASK_LOCK_TTL_SECONDS}
 
 
 @router.post("/{task_id}/heartbeat")
@@ -311,17 +317,25 @@ def heartbeat_task(task_id: int, client_id: str = Query(..., max_length=64),
     than the TTL).
     """
     _get_owned_task(task_id, user, db, annotator)
-    existing = _lock_status(task_id, db)
-    if existing and existing.client_id != client_id:
-        # Another client took over the stale lock before this heartbeat arrived.
-        return {"status": "lost"}
-    now = datetime.datetime.now(datetime.timezone.utc)
-    if existing:
-        existing.claimed_at = now
-    else:
-        new_lock = models.TaskLock(task_id=task_id, client_id=client_id, claimed_at=now)
-        db.add(new_lock)
-    commit_with_retry(db)
+    for attempt in range(2):
+        try:
+            existing = _lock_status(task_id, db)
+            if existing and existing.client_id != client_id:
+                # Another client took over the stale lock before this heartbeat arrived.
+                return {"status": "lost"}
+            now = datetime.datetime.now(datetime.timezone.utc)
+            if existing:
+                existing.claimed_at = now
+            else:
+                new_lock = models.TaskLock(task_id=task_id, client_id=client_id, claimed_at=now)
+                db.add(new_lock)
+            commit_with_retry(db)
+            return {"status": "ok", "ttl": TASK_LOCK_TTL_SECONDS}
+        except (IntegrityError, StaleDataError):
+            db.rollback()
+            if attempt == 1:
+                # If it still fails, just return ok. Next heartbeat will try again.
+                pass
     return {"status": "ok", "ttl": TASK_LOCK_TTL_SECONDS}
 
 
