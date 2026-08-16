@@ -6,7 +6,7 @@ A browser-based workspace for AI-assisted image annotation, featuring state-of-t
 
 - **Frontend**: Vanilla JavaScript and HTML5 Canvas.
 - **Backend**: FastAPI (Python), serving concurrent ML inferences using an Asynchronous Job Polling Queue to prevent timeouts.
-- **Database**: SQLite (Configured with WAL mode for safe concurrent read/writes).
+- **Database**: SQLite (WAL) for development, or **PostgreSQL** for multi-user LAN deployments (configured via `DATABASE_URL`).
 - **AI Models**:
   - **YOLO-World / YOLOv8**: Zero-shot object detection (Auto-Detect).
   - **Meta SAM (Segment Anything Model)**: Pixel-perfect polygon segmentation (Magic Wand).
@@ -14,19 +14,24 @@ A browser-based workspace for AI-assisted image annotation, featuring state-of-t
 
 ## Setup
 
-1. Install Python dependencies:
+1. Copy `.env.example` to `.env` and configure your settings (e.g., `DATABASE_URL`, `JWT_SECRET`).
+
+2. Install Python dependencies:
 
 ```powershell
 .\venv\Scripts\pip.exe install -r requirements.txt
 ```
 
-2. Start the local FastAPI server:
+3. Start the local FastAPI server using the provided launch script (which loads `.env`):
 
 ```powershell
-.\venv\Scripts\uvicorn.exe main:app --reload
+.\scripts\run.ps1
 ```
 
-Then open `http://127.0.0.1:8000/` (or whatever port Uvicorn specifies in the terminal).
+Alternatively, you can run Uvicorn directly if your environment is already set up:
+```powershell
+.\venv\Scripts\uvicorn.exe main:app --port 8000
+```
 
 ## Core Features
 
@@ -58,18 +63,18 @@ git push origin main
 
 ## Configuration & Environment Variables
 
-You can configure the application using the following environment variables:
+You can configure the application using the following environment variables (set them in your `.env` file):
 
-- `DATA_DIR`: Defines where the SQLite database and uploaded images are stored. Defaults to `.` (the current directory). Set this to a persistent volume path (e.g., `/data`) when deploying to production to ensure data isn't lost on restart.
-- `JWT_SECRET`: Used for securely signing tokens if you implement authentication. Ensure you change this to a strong, random string in production.
+- `DATABASE_URL`: Connection string for the database. Use `sqlite:///workspace.db` for local development, or a `postgresql://` URL for the production LAN deployment.
+- `DATA_DIR`: Defines where uploaded images and exports are stored. Defaults to `.` (the current directory).
+- `JWT_SECRET`: Used for securely signing tokens for authentication. Ensure you change this to a strong, random string in production. **Never commit `.jwt_secret` or `.env` to version control.**
 
-## Deployment (Render.com)
+## Deployment
 
-This project is fully configured for seamless deployment on **Render**. It includes a `render.yaml` Blueprint that automatically sets up the Python environment, dependencies, and a **Persistent Disk** to safely store your annotation database and images.
+This project is designed to be deployed on a single trusted PC on an office LAN, serving ~20–25 annotators sharing a single login. 
 
-To deploy:
-1. Push your repository to GitHub.
-2. Log in to [Render](https://render.com).
-3. Click **New** -> **Blueprint**.
-4. Connect your GitHub repository. Render will automatically read the `render.yaml` file, provision the persistent 5GB `/data` disk, and start the FastAPI server.
-5. *Important*: Go to the **Environment** tab of your new service in the Render dashboard and update the `JWT_SECRET` to a secure random string.
+1. Install **PostgreSQL** on the deployment machine and create an empty database.
+2. Configure `.env` with the `DATABASE_URL` pointing to your Postgres instance.
+3. Run Alembic migrations to build the schema: `alembic upgrade head`.
+4. Run the application via the provided `scripts/run.ps1` script (or `uvicorn main:app --host 0.0.0.0 --port 8000`).
+5. **Note:** Do not run Uvicorn with multiple workers (`--workers N`). The application must run as a single process due to in-memory ML models and task locking state.
