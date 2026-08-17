@@ -3,6 +3,10 @@ import { state, labelById, isAnnotationHidden } from "../state.js?v=7";
 import { annotationSettings, annotationOpacity } from "../feature-flags.js?v=1";
 import { view } from "./view.js?v=1";
 import { annotationPoints, hexToRgba } from "./geometry.js?v=1";
+import {
+  commentScreenGeometry, COMMENT_FONT, COMMENT_PILL_RADIUS,
+  COMMENT_TEXT_INSET_X, COMMENT_TEXT_BASELINE_Y
+} from "./comment-geometry.js?v=1";
 
 export function computeImageBox() {
   if (!view.imageLoaded) {
@@ -187,28 +191,30 @@ export function draw() {
 
 export function drawAnnotation(annotation, selected = false, targetCtx = ctx) {
   if (annotation.type === "comment") {
-    const screenPoint = {
-      x: view.imageBox.x + annotation.x * view.imageBox.scale,
-      y: view.imageBox.y + annotation.y * view.imageBox.scale
-    };
     targetCtx.save();
+    // The font is set before measuring: commentScreenGeometry's pill width is
+    // only correct if the measurer is using the font the text is painted in.
+    targetCtx.font = COMMENT_FONT;
+    const { dot, pill, text } = commentScreenGeometry(
+      annotation,
+      view.imageBox,
+      (t) => targetCtx.measureText(t).width
+    );
+
     targetCtx.fillStyle = selected ? "#f4a261" : "#e85d75";
     targetCtx.beginPath();
-    targetCtx.arc(screenPoint.x, screenPoint.y, 8, 0, Math.PI * 2);
+    targetCtx.arc(dot.cx, dot.cy, dot.r, 0, Math.PI * 2);
     targetCtx.fill();
     targetCtx.strokeStyle = "#ffffff";
     targetCtx.lineWidth = 2;
     targetCtx.stroke();
 
-    const text = `${annotation.author || 'User'}: ${annotation.text}`;
-    targetCtx.font = "600 12px Inter, system-ui, sans-serif";
-    const tw = targetCtx.measureText(text).width + 12;
     targetCtx.fillStyle = "rgba(0,0,0,0.75)";
     targetCtx.beginPath();
-    targetCtx.roundRect(screenPoint.x + 12, screenPoint.y - 12, tw, 24, 4);
+    targetCtx.roundRect(pill.x, pill.y, pill.width, pill.height, COMMENT_PILL_RADIUS);
     targetCtx.fill();
     targetCtx.fillStyle = "#ffffff";
-    targetCtx.fillText(text, screenPoint.x + 18, screenPoint.y + 4);
+    targetCtx.fillText(text, dot.cx + COMMENT_TEXT_INSET_X, dot.cy + COMMENT_TEXT_BASELINE_Y);
     targetCtx.restore();
     return;
   }

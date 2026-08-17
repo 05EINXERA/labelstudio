@@ -3,13 +3,14 @@ import { state, snapshot, isAnnotationHidden } from "../state.js?v=7";
 import { annotationPoints, updateAnnotationBounds, pointInPolygon } from "./geometry.js?v=1";
 import { untangleRing } from "./untangle.js?v=1";
 import { view } from "./view.js?v=1";
-import { draw, drawAllLayers } from "./draw.js?v=2";
-import { canvas, undoButton } from "../dom.js?v=4";
+import { draw, drawAllLayers } from "./draw.js?v=3";
+import { canvas, ctx, undoButton } from "../dom.js?v=4";
+import { commentHitTest, COMMENT_FONT } from "./comment-geometry.js?v=1";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
-import { setStatus, save, render, activateLabel, toggleAnnotationsHidden, unhideAllObjects } from "../components/workspace.js?v=14";
+import { setStatus, save, render, activateLabel, toggleAnnotationsHidden, unhideAllObjects } from "../components/workspace.js?v=15";
 import { labelIndexForCode, hideTargetIds, shouldHide } from "../shortcuts.js?v=1";
-import { performMagicWandSegmentation } from "../ai/detect.js?v=1";
-import { applyAutoSmooth } from "../fft-controls.js?v=1";
+import { performMagicWandSegmentation } from "../ai/detect.js?v=2";
+import { applyAutoSmooth } from "../fft-controls.js?v=2";
 import { annotationSettings } from "../feature-flags.js?v=1";
 
 export function canvasPoint(event) {
@@ -27,6 +28,16 @@ export function imagePoint(point) {
   };
 }
 
+// Measure pill text exactly as draw.js paints it. The font must be set on the
+// same context before measuring, or the hit rect drifts from the drawn one.
+function measureCommentText(text) {
+  const previous = ctx.font;
+  ctx.font = COMMENT_FONT;
+  const width = ctx.measureText(text).width;
+  ctx.font = previous;
+  return width;
+}
+
 export function hitTest(point) {
   const img = imagePoint(point);
   for (let index = state.annotations.length - 1; index >= 0; index -= 1) {
@@ -34,6 +45,19 @@ export function hitTest(point) {
     // Hidden annotations are not on screen, so they must not be selectable:
     // clicking empty space should not pick up something invisible.
     if (isAnnotationHidden(annotation)) continue;
+    // Comments are tested first because they cannot go through either branch
+    // below: they have no `points` and no width/height, so the bbox branch
+    // would collapse to a zero-area target at (x, y) and make the whole
+    // annotation unclickable but for one image pixel. Their dot and pill are
+    // painted at a fixed *screen* size, so the test runs in screen space
+    // against `point` — not the image-space `img` the other branches use.
+    if (annotation.type === "comment") {
+      if (commentHitTest(
+        point, annotation, view.imageBox, measureCommentText,
+        annotationSettings.vertexGrabRadius
+      )) return annotation.id;
+      continue;
+    }
     // Fast bbox check (handles simple boxes and any annotations with x/y/width/height)
     const ax = Number(annotation.x) || 0;
     const ay = Number(annotation.y) || 0;
@@ -766,7 +790,12 @@ canvas.addEventListener("pointerdown", (event) => {
       // drag it. Vertex/edge hits were already handled above, so this only
       // fires on the shape's interior. Locked, or clicking an unselected shape,
       // falls through to plain selection below.
-      if (state.moveObjectsUnlocked && !event.shiftKey && state.selectedIds.has(hitId)) {
+      // Comments are excluded from the move-drag. Now that the whole pill is a
+      // hit target, a click anywhere on a selected comment would otherwise arm
+      // a drag, and any pointer travel during that click would move it off the
+      // pixel it was left on. Repositioning a comment is a separate feature.
+      const hitIsComment = state.annotations.find((a) => a.id === hitId)?.type === "comment";
+      if (state.moveObjectsUnlocked && !event.shiftKey && !hitIsComment && state.selectedIds.has(hitId)) {
         const moving = state.annotations.filter((a) => state.selectedIds.has(a.id));
         // snapshot() is deferred to the first move (see pointermove) so a plain
         // click on a selected shape doesn't push a no-op undo entry.

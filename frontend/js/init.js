@@ -14,17 +14,17 @@ import {
   autoDetectButton, undoButton, redoButton, deleteButton, clearButton, unhideAllButton,
   assignTaskButton, saveButton
 } from "./dom.js?v=4";
-import { drawAllLayers } from "./canvas/draw.js?v=2";
+import { drawAllLayers } from "./canvas/draw.js?v=3";
 import {
   setStatus, syncToBackend, save, loadSaved, saveDraft, restoreDraft,
   render, manualSaveWithUI, refreshSaveStatus, pruneStaleDrafts, unhideAllObjects
-} from "./components/workspace.js?v=14";
+} from "./components/workspace.js?v=15";
 import {
   configureQueue, startQueue, subscribe as subscribeQueue, drainQueue,
   enqueueWrite, retryablePendingCount, noteServerReachable, noteServerUnreachable,
   peekWrite as peekQueuedWrite, discardWrite as discardQueuedWrite
 } from "./offline-queue.js?v=4";
-import { autoDetectObjects, autoTagObjects } from "./ai/detect.js?v=1";
+import { autoDetectObjects, autoTagObjects } from "./ai/detect.js?v=2";
 import {
   syncTaskTime, syncTimeToServer, drainTaskTime, setActiveTaskResolver,
   setConflictHandler, resetSessionForTask, refreshTimerDisplays,
@@ -32,8 +32,8 @@ import {
 } from "./components/timer.js?v=3";
 import {
   finalizePolygon, deleteSelected, undoAction, redoAction, setZoomChangeHandler
-} from "./canvas/interactions.js?v=6";
-import { initContextMenu } from "./canvas/context-menu.js?v=2";
+} from "./canvas/interactions.js?v=7";
+import { initContextMenu } from "./canvas/context-menu.js?v=3";
 import { getCurrentUser } from "./session.js?v=1";
 import { initCanvasAssign, renderAssignButton } from "./canvas-assign.js?v=1";
 import {
@@ -43,9 +43,9 @@ import {
   taskWriteBlock,
 } from "./canvas-permissions.js?v=7";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
-import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=2";
+import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=3";
 import { claimTask, heartbeatTask, releaseTask } from "./task-lock.js?v=2";
-import { initFftControls } from "./fft-controls.js?v=1";
+import { initFftControls } from "./fft-controls.js?v=2";
 
 if (!localStorage.getItem('logged_in')) {
   window.location.href = '/';
