@@ -164,6 +164,7 @@ export async function switchImage(index) {
           item.annotations = Array.isArray(detail.annotations) ? detail.annotations : [];
           if (detail.updated_at) item.updated_at = detail.updated_at;
           if (detail.time_spent != null) item.time_spent = detail.time_spent;
+          if (detail.assignee !== undefined) item.assignee = detail.assignee;
           item.isFullyLoaded = true;
         }
       })

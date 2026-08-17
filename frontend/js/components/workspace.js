@@ -638,8 +638,33 @@ export function renderAssignee() {
   const selectEl = document.getElementById("workspaceAssignee");
   if (!selectEl) return;
   const task = currentTask();
-  if (task && selectEl.value !== (task.assignee || "")) {
-    selectEl.value = task.assignee || "";
+  const currentAssignee = task ? task.assignee : "";
+
+  // Ensure the task's current assignee is an option
+  if (currentAssignee) {
+    let exists = Array.from(selectEl.options).some(opt => opt.value === currentAssignee);
+    if (!exists) {
+      const opt = document.createElement("option");
+      opt.value = currentAssignee;
+      opt.textContent = currentAssignee;
+      selectEl.appendChild(opt);
+    }
+  }
+
+  // Ensure the current local user is an option
+  const localUser = localStorage.getItem("dataset_username");
+  if (localUser) {
+    let exists = Array.from(selectEl.options).some(opt => opt.value === localUser);
+    if (!exists) {
+      const opt = document.createElement("option");
+      opt.value = localUser;
+      opt.textContent = localUser + " (Me)";
+      selectEl.appendChild(opt);
+    }
+  }
+
+  if (task && selectEl.value !== (currentAssignee || "")) {
+    selectEl.value = currentAssignee || "";
   }
 }
 
@@ -657,6 +682,12 @@ export async function loadTeamForWorkspace(projectId) {
     
     const team = await teamRes.json();
     const project = await projectRes.json();
+    
+    const username = localStorage.getItem("dataset_username") || "";
+    if (project.creator && project.creator !== username) {
+      selectEl.disabled = true;
+      selectEl.title = "Only the project owner can change the assignee";
+    }
     
     const byTeam = {};
     const unassigned = [];

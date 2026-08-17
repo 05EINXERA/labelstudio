@@ -54,6 +54,7 @@ button {
 .top-nav {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 16px;
   height: var(--top-nav-h);
   padding: 0 18px;
@@ -73,20 +74,21 @@ button {
 }
 
 .top-nav-left {
-  flex: 1 1 0;
+  flex: 0 1 auto;
 }
 
 /* Centred against the bar, not against its neighbours' widths. */
 .top-nav-center {
-  flex: 0 0 auto;
+  flex: 1 1 auto;
+  justify-content: center;
 }
 
 .top-nav-right {
-  flex: 1 1 0;
+  flex: 0 1 auto;
   justify-content: flex-end;
   /* Keeps Save off the right border. */
   padding-right: 10px;
-  gap: 14px;
+  gap: 10px;
 }
 
 .image-nav {
