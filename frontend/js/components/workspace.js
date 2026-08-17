@@ -630,7 +630,105 @@ export function render() {
   renderImageClasses();
   renderAnnotations();
   renderControls();
+  renderAssignee();
   drawAllLayers();
+}
+
+export function renderAssignee() {
+  const selectEl = document.getElementById("workspaceAssignee");
+  if (!selectEl) return;
+  const task = currentTask();
+  if (task && selectEl.value !== (task.assignee || "")) {
+    selectEl.value = task.assignee || "";
+  }
+}
+
+export async function loadTeamForWorkspace(projectId) {
+  const selectEl = document.getElementById("workspaceAssignee");
+  if (!selectEl) return;
+
+  try {
+    const [teamRes, projectRes] = await Promise.all([
+      apiFetch("/api/team"),
+      apiFetch(`/api/projects/${encodeURIComponent(projectId)}`)
+    ]);
+    
+    if (!teamRes || !teamRes.ok || !projectRes || !projectRes.ok) return;
+    
+    const team = await teamRes.json();
+    const project = await projectRes.json();
+    
+    const byTeam = {};
+    const unassigned = [];
+    const projectTeamId = project.team_id;
+
+    team.forEach((m) => {
+      if (projectTeamId != null) {
+        const belongsToProjectTeam = m.teams && m.teams.some(t => t.id === projectTeamId);
+        if (!belongsToProjectTeam) return;
+      }
+      if (m.teams && m.teams.length > 0) {
+        const primaryTeamName = m.teams[0].name;
+        if (!byTeam[primaryTeamName]) byTeam[primaryTeamName] = [];
+        byTeam[primaryTeamName].push(m);
+      } else {
+        unassigned.push(m);
+      }
+    });
+
+    selectEl.innerHTML = '<option value="">Unassigned</option>';
+    for (const [teamName, members] of Object.entries(byTeam)) {
+      const group = document.createElement("optgroup");
+      group.label = teamName;
+      members.forEach((m) => {
+        const opt = document.createElement("option");
+        opt.value = m.name;
+        opt.textContent = m.name;
+        group.appendChild(opt);
+      });
+      selectEl.appendChild(group);
+    }
+    if (unassigned.length > 0) {
+      const group = document.createElement("optgroup");
+      group.label = "Unassigned";
+      unassigned.forEach((m) => {
+        const opt = document.createElement("option");
+        opt.value = m.name;
+        opt.textContent = m.name;
+        group.appendChild(opt);
+      });
+      selectEl.appendChild(group);
+    }
+
+    // Bind change event
+    selectEl.addEventListener("change", async (e) => {
+      const task = currentTask();
+      if (!task || !task.id) return;
+      
+      const newAssignee = e.target.value;
+      task.assignee = newAssignee;
+      
+      try {
+        setStatus("Saving…");
+        const res = await apiFetch(`/api/tasks/${task.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ assignee: newAssignee })
+        });
+        if (res && res.ok) {
+          setStatus("Saved");
+        } else {
+          setStatus("Not saved—retrying");
+        }
+      } catch (err) {
+        setStatus("Not saved—retrying");
+      }
+    });
+
+    renderAssignee(); // Update initial state
+  } catch (err) {
+    console.error("Failed to load team for workspace", err);
+  }
 }
 
 export function renderImageClasses() {

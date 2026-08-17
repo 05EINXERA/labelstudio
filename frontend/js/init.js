@@ -5,7 +5,7 @@ import { clientId } from "./utils.js?v=1";
 import { apiFetch } from "./api.js?v=1";
 import { state } from "./state.js?v=1";
 import {
-  setStatus, syncToBackend, loadSaved, saveDraft, render
+  setStatus, syncToBackend, loadSaved, saveDraft, render, loadTeamForWorkspace
 } from "./components/workspace.js?v=1";
 import {
   syncTimeToServer, setActiveTaskResolver, setConflictHandler
@@ -198,6 +198,7 @@ document.addEventListener('DOMContentLoaded', () => {
   Promise.all([
     initWorkspaceContext(),
     fetchLabels(),
+    projectId ? loadTeamForWorkspace(projectId) : Promise.resolve(),
     projectId ? loadWorkspaceTasks(projectId, targetTaskId) : Promise.resolve(),
   ]).catch((err) => {
     console.error("Failed to bootstrap workspace data in parallel:", err);
