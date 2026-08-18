@@ -518,10 +518,12 @@ def test_reviewer_can_bulk_approve_into_a_batch(client, alice, bob, status):
 
 
 @pytest.mark.parametrize("status", schemas.APPROVED_STATUSES)
-def test_annotator_can_reopen_any_batch_status(client, alice, bob, status):
-    """Moving *away* from a sign-off is not a review verdict — the annotator who
-    has to act on feedback must be able to re-open without a reviewer resetting
-    the state by hand."""
+def test_annotator_cannot_reopen_any_batch_status(client, alice, bob, status):
+    """Superseded. This asserted the opposite until the approved freeze landed:
+    moving away from a sign-off *is* a review verdict, and letting an annotator
+    do it made the freeze one status write away from useless. Acting on feedback
+    is served by 'Rejected', which stays open to the assignee — see
+    test_rejected_task_stays_editable_by_its_assignee."""
     project_id = _project(client, alice)
     team = _member_with_role(client, alice, bob, project_id, "annotator")
     task_id = _task(client, alice, project_id)
@@ -543,9 +545,10 @@ def test_annotator_can_reopen_any_batch_status(client, alice, bob, status):
         headers=bob,
     )
 
-    assert res.status_code == 200, res.text
+    assert res.status_code == 403, res.text
+    assert "Reviewer" in res.json()["detail"]
     with SessionLocal() as db:
-        assert db.get(models.Task, task_id).status == "In Progress"
+        assert db.get(models.Task, task_id).status == status
 
 
 def test_approved_still_round_trips():
@@ -560,3 +563,201 @@ def test_unreviewed_in_progress_is_unaffected():
 
     assert external == ""
     assert from_external_status(status, external) == "In Progress"
+
+
+# --- the approved freeze -----------------------------------------------------
+#
+# Sign-off ends the annotator's claim on the work: the reviewer accepted a
+# specific state, so no later edit — an object, a class, a comment, a status
+# flip or a drained timer second — may reach the task from below reviewer.
+# Reviewers, managers and owners stay writable, or an approval could never be
+# corrected or undone.
+
+
+def _token(client, headers, task_id):
+    """The task's current `updated_at`, so an annotation write is not judged a
+    stale overwrite. The conflict model is orthogonal to the freeze under test —
+    without a token these writes 409 before the permission check is reached."""
+    return client.get(f"/api/tasks/{task_id}", headers=headers).json()["updated_at"]
+
+
+def _assigned_task(client, owner, other, project_id, status="Completed"):
+    """A task assigned to `other`, so only the freeze can be what blocks them."""
+    task_id = _task(client, owner, project_id, status=status)
+    client.patch(
+        f"/api/tasks/{task_id}/assignment",
+        json={"assignee_user_id": _me(client, other)["id"]},
+        headers=owner,
+    )
+    return task_id
+
+
+@pytest.mark.parametrize("status", schemas.APPROVED_STATUSES)
+def test_assigned_annotator_cannot_edit_an_approved_task(client, alice, bob, status):
+    project_id = _project(client, alice)
+    _member_with_role(client, alice, bob, project_id, "annotator")
+    task_id = _assigned_task(client, alice, bob, project_id)
+
+    # Writable before sign-off — otherwise this test proves nothing.
+    ok = client.post(
+        "/api/tasks",
+        json={
+            "id": task_id,
+            "annotations": '[{"type":"box","labelId":"a"}]',
+            "updated_at": _token(client, bob, task_id),
+        },
+        headers=bob,
+    )
+    assert ok.status_code == 200, ok.text
+
+    client.post(
+        f"/api/tasks/{task_id}/review", json={"action": status.lower()}, headers=alice
+    )
+
+    res = client.post(
+        "/api/tasks",
+        json={"id": task_id, "annotations": '[{"type":"box","labelId":"b"}]'},
+        headers=bob,
+    )
+    assert res.status_code == 403
+    assert status in res.json()["detail"]
+
+    # And nothing was written.
+    detail = client.get(f"/api/tasks/{task_id}", headers=alice).json()
+    assert detail["annotations"][0]["labelId"] == "a"
+    assert detail["status"] == status
+
+
+@pytest.mark.parametrize("status", schemas.APPROVED_STATUSES)
+def test_approved_task_leaks_no_comment_or_time(client, alice, bob, status):
+    """Comments live inside the annotations blob and time rides the same write,
+    so both are covered by the one gate — asserted explicitly because they are
+    the two that look like separate features."""
+    project_id = _project(client, alice)
+    _member_with_role(client, alice, bob, project_id, "annotator")
+    task_id = _assigned_task(client, alice, bob, project_id)
+    client.post(
+        f"/api/tasks/{task_id}/review", json={"action": status.lower()}, headers=alice
+    )
+
+    comment = client.post(
+        "/api/tasks",
+        json={"id": task_id, "annotations": '[{"type":"comment","text":"hi"}]'},
+        headers=bob,
+    )
+    time_only = client.post(
+        "/api/tasks", json={"id": task_id, "time_spent_delta": 120}, headers=bob
+    )
+
+    assert comment.status_code == 403
+    assert time_only.status_code == 403
+
+    db = SessionLocal()
+    try:
+        task = db.get(models.Task, task_id)
+        assert (task.time_spent or 0) == 0
+    finally:
+        db.close()
+
+
+@pytest.mark.parametrize("status", schemas.APPROVED_STATUSES)
+def test_annotator_cannot_reopen_an_approved_task(client, alice, bob, status):
+    """The thaw. Without this the freeze is one status write away from useless."""
+    project_id = _project(client, alice)
+    _member_with_role(client, alice, bob, project_id, "annotator")
+    task_id = _assigned_task(client, alice, bob, project_id)
+    client.post(
+        f"/api/tasks/{task_id}/review", json={"action": status.lower()}, headers=alice
+    )
+
+    res = client.post(
+        "/api/tasks", json={"id": task_id, "status": "In Progress"}, headers=bob
+    )
+    assert res.status_code == 403
+    assert "Reviewer" in res.json()["detail"]
+
+
+@pytest.mark.parametrize("status", schemas.APPROVED_STATUSES)
+def test_reviewer_and_owner_can_still_edit_an_approved_task(client, alice, bob, status):
+    project_id = _project(client, alice)
+    _member_with_role(client, alice, bob, project_id, "reviewer")
+    task_id = _task(client, alice, project_id)
+    client.post(
+        f"/api/tasks/{task_id}/review", json={"action": status.lower()}, headers=alice
+    )
+
+    by_reviewer = client.post(
+        "/api/tasks",
+        json={
+            "id": task_id,
+            "annotations": '[{"type":"box","labelId":"fix"}]',
+            "updated_at": _token(client, bob, task_id),
+        },
+        headers=bob,
+    )
+    assert by_reviewer.status_code == 200, by_reviewer.text
+
+    by_owner = client.post(
+        "/api/tasks", json={"id": task_id, "status": "In Progress"}, headers=alice
+    )
+    assert by_owner.status_code == 200, by_owner.text
+
+
+@pytest.mark.parametrize("status", schemas.APPROVED_STATUSES)
+def test_get_task_reports_can_write_false_when_frozen(client, alice, bob, status):
+    """The canvas renders from this flag, so it must agree with the save path."""
+    project_id = _project(client, alice)
+    _member_with_role(client, alice, bob, project_id, "annotator")
+    task_id = _assigned_task(client, alice, bob, project_id)
+
+    assert client.get(f"/api/tasks/{task_id}", headers=bob).json()["can_write"] is True
+
+    client.post(
+        f"/api/tasks/{task_id}/review", json={"action": status.lower()}, headers=alice
+    )
+
+    assert client.get(f"/api/tasks/{task_id}", headers=bob).json()["can_write"] is False
+
+
+def test_rejected_task_stays_editable_by_its_assignee(client, alice, bob):
+    """Rejection sends work back for rework; freezing it too would leave the
+    annotator unable to act on the feedback."""
+    project_id = _project(client, alice)
+    _member_with_role(client, alice, bob, project_id, "annotator")
+    task_id = _assigned_task(client, alice, bob, project_id)
+    client.post(
+        f"/api/tasks/{task_id}/review", json={"action": "rejected"}, headers=alice
+    )
+
+    res = client.post(
+        "/api/tasks",
+        json={
+            "id": task_id,
+            "status": "In Progress",
+            "annotations": '[{"type":"box","labelId":"redone"}]',
+            "updated_at": _token(client, bob, task_id),
+        },
+        headers=bob,
+    )
+    assert res.status_code == 200, res.text
+
+
+@pytest.mark.parametrize("status", schemas.APPROVED_STATUSES)
+def test_user_time_delta_is_dropped_for_a_frozen_task(client, alice, bob, status):
+    """The lifetime clock is a separate endpoint from the task's time_spent, so
+    it needs its own gate or the freeze leaks into it."""
+    project_id = _project(client, alice)
+    _member_with_role(client, alice, bob, project_id, "annotator")
+    task_id = _assigned_task(client, alice, bob, project_id)
+    client.post(
+        f"/api/tasks/{task_id}/review", json={"action": status.lower()}, headers=alice
+    )
+
+    res = client.post(
+        "/api/team/time",
+        json={"name": "ignored", "time_logged": 300, "task_id": task_id},
+        headers=bob,
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["status"] == "ignored"
+    assert res.json()["time_logged"] == 0

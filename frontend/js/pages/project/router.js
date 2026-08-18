@@ -10,7 +10,7 @@
  */
 import { apiFetch } from "../../api.js?v=3";
 import { escapeHTML } from "../../utils.js?v=1";
-import { statusClass } from "../../task-status.js?v=1";
+import { statusClass } from "../../task-status.js?v=2";
 import { renderNav, setActive, visibleNavItems } from "../../components/project-nav.js?v=3";
 import { renderAppNav, wireLogout } from "../../components/app-nav.js?v=1";
 import { getCurrentUser } from "../../session.js?v=1";

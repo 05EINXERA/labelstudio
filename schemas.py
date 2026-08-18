@@ -109,6 +109,13 @@ class TeamMemberModel(BaseModel):
 class TeamTime(BaseModel):
     name: str
     time_logged: int = Field(..., ge=0, le=MAX_TIME_DELTA_SECONDS)
+    # Which task the seconds were spent on, when the caller knows. Optional
+    # because this endpoint credits the *user's* lifetime total and never
+    # needed a task before; it is sent so the server can refuse to bank time
+    # accrued against a task the caller may no longer write (an approved task
+    # is frozen — see api/permissions.py::can_write_task). A client that omits
+    # it behaves exactly as before.
+    task_id: Optional[int] = None
 
 class TimeLogOut(BaseModel):
     """One time-log row as returned by /api/time-logs.
@@ -121,6 +128,9 @@ class TimeLogOut(BaseModel):
     user_id: Optional[int] = None
 
 class TimeLogUpdateResult(BaseModel):
+    # "ok" when the delta was banked, "ignored" when it was dropped because the
+    # task it was accrued against is frozen. Not an error: the client cannot fix
+    # it by retrying, and a 403 here would strand a permanently-failing sync.
     status: str
     time_logged: int
 

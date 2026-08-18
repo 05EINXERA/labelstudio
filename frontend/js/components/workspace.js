@@ -11,9 +11,9 @@ import { MAX_CLASS_SHORTCUTS } from "../shortcuts.js?v=1";
 import { pendingCount, retryablePendingCount, isServerUnreachable, peekWrite } from "../offline-queue.js?v=4";
 import { annotationPoints, updateAnnotationBounds } from "../canvas/geometry.js?v=1";
 import { view } from "../canvas/view.js?v=1";
-import { drainTaskTime } from "./timer.js?v=3";
+import { drainTaskTime } from "./timer.js?v=4";
 import { detectState } from "../ai/detect-state.js?v=3";
-import { draw, drawAllLayers } from "../canvas/draw.js?v=2";
+import { draw, drawAllLayers } from "../canvas/draw.js?v=5";
 import {
   emptyState, classesList, annotationList, annotationCount, selectedInfo,
   hiddenFilterButton, hiddenCount,
@@ -22,14 +22,14 @@ import {
   undoButton, redoButton, deleteButton, clearButton,
   shapeHint, saveStatus
 } from "../dom.js?v=4";
-import { commentOverlayRefs } from "../comment-overlay.js?v=1";
+import { commentOverlayRefs, openCommentEditor } from "../comment-overlay.js?v=2";
 import { toolAvailability } from "../feature-flags.js?v=1";
 // Per-task write gating. `isReadOnly()` is project-role only, so it is false
 // for an annotator who simply is not assigned the open task — the sidepanel
 // needs the per-task answer, which is what taskWriteBlock() gives.
 // canvas-permissions.js does not import this module, so there is no cycle.
-import { taskWriteBlock } from "../canvas-permissions.js?v=7";
-import { isTerminal } from "../task-status.js?v=1";
+import { taskWriteBlock } from "../canvas-permissions.js?v=8";
+import { isTerminal } from "../task-status.js?v=2";
 
 
 /**
@@ -1045,17 +1045,17 @@ export function renderAnnotations() {
   const selected = state.annotations.find((item) => item.id === state.selectedId);
   if (selected) {
     if (selected.type === "comment") {
-      selectedInfo.innerHTML = `Comment by ${selected.author || "User"} <button id="editCommentBtn" class="icon-button" style="font-size: 0.8rem; margin-left: 8px;">✏️ Edit</button>`;
-      document.getElementById('editCommentBtn').addEventListener('click', () => {
-        view.pendingCommentEditId = selected.id;
-        const screenX = view.imageBox.x + selected.x * view.imageBox.scale;
-        const screenY = view.imageBox.y + selected.y * view.imageBox.scale;
-        commentOverlayRefs.commentOverlay.style.left = `${screenX + 15}px`;
-        commentOverlayRefs.commentOverlay.style.top = `${screenY - 15}px`;
-        commentOverlayRefs.commentOverlayInput.value = selected.text || "";
-        commentOverlayRefs.commentOverlay.classList.remove("is-hidden");
-        commentOverlayRefs.commentOverlayInput.focus();
-      });
+      // The Edit control is hidden when the task may not be written, matching
+      // the per-row class-edit control above. Rewriting a comment is an edit
+      // like any other; offering it to a reader whose save the server will
+      // refuse only invites lost work.
+      const commentEditBlocked = !!editBlockReason();
+      selectedInfo.innerHTML = `Comment by ${selected.author || "User"}${commentEditBlocked ? "" : ` <button id="editCommentBtn" class="icon-button" style="font-size: 0.8rem; margin-left: 8px;">✏️ Edit</button>`}`;
+      if (!commentEditBlocked) {
+        document.getElementById('editCommentBtn').addEventListener('click', () => {
+          openCommentEditor(selected, view.imageBox, (id) => { view.pendingCommentEditId = id; });
+        });
+      }
     } else {
       selectedInfo.textContent = labelDisplayName(labelById(selected.labelId));
     }
@@ -1135,6 +1135,16 @@ export function renderControls() {
   const ungroupButton = document.querySelector("#ungroupButton");
   if (ungroupButton) {
     ungroupButton.disabled = !state.annotations.some(a => state.selectedIds.has(a.id) && a.groupId);
+  }
+  const mergeButton = document.querySelector("#mergeButton");
+  if (mergeButton) {
+    // Deliberately no overlap test here: it is O(n*m) per render pass, and the
+    // command reports non-overlap itself when it runs. This only gates on what
+    // is cheap to know — enough shapes, and permission to write.
+    const mergeable = state.annotations.filter(
+      a => state.selectedIds.has(a.id) && a.type !== "comment"
+    );
+    mergeButton.disabled = mergeable.length <= 1 || Boolean(editBlockReason());
   }
   clearButton.disabled = state.annotations.length === 0;
   // The old Export link was dimmed here when there was nothing to export. Its

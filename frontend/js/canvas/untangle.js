@@ -59,6 +59,18 @@ export function ringArea(points) {
  * Collinear overlap returns null too. Two edges lying along each other enclose
  * zero area, so there is no "outside part" to remove; untangling there would
  * delete real geometry to fix a cosmetic degeneracy. They are left alone.
+ *
+ * Returns { x, y, t, u } on a crossing. `t` and `u` are the parameters of the
+ * crossing along p1->p2 and p3->p4 respectively, both strictly in (0, 1) by the
+ * properness test above. They exist for merge.js, whose ring walk sorts several
+ * crossings along one edge by `t` — the point alone cannot be ordered. Callers
+ * that only need the location (findFirstSelfIntersection, untangleRing) ignore
+ * them, so adding them changed no existing behaviour.
+ *
+ * The Python mirror of this logic in formats/common.py deliberately does NOT
+ * carry `t`/`u`: merge is a frontend user command with no server-side
+ * counterpart and is never applied to incoming data, so there is no consumer
+ * for them there. The asymmetry is intentional — do not "fix" it.
  */
 export function segmentsIntersect(p1, p2, p3, p4) {
   const d1 = cross(p3.x, p3.y, p4.x, p4.y, p1.x, p1.y);
@@ -76,10 +88,13 @@ export function segmentsIntersect(p1, p2, p3, p4) {
   const denom = (p2.x - p1.x) * (p4.y - p3.y) - (p2.y - p1.y) * (p4.x - p3.x);
   if (Math.abs(denom) < EPS) return null;
   const t = ((p3.x - p1.x) * (p4.y - p3.y) - (p3.y - p1.y) * (p4.x - p3.x)) / denom;
+  const u = ((p3.x - p1.x) * (p2.y - p1.y) - (p3.y - p1.y) * (p2.x - p1.x)) / denom;
 
   return {
     x: p1.x + t * (p2.x - p1.x),
-    y: p1.y + t * (p2.y - p1.y)
+    y: p1.y + t * (p2.y - p1.y),
+    t,
+    u
   };
 }
 

@@ -88,8 +88,56 @@ old pattern into new code.
 
 - Branch from `main`: `feat/<slug>`, `fix/<slug>`, `docs/<slug>`.
 - Commits: imperative summary line ≤ 72 chars, conventional prefix (`feat:`, `fix:`, `docs:`, `refactor:`, `chore:`, `test:`).
-- Before pushing: run the app locally (`venv\Scripts\uvicorn.exe main:app --port 8000`, or `scripts/run.ps1` which loads `.env`) and exercise the feature; run `pytest` if tests exist for the area.
+- Before pushing: run the app locally (`venv\Scripts\uvicorn.exe main:app --port 8000`, or `scripts/run.ps1` which loads `.env`) and exercise the feature; run `pytest tests/` if tests exist for the area (see
+  *Running the tests* below — bare `pytest` does not work here).
 - Full workflow: `docs/DEVELOPMENT_GUIDE.md`.
+
+### Running the tests
+
+**Gather everything in one pass.** The suite takes ~3 minutes, so do not run it,
+read the failures, and then run it again to check them against a baseline. Set
+up the comparison *before* the first run and get both results together:
+
+```bash
+# Baseline in a worktree at the pre-change commit, current tree in place.
+git worktree add /tmp/base <pre-change-sha>
+python -m pytest tests/ -q --basetemp=./.pt-cur  > /tmp/cur.txt  2>&1 &
+(cd /tmp/base && python -m pytest tests/ -q --basetemp=./.pt-base > /tmp/base.txt 2>&1) &
+wait
+diff <(grep -aE '^FAILED' /tmp/base.txt | sed 's/ - .*//' | sort) \
+     <(grep -aE '^FAILED' /tmp/cur.txt  | sed 's/ - .*//' | sort)
+```
+
+A worktree beats `git stash` for the baseline: it needs no clean tree, cannot
+lose uncommitted work, and works when the change is already committed (stash
+would only reach the previous commit, not the pre-feature state).
+
+Points that will otherwise cost a re-run:
+
+- **Run `pytest tests/`, never bare `pytest`.** Root-level `test_sam_mask.py` and
+  `test_upload.py` are legacy manual scripts (rule 20) that need a live server;
+  they break *collection*, so a bare run reports 0 tests instead of the suite.
+- **Pass `--basetemp=./.pt-<name>` when running suites in parallel or after an
+  interrupted run.** The default under `AppData\Local\Temp` intermittently hits
+  `PermissionError: [WinError 5]` on the `pytest-current` symlink — a collection
+  error that looks like a real failure and is not. An explicit basetemp also
+  keeps two concurrent runs from sharing one temp root. Delete the directory
+  afterwards; it is not gitignored.
+- **The suite has ~33 pre-existing failures** (export, mask, YOLO and
+  image-output fixtures). Diff against a baseline before attributing any of them
+  to your change, and be aware at least one is order-dependent and flaky
+  (`test_class_set_file_is_redirected_to_classes_import`) — confirm a suspect by
+  re-running it alone rather than assuming a diff of one is meaningful.
+- **Use `grep -a` when scanning saved pytest output.** A full-suite log can trip
+  the binary-file heuristic, so plain `grep`/`diff` answers "Binary file
+  matches" and silently skips the content instead of comparing it.
+- **Frontend specs are separate:** `node tests/js/<name>_spec.mjs` prints
+  `N passed, M failed`. Each is also wrapped by a pytest file that skips when
+  node is absent, so `tests/` covers them — but running node directly is instant
+  and is the fast loop while iterating on a pure module.
+- **Restart the local server before a manual check.** A uvicorn left running
+  from an earlier session serves the module pins it started with, so a new
+  module 404s and the feature looks missing when it is not.
 
 ## Key file map
 

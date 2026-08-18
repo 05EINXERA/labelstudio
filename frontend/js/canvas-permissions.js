@@ -14,14 +14,15 @@
  */
 import { apiFetch } from "./api.js?v=3";
 import { escapeHTML } from "./utils.js?v=1";
-import { canAnnotate, canManage, canReview } from "./permissions.js?v=1";
+import { canAnnotate, canReview } from "./permissions.js?v=1";
 import {
   APPROVED_STATUSES,
   isApproved,
+  isFrozenForRole,
   isReviewStatus,
   statusClass,
   statusForReviewAction,
-} from "./task-status.js?v=1";
+} from "./task-status.js?v=2";
 
 const state = {
   project: null,
@@ -47,7 +48,24 @@ export function isReadOnly() {
  */
 export function taskWriteBlock(task) {
   if (!canAnnotate(state.role)) return "You have view-only access to this project.";
-  if (canManage(state.role)) return null; // never partitioned by assignment
+
+  // An approved task is frozen for everyone below reviewer. Checked before the
+  // manager short-circuit and before the `can_write === true` short-circuit
+  // below, mirroring the server's ordering in can_write_task: sign-off is the
+  // one block that outranks assignment, so a task assigned to *you* is still
+  // read-only once it has been signed off.
+  if (task && isFrozenForRole(task.status, state.role)) {
+    return `This task was marked ${task.status} and is locked. `
+      + "Ask a reviewer to reject or re-open it if it needs changes.";
+  }
+
+  // Reviewers, like managers and owners, are never partitioned by assignment:
+  // a reviewer may be asked to review any task in the project, and cannot give
+  // meaningful feedback on work they may not interact with. This mirrors the
+  // reviewer branch of can_write_task, which the mirror previously omitted —
+  // so a reviewer looking at a task assigned to someone else was shown a
+  // read-only canvas for a write the server would have accepted.
+  if (canReview(state.role)) return null;
   if (!task) return null;
 
   // `can_write` comes from the server's own resolver (GET /api/tasks/{id}), so
@@ -271,9 +289,16 @@ export function renderSaveSplitMenu(task, saveAndComplete, onStatusChange) {
   const items = [];
 
   if (isAnnotatorOnly && inReviewState) {
-    // The only thing an annotator can do with a reviewed task is re-open it
-    // for rework. "Save as Complete" doesn't apply here.
-    items.push({ label: '↩ Re-open (In Progress)', action: 'inprogress' });
+    // Rejected only — an annotator re-opens work sent back to them for rework.
+    //
+    // Approved-group statuses are deliberately excluded: re-opening one is a
+    // review verdict (the server refuses it, _require_review_role_for_status),
+    // and an approved task never reaches this code anyway because
+    // `taskWriteBlock` above hides the whole menu. The condition is narrowed
+    // rather than left to that accident, so the intent survives a refactor.
+    if (task.status === 'Rejected') {
+      items.push({ label: '↩ Re-open (In Progress)', action: 'inprogress' });
+    }
   } else if (task.status !== 'Completed') {
     items.push({ label: '✓ Save as Complete', action: 'complete' });
   } else {

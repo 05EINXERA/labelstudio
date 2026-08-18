@@ -34,6 +34,7 @@ from fastapi import HTTPException, Request
 from sqlalchemy.orm import Session
 
 import models
+from schemas import is_approved
 
 
 class ProjectRole(str, Enum):
@@ -389,6 +390,18 @@ def can_write_task(
     someone can always get at an unassigned task to triage it.
     """
     if not at_least(role, ProjectRole.ANNOTATOR):
+        return False
+
+    # An approved-group status freezes the task for everyone below reviewer.
+    # Sign-off is the point at which the work stops being the annotator's to
+    # change: the reviewer accepted a specific state, and any later edit — an
+    # object, a class, a comment, or a drained timer second — would silently
+    # change what was signed off. Reviewers, managers and owners stay writable,
+    # or nobody could ever correct or un-approve a task.
+    #
+    # Placed before the manager short-circuit so the ordering reads as the rule
+    # does; the check itself already exempts reviewer and above.
+    if is_approved(task.status) and not at_least(role, ProjectRole.REVIEWER):
         return False
 
     # Managers and owners are never partitioned by assignment, so this check

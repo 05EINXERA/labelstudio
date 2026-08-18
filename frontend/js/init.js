@@ -7,33 +7,34 @@ import {
   noteHydratedAnnotations
 } from "./state.js?v=7";
 import { view } from "./canvas/view.js?v=1";
-import { commentOverlayRefs } from "./comment-overlay.js?v=1";
+import { commentOverlayRefs, clearCommentOverlayAnchor } from "./comment-overlay.js?v=2";
+import { backspaceAction, modeAfterCommentCommit } from "./comment-mode.js?v=1";
 import {
   canvas, ctx, imageCanvas, imageCtx, staticCanvas, staticCtx, stageWrap,
   emptyState, drawMode, selectMode, boxMode, polygonMode, commentMode, magicWandMode,
   autoDetectButton, undoButton, redoButton, deleteButton, clearButton, unhideAllButton,
   assignTaskButton, saveButton
 } from "./dom.js?v=4";
-import { drawAllLayers } from "./canvas/draw.js?v=2";
+import { drawAllLayers } from "./canvas/draw.js?v=5";
 import {
   setStatus, syncToBackend, save, loadSaved, saveDraft, restoreDraft,
   render, manualSaveWithUI, refreshSaveStatus, pruneStaleDrafts, unhideAllObjects
-} from "./components/workspace.js?v=14";
+} from "./components/workspace.js?v=17";
 import {
   configureQueue, startQueue, subscribe as subscribeQueue, drainQueue,
   enqueueWrite, retryablePendingCount, noteServerReachable, noteServerUnreachable,
   peekWrite as peekQueuedWrite, discardWrite as discardQueuedWrite
 } from "./offline-queue.js?v=4";
-import { autoDetectObjects, autoTagObjects } from "./ai/detect.js?v=1";
+import { autoDetectObjects, autoTagObjects } from "./ai/detect.js?v=2";
 import {
   syncTaskTime, syncTimeToServer, drainTaskTime, setActiveTaskResolver,
   setConflictHandler, resetSessionForTask, refreshTimerDisplays,
-  handleVisibilityChange
-} from "./components/timer.js?v=3";
+  handleVisibilityChange, setFrozenResolver
+} from "./components/timer.js?v=4";
 import {
   finalizePolygon, deleteSelected, undoAction, redoAction, setZoomChangeHandler
-} from "./canvas/interactions.js?v=6";
-import { initContextMenu } from "./canvas/context-menu.js?v=2";
+} from "./canvas/interactions.js?v=10";
+import { initContextMenu } from "./canvas/context-menu.js?v=3";
 import { getCurrentUser } from "./session.js?v=1";
 import { initCanvasAssign, renderAssignButton } from "./canvas-assign.js?v=1";
 import {
@@ -41,11 +42,12 @@ import {
   reportSaveForbidden, reportSaveRefused, setMyTeams, setMyUserId, updateTaskBanner,
   renderStatusDropdown, renderSaveSplitMenu, updateTaskStatusPill, currentRole,
   taskWriteBlock,
-} from "./canvas-permissions.js?v=7";
+} from "./canvas-permissions.js?v=8";
+import { isFrozenForRole } from "./task-status.js?v=2";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
-import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=2";
+import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=3";
 import { claimTask, heartbeatTask, releaseTask } from "./task-lock.js?v=2";
-import { initFftControls } from "./fft-controls.js?v=1";
+import { initFftControls } from "./fft-controls.js?v=2";
 
 if (!localStorage.getItem('logged_in')) {
   window.location.href = '/';
@@ -137,10 +139,10 @@ function resizeCanvas() {
   canvas.height = h;
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
 
-  if (view.pendingCommentPoint) {
-    view.pendingCommentPoint = null;
-    commentOverlayRefs.commentOverlay.classList.add("is-hidden");
-  }
+  // An open comment overlay is left alone: typed text is unsaved work, and a
+  // resize is not a decision to discard it. It no longer needs repositioning
+  // here either — drawAllLayers() re-anchors it from the image point it is
+  // pinned to, which covers resize, pan and zoom alike (comment-overlay.js).
   drawAllLayers();
 }
 
@@ -466,6 +468,7 @@ commentOverlayRefs.commentOverlayInput.addEventListener("keydown", (e) => {
         }
         view.pendingCommentEditId = null;
         commentOverlayRefs.commentOverlay.classList.add("is-hidden");
+        clearCommentOverlayAnchor();
       } else if (view.pendingCommentPoint) {
         snapshot();
         const annotation = {
@@ -491,6 +494,13 @@ commentOverlayRefs.commentOverlayInput.addEventListener("keydown", (e) => {
         state.selectedId = annotation.id;
         view.pendingCommentPoint = null;
         commentOverlayRefs.commentOverlay.classList.add("is-hidden");
+        clearCommentOverlayAnchor();
+        // Disarm the comment tool. Left armed, the next click anywhere dropped
+        // a second comment — finishing one does not imply starting another.
+        // Only on commit: an edit or a cancel never armed anything.
+        const next = modeAfterCommentCommit();
+        state.mode = next.mode;
+        state.shape = next.shape;
         render();
         save();
         setStatus("Comment added");
@@ -500,6 +510,7 @@ commentOverlayRefs.commentOverlayInput.addEventListener("keydown", (e) => {
       view.pendingCommentPoint = null;
       view.pendingCommentEditId = null;
       commentOverlayRefs.commentOverlay.classList.add("is-hidden");
+      clearCommentOverlayAnchor();
       render();
     }
   } else if (e.key === "Escape") {
@@ -507,6 +518,18 @@ commentOverlayRefs.commentOverlayInput.addEventListener("keydown", (e) => {
     view.pendingCommentPoint = null;
     view.pendingCommentEditId = null;
     commentOverlayRefs.commentOverlay.classList.add("is-hidden");
+    clearCommentOverlayAnchor();
+    render();
+  } else if (e.key === "Backspace" && backspaceAction(commentOverlayRefs.commentOverlayInput.value) === "cancel") {
+    // Backspace dismisses the overlay only from the just-clicked, nothing-typed
+    // state. With any text present backspaceAction returns "edit" and this
+    // branch is skipped, so the key erases characters as normal and can never
+    // discard a comment being written. See comment-mode.js.
+    e.preventDefault();
+    view.pendingCommentPoint = null;
+    view.pendingCommentEditId = null;
+    commentOverlayRefs.commentOverlay.classList.add("is-hidden");
+    clearCommentOverlayAnchor();
     render();
   }
 });
@@ -1399,6 +1422,16 @@ document.addEventListener('DOMContentLoaded', () => {
     if (typeof state === 'undefined' || !state) return null;
     if (state.galleryIndex < 0 || !state.gallery) return null;
     return state.gallery[state.galleryIndex] || null;
+  });
+
+  // Stop the clock on a signed-off task. Asked per tick rather than latched at
+  // task-open, so a task approved by a reviewer in another tab freezes the
+  // timer here on the next tick instead of billing until the page is reloaded.
+  setFrozenResolver(() => {
+    if (typeof state === 'undefined' || !state) return false;
+    if (state.galleryIndex < 0 || !state.gallery) return false;
+    const task = state.gallery[state.galleryIndex];
+    return !!task && isFrozenForRole(task.status, currentRole());
   });
 
   // T2.2 — heartbeat: refresh the soft lock every 30 s while a task is open.

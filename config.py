@@ -123,6 +123,41 @@ MIN_PASSWORD_LENGTH = int(os.environ.get("MIN_PASSWORD_LENGTH", "8"))
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "0").strip().lower() in ("1", "true", "yes")
 COOKIE_SAMESITE = os.environ.get("COOKIE_SAMESITE", "strict").strip().lower()
 
+# --- Annotation history ---------------------------------------------------
+# How many superseded annotation blobs to keep per task. Rationale for the
+# value (and why it is not 5) lives with the retention code in
+# api/routers/tasks.py; the knob lives here so every entry point reads it the
+# same way (rule 12).
+#
+# The count is not a storage bound: a blob's size scales with the task, so 50
+# rows of a 1200-vertex polygon cost far more than 50 rows of ten boxes. Tune
+# it together with ANNOTATION_HISTORY_APPEND_SKIP below.
+ANNOTATION_HISTORY_KEEP = int(os.environ.get("ANNOTATION_HISTORY_KEEP", "50"))
+
+# Skip writing a history row when the save cannot have destroyed anything —
+# every prior object, field and polygon vertex still present in the new blob
+# (see formats/annotation_diff.is_pure_append).
+#
+# Why this exists: a freehand polygon is drawn vertex by vertex while autosave
+# fires every few seconds, so a 126 kB blob gets rewritten in full to append
+# ~25 bytes. Those saves are real edits, not no-ops, but they supersede nothing,
+# and in production they drove task_annotation_history to 1.2 GB — 87% of the
+# database — while pushing genuinely destructive values out of the window.
+#
+# Default off: this decides whether recoverable work is preserved, so it is
+# opt-in per deployment and revertible without a redeploy.
+ANNOTATION_HISTORY_APPEND_SKIP = os.environ.get(
+    "ANNOTATION_HISTORY_APPEND_SKIP", "0"
+).strip().lower() in ("1", "true", "yes")
+
+# Even under the append skip, force a snapshot when the newest row for a task
+# is older than this. Bounds how much drawing can happen with no intermediate
+# history: without it a long tracing session leaves nothing between the last
+# destructive edit and now. 0 disables the heartbeat.
+ANNOTATION_HISTORY_HEARTBEAT_SECONDS = int(
+    os.environ.get("ANNOTATION_HISTORY_HEARTBEAT_SECONDS", "900")
+)
+
 # --- CORS -----------------------------------------------------------------
 # Comma-separated exact origins, e.g. "http://192.168.1.81:8000".
 _raw_cors = os.environ.get("CORS_ORIGINS", "").strip()

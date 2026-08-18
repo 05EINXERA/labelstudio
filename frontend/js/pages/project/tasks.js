@@ -23,7 +23,7 @@ import { fillTeamSelect } from "../../components/team-picker.js?v=1";
 import { canManage, canReview } from "../../permissions.js?v=1";
 import { openAssignDialog } from "./assign-modal.js?v=2";
 import { matchAssignees, isSearchFilterValue } from "./assignee-search.js?v=1";
-import { APPROVED_STATUSES, isReviewStatus } from "../../task-status.js?v=1";
+import { APPROVED_STATUSES, isReviewStatus } from "../../task-status.js?v=2";
 import {
   STATUSES,
   buildColumns,

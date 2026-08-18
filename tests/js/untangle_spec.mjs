@@ -378,5 +378,43 @@ ok('open: three points never change', u.untangleRing([P(0, 0), P(5, 0), P(0, 5)]
 ok('open: a simple polyline is untouched',
    u.untangleRing([P(0, 0), P(10, 0), P(10, 10), P(20, 10)], null, false).changed === false);
 
+// --- segmentsIntersect crossing parameters (t / u) ----------------------
+//
+// merge.js sorts several crossings along one edge by `t`; the crossing point
+// alone carries no ordering. These guard the two extra fields and, more
+// importantly, that they agree with the {x, y} already returned — a `t` that
+// does not reconstruct the point would corrupt a merged ring's vertex order.
+
+// A bowtie crossing: horizontal 0..10 at y=5 against vertical x=5 going down.
+const hitA = u.segmentsIntersect(P(0, 5), P(10, 5), P(5, 0), P(5, 10));
+ok('crossing reports t and u', hitA !== null &&
+   Number.isFinite(hitA.t) && Number.isFinite(hitA.u));
+ok('t is strictly inside (0, 1)', hitA.t > 0 && hitA.t < 1);
+ok('u is strictly inside (0, 1)', hitA.u > 0 && hitA.u < 1);
+ok('t is the parameter along the first segment', near(hitA.t, 0.5, 1e-9));
+ok('u is the parameter along the second segment', near(hitA.u, 0.5, 1e-9));
+
+// p1 + t*(p2-p1) must reproduce the returned point exactly.
+ok('t reconstructs the crossing point',
+   near(0 + hitA.t * (10 - 0), hitA.x, 1e-9) && near(5 + hitA.t * (5 - 5), hitA.y, 1e-9));
+// ...and so must p3 + u*(p4-p3), from the other edge.
+ok('u reconstructs the same crossing point',
+   near(5 + hitA.u * (5 - 5), hitA.x, 1e-9) && near(0 + hitA.u * (10 - 0), hitA.y, 1e-9));
+
+// An asymmetric crossing, so a t/u mix-up cannot pass by coincidence.
+const hitB = u.segmentsIntersect(P(0, 0), P(20, 0), P(5, -5), P(5, 15));
+ok('asymmetric: t is 5/20', near(hitB.t, 0.25, 1e-9));
+ok('asymmetric: u is 5/20', near(hitB.u, 0.25, 1e-9));
+ok('asymmetric: t reconstructs x', near(0 + hitB.t * 20, hitB.x, 1e-9));
+ok('asymmetric: u reconstructs y', near(-5 + hitB.u * 20, hitB.y, 1e-9));
+
+// Non-crossings still return null rather than a zero-parameter object.
+ok('touching endpoints still return null',
+   u.segmentsIntersect(P(0, 0), P(10, 0), P(10, 0), P(10, 10)) === null);
+ok('collinear overlap still returns null',
+   u.segmentsIntersect(P(0, 0), P(10, 0), P(5, 0), P(15, 0)) === null);
+ok('disjoint segments still return null',
+   u.segmentsIntersect(P(0, 0), P(1, 0), P(5, 5), P(6, 5)) === null);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

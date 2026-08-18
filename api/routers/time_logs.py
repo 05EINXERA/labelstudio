@@ -17,7 +17,11 @@ from sqlalchemy.orm import Session
 
 import models
 from api.auth import get_current_user, require_csrf
-from api.permissions import TeamRole
+from api.permissions import (
+    TeamRole,
+    can_write_task,
+    effective_project_role,
+)
 from database import get_db, commit_with_retry
 from schemas import TeamMemberModel, TeamTime, TimeLogOut, TimeLogUpdateResult
 
@@ -139,6 +143,32 @@ def update_time_logged(
     # name, which came from an editable localStorage value and let anyone log
     # time against anyone. See docs/TIMER_AUDIT.md F7.
     name = current_user.username
+
+    # Refuse to bank seconds accrued against a task the caller may no longer
+    # write. An approved task is frozen (api/permissions.py::can_write_task), and
+    # a frozen task must leak nothing — including the user's lifetime clock,
+    # which is a separate endpoint from the per-task `time_spent` and so is not
+    # covered by the task write gate.
+    #
+    # Answered 200 with status "ignored", not 403: the client cannot fix this by
+    # retrying, and the sync loop treats a failure as "retry later", so a 403
+    # would strand a delta that is re-sent forever. The seconds are simply
+    # dropped — they were not the annotator's to log.
+    if payload.task_id is not None:
+        task = db.get(models.Task, payload.task_id)
+        if task is not None:
+            role = effective_project_role(current_user, task.project_id, db)
+            if not can_write_task(task, current_user, role, db):
+                existing = (
+                    db.query(models.TimeLog)
+                    .filter(models.TimeLog.name == name)
+                    .first()
+                )
+                return TimeLogUpdateResult(
+                    status="ignored",
+                    time_logged=(existing.time_logged or 0) if existing else 0,
+                )
+
     row = db.query(models.TimeLog).filter(models.TimeLog.name == name).first()
     if not row:
         # Previously an unknown member meant the delta was accepted and silently

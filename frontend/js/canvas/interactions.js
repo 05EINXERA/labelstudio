@@ -1,15 +1,18 @@
 import { generateUUID, clamp, round } from "../utils.js?v=1";
-import { state, snapshot, isAnnotationHidden } from "../state.js?v=7";
+import { state, snapshot, isAnnotationHidden, labelById, labelDisplayName } from "../state.js?v=7";
 import { annotationPoints, updateAnnotationBounds, pointInPolygon } from "./geometry.js?v=1";
-import { untangleRing } from "./untangle.js?v=1";
+import { untangleRing } from "./untangle.js?v=2";
+import { unionAll } from "./merge.js?v=1";
 import { view } from "./view.js?v=1";
-import { draw, drawAllLayers } from "./draw.js?v=2";
-import { canvas, undoButton } from "../dom.js?v=4";
-import { commentOverlayRefs } from "../comment-overlay.js?v=1";
-import { setStatus, save, render, activateLabel, toggleAnnotationsHidden, unhideAllObjects } from "../components/workspace.js?v=14";
+import { draw, drawAllLayers } from "./draw.js?v=5";
+import { canvas, ctx, undoButton } from "../dom.js?v=4";
+import { commentHitTest, COMMENT_FONT } from "./comment-geometry.js?v=2";
+import { shouldCanvasClickBeBlocked } from "../comment-mode.js?v=1";
+import { commentOverlayRefs, openCommentEditor, anchorCommentOverlay } from "../comment-overlay.js?v=2";
+import { setStatus, save, render, activateLabel, toggleAnnotationsHidden, unhideAllObjects, editBlockReason } from "../components/workspace.js?v=17";
 import { labelIndexForCode, hideTargetIds, shouldHide } from "../shortcuts.js?v=1";
-import { performMagicWandSegmentation } from "../ai/detect.js?v=1";
-import { applyAutoSmooth } from "../fft-controls.js?v=1";
+import { performMagicWandSegmentation } from "../ai/detect.js?v=2";
+import { applyAutoSmooth } from "../fft-controls.js?v=2";
 import { annotationSettings } from "../feature-flags.js?v=1";
 
 export function canvasPoint(event) {
@@ -27,6 +30,16 @@ export function imagePoint(point) {
   };
 }
 
+// Measure pill text exactly as draw.js paints it. The font must be set on the
+// same context before measuring, or the hit rect drifts from the drawn one.
+function measureCommentText(text) {
+  const previous = ctx.font;
+  ctx.font = COMMENT_FONT;
+  const width = ctx.measureText(text).width;
+  ctx.font = previous;
+  return width;
+}
+
 export function hitTest(point) {
   const img = imagePoint(point);
   for (let index = state.annotations.length - 1; index >= 0; index -= 1) {
@@ -34,6 +47,19 @@ export function hitTest(point) {
     // Hidden annotations are not on screen, so they must not be selectable:
     // clicking empty space should not pick up something invisible.
     if (isAnnotationHidden(annotation)) continue;
+    // Comments are tested first because neither branch below describes what is
+    // actually on screen. A comment does carry x/y/width/height and four
+    // points, but they are a 20x20 storage box centred on the anchor — nothing
+    // paints them. What the user sees and aims at is the dot and its text
+    // pill, both drawn at a fixed *screen* size, so the test runs in screen
+    // space against `point` rather than the image-space `img` used below.
+    if (annotation.type === "comment") {
+      if (commentHitTest(
+        point, annotation, view.imageBox, measureCommentText,
+        annotationSettings.vertexGrabRadius
+      )) return annotation.id;
+      continue;
+    }
     // Fast bbox check (handles simple boxes and any annotations with x/y/width/height)
     const ax = Number(annotation.x) || 0;
     const ay = Number(annotation.y) || 0;
@@ -51,7 +77,13 @@ export function hitTest(point) {
 }
 
 export function hitTestPoint(point, annotation) {
-  if (!annotation || !annotation.points) return -1;
+  // A comment's four points are storage, not handles. init.js gives every
+  // comment a 20x20 box so it survives the generic bounds/export machinery,
+  // but none of those corners is drawn or user-meaningful — only the dot and
+  // pill are. Without this guard hovering a comment hit an invisible corner,
+  // which showed the draw-mode crosshair and started a move-point drag that
+  // reshaped the hidden box instead of moving the comment.
+  if (!annotation || annotation.type === "comment" || !annotation.points) return -1;
   const img = imagePoint(point);
   // Divided by scale to convert the on-screen pixel radius into image space,
   // where the comparison happens — so the grab area stays a constant physical
@@ -67,7 +99,8 @@ export function hitTestPoint(point, annotation) {
 }
 
 export function hitTestLine(point, annotation) {
-  if (!annotation || !annotation.points || annotation.points.length < 3) return -1;
+  // Comments have no user-meaningful edges either; see hitTestPoint.
+  if (!annotation || annotation.type === "comment" || !annotation.points || annotation.points.length < 3) return -1;
   const img = imagePoint(point);
   // Screen pixels -> image space; see hitTestPoint above.
   const threshold = annotationSettings.edgeGrabRadius / view.imageBox.scale;
@@ -100,7 +133,8 @@ export function hitTestLine(point, annotation) {
 // is shared by every shape), and a bbox must never be reshaped by this — its
 // four corners are load-bearing for `_is_axis_aligned_rect` in
 // formats/common.py, which is what keeps a box exporting as a box. Comments
-// carry no points at all.
+// carry four points too, but they are an unpainted storage box — untangling
+// one would be meaningless, and the type guard above already excludes them.
 //
 // Returns true when the ring was actually rewritten, so callers can report it.
 // Takes no snapshot of its own: every call site either already snapshotted for
@@ -193,6 +227,11 @@ export function updateCanvasCursor(point) {
     }
     const hoverId = hitTest(point);
     if (hoverId) {
+      // A comment never shows the vertex crosshair: hitTestPoint excludes it
+      // above, so the only reachable cursors here are "move" and "pointer" —
+      // which is the point, since a crosshair over a finished comment read as
+      // draw mode and misdescribed what a click would do.
+      //
       // With Move Objects unlocked, hovering the interior of an already-selected
       // shape promises a drag, so show "move". Otherwise a finished annotation
       // can only be selected, and "pointer" is the honest cursor.
@@ -205,6 +244,12 @@ export function updateCanvasCursor(point) {
     }
   }
 
+  // "cell" while the comment tool is armed: the click places a single point,
+  // not a dragged shape, and the crosshair reads as "draw a region here".
+  if (state.mode === "draw" && state.shape === "comment") {
+    canvas.style.cursor = "cell";
+    return;
+  }
   canvas.style.cursor = state.mode === "draw" ? "crosshair" : "default";
 }
 
@@ -599,6 +644,119 @@ export function groupSelectedAnnotations() {
   setStatus("Grouped");
 }
 
+const mergeButton = document.querySelector("#mergeButton");
+if (mergeButton) {
+  mergeButton.addEventListener("click", () => {
+    mergeSelectedAnnotations();
+  });
+}
+
+/**
+ * Replace the selected overlapping shapes with one shape covering their union.
+ *
+ * Destructive in a way Group is not: the inputs are consumed, not linked. So it
+ * refuses loudly rather than doing something approximate — a selection that
+ * does not all overlap leaves everything untouched and says why.
+ */
+export function mergeSelectedAnnotations() {
+  // Before any mutation, including snapshot(). A frozen or read-only task must
+  // not reach a state where local annotations changed and only the save is
+  // refused — rule 18a: a permission error never destroys work.
+  const blocked = editBlockReason();
+  if (blocked) {
+    setStatus(blocked);
+    return;
+  }
+
+  if (state.selectedIds.size <= 1) return;
+
+  // Comments are annotations too but have no area to union.
+  const selectedList = state.annotations.filter(
+    (a) => state.selectedIds.has(a.id) && a.type !== "comment"
+  );
+  if (selectedList.length <= 1) return;
+
+  // Normalise each input to a simple ring. Only polygons need untangling —
+  // a box's 4 points are always simple, and untangleIfPolygon deliberately
+  // skips them, so this mirrors that rather than routing boxes through it.
+  const rings = selectedList.map((annotation) => {
+    const points = annotationPoints(annotation);
+    if (annotation.type !== "polygon") return points;
+    return untangleRing(points, null, true).points;
+  });
+
+  // The union is computed before snapshot() on purpose. It touches no state, so
+  // every refusal below can return without having disturbed the undo stack at
+  // all — snapshot() also clears the redo stack, and an aborted merge that
+  // silently dropped a pending redo would be a real loss for a no-op command.
+  const { points, skipped } = unionAll(rings);
+
+  // Partial merges are never committed: silently dropping the shapes that did
+  // not overlap would look like the command ate them.
+  if (!points || skipped.length) {
+    const count = skipped.length;
+    setStatus(
+      count
+        ? `Cannot merge: ${count} selected object${count === 1 ? " does" : "s do"} not overlap the rest`
+        : "Cannot merge: selected objects do not overlap"
+    );
+    return;
+  }
+
+  if (points.length < 3) {
+    setStatus("Cannot merge: the result is not a valid shape");
+    return;
+  }
+
+  snapshot();
+
+  // Class of the first selected shape wins, matching Group.
+  const baseAnnotation = selectedList[0];
+  const mixedClasses = selectedList.some((a) => a.labelId !== baseAnnotation.labelId);
+
+  const merged = {
+    id: generateUUID(),
+    // Explicit: draw.js and the hit-test infer "polygon" from the point count
+    // when type is absent, and a union that rounds to 4 points would be read
+    // back as a box.
+    type: "polygon",
+    labelId: baseAnnotation.labelId,
+    points
+    // Deliberately no groupId. The merged shape is one object, so inheriting a
+    // group would leave it linked to shapes it just absorbed.
+  };
+  updateAnnotationBounds(merged);
+
+  // Keep the merged shape where the frontmost input sat, rather than letting it
+  // jump to the top of the z-order.
+  const consumedIds = new Set(selectedList.map((a) => a.id));
+  const insertAt = state.annotations.findIndex((a) => consumedIds.has(a.id));
+  const remaining = state.annotations.filter((a) => !consumedIds.has(a.id));
+  remaining.splice(insertAt, 0, merged);
+  state.annotations = remaining;
+
+  // The consumed ids are gone; leaving them in these sets would hide or
+  // re-select a shape that no longer exists.
+  consumedIds.forEach((id) => state.hiddenAnnotationIds.delete(id));
+  state.selectedIds.clear();
+  state.selectedIds.add(merged.id);
+  state.selectedId = merged.id;
+
+  // Edge indices refer to the old shapes' vertices.
+  view.hoveredLineIndex = -1;
+  view.selectedLineIndex = -1;
+
+  render();
+  save();
+
+  const className = labelDisplayName(labelById(merged.labelId));
+  setStatus(
+    mixedClasses
+      ? `Merged ${selectedList.length} objects as ${className}`
+      : `Merged ${selectedList.length} objects`
+  );
+}
+
 const ungroupButton = document.querySelector("#ungroupButton");
 if (ungroupButton) {
   ungroupButton.addEventListener("click", () => {
@@ -766,6 +924,11 @@ canvas.addEventListener("pointerdown", (event) => {
       // drag it. Vertex/edge hits were already handled above, so this only
       // fires on the shape's interior. Locked, or clicking an unselected shape,
       // falls through to plain selection below.
+      // Comments drag by their body (dot or pill) like any other shape. They
+      // were briefly excluded here out of concern that the enlarged hit target
+      // made accidental drags likely; the real cause of that was the vertex
+      // machinery treating a comment's hidden corners as handles, now fixed in
+      // hitTestPoint. Dragging the visible body is the expected gesture.
       if (state.moveObjectsUnlocked && !event.shiftKey && state.selectedIds.has(hitId)) {
         const moving = state.annotations.filter((a) => state.selectedIds.has(a.id));
         // snapshot() is deferred to the first move (see pointermove) so a plain
@@ -842,18 +1005,26 @@ canvas.addEventListener("pointerdown", (event) => {
     const pointInImage = imagePoint(point);
 
     if (state.shape === "comment") {
+      // An open overlay with typed text owns the click. Without this the click
+      // fell through, moved pendingCommentPoint and blanked the textarea — so
+      // clicking away from a half-written comment silently destroyed it and
+      // started a new one. Enter commits and Escape cancels; a click does
+      // neither. See comment-mode.js.
+      if (shouldCanvasClickBeBlocked(
+        !commentOverlayRefs.commentOverlay.classList.contains("is-hidden"),
+        commentOverlayRefs.commentOverlayInput.value
+      )) {
+        commentOverlayRefs.commentOverlayInput.focus();
+        return;
+      }
       view.pendingCommentPoint = pointInImage;
       render();
 
-      const screenPoint = {
-        x: view.imageBox.x + view.pendingCommentPoint.x * view.imageBox.scale,
-        y: view.imageBox.y + view.pendingCommentPoint.y * view.imageBox.scale
-      };
-
-      commentOverlayRefs.commentOverlay.style.left = `${screenPoint.x + 15}px`;
-      commentOverlayRefs.commentOverlay.style.top = `${screenPoint.y - 15}px`;
       commentOverlayRefs.commentOverlay.classList.remove("is-hidden");
       commentOverlayRefs.commentOverlayInput.value = "";
+      // Anchored to the image point, not placed at fixed screen pixels, so the
+      // box follows the spot it describes when the view pans or zooms.
+      anchorCommentOverlay(pointInImage, view.imageBox);
       commentOverlayRefs.commentOverlayInput.focus();
       return;
     }
@@ -1106,7 +1277,12 @@ canvas.addEventListener("pointermove", (event) => {
       }
       if (typeof orig.x === "number") annotation.x = round(orig.x + dx);
       if (typeof orig.y === "number") annotation.y = round(orig.y + dy);
-      updateAnnotationBounds(annotation);
+      // Not for comments: updateAnnotationBounds derives x/y from the points'
+      // top-left corner, but a comment's x/y is the anchor the dot is drawn at
+      // and its points straddle it (x±10). Recomputing would jump the dot to
+      // the corner — 10px up and left on every drag. The translation above
+      // already keeps points and anchor consistent.
+      if (annotation.type !== "comment") updateAnnotationBounds(annotation);
     });
     render();
   }
@@ -1125,6 +1301,33 @@ canvas.addEventListener("dblclick", (event) => {
   // reached that branch by the time this fires, so there is nothing left
   // for this handler to do mid-draw — skip it outright.
   if (view.drag?.type === "draw-polygon") return;
+
+  // Double-click a comment to edit it. Checked before the vertex-removal block
+  // below and independently of state.selectedId, because the first click of
+  // the pair has already selected the comment — but hitTest is re-run rather
+  // than trusting that, so a double-click that lands on a different comment
+  // edits the one actually under the cursor.
+  //
+  // Single click still only selects: that is the pointerdown path, which this
+  // does not touch. The two gestures stay separate because opening an editor
+  // is not something a click meant for selection should ever do.
+  {
+    const point = canvasPoint(event);
+    const hitId = hitTest(point);
+    const hit = hitId ? state.annotations.find((a) => a.id === hitId) : null;
+    if (hit && hit.type === "comment") {
+      // Same gate as the panel's Edit button: a user who may not write the
+      // task is not offered an editor whose save the server would refuse.
+      // Rendering-only, per rule 18b — the server checks regardless.
+      const blocked = editBlockReason();
+      if (blocked) {
+        setStatus(blocked);
+        return;
+      }
+      openCommentEditor(hit, view.imageBox, (id) => { view.pendingCommentEditId = id; });
+      return;
+    }
+  }
 
   if (state.selectedId) {
     const point = canvasPoint(event);
@@ -1366,6 +1569,16 @@ window.addEventListener("keydown", (event) => {
 
   if (event.key.toLowerCase() === "g") {
     groupSelectedAnnotations();
+    return;
+  }
+
+  // "M" merges the selection into one shape. Modifiers excluded so Ctrl+M /
+  // Cmd+M stay with the browser, following the "U" binding's precedent. The
+  // isTyping guard above already keeps this out of the comment editor, which
+  // is a real <textarea>.
+  if (event.key.toLowerCase() === "m" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    event.preventDefault();
+    mergeSelectedAnnotations();
     return;
   }
 
