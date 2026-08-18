@@ -3,9 +3,10 @@ import { state, snapshot, isAnnotationHidden } from "../state.js?v=7";
 import { annotationPoints, updateAnnotationBounds, pointInPolygon } from "./geometry.js?v=1";
 import { untangleRing } from "./untangle.js?v=1";
 import { view } from "./view.js?v=1";
-import { draw, drawAllLayers } from "./draw.js?v=3";
+import { draw, drawAllLayers } from "./draw.js?v=4";
 import { canvas, ctx, undoButton } from "../dom.js?v=4";
-import { commentHitTest, COMMENT_FONT } from "./comment-geometry.js?v=1";
+import { commentHitTest, COMMENT_FONT } from "./comment-geometry.js?v=2";
+import { shouldCanvasClickBeBlocked } from "../comment-mode.js?v=1";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
 import { setStatus, save, render, activateLabel, toggleAnnotationsHidden, unhideAllObjects } from "../components/workspace.js?v=15";
 import { labelIndexForCode, hideTargetIds, shouldHide } from "../shortcuts.js?v=1";
@@ -45,12 +46,12 @@ export function hitTest(point) {
     // Hidden annotations are not on screen, so they must not be selectable:
     // clicking empty space should not pick up something invisible.
     if (isAnnotationHidden(annotation)) continue;
-    // Comments are tested first because they cannot go through either branch
-    // below: they have no `points` and no width/height, so the bbox branch
-    // would collapse to a zero-area target at (x, y) and make the whole
-    // annotation unclickable but for one image pixel. Their dot and pill are
-    // painted at a fixed *screen* size, so the test runs in screen space
-    // against `point` — not the image-space `img` the other branches use.
+    // Comments are tested first because neither branch below describes what is
+    // actually on screen. A comment does carry x/y/width/height and four
+    // points, but they are a 20x20 storage box centred on the anchor — nothing
+    // paints them. What the user sees and aims at is the dot and its text
+    // pill, both drawn at a fixed *screen* size, so the test runs in screen
+    // space against `point` rather than the image-space `img` used below.
     if (annotation.type === "comment") {
       if (commentHitTest(
         point, annotation, view.imageBox, measureCommentText,
@@ -75,7 +76,13 @@ export function hitTest(point) {
 }
 
 export function hitTestPoint(point, annotation) {
-  if (!annotation || !annotation.points) return -1;
+  // A comment's four points are storage, not handles. init.js gives every
+  // comment a 20x20 box so it survives the generic bounds/export machinery,
+  // but none of those corners is drawn or user-meaningful — only the dot and
+  // pill are. Without this guard hovering a comment hit an invisible corner,
+  // which showed the draw-mode crosshair and started a move-point drag that
+  // reshaped the hidden box instead of moving the comment.
+  if (!annotation || annotation.type === "comment" || !annotation.points) return -1;
   const img = imagePoint(point);
   // Divided by scale to convert the on-screen pixel radius into image space,
   // where the comparison happens — so the grab area stays a constant physical
@@ -91,7 +98,8 @@ export function hitTestPoint(point, annotation) {
 }
 
 export function hitTestLine(point, annotation) {
-  if (!annotation || !annotation.points || annotation.points.length < 3) return -1;
+  // Comments have no user-meaningful edges either; see hitTestPoint.
+  if (!annotation || annotation.type === "comment" || !annotation.points || annotation.points.length < 3) return -1;
   const img = imagePoint(point);
   // Screen pixels -> image space; see hitTestPoint above.
   const threshold = annotationSettings.edgeGrabRadius / view.imageBox.scale;
@@ -124,7 +132,8 @@ export function hitTestLine(point, annotation) {
 // is shared by every shape), and a bbox must never be reshaped by this — its
 // four corners are load-bearing for `_is_axis_aligned_rect` in
 // formats/common.py, which is what keeps a box exporting as a box. Comments
-// carry no points at all.
+// carry four points too, but they are an unpainted storage box — untangling
+// one would be meaningless, and the type guard above already excludes them.
 //
 // Returns true when the ring was actually rewritten, so callers can report it.
 // Takes no snapshot of its own: every call site either already snapshotted for
@@ -217,6 +226,11 @@ export function updateCanvasCursor(point) {
     }
     const hoverId = hitTest(point);
     if (hoverId) {
+      // A comment never shows the vertex crosshair: hitTestPoint excludes it
+      // above, so the only reachable cursors here are "move" and "pointer" —
+      // which is the point, since a crosshair over a finished comment read as
+      // draw mode and misdescribed what a click would do.
+      //
       // With Move Objects unlocked, hovering the interior of an already-selected
       // shape promises a drag, so show "move". Otherwise a finished annotation
       // can only be selected, and "pointer" is the honest cursor.
@@ -229,6 +243,12 @@ export function updateCanvasCursor(point) {
     }
   }
 
+  // "cell" while the comment tool is armed: the click places a single point,
+  // not a dragged shape, and the crosshair reads as "draw a region here".
+  if (state.mode === "draw" && state.shape === "comment") {
+    canvas.style.cursor = "cell";
+    return;
+  }
   canvas.style.cursor = state.mode === "draw" ? "crosshair" : "default";
 }
 
@@ -790,12 +810,12 @@ canvas.addEventListener("pointerdown", (event) => {
       // drag it. Vertex/edge hits were already handled above, so this only
       // fires on the shape's interior. Locked, or clicking an unselected shape,
       // falls through to plain selection below.
-      // Comments are excluded from the move-drag. Now that the whole pill is a
-      // hit target, a click anywhere on a selected comment would otherwise arm
-      // a drag, and any pointer travel during that click would move it off the
-      // pixel it was left on. Repositioning a comment is a separate feature.
-      const hitIsComment = state.annotations.find((a) => a.id === hitId)?.type === "comment";
-      if (state.moveObjectsUnlocked && !event.shiftKey && !hitIsComment && state.selectedIds.has(hitId)) {
+      // Comments drag by their body (dot or pill) like any other shape. They
+      // were briefly excluded here out of concern that the enlarged hit target
+      // made accidental drags likely; the real cause of that was the vertex
+      // machinery treating a comment's hidden corners as handles, now fixed in
+      // hitTestPoint. Dragging the visible body is the expected gesture.
+      if (state.moveObjectsUnlocked && !event.shiftKey && state.selectedIds.has(hitId)) {
         const moving = state.annotations.filter((a) => state.selectedIds.has(a.id));
         // snapshot() is deferred to the first move (see pointermove) so a plain
         // click on a selected shape doesn't push a no-op undo entry.
@@ -871,6 +891,18 @@ canvas.addEventListener("pointerdown", (event) => {
     const pointInImage = imagePoint(point);
 
     if (state.shape === "comment") {
+      // An open overlay with typed text owns the click. Without this the click
+      // fell through, moved pendingCommentPoint and blanked the textarea — so
+      // clicking away from a half-written comment silently destroyed it and
+      // started a new one. Enter commits and Escape cancels; a click does
+      // neither. See comment-mode.js.
+      if (shouldCanvasClickBeBlocked(
+        !commentOverlayRefs.commentOverlay.classList.contains("is-hidden"),
+        commentOverlayRefs.commentOverlayInput.value
+      )) {
+        commentOverlayRefs.commentOverlayInput.focus();
+        return;
+      }
       view.pendingCommentPoint = pointInImage;
       render();
 
@@ -1135,7 +1167,12 @@ canvas.addEventListener("pointermove", (event) => {
       }
       if (typeof orig.x === "number") annotation.x = round(orig.x + dx);
       if (typeof orig.y === "number") annotation.y = round(orig.y + dy);
-      updateAnnotationBounds(annotation);
+      // Not for comments: updateAnnotationBounds derives x/y from the points'
+      // top-left corner, but a comment's x/y is the anchor the dot is drawn at
+      // and its points straddle it (x±10). Recomputing would jump the dot to
+      // the corner — 10px up and left on every drag. The translation above
+      // already keeps points and anchor consistent.
+      if (annotation.type !== "comment") updateAnnotationBounds(annotation);
     });
     render();
   }

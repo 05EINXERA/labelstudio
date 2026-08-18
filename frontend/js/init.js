@@ -8,13 +8,14 @@ import {
 } from "./state.js?v=7";
 import { view } from "./canvas/view.js?v=1";
 import { commentOverlayRefs } from "./comment-overlay.js?v=1";
+import { backspaceAction, modeAfterCommentCommit } from "./comment-mode.js?v=1";
 import {
   canvas, ctx, imageCanvas, imageCtx, staticCanvas, staticCtx, stageWrap,
   emptyState, drawMode, selectMode, boxMode, polygonMode, commentMode, magicWandMode,
   autoDetectButton, undoButton, redoButton, deleteButton, clearButton, unhideAllButton,
   assignTaskButton, saveButton
 } from "./dom.js?v=4";
-import { drawAllLayers } from "./canvas/draw.js?v=3";
+import { drawAllLayers } from "./canvas/draw.js?v=4";
 import {
   setStatus, syncToBackend, save, loadSaved, saveDraft, restoreDraft,
   render, manualSaveWithUI, refreshSaveStatus, pruneStaleDrafts, unhideAllObjects
@@ -32,7 +33,7 @@ import {
 } from "./components/timer.js?v=4";
 import {
   finalizePolygon, deleteSelected, undoAction, redoAction, setZoomChangeHandler
-} from "./canvas/interactions.js?v=7";
+} from "./canvas/interactions.js?v=8";
 import { initContextMenu } from "./canvas/context-menu.js?v=3";
 import { getCurrentUser } from "./session.js?v=1";
 import { initCanvasAssign, renderAssignButton } from "./canvas-assign.js?v=1";
@@ -139,6 +140,19 @@ function resizeCanvas() {
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
 
   if (view.pendingCommentPoint) {
+    // A resize invalidates the overlay's absolute position, but typed text is
+    // unsaved work and a window resize is not a decision to discard it (same
+    // rule as a canvas click — see comment-mode.js). With text present the
+    // overlay is repositioned over the anchor instead of being dropped; only
+    // an untouched one is dismissed.
+    if (commentOverlayRefs.commentOverlayInput.value.trim() !== "") {
+      drawAllLayers();
+      const sx = view.imageBox.x + view.pendingCommentPoint.x * view.imageBox.scale;
+      const sy = view.imageBox.y + view.pendingCommentPoint.y * view.imageBox.scale;
+      commentOverlayRefs.commentOverlay.style.left = `${sx + 15}px`;
+      commentOverlayRefs.commentOverlay.style.top = `${sy - 15}px`;
+      return;
+    }
     view.pendingCommentPoint = null;
     commentOverlayRefs.commentOverlay.classList.add("is-hidden");
   }
@@ -492,6 +506,12 @@ commentOverlayRefs.commentOverlayInput.addEventListener("keydown", (e) => {
         state.selectedId = annotation.id;
         view.pendingCommentPoint = null;
         commentOverlayRefs.commentOverlay.classList.add("is-hidden");
+        // Disarm the comment tool. Left armed, the next click anywhere dropped
+        // a second comment — finishing one does not imply starting another.
+        // Only on commit: an edit or a cancel never armed anything.
+        const next = modeAfterCommentCommit();
+        state.mode = next.mode;
+        state.shape = next.shape;
         render();
         save();
         setStatus("Comment added");
@@ -504,6 +524,16 @@ commentOverlayRefs.commentOverlayInput.addEventListener("keydown", (e) => {
       render();
     }
   } else if (e.key === "Escape") {
+    e.preventDefault();
+    view.pendingCommentPoint = null;
+    view.pendingCommentEditId = null;
+    commentOverlayRefs.commentOverlay.classList.add("is-hidden");
+    render();
+  } else if (e.key === "Backspace" && backspaceAction(commentOverlayRefs.commentOverlayInput.value) === "cancel") {
+    // Backspace dismisses the overlay only from the just-clicked, nothing-typed
+    // state. With any text present backspaceAction returns "edit" and this
+    // branch is skipped, so the key erases characters as normal and can never
+    // discard a comment being written. See comment-mode.js.
     e.preventDefault();
     view.pendingCommentPoint = null;
     view.pendingCommentEditId = null;

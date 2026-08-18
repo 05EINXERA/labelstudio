@@ -27,7 +27,7 @@
  */
 const url = new URL('../../frontend/js/canvas/comment-geometry.js', import.meta.url);
 const {
-  commentScreenGeometry, commentHitTest, commentPillText,
+  commentScreenGeometry, commentHitTest, commentPillText, translateComment,
   COMMENT_DOT_RADIUS, COMMENT_PILL_HEIGHT
 } = await import(url);
 
@@ -127,6 +127,47 @@ console.log('\nmissing author falls back');
 {
   ok('no author reads as "User"',
     commentPillText({ x: 0, y: 0, text: 'hi' }) === 'User: hi');
+}
+
+console.log('\ntranslateComment keeps stored coords in sync');
+{
+  // A real comment as init.js writes it: a centre anchor plus a 20x20 ring
+  // that straddles it. Both must move together, or the stored box drifts away
+  // from the drawn dot - invisible on screen, but it is what exports read.
+  const mk = () => ({
+    id: 'c9', type: 'comment', x: 100, y: 50, text: 'x', author: 'a',
+    width: 20, height: 20,
+    points: [
+      { x: 90, y: 40 }, { x: 110, y: 40 },
+      { x: 110, y: 60 }, { x: 90, y: 60 }
+    ]
+  });
+
+  const moved = translateComment(mk(), 25, -15);
+  ok('anchor moves by the delta', moved.x === 125 && moved.y === 35);
+  ok('every point moves by the same delta',
+    moved.points.every((p, i) => p.x === mk().points[i].x + 25 && p.y === mk().points[i].y - 15));
+  ok('anchor stays centred in the ring',
+    moved.x === (moved.points[0].x + moved.points[1].x) / 2 &&
+    moved.y === (moved.points[0].y + moved.points[2].y) / 2);
+  ok('a zero delta changes nothing',
+    JSON.stringify(translateComment(mk(), 0, 0)) === JSON.stringify(mk()));
+
+  // Repeated drags must not compound error.
+  let acc = mk();
+  for (let i = 0; i < 10; i++) acc = translateComment(acc, 3, 2);
+  ok('ten moves accumulate exactly', acc.x === 130 && acc.y === 70);
+
+  const noPoints = translateComment({ type: 'comment', x: 5, y: 5 }, 1, 1);
+  ok('a comment without points is tolerated', noPoints.x === 6 && !noPoints.points);
+
+  // The drawn dot must follow the anchor after a move.
+  const g = commentScreenGeometry(moved, identity, measure);
+  ok('dot follows the moved anchor', g.dot.cx === 125 && g.dot.cy === 35);
+  ok('moved comment is hit at its new place',
+    commentHitTest({ x: 125, y: 35 }, moved, identity, measure));
+  ok('moved comment is not hit at the old place',
+    !commentHitTest({ x: 100, y: 50 }, moved, identity, measure));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

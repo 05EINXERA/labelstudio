@@ -84,3 +84,26 @@ export function commentHitTest(point, annotation, imageBox, measureText, margin 
     point.x >= pill.x && point.x <= pill.x + pill.width &&
     point.y >= pill.y && point.y <= pill.y + pill.height;
 }
+
+/**
+ * Move a comment by a screen-space delta, keeping every coordinate it carries
+ * in sync.
+ *
+ * A comment is stored with more than the anchor the canvas draws: `x`/`y` plus
+ * a 20x20 `width`/`height` box and a four-point `points` ring (init.js writes
+ * all of them when the comment is created). Only `x`/`y` are painted, so a
+ * move that updated just those would leave `points` behind at the old
+ * location — invisible on screen, but it is what the exporters and the generic
+ * bounds/vertex machinery read. Translating everything together keeps the
+ * stored shape and the drawn dot describing the same place.
+ *
+ * `dx`/`dy` are in image space. Mutates `annotation` and returns it.
+ */
+export function translateComment(annotation, dx, dy) {
+  annotation.x += dx;
+  annotation.y += dy;
+  if (Array.isArray(annotation.points)) {
+    annotation.points = annotation.points.map((p) => ({ x: p.x + dx, y: p.y + dy }));
+  }
+  return annotation;
+}

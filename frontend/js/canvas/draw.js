@@ -6,7 +6,7 @@ import { annotationPoints, hexToRgba } from "./geometry.js?v=1";
 import {
   commentScreenGeometry, COMMENT_FONT, COMMENT_PILL_RADIUS,
   COMMENT_TEXT_INSET_X, COMMENT_TEXT_BASELINE_Y
-} from "./comment-geometry.js?v=1";
+} from "./comment-geometry.js?v=2";
 
 export function computeImageBox() {
   if (!view.imageLoaded) {
