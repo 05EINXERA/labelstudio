@@ -84,5 +84,28 @@ ok("'reopened' maps to In Progress — not a status of its own",
 ok('an unknown verb maps to null rather than a wrong status',
    s.statusForReviewAction('nonsense') === null);
 
+// 6. The approved freeze. `isFrozenForRole` mirrors the freeze branch of
+//    can_write_task in api/permissions.py: sign-off makes a task read-only for
+//    everyone below reviewer, including the annotator it is assigned to.
+for (const status of s.APPROVED_STATUSES) {
+  ok(`${status} freezes an annotator`, s.isFrozenForRole(status, 'annotator') === true);
+  ok(`${status} freezes a viewer`, s.isFrozenForRole(status, 'viewer') === true);
+  ok(`${status} does not freeze a reviewer`, s.isFrozenForRole(status, 'reviewer') === false);
+  ok(`${status} does not freeze a manager`, s.isFrozenForRole(status, 'manager') === false);
+  ok(`${status} does not freeze an owner`, s.isFrozenForRole(status, 'owner') === false);
+}
+
+// Rejected must NOT freeze: it is work sent back for rework, and the assignee
+// has to be able to act on the feedback.
+for (const status of ['New', 'In Progress', 'Completed', 'Rejected', null, undefined]) {
+  ok(`${JSON.stringify(status)} never freezes`,
+     s.isFrozenForRole(status, 'annotator') === false);
+}
+
+// A missing role is not a licence to edit: atLeast() is false for unknown
+// roles, so an approved task stays frozen while the role is still loading.
+ok('an unknown role is still frozen on an approved task',
+   s.isFrozenForRole('Approved', undefined) === true);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

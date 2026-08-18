@@ -58,6 +58,28 @@ export function setActiveTaskResolver(fn) {
   if (typeof fn === 'function') activeTaskResolver = fn;
 }
 
+// Answers "is the task now open frozen?", registered by the page for the same
+// reason as activeTaskResolver above: timer.js must not import
+// canvas-permissions.js (which imports api.js and the DOM helpers) just to ask
+// one question, and injecting it keeps the timer testable in isolation.
+//
+// Defaults to "not frozen" so a page that never registers it behaves exactly as
+// before. This is ergonomics, not enforcement — the server refuses a frozen
+// task's write and drops its user-time delta regardless.
+let frozenResolver = () => false;
+
+export function setFrozenResolver(fn) {
+  if (typeof fn === 'function') frozenResolver = fn;
+}
+
+function activeTaskIsFrozen() {
+  try {
+    return !!frozenResolver();
+  } catch (e) {
+    return false;
+  }
+}
+
 function currentTaskResolver() {
   try {
     return activeTaskResolver() || null;
@@ -79,6 +101,13 @@ function hasActiveTask() {
 /** Resolves true when the server accepted the write, false otherwise. */
 export async function drainTaskTime(task, { status, annotations, useBeacon = false, allowClear = false } = {}) {
   if (!task || !task.id) return false;
+
+  // A frozen task takes no writes at all. Returning before the accumulator is
+  // read-and-cleared means the seconds are neither sent nor destroyed — the
+  // timer should never have been running (startTimer refuses), so there is
+  // normally nothing there, and anything that did accrue stays put rather than
+  // becoming a doomed queue entry the server would only 403.
+  if (activeTaskIsFrozen()) return false;
 
   const taskId = task.id;
   const timeDelta = timerState.taskSessionSeconds;
@@ -275,7 +304,12 @@ export function syncTimeToServer({ useBeacon = false } = {}) {
 
   const body = JSON.stringify({
     name: timerLocalState.currentUserForTimer,
-    time_logged: delta
+    time_logged: delta,
+    // Lets the server drop a delta accrued against a task the caller may no
+    // longer write. This endpoint credits the user's lifetime total, which is
+    // not covered by the per-task write gate, so without this a frozen task
+    // still leaks time into it.
+    task_id: currentTaskResolver()?.id ?? null
   });
 
   if (useBeacon && navigator.sendBeacon) {
@@ -332,6 +366,10 @@ function accrueElapsed() {
 
 function startTimer() {
   if (timerLocalState.isTimerRunning) return;
+  // A frozen task accrues nothing. Blocked at the single start point so every
+  // route in — the toggle button, the canvas pointerdown auto-start, and the
+  // visibility resume — is covered by one check rather than three.
+  if (activeTaskIsFrozen()) return;
   timerLocalState.isTimerRunning = true;
   if (timerToggleBtn) {
     timerToggleBtn.innerHTML = pauseSvg;

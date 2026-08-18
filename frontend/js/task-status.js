@@ -32,6 +32,8 @@
  * status is one line here and one in schemas.py.
  */
 
+import { atLeast } from "./permissions.js?v=1";
+
 /** Approval synonyms, in display order. Mirrors `APPROVED_STATUSES`. */
 export const APPROVED_STATUSES = ["Approved", "Verified", "Checked", "Passed"];
 
@@ -57,6 +59,21 @@ export const TERMINAL_STATUSES = [...APPROVED_STATUSES, "Completed"];
 /** True when `status` is any member of the approved group. */
 export function isApproved(status) {
   return APPROVED_STATUSES.includes(status);
+}
+
+/**
+ * True when an approved-group status freezes this task for `role`.
+ *
+ * Mirrors the freeze branch of `can_write_task` in api/permissions.py: sign-off
+ * ends the annotator's claim on the work, so an approved task is read-only for
+ * everyone below reviewer. Reviewers, managers and owners stay writable, or
+ * nobody could correct or un-approve a task.
+ *
+ * Rendering only (rule 18b) — the server refuses the write regardless.
+ */
+export function isFrozenForRole(status, role) {
+  if (!isApproved(status)) return false;
+  return !atLeast(role, "reviewer");
 }
 
 /** True when `status` is a reviewer verdict (approved group or Rejected). */

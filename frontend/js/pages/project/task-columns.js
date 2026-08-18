@@ -19,7 +19,8 @@ import {
   isReviewStatus,
   statusClass,
   statusSelectClass as statusSelectClassFor,
-} from "../../task-status.js?v=1";
+  isFrozenForRole,
+} from "../../task-status.js?v=2";
 
 const ICON_EDIT = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></svg>`;
 const ICON_DELETE = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>`;
@@ -254,15 +255,20 @@ export function buildColumns({ role, projectId, teamsById, usersById, lockCache,
         // (any approved-group status / Rejected → In Progress). The select
         // always shows the real current status so the displayed value is never
         // wrong.
+        // A signed-off task is frozen for anyone below reviewer, including the
+        // annotator it is assigned to — so it renders as a pill, never a select.
+        // The reviewer branch above is unaffected: they are the ones who can
+        // un-approve it.
         const assignedToMe = currentUser && r.assignee_user_id === currentUser.id;
-        if (isAnnotatorOnly && assignedToMe) {
+        if (isAnnotatorOnly && assignedToMe && !isFrozenForRole(r.status, role)) {
           // Base options the annotator can set. Deliberately excludes every
           // approved-group status: approving is the reviewer's verdict, and the
           // server refuses it here regardless of what this select offers.
           const writableStatuses = ['In Progress', 'Completed'];
           // If the task is currently in a reviewer state, add it as a
           // display-only option (so the select shows the right label) and
-          // allow In Progress to re-open it.
+          // allow In Progress to re-open it. Only 'Rejected' can reach here
+          // now — an approved status returned a pill above.
           const inReviewState = isReviewStatus(r.status);
           const displayStatuses = inReviewState
             ? [r.status, ...writableStatuses]

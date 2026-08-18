@@ -141,5 +141,35 @@ ok('an explicit can_write:false blocks even when assigned to me',
 ok('an explicit can_write:true unblocks a task that looks assigned elsewhere',
    cp.taskWriteBlock(task({ assignee_user_id: 999, can_write: true })) === null);
 
+// --- 8. The approved freeze outranks assignment ---------------------------
+
+// Sign-off ends the annotator's claim on the work. This is the one block that
+// beats "assigned to me" — the whole point is that the state a reviewer
+// accepted cannot be changed afterwards, and the sidebar's Objects panel gates
+// its class/comment controls on exactly this call.
+await asRole('annotator');
+for (const status of ['Approved', 'Verified', 'Checked', 'Passed']) {
+  const mine = task({ assignee_user_id: MY_ID, status });
+  ok(`${status} blocks the assignee themselves`, cp.taskWriteBlock(mine) !== null);
+  ok(`${status} says so in the reason`, new RegExp(status).test(cp.taskWriteBlock(mine)));
+  // A server "yes" must not thaw it: an older bundle's can_write:true against a
+  // task approved since is exactly the stale-row case this ordering guards.
+  ok(`${status} outranks a stale can_write:true`,
+     cp.taskWriteBlock(task({ assignee_user_id: MY_ID, status, can_write: true })) !== null);
+}
+
+// Rejected is rework, not sign-off — the assignee must still be able to act.
+ok('a Rejected task assigned to me stays writable',
+   cp.taskWriteBlock(task({ assignee_user_id: MY_ID, status: 'Rejected' })) === null);
+ok('a Completed task assigned to me stays writable',
+   cp.taskWriteBlock(task({ assignee_user_id: MY_ID, status: 'Completed' })) === null);
+
+// Reviewers and above keep write access, or an approval could never be undone.
+for (const role of ['reviewer', 'manager', 'owner']) {
+  await asRole(role);
+  ok(`a ${role} may still edit an Approved task`,
+     cp.taskWriteBlock(task({ assignee_user_id: 999, status: 'Approved' })) === null);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
