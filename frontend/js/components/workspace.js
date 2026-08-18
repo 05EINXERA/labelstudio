@@ -359,6 +359,15 @@ export function renderClasses() {
   });
 }
 
+const ITEM_HEIGHT = 32;
+const VIRTUAL_BUFFER = 10;
+let virtualizationState = {
+  initialized: false,
+  startIndex: 0,
+  endIndex: 20,
+  scrollTop: 0
+};
+
 export function renderAnnotations() {
   annotationList.innerHTML = "";
 
@@ -367,20 +376,93 @@ export function renderAnnotations() {
     empty.className = "chip-count";
     empty.textContent = "No annotations yet";
     annotationList.appendChild(empty);
+    annotationCount.textContent = "0";
+    
+    const selected = state.annotations.find((item) => item.id === state.selectedId);
+    if (selected) {
+      if (selected.type === "comment") {
+        selectedInfo.innerHTML = `Comment by ${selected.author || "User"} <button id="editCommentBtn" class="icon-button" style="font-size: 0.8rem; margin-left: 8px;">✏️ Edit</button>`;
+        document.getElementById('editCommentBtn').addEventListener('click', () => {
+          view.pendingCommentEditId = selected.id;
+          const screenX = view.imageBox.x + selected.x * view.imageBox.scale;
+          const screenY = view.imageBox.y + selected.y * view.imageBox.scale;
+          commentOverlayRefs.commentOverlay.style.left = `${screenX + 15}px`;
+          commentOverlayRefs.commentOverlay.style.top = `${screenY - 15}px`;
+          commentOverlayRefs.commentOverlayInput.value = selected.text || "";
+          commentOverlayRefs.commentOverlay.classList.remove("is-hidden");
+          commentOverlayRefs.commentOverlayInput.focus();
+        });
+      } else {
+        selectedInfo.textContent = labelDisplayName(labelById(selected.labelId));
+      }
+    } else {
+      selectedInfo.textContent = "None";
+    }
+    return;
   }
 
+  const displayItems = [];
   const processedGroups = new Set();
-  let displayCount = 0;
+  const groupMap = new Map();
+  for (const a of state.annotations) {
+    if (a.groupId) {
+      if (!groupMap.has(a.groupId)) groupMap.set(a.groupId, []);
+      groupMap.get(a.groupId).push(a);
+    }
+  }
 
-  state.annotations.forEach((annotation, index) => {
+  state.annotations.forEach((annotation) => {
     if (annotation.groupId) {
       if (processedGroups.has(annotation.groupId)) return;
       processedGroups.add(annotation.groupId);
     }
-
-    displayCount++;
     const isGroup = !!annotation.groupId;
-    const groupAnns = isGroup ? state.annotations.filter(a => a.groupId === annotation.groupId) : [annotation];
+    const groupAnns = isGroup ? groupMap.get(annotation.groupId) : [annotation];
+    displayItems.push({ annotation, isGroup, groupAnns });
+  });
+
+  annotationCount.textContent = String(displayItems.length);
+
+  const scrollContainer = annotationList.closest('.pane-body');
+  if (scrollContainer && !virtualizationState.initialized) {
+    virtualizationState.initialized = true;
+    scrollContainer.addEventListener('scroll', () => {
+      const st = scrollContainer.scrollTop;
+      const clientHeight = scrollContainer.clientHeight;
+      const start = Math.max(0, Math.floor(st / ITEM_HEIGHT) - VIRTUAL_BUFFER);
+      const end = Math.min(displayItems.length, start + Math.ceil(clientHeight / ITEM_HEIGHT) + 2 * VIRTUAL_BUFFER);
+      
+      if (start !== virtualizationState.startIndex || end !== virtualizationState.endIndex) {
+        virtualizationState.scrollTop = st;
+        virtualizationState.startIndex = start;
+        virtualizationState.endIndex = end;
+        renderAnnotations();
+      }
+    });
+  }
+
+  if (scrollContainer) {
+    const clientHeight = scrollContainer.clientHeight || 800;
+    virtualizationState.startIndex = Math.max(0, Math.floor(scrollContainer.scrollTop / ITEM_HEIGHT) - VIRTUAL_BUFFER);
+    virtualizationState.endIndex = Math.min(displayItems.length, virtualizationState.startIndex + Math.ceil(clientHeight / ITEM_HEIGHT) + 2 * VIRTUAL_BUFFER);
+  } else {
+    virtualizationState.startIndex = 0;
+    virtualizationState.endIndex = displayItems.length;
+  }
+
+  if (virtualizationState.startIndex > 0) {
+    const topSpacer = document.createElement("div");
+    // We subtract 4px to account for the flex gap that will be added between this spacer and the first item
+    topSpacer.style.height = `${(virtualizationState.startIndex * ITEM_HEIGHT) - 4}px`;
+    topSpacer.style.flexShrink = "0";
+    annotationList.appendChild(topSpacer);
+  }
+
+  const visibleItems = displayItems.slice(virtualizationState.startIndex, virtualizationState.endIndex);
+
+  visibleItems.forEach((itemObj, visibleIndex) => {
+    const { annotation, isGroup, groupAnns } = itemObj;
+    const displayCount = virtualizationState.startIndex + visibleIndex + 1;
 
     const label = annotation.type === "comment" ? { name: "Comment", color: "#e85d75" } : labelById(annotation.labelId);
     const totalPoints = groupAnns.reduce((sum, a) => sum + annotationPoints(a).length, 0);
@@ -388,8 +470,6 @@ export function renderAnnotations() {
     const item = document.createElement("button");
     item.type = "button";
     const isActive = state.selectedIds.has(annotation.id);
-    // Own toggle only — a class-level hide is reflected separately so the row
-    // still shows this annotation's individual state underneath it.
     const annHidden = state.hiddenAnnotationIds.has(annotation.id);
     const classHidden = !!annotation.labelId && state.hiddenLabelIds.has(annotation.labelId);
     item.className = `annotation-item${isActive ? " is-active" : ""}${annHidden || classHidden ? " is-row-hidden" : ""}`;
@@ -415,8 +495,6 @@ export function renderAnnotations() {
       text = `${displayCount}. ${labelDisplayName(label)} (Group of ${groupAnns.length})`;
     }
     item.querySelector(".ann-name").textContent = text;
-    // Bare count, no " pts" suffix — the unit costs sidebar width and the
-    // number alone is what matters (e.g. spotting a malformed polygon).
     const ptsEl = item.querySelector(".ann-pts");
     ptsEl.textContent = annotation.type === "comment" ? "" : String(totalPoints);
     if (annotation.type !== "comment") ptsEl.title = `${totalPoints} points`;
@@ -480,16 +558,12 @@ export function renderAnnotations() {
 
     item.querySelector(".eye-btn").addEventListener("click", (e) => {
       e.stopPropagation();
-      // A grouped row stands for every member, so it toggles them together —
-      // matching how the row is drawn and selected as a unit.
       const ids = isGroup ? groupAnns.map(a => a.id) : [annotation.id];
       const nowHidden = !state.hiddenAnnotationIds.has(annotation.id);
       ids.forEach((id) => {
         if (nowHidden) state.hiddenAnnotationIds.add(id);
         else state.hiddenAnnotationIds.delete(id);
       });
-      // Visibility is a view concern: no snapshot() (not undoable) and no
-      // save() (nothing persisted changed).
       render();
     });
 
@@ -497,7 +571,6 @@ export function renderAnnotations() {
       state.mode = "select";
       if (event.shiftKey) {
         const toSelect = isGroup ? groupAnns.map(a => a.id) : [annotation.id];
-
         if (state.selectedIds.has(annotation.id)) {
           toSelect.forEach(id => state.selectedIds.delete(id));
         } else {
@@ -519,7 +592,13 @@ export function renderAnnotations() {
     annotationList.appendChild(item);
   });
 
-  annotationCount.textContent = String(displayCount);
+  const remaining = displayItems.length - virtualizationState.endIndex;
+  if (remaining > 0) {
+    const bottomSpacer = document.createElement("div");
+    bottomSpacer.style.height = `${(remaining * ITEM_HEIGHT) - (virtualizationState.startIndex === 0 ? 0 : 4)}px`;
+    bottomSpacer.style.flexShrink = "0";
+    annotationList.appendChild(bottomSpacer);
+  }
 
   const selected = state.annotations.find((item) => item.id === state.selectedId);
   if (selected) {
