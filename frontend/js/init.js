@@ -28,8 +28,8 @@ import { autoDetectObjects, autoTagObjects } from "./ai/detect.js?v=1";
 import {
   syncTaskTime, syncTimeToServer, drainTaskTime, setActiveTaskResolver,
   setConflictHandler, resetSessionForTask, refreshTimerDisplays,
-  handleVisibilityChange
-} from "./components/timer.js?v=3";
+  handleVisibilityChange, setFrozenResolver
+} from "./components/timer.js?v=4";
 import {
   finalizePolygon, deleteSelected, undoAction, redoAction, setZoomChangeHandler
 } from "./canvas/interactions.js?v=6";
@@ -41,7 +41,8 @@ import {
   reportSaveForbidden, reportSaveRefused, setMyTeams, setMyUserId, updateTaskBanner,
   renderStatusDropdown, renderSaveSplitMenu, updateTaskStatusPill, currentRole,
   taskWriteBlock,
-} from "./canvas-permissions.js?v=7";
+} from "./canvas-permissions.js?v=8";
+import { isFrozenForRole } from "./task-status.js?v=2";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
 import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=2";
 import { claimTask, heartbeatTask, releaseTask } from "./task-lock.js?v=2";
@@ -1399,6 +1400,16 @@ document.addEventListener('DOMContentLoaded', () => {
     if (typeof state === 'undefined' || !state) return null;
     if (state.galleryIndex < 0 || !state.gallery) return null;
     return state.gallery[state.galleryIndex] || null;
+  });
+
+  // Stop the clock on a signed-off task. Asked per tick rather than latched at
+  // task-open, so a task approved by a reviewer in another tab freezes the
+  // timer here on the next tick instead of billing until the page is reloaded.
+  setFrozenResolver(() => {
+    if (typeof state === 'undefined' || !state) return false;
+    if (state.galleryIndex < 0 || !state.gallery) return false;
+    const task = state.gallery[state.galleryIndex];
+    return !!task && isFrozenForRole(task.status, currentRole());
   });
 
   // T2.2 — heartbeat: refresh the soft lock every 30 s while a task is open.

@@ -22,7 +22,7 @@
  */
 import { apiFetch } from "../../api.js?v=3";
 import { escapeHTML } from "../../utils.js?v=1";
-import { APPROVED_STATUSES, WORKING_STATUSES } from "../../task-status.js?v=1";
+import { APPROVED_STATUSES, WORKING_STATUSES } from "../../task-status.js?v=2";
 
 /**
  * One status checkbox. Generated rather than hand-written: the hardcoded list

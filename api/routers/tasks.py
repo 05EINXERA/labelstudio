@@ -14,6 +14,7 @@ from database import get_db, commit_with_retry
 from formats.annotation_diff import is_pure_append, total_point_count
 from schemas import (
     APPROVED_STATUSES,
+    is_approved,
     REVIEW_ACTION_STATUS,
     REVIEW_STATUSES,
     BulkAssign,
@@ -365,9 +366,23 @@ def _require_review_role_for_status(
             )
         return
 
-    # Moving away from a review status (e.g. Approved → In Progress) is
-    # allowed for any write-capable user — covered by the assignment check
-    # elsewhere, so no extra gate needed here.
+    # Moving away from an *approved* status requires reviewer role: un-approving
+    # is as much a review verdict as approving, and letting an annotator do it
+    # would hand them a one-click thaw of the freeze in `can_write_task`.
+    #
+    # Leaving 'Rejected' stays open to any write-capable user — that is the
+    # annotator acting on feedback and re-submitting, which is the whole point
+    # of rejecting rather than deleting.
+    if is_approved(db_task.status):
+        role = effective_project_role(user, db_task.project_id, db)
+        if not at_least(role, ProjectRole.REVIEWER):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"This task was marked {db_task.status}. Re-opening it "
+                    "requires the Reviewer role on this project."
+                ),
+            )
 
 
 def _require_assigned_team_membership(
@@ -382,6 +397,19 @@ def _require_assigned_team_membership(
     role = effective_project_role(user, db_task.project_id, db)
     if can_write_task(db_task, user, role, db):
         return
+
+    # The frozen case first, and with its own message. Falling through to the
+    # branches below would tell an assigned annotator "this task is assigned to
+    # <themselves>", which reads as a bug. Says what happened and who can undo
+    # it, so the reader has something to act on.
+    if is_approved(db_task.status):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"This task was marked {db_task.status} and is locked. "
+                "Ask a reviewer to reject or re-open it if it needs changes."
+            ),
+        )
 
     # Name whoever the task is actually reserved for, so the message is
     # actionable: "ask Priya" or "ask a manager to reassign it" beats a bare
