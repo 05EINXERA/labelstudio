@@ -17,6 +17,7 @@ import models
 from conftest import unique_label_id
 from database import SessionLocal
 from formats import coco as coco_format
+from formats import common as common_format
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures", "interop")
 
@@ -444,3 +445,76 @@ def test_genuinely_new_class_is_still_created(client, alice):
 
     labels = client.get(f"/api/labels?projectId={pid}", headers=alice).json()
     assert {l["name"] for l in labels} == {"Rust Area", "Sound Area"}
+
+
+# --- Merged polygons survive the interop round trip -------------------------
+
+# A real output of frontend/js/canvas/merge.js: a comb of four teeth unioned
+# with a horizontal bar (the multi-crossing case from tests/js/merge_spec.mjs).
+# Long, concave, integer-snapped and simple — the shape merge actually produces,
+# not a hand-drawn approximation of one.
+MERGED_COMB = [
+    {"x": 0, "y": 40}, {"x": 20, "y": 40}, {"x": 20, "y": 0}, {"x": 60, "y": 0},
+    {"x": 60, "y": 40}, {"x": 100, "y": 40}, {"x": 100, "y": 0}, {"x": 140, "y": 0},
+    {"x": 140, "y": 40}, {"x": 180, "y": 40}, {"x": 180, "y": 0}, {"x": 220, "y": 0},
+    {"x": 220, "y": 40}, {"x": 300, "y": 40}, {"x": 300, "y": 80}, {"x": 0, "y": 80},
+]
+
+
+def test_merged_polygon_is_simple_to_the_server():
+    """The server must agree with the merge kernel that its output is simple.
+
+    merge.js refuses to emit a ring that fails its own isSimpleRing check, but
+    that check lives in JS. formats/common.py carries the mirror, and if the two
+    ever disagreed a merged shape would be logged as self-intersecting on every
+    export and — worse — become a candidate for untangle_polygon to "fix".
+    """
+    assert common_format.is_simple_polygon(MERGED_COMB)
+
+
+def test_untangle_leaves_a_merged_polygon_alone():
+    """Server-side untangling must be a no-op on a merged shape.
+
+    This is the one place server geometry code could retroactively mangle a
+    merge: untangle_polygon keeps the largest loop and discards the rest, so a
+    false positive on a legitimately concave outline would silently delete most
+    of the annotation on import.
+    """
+    points, changed = common_format.untangle_polygon(MERGED_COMB)
+    assert changed is False
+    assert points == MERGED_COMB
+
+
+def test_merged_polygon_survives_export_and_reimport(client, alice):
+    """Export a merged shape to COCO, import it back, and compare geometry.
+
+    Guards the whole interop path for the shape merge produces, rather than only
+    the geometry predicates: the flatten to a segmentation array, the area
+    computation over a concave ring, and the parse back into points.
+    """
+    pid = _new_project(client, alice, "cocomerge")
+    lid = _new_label(client, alice, pid, "lbl-merged", "Merged")
+    _new_task(client, alice, pid, "merged.png", annotations=[{
+        "id": "a1", "labelId": lid, "type": "polygon", "points": MERGED_COMB,
+    }])
+
+    export = _export_coco(client, alice, pid)
+    assert len(export["annotations"]) == 1
+    ann = export["annotations"][0]
+
+    # Flattened [x, y, x, y, ...], so twice the vertex count and no dropped points.
+    assert len(ann["segmentation"][0]) == len(MERGED_COMB) * 2
+
+    # The round trip must reproduce the ring exactly — integer coordinates in,
+    # integer coordinates out.
+    flat = ann["segmentation"][0]
+    roundtripped = [{"x": flat[i], "y": flat[i + 1]} for i in range(0, len(flat), 2)]
+    assert roundtripped == MERGED_COMB
+
+    # Area is the polygon's, not the bounding box's: the comb encloses far less
+    # than its 300x80 extent.
+    assert ann["area"] == pytest.approx(common_format.polygon_area(MERGED_COMB))
+    assert ann["area"] < 300 * 80
+
+    # And it is still simple after the trip.
+    assert common_format.is_simple_polygon(roundtripped)
