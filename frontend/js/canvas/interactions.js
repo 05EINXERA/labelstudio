@@ -3,12 +3,12 @@ import { state, snapshot, isAnnotationHidden } from "../state.js?v=7";
 import { annotationPoints, updateAnnotationBounds, pointInPolygon } from "./geometry.js?v=1";
 import { untangleRing } from "./untangle.js?v=1";
 import { view } from "./view.js?v=1";
-import { draw, drawAllLayers } from "./draw.js?v=4";
+import { draw, drawAllLayers } from "./draw.js?v=5";
 import { canvas, ctx, undoButton } from "../dom.js?v=4";
 import { commentHitTest, COMMENT_FONT } from "./comment-geometry.js?v=2";
 import { shouldCanvasClickBeBlocked } from "../comment-mode.js?v=1";
-import { commentOverlayRefs } from "../comment-overlay.js?v=1";
-import { setStatus, save, render, activateLabel, toggleAnnotationsHidden, unhideAllObjects } from "../components/workspace.js?v=15";
+import { commentOverlayRefs, openCommentEditor, anchorCommentOverlay } from "../comment-overlay.js?v=2";
+import { setStatus, save, render, activateLabel, toggleAnnotationsHidden, unhideAllObjects, editBlockReason } from "../components/workspace.js?v=16";
 import { labelIndexForCode, hideTargetIds, shouldHide } from "../shortcuts.js?v=1";
 import { performMagicWandSegmentation } from "../ai/detect.js?v=2";
 import { applyAutoSmooth } from "../fft-controls.js?v=2";
@@ -906,15 +906,11 @@ canvas.addEventListener("pointerdown", (event) => {
       view.pendingCommentPoint = pointInImage;
       render();
 
-      const screenPoint = {
-        x: view.imageBox.x + view.pendingCommentPoint.x * view.imageBox.scale,
-        y: view.imageBox.y + view.pendingCommentPoint.y * view.imageBox.scale
-      };
-
-      commentOverlayRefs.commentOverlay.style.left = `${screenPoint.x + 15}px`;
-      commentOverlayRefs.commentOverlay.style.top = `${screenPoint.y - 15}px`;
       commentOverlayRefs.commentOverlay.classList.remove("is-hidden");
       commentOverlayRefs.commentOverlayInput.value = "";
+      // Anchored to the image point, not placed at fixed screen pixels, so the
+      // box follows the spot it describes when the view pans or zooms.
+      anchorCommentOverlay(pointInImage, view.imageBox);
       commentOverlayRefs.commentOverlayInput.focus();
       return;
     }
@@ -1191,6 +1187,33 @@ canvas.addEventListener("dblclick", (event) => {
   // reached that branch by the time this fires, so there is nothing left
   // for this handler to do mid-draw — skip it outright.
   if (view.drag?.type === "draw-polygon") return;
+
+  // Double-click a comment to edit it. Checked before the vertex-removal block
+  // below and independently of state.selectedId, because the first click of
+  // the pair has already selected the comment — but hitTest is re-run rather
+  // than trusting that, so a double-click that lands on a different comment
+  // edits the one actually under the cursor.
+  //
+  // Single click still only selects: that is the pointerdown path, which this
+  // does not touch. The two gestures stay separate because opening an editor
+  // is not something a click meant for selection should ever do.
+  {
+    const point = canvasPoint(event);
+    const hitId = hitTest(point);
+    const hit = hitId ? state.annotations.find((a) => a.id === hitId) : null;
+    if (hit && hit.type === "comment") {
+      // Same gate as the panel's Edit button: a user who may not write the
+      // task is not offered an editor whose save the server would refuse.
+      // Rendering-only, per rule 18b — the server checks regardless.
+      const blocked = editBlockReason();
+      if (blocked) {
+        setStatus(blocked);
+        return;
+      }
+      openCommentEditor(hit, view.imageBox, (id) => { view.pendingCommentEditId = id; });
+      return;
+    }
+  }
 
   if (state.selectedId) {
     const point = canvasPoint(event);

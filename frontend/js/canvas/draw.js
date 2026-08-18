@@ -7,6 +7,7 @@ import {
   commentScreenGeometry, COMMENT_FONT, COMMENT_PILL_RADIUS,
   COMMENT_TEXT_INSET_X, COMMENT_TEXT_BASELINE_Y
 } from "./comment-geometry.js?v=2";
+import { repositionCommentOverlay } from "../comment-overlay.js?v=2";
 
 export function computeImageBox() {
   if (!view.imageLoaded) {
@@ -108,6 +109,16 @@ export function draw() {
   const rect = canvas.getBoundingClientRect();
   ctx.clearRect(0, 0, rect.width, rect.height);
   computeImageBox();
+
+  // Keep an open comment overlay pinned to the image point it belongs to.
+  // It is positioned in screen pixels, so panning or zooming would otherwise
+  // slide the image out from under it and strand a comment being written away
+  // from the spot it describes. Done here because draw() is the one function
+  // every pan, zoom and resize already goes through; a no-op when no overlay
+  // is open. Before computeImageBox()'s result is used below, and outside the
+  // imageLoaded guard, so it also settles correctly on the frame the image
+  // finishes loading.
+  repositionCommentOverlay(view.imageBox);
 
   if (!view.imageLoaded) return;
 

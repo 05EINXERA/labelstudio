@@ -13,7 +13,7 @@ import { annotationPoints, updateAnnotationBounds } from "../canvas/geometry.js?
 import { view } from "../canvas/view.js?v=1";
 import { drainTaskTime } from "./timer.js?v=4";
 import { detectState } from "../ai/detect-state.js?v=3";
-import { draw, drawAllLayers } from "../canvas/draw.js?v=4";
+import { draw, drawAllLayers } from "../canvas/draw.js?v=5";
 import {
   emptyState, classesList, annotationList, annotationCount, selectedInfo,
   hiddenFilterButton, hiddenCount,
@@ -22,7 +22,7 @@ import {
   undoButton, redoButton, deleteButton, clearButton,
   shapeHint, saveStatus
 } from "../dom.js?v=4";
-import { commentOverlayRefs } from "../comment-overlay.js?v=1";
+import { commentOverlayRefs, openCommentEditor } from "../comment-overlay.js?v=2";
 import { toolAvailability } from "../feature-flags.js?v=1";
 // Per-task write gating. `isReadOnly()` is project-role only, so it is false
 // for an annotator who simply is not assigned the open task — the sidepanel
@@ -1045,17 +1045,17 @@ export function renderAnnotations() {
   const selected = state.annotations.find((item) => item.id === state.selectedId);
   if (selected) {
     if (selected.type === "comment") {
-      selectedInfo.innerHTML = `Comment by ${selected.author || "User"} <button id="editCommentBtn" class="icon-button" style="font-size: 0.8rem; margin-left: 8px;">✏️ Edit</button>`;
-      document.getElementById('editCommentBtn').addEventListener('click', () => {
-        view.pendingCommentEditId = selected.id;
-        const screenX = view.imageBox.x + selected.x * view.imageBox.scale;
-        const screenY = view.imageBox.y + selected.y * view.imageBox.scale;
-        commentOverlayRefs.commentOverlay.style.left = `${screenX + 15}px`;
-        commentOverlayRefs.commentOverlay.style.top = `${screenY - 15}px`;
-        commentOverlayRefs.commentOverlayInput.value = selected.text || "";
-        commentOverlayRefs.commentOverlay.classList.remove("is-hidden");
-        commentOverlayRefs.commentOverlayInput.focus();
-      });
+      // The Edit control is hidden when the task may not be written, matching
+      // the per-row class-edit control above. Rewriting a comment is an edit
+      // like any other; offering it to a reader whose save the server will
+      // refuse only invites lost work.
+      const commentEditBlocked = !!editBlockReason();
+      selectedInfo.innerHTML = `Comment by ${selected.author || "User"}${commentEditBlocked ? "" : ` <button id="editCommentBtn" class="icon-button" style="font-size: 0.8rem; margin-left: 8px;">✏️ Edit</button>`}`;
+      if (!commentEditBlocked) {
+        document.getElementById('editCommentBtn').addEventListener('click', () => {
+          openCommentEditor(selected, view.imageBox, (id) => { view.pendingCommentEditId = id; });
+        });
+      }
     } else {
       selectedInfo.textContent = labelDisplayName(labelById(selected.labelId));
     }

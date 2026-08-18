@@ -170,5 +170,52 @@ console.log('\ntranslateComment keeps stored coords in sync');
     !commentHitTest({ x: 100, y: 50 }, moved, identity, measure));
 }
 
+console.log('\noverlay anchoring follows the view');
+{
+  // The overlay is absolutely positioned in screen pixels but belongs to a
+  // place on the image. Positioning it once at click time left it stranded
+  // when the view panned or zoomed: the image slid out from under it and the
+  // box drifted away from the point it describes. The anchor is stored in
+  // image space so it can be replayed under any later transform - this is the
+  // arithmetic that repositionCommentOverlay() performs on every redraw.
+  const place = (anchor, box) => ({
+    left: box.x + anchor.x * box.scale + 15,
+    top: box.y + anchor.y * box.scale - 15
+  });
+
+  const anchor = { x: 200, y: 120 };
+  const atOpen = place(anchor, { x: 0, y: 0, scale: 1 });
+  ok('sits just right of and above the point', atOpen.left === 215 && atOpen.top === 105);
+
+  // Pan: the whole image shifts, so the overlay must shift by the same amount.
+  const panned = place(anchor, { x: -80, y: 40, scale: 1 });
+  ok('a pan moves the overlay with the image',
+    panned.left === atOpen.left - 80 && panned.top === atOpen.top + 40);
+
+  // Zoom: the anchor's screen position scales, the 15px offsets do not - they
+  // are a fixed visual gap from the dot, like the dot's own radius.
+  const zoomed = place(anchor, { x: 0, y: 0, scale: 2 });
+  ok('a zoom re-places the overlay over the same image point',
+    zoomed.left === 200 * 2 + 15 && zoomed.top === 120 * 2 - 15);
+  ok('the offset from the anchor stays constant under zoom',
+    zoomed.left - 200 * 2 === atOpen.left - 200);
+
+  // The regression itself: a stale screen position is wrong the moment the
+  // transform changes, which is why the anchor must be kept in image space.
+  ok('a stale screen position no longer matches after a pan',
+    panned.left !== atOpen.left);
+
+  // The overlay and the dot it belongs to must agree at every transform, or
+  // the box points at empty space.
+  for (const box of [{ x: 0, y: 0, scale: 1 }, { x: -80, y: 40, scale: 1 },
+                     { x: 12, y: -6, scale: 3.5 }]) {
+    const dot = commentScreenGeometry(
+      { x: anchor.x, y: anchor.y, text: 't', author: 'a' }, box, measure).dot;
+    const ov = place(anchor, box);
+    ok(`overlay tracks the dot at scale ${box.scale}, pan ${box.x}`,
+      ov.left === dot.cx + 15 && ov.top === dot.cy - 15);
+  }
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
