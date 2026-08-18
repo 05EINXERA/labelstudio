@@ -404,7 +404,7 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
             if attempt == 2 or not (is_unique or is_stale):
                 raise
             delay = 0.1 * (2 ** attempt)
-            logger.warning("Concurrent insert/update race detected on task %s (attempt %d/3), retrying in %.2fs: %s", task.id, attempt + 1, delay, type(e).__name__)
+            logger.info("Concurrent insert/update race detected on task %s (attempt %d/3), retrying in %.2fs: %s", task.id, attempt + 1, delay, type(e).__name__)
             time.sleep(delay)
 
 def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: Session, user: models.User, annotator: Optional[models.TeamMember]):

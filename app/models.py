@@ -109,6 +109,7 @@ class AIJob(Base):
 
 class Annotation(Base):
     __tablename__ = "annotations"
+    __mapper_args__ = {"confirm_deleted_rows": False}
     id = Column(String(64), primary_key=True)
     task_id = Column(Integer, ForeignKey("tasks.id", ondelete="CASCADE"), primary_key=True, index=True)
     label_id = Column(String, ForeignKey("labels.id", ondelete="SET NULL"), nullable=True, index=True)
