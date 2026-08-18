@@ -394,17 +394,26 @@ def get_lock_status(task_id: int,
 
 @router.post("")
 def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(None), db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
-    for attempt in range(3):
+    for attempt in range(5):
         try:
             return _update_or_create_task_impl(task, projectId, db, user, annotator)
         except (IntegrityError, StaleDataError) as e:
             db.rollback()
+            
+            # Expunge Annotation objects from the identity map to prevent SAWarnings 
+            # and poisoned state on subsequent attempts during prolonged race conditions.
+            for obj in list(db.identity_map.values()):
+                if isinstance(obj, models.Annotation):
+                    db.expunge(obj)
+                    
             is_unique = isinstance(e, IntegrityError) and ("unique" in str(e).lower() or "duplicate" in str(e).lower())
             is_stale = isinstance(e, StaleDataError)
-            if attempt == 2 or not (is_unique or is_stale):
+            if attempt == 4 or not (is_unique or is_stale):
                 raise
+            
+            # Back off
             delay = 0.1 * (2 ** attempt)
-            logger.info("Concurrent insert/update race detected on task %s (attempt %d/3), retrying in %.2fs: %s", task.id, attempt + 1, delay, type(e).__name__)
+            logger.info(f"Concurrent insert/update race detected on task {task.id or 'new'} (attempt {attempt+1}/5), retrying in {delay:.2f}s: {e.__class__.__name__}")
             time.sleep(delay)
 
 def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: Session, user: models.User, annotator: Optional[models.TeamMember]):

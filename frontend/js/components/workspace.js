@@ -443,7 +443,7 @@ export function renderAnnotations() {
 
   if (scrollContainer) {
     const clientHeight = scrollContainer.clientHeight || 800;
-    virtualizationState.startIndex = Math.max(0, Math.floor(scrollContainer.scrollTop / ITEM_HEIGHT) - VIRTUAL_BUFFER);
+    virtualizationState.startIndex = Math.max(0, Math.floor(virtualizationState.scrollTop / ITEM_HEIGHT) - VIRTUAL_BUFFER);
     virtualizationState.endIndex = Math.min(displayItems.length, virtualizationState.startIndex + Math.ceil(clientHeight / ITEM_HEIGHT) + 2 * VIRTUAL_BUFFER);
   } else {
     virtualizationState.startIndex = 0;
@@ -619,6 +619,10 @@ export function renderAnnotations() {
     }
   } else {
     selectedInfo.textContent = "None";
+  }
+
+  if (scrollContainer && virtualizationState.initialized) {
+    scrollContainer.scrollTop = virtualizationState.scrollTop;
   }
 }
 
