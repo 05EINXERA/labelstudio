@@ -19,7 +19,7 @@ import { drawAllLayers } from "./canvas/draw.js?v=5";
 import {
   setStatus, syncToBackend, save, loadSaved, saveDraft, restoreDraft,
   render, manualSaveWithUI, refreshSaveStatus, pruneStaleDrafts, unhideAllObjects
-} from "./components/workspace.js?v=16";
+} from "./components/workspace.js?v=17";
 import {
   configureQueue, startQueue, subscribe as subscribeQueue, drainQueue,
   enqueueWrite, retryablePendingCount, noteServerReachable, noteServerUnreachable,
@@ -33,7 +33,7 @@ import {
 } from "./components/timer.js?v=4";
 import {
   finalizePolygon, deleteSelected, undoAction, redoAction, setZoomChangeHandler
-} from "./canvas/interactions.js?v=9";
+} from "./canvas/interactions.js?v=10";
 import { initContextMenu } from "./canvas/context-menu.js?v=3";
 import { getCurrentUser } from "./session.js?v=1";
 import { initCanvasAssign, renderAssignButton } from "./canvas-assign.js?v=1";

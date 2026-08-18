@@ -1,7 +1,7 @@
 import { generateUUID, clamp, round } from "../utils.js?v=1";
 import { state, snapshot, isAnnotationHidden, labelById, labelDisplayName } from "../state.js?v=7";
 import { annotationPoints, updateAnnotationBounds, pointInPolygon } from "./geometry.js?v=1";
-import { untangleRing } from "./untangle.js?v=1";
+import { untangleRing } from "./untangle.js?v=2";
 import { unionAll } from "./merge.js?v=1";
 import { view } from "./view.js?v=1";
 import { draw, drawAllLayers } from "./draw.js?v=5";
@@ -9,7 +9,7 @@ import { canvas, ctx, undoButton } from "../dom.js?v=4";
 import { commentHitTest, COMMENT_FONT } from "./comment-geometry.js?v=2";
 import { shouldCanvasClickBeBlocked } from "../comment-mode.js?v=1";
 import { commentOverlayRefs, openCommentEditor, anchorCommentOverlay } from "../comment-overlay.js?v=2";
-import { setStatus, save, render, activateLabel, toggleAnnotationsHidden, unhideAllObjects, editBlockReason } from "../components/workspace.js?v=16";
+import { setStatus, save, render, activateLabel, toggleAnnotationsHidden, unhideAllObjects, editBlockReason } from "../components/workspace.js?v=17";
 import { labelIndexForCode, hideTargetIds, shouldHide } from "../shortcuts.js?v=1";
 import { performMagicWandSegmentation } from "../ai/detect.js?v=2";
 import { applyAutoSmooth } from "../fft-controls.js?v=2";
