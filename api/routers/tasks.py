@@ -8,8 +8,10 @@ from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy import case, false, func
 from sqlalchemy.orm import Session
 
+import config as _cfg
 import models
 from database import get_db, commit_with_retry
+from formats.annotation_diff import is_pure_append, total_point_count
 from schemas import (
     APPROVED_STATUSES,
     REVIEW_ACTION_STATUS,
@@ -110,7 +112,15 @@ CONFLICT_TOLERANCE_SECONDS = float(
 # this; history is the fine-grained layer that catches what a snapshot cadence
 # cannot — including a bad value that is itself overwritten within the hour.
 # See .devnotes/task-history/01_DESIGN.md § 4.2.
-ANNOTATION_HISTORY_KEEP = int(os.environ.get("ANNOTATION_HISTORY_KEEP", "50"))
+# The knob itself lives in config.py (rule 12); the rationale stays here with
+# the code it governs.
+ANNOTATION_HISTORY_KEEP = _cfg.ANNOTATION_HISTORY_KEEP
+
+# Skipping a row is a decision about whether recoverable work survives, so the
+# skip is opt-in and the heartbeat below bounds what it can cost. See
+# formats/annotation_diff for what counts as purely additive.
+ANNOTATION_HISTORY_APPEND_SKIP = _cfg.ANNOTATION_HISTORY_APPEND_SKIP
+ANNOTATION_HISTORY_HEARTBEAT_SECONDS = _cfg.ANNOTATION_HISTORY_HEARTBEAT_SECONDS
 
 
 def _blob_is_empty(blob: Optional[str]) -> bool:
@@ -137,6 +147,61 @@ def _count_annotations(blob: Optional[str]) -> int:
     except (ValueError, TypeError):
         return -1  # distinguishable from a genuine 0 in the loss scan
     return len(parsed) if isinstance(parsed, list) else -1
+
+
+def _may_skip_as_append(
+    db: Session,
+    db_task: models.Task,
+    incoming: str,
+) -> bool:
+    """True when this save adds only, and a heartbeat row is not yet due.
+
+    Two independent conditions, both required:
+
+    1. The write is purely additive — nothing in the stored blob is missing
+       from the incoming one (`is_pure_append`). If anything was removed or
+       changed, the stored value is the only copy of it and must be preserved.
+
+    2. A snapshot is not overdue. Condition 1 alone would let an hour of
+       freehand drawing pass with no history at all, so if the newest row for
+       this task is older than the heartbeat we keep one anyway. That row is
+       the floor a recovery can reach back to between destructive edits.
+
+    Any error answers False: failing to skip costs disk, wrongly skipping costs
+    annotations.
+    """
+    if not is_pure_append(db_task.annotations, incoming):
+        return False
+
+    if ANNOTATION_HISTORY_HEARTBEAT_SECONDS <= 0:
+        return True
+
+    newest = (
+        db.query(models.TaskAnnotationHistory.created_at)
+        .filter(models.TaskAnnotationHistory.task_id == db_task.id)
+        .order_by(models.TaskAnnotationHistory.id.desc())
+        .first()
+    )
+    if newest is None or newest[0] is None:
+        # No history at all for this task yet. Keep the first row so there is
+        # something to reach back to, even though this save added only.
+        return False
+
+    created_at = newest[0]
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=datetime.timezone.utc)
+
+    age = datetime.datetime.now(datetime.timezone.utc) - created_at
+    if age.total_seconds() >= ANNOTATION_HISTORY_HEARTBEAT_SECONDS:
+        return False
+
+    logger.debug(
+        "Task %s: skipping history row, save is purely additive (%d -> %d points).",
+        db_task.id,
+        total_point_count(db_task.annotations),
+        total_point_count(incoming),
+    )
+    return True
 
 
 def _record_annotation_history(
@@ -178,6 +243,10 @@ def _record_annotation_history(
         if _blob_is_empty(db_task.annotations):
             return
         if db_task.annotations == incoming:
+            return
+        if ANNOTATION_HISTORY_APPEND_SKIP and _may_skip_as_append(
+            db, db_task, incoming
+        ):
             return
 
         with db.begin_nested():
