@@ -151,14 +151,35 @@ export function drawStaticLayer() {
   });
 }
 
-export function drawAllLayers() {
+let pendingDraw = false;
+let pendingDrawAll = false;
+
+function doDrawAllSync() {
+  pendingDrawAll = false;
+  pendingDraw = false;
   computeImageBox();
   drawImageLayer();
   drawStaticLayer();
-  draw();
+  doDrawSync();
+}
+
+export function drawAllLayers() {
+  if (!pendingDrawAll) {
+    pendingDrawAll = true;
+    requestAnimationFrame(doDrawAllSync);
+  }
 }
 
 export function draw() {
+  if (pendingDrawAll) return;
+  if (!pendingDraw) {
+    pendingDraw = true;
+    requestAnimationFrame(doDrawSync);
+  }
+}
+
+function doDrawSync() {
+  pendingDraw = false;
   const rect = canvas.getBoundingClientRect();
   ctx.clearRect(0, 0, rect.width, rect.height);
   computeImageBox();

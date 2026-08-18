@@ -708,13 +708,23 @@ export function renderControls() {
   emptyState.classList.toggle("is-hidden", view.imageLoaded);
 }
 
-export function render() {
+let pendingRender = false;
+
+function doRenderSync() {
+  pendingRender = false;
   renderClasses();
   renderImageClasses();
   renderAnnotations();
   renderControls();
   renderAssignee();
   drawAllLayers();
+}
+
+export function render() {
+  if (!pendingRender) {
+    pendingRender = true;
+    requestAnimationFrame(doRenderSync);
+  }
 }
 
 export function renderAssignee() {
