@@ -1136,6 +1136,16 @@ export function renderControls() {
   if (ungroupButton) {
     ungroupButton.disabled = !state.annotations.some(a => state.selectedIds.has(a.id) && a.groupId);
   }
+  const mergeButton = document.querySelector("#mergeButton");
+  if (mergeButton) {
+    // Deliberately no overlap test here: it is O(n*m) per render pass, and the
+    // command reports non-overlap itself when it runs. This only gates on what
+    // is cheap to know — enough shapes, and permission to write.
+    const mergeable = state.annotations.filter(
+      a => state.selectedIds.has(a.id) && a.type !== "comment"
+    );
+    mergeButton.disabled = mergeable.length <= 1 || Boolean(editBlockReason());
+  }
   clearButton.disabled = state.annotations.length === 0;
   // The old Export link was dimmed here when there was nothing to export. Its
   // replacement (Assign) is gated by *role*, not by canvas contents — a task

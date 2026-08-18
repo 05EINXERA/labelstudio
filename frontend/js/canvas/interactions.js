@@ -1,7 +1,8 @@
 import { generateUUID, clamp, round } from "../utils.js?v=1";
-import { state, snapshot, isAnnotationHidden } from "../state.js?v=7";
+import { state, snapshot, isAnnotationHidden, labelById, labelDisplayName } from "../state.js?v=7";
 import { annotationPoints, updateAnnotationBounds, pointInPolygon } from "./geometry.js?v=1";
 import { untangleRing } from "./untangle.js?v=1";
+import { unionAll } from "./merge.js?v=1";
 import { view } from "./view.js?v=1";
 import { draw, drawAllLayers } from "./draw.js?v=5";
 import { canvas, ctx, undoButton } from "../dom.js?v=4";
@@ -641,6 +642,119 @@ export function groupSelectedAnnotations() {
   render();
   save();
   setStatus("Grouped");
+}
+
+const mergeButton = document.querySelector("#mergeButton");
+if (mergeButton) {
+  mergeButton.addEventListener("click", () => {
+    mergeSelectedAnnotations();
+  });
+}
+
+/**
+ * Replace the selected overlapping shapes with one shape covering their union.
+ *
+ * Destructive in a way Group is not: the inputs are consumed, not linked. So it
+ * refuses loudly rather than doing something approximate — a selection that
+ * does not all overlap leaves everything untouched and says why.
+ */
+export function mergeSelectedAnnotations() {
+  // Before any mutation, including snapshot(). A frozen or read-only task must
+  // not reach a state where local annotations changed and only the save is
+  // refused — rule 18a: a permission error never destroys work.
+  const blocked = editBlockReason();
+  if (blocked) {
+    setStatus(blocked);
+    return;
+  }
+
+  if (state.selectedIds.size <= 1) return;
+
+  // Comments are annotations too but have no area to union.
+  const selectedList = state.annotations.filter(
+    (a) => state.selectedIds.has(a.id) && a.type !== "comment"
+  );
+  if (selectedList.length <= 1) return;
+
+  // Normalise each input to a simple ring. Only polygons need untangling —
+  // a box's 4 points are always simple, and untangleIfPolygon deliberately
+  // skips them, so this mirrors that rather than routing boxes through it.
+  const rings = selectedList.map((annotation) => {
+    const points = annotationPoints(annotation);
+    if (annotation.type !== "polygon") return points;
+    return untangleRing(points, null, true).points;
+  });
+
+  // The union is computed before snapshot() on purpose. It touches no state, so
+  // every refusal below can return without having disturbed the undo stack at
+  // all — snapshot() also clears the redo stack, and an aborted merge that
+  // silently dropped a pending redo would be a real loss for a no-op command.
+  const { points, skipped } = unionAll(rings);
+
+  // Partial merges are never committed: silently dropping the shapes that did
+  // not overlap would look like the command ate them.
+  if (!points || skipped.length) {
+    const count = skipped.length;
+    setStatus(
+      count
+        ? `Cannot merge: ${count} selected object${count === 1 ? " does" : "s do"} not overlap the rest`
+        : "Cannot merge: selected objects do not overlap"
+    );
+    return;
+  }
+
+  if (points.length < 3) {
+    setStatus("Cannot merge: the result is not a valid shape");
+    return;
+  }
+
+  snapshot();
+
+  // Class of the first selected shape wins, matching Group.
+  const baseAnnotation = selectedList[0];
+  const mixedClasses = selectedList.some((a) => a.labelId !== baseAnnotation.labelId);
+
+  const merged = {
+    id: generateUUID(),
+    // Explicit: draw.js and the hit-test infer "polygon" from the point count
+    // when type is absent, and a union that rounds to 4 points would be read
+    // back as a box.
+    type: "polygon",
+    labelId: baseAnnotation.labelId,
+    points
+    // Deliberately no groupId. The merged shape is one object, so inheriting a
+    // group would leave it linked to shapes it just absorbed.
+  };
+  updateAnnotationBounds(merged);
+
+  // Keep the merged shape where the frontmost input sat, rather than letting it
+  // jump to the top of the z-order.
+  const consumedIds = new Set(selectedList.map((a) => a.id));
+  const insertAt = state.annotations.findIndex((a) => consumedIds.has(a.id));
+  const remaining = state.annotations.filter((a) => !consumedIds.has(a.id));
+  remaining.splice(insertAt, 0, merged);
+  state.annotations = remaining;
+
+  // The consumed ids are gone; leaving them in these sets would hide or
+  // re-select a shape that no longer exists.
+  consumedIds.forEach((id) => state.hiddenAnnotationIds.delete(id));
+  state.selectedIds.clear();
+  state.selectedIds.add(merged.id);
+  state.selectedId = merged.id;
+
+  // Edge indices refer to the old shapes' vertices.
+  view.hoveredLineIndex = -1;
+  view.selectedLineIndex = -1;
+
+  render();
+  save();
+
+  const className = labelDisplayName(labelById(merged.labelId));
+  setStatus(
+    mixedClasses
+      ? `Merged ${selectedList.length} objects as ${className}`
+      : `Merged ${selectedList.length} objects`
+  );
 }
 
 const ungroupButton = document.querySelector("#ungroupButton");
@@ -1455,6 +1569,16 @@ window.addEventListener("keydown", (event) => {
 
   if (event.key.toLowerCase() === "g") {
     groupSelectedAnnotations();
+    return;
+  }
+
+  // "M" merges the selection into one shape. Modifiers excluded so Ctrl+M /
+  // Cmd+M stay with the browser, following the "U" binding's precedent. The
+  // isTyping guard above already keeps this out of the comment editor, which
+  // is a real <textarea>.
+  if (event.key.toLowerCase() === "m" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    event.preventDefault();
+    mergeSelectedAnnotations();
     return;
   }
 
