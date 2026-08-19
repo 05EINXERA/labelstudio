@@ -48,8 +48,14 @@ function render(root, project, m) {
 
     <div class="metric-grid">
       ${tile({ label: "Total tasks", value: total, sub: "Images in this project", href: "#/tasks" })}
-      ${tile({ label: "Completed", value: completed, href: "#/tasks" })}
-      ${tile({ label: "In progress", value: m.in_progress || 0, href: "#/tasks" })}
+      ${
+        m.status_counts && Object.keys(m.status_counts).length > 0
+          ? Object.entries(m.status_counts).map(([status, count]) => 
+              tile({ label: status, value: count, href: "#/tasks" })
+            ).join('')
+          : `${tile({ label: "Completed", value: 0, href: "#/tasks" })}
+             ${tile({ label: "In progress", value: 0, href: "#/tasks" })}`
+      }
       ${tile({ label: "Total classes", value: m.classes || 0, sub: "Labels available to every task", href: "#/classes" })}
       ${tile({ label: "Comments", value: m.comments || 0 })}
       ${tile({ label: "Time logged", value: formatTime(m.total_time || 0), sub: "Across all tasks" })}

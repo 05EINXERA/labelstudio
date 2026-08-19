@@ -103,7 +103,8 @@ def _aggregate_metrics(project_ids: List[int], db: Session) -> dict:
     """
     metrics = {
         pid: {"total": 0, "completed": 0, "in_progress": 0, "comments": 0,
-              "progress": 0, "classes": 0, "total_time": 0, "avg_time_per_task": 0}
+              "progress": 0, "classes": 0, "total_time": 0, "avg_time_per_task": 0,
+              "status_counts": {}}
         for pid in project_ids
     }
     if not project_ids:
@@ -130,6 +131,11 @@ def _aggregate_metrics(project_ids: List[int], db: Session) -> dict:
             entry["completed"] += count
         elif status == 'In Progress':
             entry["in_progress"] += count
+        
+        if status not in entry["status_counts"]:
+            entry["status_counts"][status] = 0
+        entry["status_counts"][status] += count
+
         entry["total_time"] += total_time
 
     # Count comments using the Annotation table

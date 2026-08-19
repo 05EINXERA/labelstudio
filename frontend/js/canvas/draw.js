@@ -25,13 +25,60 @@ function getCompositeContexts(width, height) {
   return { fillCtx: compositeFillCtx, strokeCtx: compositeStrokeCtx };
 }
 
+function isAnnotationVisible(annotation, canvasWidth, canvasHeight) {
+  const ax = Number(annotation.x) || 0;
+  const ay = Number(annotation.y) || 0;
+  const aw = Math.max(0, Number(annotation.width) || 0);
+  const ah = Math.max(0, Number(annotation.height) || 0);
+
+  const screenX = view.imageBox.x + ax * view.imageBox.scale;
+  const screenY = view.imageBox.y + ay * view.imageBox.scale;
+  const screenW = aw * view.imageBox.scale;
+  const screenH = ah * view.imageBox.scale;
+
+  const pad = 30; // Padding for strokes and selection handles
+  return !(
+    screenX + screenW + pad < 0 ||
+    screenY + screenH + pad < 0 ||
+    screenX - pad > canvasWidth ||
+    screenY - pad > canvasHeight
+  );
+}
+
 function drawGroupUnion(groupAnns, selected, targetCtx) {
   if (groupAnns.length === 0) return;
   const label = labelById(groupAnns[0].labelId);
   const { fillCtx, strokeCtx } = getCompositeContexts(targetCtx.canvas.width, targetCtx.canvas.height);
 
-  fillCtx.clearRect(0, 0, fillCtx.canvas.width, fillCtx.canvas.height);
-  strokeCtx.clearRect(0, 0, strokeCtx.canvas.width, strokeCtx.canvas.height);
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  groupAnns.forEach((ann) => {
+    if (ann.type === "comment") return;
+    const points = annotationPoints(ann);
+    if (!points || points.length < 3) return;
+    points.forEach((p) => {
+      const sx = view.imageBox.x + p.x * view.imageBox.scale;
+      const sy = view.imageBox.y + p.y * view.imageBox.scale;
+      if (sx < minX) minX = sx;
+      if (sy < minY) minY = sy;
+      if (sx > maxX) maxX = sx;
+      if (sy > maxY) maxY = sy;
+    });
+  });
+
+  if (minX === Infinity) return;
+  
+  // Add padding for stroke width and general safety
+  const pad = (selected ? 3 : 2) * 2 + 5;
+  const bx = Math.max(0, Math.floor(minX - pad));
+  const by = Math.max(0, Math.floor(minY - pad));
+  const bw = Math.min(targetCtx.canvas.width - bx, Math.ceil(maxX - minX + pad * 2));
+  const bh = Math.min(targetCtx.canvas.height - by, Math.ceil(maxY - minY + pad * 2));
+
+  if (bw <= 0 || bh <= 0) return;
+
+  // Clear ONLY the bounding box region
+  fillCtx.clearRect(bx, by, bw, bh);
+  strokeCtx.clearRect(bx, by, bw, bh);
 
   // Fill Canvas: draw opaque union
   fillCtx.fillStyle = label.color;
@@ -76,7 +123,7 @@ function drawGroupUnion(groupAnns, selected, targetCtx) {
 
   // Erase inner strokes using the fill mask
   strokeCtx.globalCompositeOperation = "destination-out";
-  strokeCtx.drawImage(fillCtx.canvas, 0, 0);
+  strokeCtx.drawImage(fillCtx.canvas, bx, by, bw, bh, bx, by, bw, bh);
   strokeCtx.globalCompositeOperation = "source-over";
 
   // Composite them to the target canvas
@@ -84,9 +131,9 @@ function drawGroupUnion(groupAnns, selected, targetCtx) {
   // We use normal or selected opacity (groups don't include drafts usually)
   const fillAlpha = selected ? annotationOpacity.selected : annotationOpacity.normal;
   targetCtx.globalAlpha = fillAlpha;
-  targetCtx.drawImage(fillCtx.canvas, 0, 0);
+  targetCtx.drawImage(fillCtx.canvas, bx, by, bw, bh, bx, by, bw, bh);
   targetCtx.globalAlpha = 1.0;
-  targetCtx.drawImage(strokeCtx.canvas, 0, 0);
+  targetCtx.drawImage(strokeCtx.canvas, bx, by, bw, bh, bx, by, bw, bh);
   targetCtx.restore();
 }
 
@@ -131,9 +178,12 @@ export function drawStaticLayer() {
   if (!view.imageLoaded) return;
 
   const drawnGroups = new Set();
+  const cw = staticCtx.canvas.width;
+  const ch = staticCtx.canvas.height;
 
   state.annotations.forEach((annotation) => {
     if (isAnnotationHidden(annotation)) return;
+    if (!isAnnotationVisible(annotation, cw, ch)) return;
     const isSelected = state.selectedIds.has(annotation.id);
     const isDragging = view.drag?.annotationId === annotation.id || view.drag?.originals?.find(a => a.id === annotation.id);
     if (!isSelected && !isDragging) {
@@ -187,11 +237,14 @@ function doDrawSync() {
   if (!view.imageLoaded) return;
 
   const drawnGroups = new Set();
+  const cw = ctx.canvas.width;
+  const ch = ctx.canvas.height;
 
   state.annotations.forEach((annotation) => {
     // Filtered here as well as in drawStaticLayer: without this a hidden
     // annotation would reappear the moment it became selected.
     if (isAnnotationHidden(annotation)) return;
+    if (!isAnnotationVisible(annotation, cw, ch)) return;
     const isSelected = state.selectedIds.has(annotation.id);
     const isDragging = view.drag?.annotationId === annotation.id || view.drag?.originals?.find(a => a.id === annotation.id);
     if (isSelected || isDragging) {

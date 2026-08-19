@@ -109,6 +109,7 @@ class ProjectMetrics(BaseModel):
     status: Optional[str] = None
     in_progress: int = 0
     classes: int = 0
+    status_counts: Dict[str, int] = Field(default_factory=dict)
 
 class BulkDelete(BaseModel):
     ids: List[int]
