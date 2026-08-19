@@ -264,5 +264,62 @@ const click = (mount, sel) => mount.querySelector(sel).click();
   ok('getState carries the totals', api.getState().total === 4000);
 }
 
+// --- the whole view is restorable in one pass ------------------------------
+
+{
+  // The Tasks view restores page, sort, search and filters off the URL. All of
+  // it has to arrive in the *one* fetch that follows: going through
+  // setQuery()/setFilter() instead would fire a request each and, because those
+  // setters mean "the user just changed this", reset to page 1 and throw the
+  // restored page away.
+  const { api, calls } = serverTable(4000, {
+    onStateChange: () => { throw new Error('setInitialState must not emit onStateChange'); },
+  });
+  api.setInitialState({
+    page: 4,
+    sortKey: 'status',
+    sortDesc: true,
+    query: 'cat',
+    filters: { status: 'Approved', team: '7' },
+  });
+  await api.load();
+
+  ok('restoring the whole view costs exactly one fetch', calls.length === 1);
+  ok('the restored page is the one requested', calls[0].page === 4);
+  ok('the restored sort reaches the server',
+     calls[0].sortKey === 'status' && calls[0].sortDesc === true);
+  ok('the restored search reaches the server', calls[0].query === 'cat');
+  ok('the restored filters reach the server',
+     calls[0].filters.status === 'Approved' && calls[0].filters.team === '7');
+  ok('getState reports the restored filters', api.getState().filters.status === 'Approved');
+}
+
+{
+  // Merged, not assigned: restoring one filter must not wipe another.
+  const { api } = serverTable(50);
+  api.setInitialState({ filters: { status: 'Approved' } });
+  api.setInitialState({ filters: { team: '7' } });
+  ok('filters merge across calls',
+     api.getState().filters.status === 'Approved' && api.getState().filters.team === '7');
+}
+
+{
+  // Omitting a key leaves it alone, so the existing page-only callers keep
+  // working unchanged.
+  const { api } = serverTable(50);
+  api.setInitialState({ query: 'cat', filters: { status: 'Approved' } });
+  api.setInitialState({ page: 2 });
+  ok('an omitted query is left alone', api.getState().query === 'cat');
+  ok('omitted filters are left alone', api.getState().filters.status === 'Approved');
+}
+
+{
+  // An explicitly empty query clears, rather than being ignored as falsy.
+  const { api } = serverTable(50);
+  api.setInitialState({ query: 'cat' });
+  api.setInitialState({ query: '' });
+  ok('an empty query clears the search', api.getState().query === '');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

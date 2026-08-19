@@ -9,8 +9,59 @@
  */
 import { apiFetch } from "../../api.js?v=3";
 import { escapeHTML, formatTime } from "../../utils.js?v=1";
+import { APPROVED_STATUSES } from "../../task-status.js?v=2";
 
 let abortController = null;
+
+/**
+ * The tasks-view link for one status filter.
+ *
+ * Built through URLSearchParams rather than string concatenation so a status
+ * containing a space ('In Progress') or an ampersand cannot break the hash. The
+ * receiving end is tasks.js::readViewStateFromHash, which already reads
+ * `status` and pre-selects #statusFilter from it.
+ */
+export function tasksHref(status) {
+  if (!status) return "#/tasks";
+  return `#/tasks?${new URLSearchParams({ status })}`;
+}
+
+/**
+ * The status tiles, in display order — pure, so tests/js/dashboard_tiles_spec.mjs
+ * can assert the counts and links without a DOM.
+ *
+ * The approval tiles are *derived* from APPROVED_STATUSES rather than listed by
+ * name. 'Approved', 'Verified', 'Checked' and 'Passed' are one group of
+ * synonyms differing only in which export batch a sign-off belongs to, and the
+ * dashboard used to collapse them into a single count — hiding exactly the
+ * distinction the batch names exist to make. Deriving the list also keeps
+ * rule 11a's promise: adding a batch status stays one line in schemas.py plus
+ * one in task-status.js, and a tile appears here for free. Hard-coding four
+ * names would make this a third place to edit, and a silently wrong one.
+ */
+export function statusTiles(metrics) {
+  const by = metrics?.by_status || {};
+  // A missing key means an older server (or a status with no tasks); either way
+  // the tile shows 0, never `undefined`.
+  const count = (status) => by[status] ?? 0;
+  // Named `entry`, not `tile`: `tile()` below is the HTML renderer, and these
+  // are the data it renders.
+  const entry = (status, label, sub) => ({
+    status,
+    label: label || status,
+    value: count(status),
+    sub,
+    href: tasksHref(status),
+  });
+
+  return [
+    ...APPROVED_STATUSES.map((s) => entry(s, s, "Signed off by a reviewer")),
+    entry("Completed", "Awaiting review", "Marked complete, not yet approved"),
+    entry("In Progress", "In progress"),
+    entry("New", "New", "Not started"),
+    entry("Rejected", "Rejected", "Sent back for rework"),
+  ];
+}
 
 function tile({ label, value, sub, href }) {
   const inner = `
@@ -26,11 +77,10 @@ function render(root, project, m) {
   const total = m.total || 0;
   // `completed` is the *approved* count — tasks a reviewer signed off under any
   // batch status (Approved / Verified / Checked / …), not tasks an annotator
-  // merely marked 'Completed'. Those are `awaiting_review`, shown as their own
-  // tile so the review queue stays visible rather than being folded into
-  // progress that nobody has checked.
+  // merely marked 'Completed'. The completion bar stays a *group* question, so
+  // it keeps using this total; the grid below splits the group into one tile
+  // per export batch, plus a tile for the 'Completed' review queue.
   const completed = m.completed || 0;
-  const awaitingReview = m.awaiting_review || 0;
   const remaining = Math.max(0, total - completed);
 
   root.innerHTML = `
@@ -54,9 +104,7 @@ function render(root, project, m) {
 
     <div class="metric-grid">
       ${tile({ label: "Total tasks", value: total, sub: "Images in this project", href: "#/tasks" })}
-      ${tile({ label: "Approved", value: completed, sub: "Signed off by a reviewer", href: "#/tasks" })}
-      ${tile({ label: "Awaiting review", value: awaitingReview, sub: "Marked complete, not yet approved", href: "#/tasks" })}
-      ${tile({ label: "In progress", value: m.in_progress || 0, href: "#/tasks" })}
+      ${statusTiles(m).map((t) => tile(t)).join("")}
       ${tile({ label: "Total classes", value: m.classes || 0, sub: "Labels available to every task", href: "#/classes" })}
       ${tile({ label: "Comments", value: m.comments || 0 })}
       ${tile({ label: "Time logged", value: formatTime(m.total_time || 0), sub: "Across all tasks" })}

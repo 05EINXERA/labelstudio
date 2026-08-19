@@ -1266,6 +1266,23 @@ function cameFromTasksPage() {
   }
 }
 
+// One-shot ticket telling the tasks page "this load is a return from the
+// canvas, keep the filters the URL carries". Must match RETURN_TICKET_KEY in
+// pages/project/tasks-view-restore.js — there is no build step to share one
+// constant, so the two files name each other.
+//
+// Written on *both* back-arrow paths, not just the href one: a `history.back()`
+// load is normally recognised by its `back_forward` navigation type, but that
+// signal is missing when the page is served from the bfcache in some browsers,
+// and a ticket costs nothing when the type already answers.
+const RETURN_TICKET_KEY = "tasks_return_ticket";
+
+function markReturnToTasks() {
+  try {
+    sessionStorage.setItem(RETURN_TICKET_KEY, String(Date.now()));
+  } catch { /* private mode: the tasks page starts clean, which is the safe way to be wrong */ }
+}
+
 function clearCameFromTasks() {
   try {
     sessionStorage.removeItem(CAME_FROM_TASKS_KEY);
@@ -1296,6 +1313,10 @@ async function initWorkspaceContext() {
     backToProject.addEventListener("click", (e) => {
       // Let the browser handle modifier-clicks (open in new tab) normally.
       if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+      // Before the history check, so the href fallback carries a ticket too:
+      // that path is an ordinary `navigate` and has no other way to say it is a
+      // return rather than a pasted URL.
+      markReturnToTasks();
       if (!cameFromTasksPage()) return;   // no history to pop; follow the href
 
       // Step back instead of navigating forward. Following the href would push
