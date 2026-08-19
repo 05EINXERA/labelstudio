@@ -9,21 +9,6 @@ let compositeFillCtx = null;
 let compositeStrokeCanvas = null;
 let compositeStrokeCtx = null;
 
-// ── Static-layer cache ──────────────────────────────────────────────────
-// Pre-renders non-selected annotations at the current zoom resolution so
-// that pan frames need only a single drawImage() blit.  When zoom changes
-// the cache is invalidated and rebuilt at the new resolution so annotations
-// stay crisp.
-let staticCacheCanvas = null;
-let staticCacheCtx = null;
-let staticCacheDirty = true;
-let cachedZoom = -1;
-const MAX_CACHE_DIM = 4096;
-
-export function invalidateStaticCache() {
-  staticCacheDirty = true;
-}
-
 function getCompositeContexts(width, height) {
   if (!compositeFillCanvas) {
     compositeFillCanvas = document.createElement("canvas");
@@ -140,105 +125,30 @@ export function drawImageLayer() {
   backgroundImage.style.height = view.imageBox.height + "px";
 }
 
-function ensureStaticCache() {
-  if (!view.imageLoaded) return false;
-  const natW = view.imageElement.naturalWidth;
-  const natH = view.imageElement.naturalHeight;
-  // Size the cache to match the current screen zoom so annotations stay
-  // crisp.  At extreme zoom, cap at MAX_CACHE_DIM to bound memory usage.
-  const screenScale = view.imageBox.scale;
-  const idealW = Math.ceil(natW * screenScale);
-  const idealH = Math.ceil(natH * screenScale);
-  const capFactor = Math.min(1, MAX_CACHE_DIM / Math.max(idealW, idealH, 1));
-  const cw = Math.max(1, Math.ceil(idealW * capFactor));
-  const ch = Math.max(1, Math.ceil(idealH * capFactor));
-
-  if (!staticCacheCanvas) {
-    staticCacheCanvas = document.createElement("canvas");
-    staticCacheCtx = staticCacheCanvas.getContext("2d");
-  }
-  if (staticCacheCanvas.width !== cw || staticCacheCanvas.height !== ch) {
-    staticCacheCanvas.width = cw;
-    staticCacheCanvas.height = ch;
-    staticCacheDirty = true;
-  }
-  return true;
-}
-
-/**
- * Rebuild the image-space cache of all non-selected, non-dragging annotations.
- *
- * Drawing happens with view.imageBox temporarily set to an identity-like box
- * (origin at 0,0, scale = cacheScale) so drawAnnotation / drawGroupUnion produce
- * image-space paths that the display step can blit at any viewport offset/zoom.
- */
-function rebuildStaticCache() {
-  const cw = staticCacheCanvas.width;
-  const ch = staticCacheCanvas.height;
-  const natW = view.imageElement.naturalWidth;
-  const cacheScale = cw / natW;
-
-  staticCacheCtx.clearRect(0, 0, cw, ch);
-
-  const savedImageBox = view.imageBox;
-  view.imageBox = { x: 0, y: 0, width: cw, height: ch, scale: cacheScale };
+export function drawStaticLayer() {
+  const rect = staticCanvas.getBoundingClientRect();
+  staticCtx.clearRect(0, 0, rect.width, rect.height);
+  if (!view.imageLoaded) return;
 
   const drawnGroups = new Set();
 
   state.annotations.forEach((annotation) => {
     if (isAnnotationHidden(annotation)) return;
     const isSelected = state.selectedIds.has(annotation.id);
-    const isDragging = view.drag?.annotationId === annotation.id ||
-                       view.drag?.originals?.find(a => a.id === annotation.id);
+    const isDragging = view.drag?.annotationId === annotation.id || view.drag?.originals?.find(a => a.id === annotation.id);
     if (!isSelected && !isDragging) {
       if (annotation.groupId) {
         if (!drawnGroups.has(annotation.groupId)) {
           drawnGroups.add(annotation.groupId);
-          const groupAnns = state.annotations.filter(
-            a => a.groupId === annotation.groupId &&
-                 !isAnnotationHidden(a) &&
-                 !state.selectedIds.has(a.id) &&
-                 !(view.drag?.annotationId === a.id ||
-                   view.drag?.originals?.find(orig => orig.id === a.id))
-          );
-          drawGroupUnion(groupAnns, false, staticCacheCtx);
-          groupAnns.forEach(ann => drawAnnotation(ann, false, staticCacheCtx, true, groupAnns));
+          const groupAnns = state.annotations.filter(a => a.groupId === annotation.groupId && !isAnnotationHidden(a) && !state.selectedIds.has(a.id) && !(view.drag?.annotationId === a.id || view.drag?.originals?.find(orig => orig.id === a.id)));
+          drawGroupUnion(groupAnns, false, staticCtx);
+          groupAnns.forEach(ann => drawAnnotation(ann, false, staticCtx, true, groupAnns));
         }
       } else {
-        drawAnnotation(annotation, false, staticCacheCtx);
+        drawAnnotation(annotation, false, staticCtx);
       }
     }
   });
-
-  view.imageBox = savedImageBox;
-  staticCacheDirty = false;
-}
-
-export function drawStaticLayer() {
-  const rect = staticCanvas.getBoundingClientRect();
-  staticCtx.clearRect(0, 0, rect.width, rect.height);
-  if (!view.imageLoaded) return;
-
-  // Invalidate when zoom changes so the cache is rebuilt at the new
-  // resolution.  Pan-only changes reuse the existing cache.
-  if (view.viewZoom !== cachedZoom) {
-    staticCacheDirty = true;
-  }
-
-  if (!ensureStaticCache()) return;
-  if (staticCacheDirty) {
-    rebuildStaticCache();
-    cachedZoom = view.viewZoom;
-  }
-
-  // Blit the cached bitmap at the current viewport position/scale.
-  if (staticCacheCanvas.width > 0 && staticCacheCanvas.height > 0) {
-    staticCtx.drawImage(
-      staticCacheCanvas,
-      0, 0, staticCacheCanvas.width, staticCacheCanvas.height,
-      view.imageBox.x, view.imageBox.y, view.imageBox.width, view.imageBox.height
-    );
-  }
 }
 
 let pendingDraw = false;

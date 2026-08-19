@@ -8,7 +8,7 @@ import { annotationPoints, updateAnnotationBounds } from "../canvas/geometry.js?
 import { view } from "../canvas/view.js?v=1";
 import { drainTaskTime } from "./timer.js?v=1";
 import { detectState } from "../ai/detect-state.js?v=1";
-import { draw, drawAllLayers, invalidateStaticCache } from "../canvas/draw.js?v=1";
+import { draw, drawAllLayers } from "../canvas/draw.js?v=1";
 import {
   emptyState, classesList, annotationList, annotationCount, selectedInfo,
   drawMode, selectMode, boxMode, polygonMode, commentMode, magicWandMode,
@@ -712,7 +712,6 @@ let pendingRender = false;
 
 function doRenderSync() {
   pendingRender = false;
-  invalidateStaticCache();
   renderClasses();
   renderImageClasses();
   renderAnnotations();
