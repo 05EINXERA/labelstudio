@@ -84,7 +84,6 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
   const payload = {
     id: taskId,
     time_spent_delta: timeDelta,
-    status: status || task.status || 'In Progress',
     // Sent explicitly as null rather than left undefined when unknown:
     // JSON.stringify drops undefined keys, and an absent updated_at silently
     // disables conflict detection instead of declaring "I have no token".
@@ -92,6 +91,14 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
     // Lets the server tell our own earlier writes apart from another user's.
     client_id: clientId()
   };
+
+  let nextStatus = status;
+  if (!nextStatus && task.status === 'New') {
+    nextStatus = 'In Progress';
+  }
+  if (nextStatus) {
+    payload.status = nextStatus;
+  }
 
   if (annotations !== undefined) {
     payload.annotations = JSON.stringify(annotations);

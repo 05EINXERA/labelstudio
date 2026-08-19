@@ -61,7 +61,7 @@ class ProjectTransferOwnership(BaseModel):
 class TaskUpdate(BaseModel):
     id: Optional[int] = None
     assignee: Optional[str] = None
-    status: Optional[str] = "New"
+    status: Optional[str] = None
     description: Optional[str] = None
     time_spent_delta: Optional[int] = Field(0, ge=0, le=MAX_TIME_DELTA_SECONDS)
     annotations: Optional[str] = None
