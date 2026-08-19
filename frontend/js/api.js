@@ -36,7 +36,16 @@ export async function apiFetch(url, options = {}) {
     if (csrf) options.headers[CSRF_HEADER] = csrf;
   }
 
-  const res = await fetch(url, options);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
+  options.signal = options.signal || controller.signal;
+
+  let res;
+  try {
+    res = await fetch(url, options);
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (res.status === 401) {
     localStorage.removeItem('logged_in');

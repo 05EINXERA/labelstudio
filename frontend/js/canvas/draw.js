@@ -9,6 +9,19 @@ let compositeFillCtx = null;
 let compositeStrokeCanvas = null;
 let compositeStrokeCtx = null;
 
+// ── Static-layer cache ──────────────────────────────────────────────────
+// Pre-renders non-selected annotations in image-space so that pan/zoom
+// frames need only a single drawImage() blit instead of re-rendering
+// every annotation individually.
+let staticCacheCanvas = null;
+let staticCacheCtx = null;
+let staticCacheDirty = true;
+const MAX_CACHE_DIM = 4096;
+
+export function invalidateStaticCache() {
+  staticCacheDirty = true;
+}
+
 function getCompositeContexts(width, height) {
   if (!compositeFillCanvas) {
     compositeFillCanvas = document.createElement("canvas");
@@ -125,30 +138,91 @@ export function drawImageLayer() {
   backgroundImage.style.height = view.imageBox.height + "px";
 }
 
-export function drawStaticLayer() {
-  const rect = staticCanvas.getBoundingClientRect();
-  staticCtx.clearRect(0, 0, rect.width, rect.height);
-  if (!view.imageLoaded) return;
+function ensureStaticCache() {
+  if (!view.imageLoaded) return false;
+  const natW = view.imageElement.naturalWidth;
+  const natH = view.imageElement.naturalHeight;
+  const scaleFactor = Math.min(1, MAX_CACHE_DIM / Math.max(natW, natH, 1));
+  const cw = Math.ceil(natW * scaleFactor);
+  const ch = Math.ceil(natH * scaleFactor);
+
+  if (!staticCacheCanvas) {
+    staticCacheCanvas = document.createElement("canvas");
+    staticCacheCtx = staticCacheCanvas.getContext("2d");
+  }
+  if (staticCacheCanvas.width !== cw || staticCacheCanvas.height !== ch) {
+    staticCacheCanvas.width = cw;
+    staticCacheCanvas.height = ch;
+    staticCacheDirty = true;
+  }
+  return true;
+}
+
+/**
+ * Rebuild the image-space cache of all non-selected, non-dragging annotations.
+ *
+ * Drawing happens with view.imageBox temporarily set to an identity-like box
+ * (origin at 0,0, scale = cacheScale) so drawAnnotation / drawGroupUnion produce
+ * image-space paths that the display step can blit at any viewport offset/zoom.
+ */
+function rebuildStaticCache() {
+  const cw = staticCacheCanvas.width;
+  const ch = staticCacheCanvas.height;
+  const natW = view.imageElement.naturalWidth;
+  const cacheScale = cw / natW;
+
+  staticCacheCtx.clearRect(0, 0, cw, ch);
+
+  const savedImageBox = view.imageBox;
+  view.imageBox = { x: 0, y: 0, width: cw, height: ch, scale: cacheScale };
 
   const drawnGroups = new Set();
 
   state.annotations.forEach((annotation) => {
     if (isAnnotationHidden(annotation)) return;
     const isSelected = state.selectedIds.has(annotation.id);
-    const isDragging = view.drag?.annotationId === annotation.id || view.drag?.originals?.find(a => a.id === annotation.id);
+    const isDragging = view.drag?.annotationId === annotation.id ||
+                       view.drag?.originals?.find(a => a.id === annotation.id);
     if (!isSelected && !isDragging) {
       if (annotation.groupId) {
         if (!drawnGroups.has(annotation.groupId)) {
           drawnGroups.add(annotation.groupId);
-          const groupAnns = state.annotations.filter(a => a.groupId === annotation.groupId && !isAnnotationHidden(a) && !state.selectedIds.has(a.id) && !(view.drag?.annotationId === a.id || view.drag?.originals?.find(orig => orig.id === a.id)));
-          drawGroupUnion(groupAnns, false, staticCtx);
-          groupAnns.forEach(ann => drawAnnotation(ann, false, staticCtx, true, groupAnns));
+          const groupAnns = state.annotations.filter(
+            a => a.groupId === annotation.groupId &&
+                 !isAnnotationHidden(a) &&
+                 !state.selectedIds.has(a.id) &&
+                 !(view.drag?.annotationId === a.id ||
+                   view.drag?.originals?.find(orig => orig.id === a.id))
+          );
+          drawGroupUnion(groupAnns, false, staticCacheCtx);
+          groupAnns.forEach(ann => drawAnnotation(ann, false, staticCacheCtx, true, groupAnns));
         }
       } else {
-        drawAnnotation(annotation, false, staticCtx);
+        drawAnnotation(annotation, false, staticCacheCtx);
       }
     }
   });
+
+  view.imageBox = savedImageBox;
+  staticCacheDirty = false;
+}
+
+export function drawStaticLayer() {
+  const rect = staticCanvas.getBoundingClientRect();
+  staticCtx.clearRect(0, 0, rect.width, rect.height);
+  if (!view.imageLoaded) return;
+
+  if (!ensureStaticCache()) return;
+  if (staticCacheDirty) rebuildStaticCache();
+
+  // Blit the cached image-space bitmap at the current viewport position/scale.
+  if (staticCacheCanvas.width > 0 && staticCacheCanvas.height > 0) {
+    staticCtx.drawImage(
+      staticCacheCanvas,
+      0, 0, staticCacheCanvas.width, staticCacheCanvas.height,
+      view.imageBox.x, view.imageBox.y, view.imageBox.width, view.imageBox.height
+    );
+  }
 }
 
 let pendingDraw = false;

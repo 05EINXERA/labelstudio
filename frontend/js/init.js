@@ -83,18 +83,31 @@ window.addEventListener('pagehide', () => {
 /**
  * Concurrency conflict resolution handler.
  */
+let conflictTask = null;
+const conflictModal = document.getElementById('conflictModal');
+
+if (conflictModal) {
+  document.getElementById('conflictReloadBtn')?.addEventListener('click', () => {
+    window.location.reload();
+  });
+
+  const dismissConflict = () => {
+    conflictModal.classList.remove('is-active');
+    if (conflictTask) {
+      conflictTask.updated_at = null;
+      setStatus("Keeping your version — will overwrite on next save");
+    }
+  };
+
+  document.getElementById('conflictKeepBtn')?.addEventListener('click', dismissConflict);
+  document.getElementById('conflictCloseBtn')?.addEventListener('click', dismissConflict);
+}
+
 setConflictHandler((task) => {
   saveDraft();
-  const reload = confirm(
-    "This task was changed by someone else while you were working.\n\n" +
-    "OK — reload their version (your unsaved work stays recoverable).\n" +
-    "Cancel — keep your version and overwrite on the next save."
-  );
-  if (reload) {
-    window.location.reload();
-  } else {
-    task.updated_at = null;
-    setStatus("Keeping your version — will overwrite on next save");
+  conflictTask = task;
+  if (conflictModal) {
+    conflictModal.classList.add('is-active');
   }
 });
 
