@@ -11,7 +11,8 @@ import { MAX_CLASS_SHORTCUTS } from "../shortcuts.js?v=1";
 import { pendingCount, retryablePendingCount, isServerUnreachable, peekWrite } from "../offline-queue.js?v=4";
 import { annotationPoints, updateAnnotationBounds } from "../canvas/geometry.js?v=1";
 import { view } from "../canvas/view.js?v=1";
-import { drainTaskTime } from "./timer.js?v=4";
+import { drainTaskTime, DRAIN_SKIPPED, refreshTimerDisplays } from "./timer.js?v=5";
+import { timerState } from "../timer-state.js?v=3";
 import { detectState } from "../ai/detect-state.js?v=3";
 import { draw, drawAllLayers } from "../canvas/draw.js?v=5";
 import {
@@ -191,7 +192,7 @@ export function editBlockReason() {
  * elsewhere deliberately omit the annotation set entirely rather than sending
  * an empty one, so they can never reach that guard at all.
  */
-export function syncToBackend({ useBeacon = false, keepStatus = false, allowClear = false, forceStatus = null } = {}) {
+export function syncToBackend({ useBeacon = false, keepStatus = false, allowClear = false, forceStatus = null, userInitiated = false } = {}) {
   if (typeof state === 'undefined' || state.galleryIndex < 0 || !state.gallery || !state.gallery[state.galleryIndex]) return;
   const currentTask = state.gallery[state.galleryIndex];
   if (!currentTask.id) return;
@@ -219,6 +220,12 @@ export function syncToBackend({ useBeacon = false, keepStatus = false, allowClea
   // payload that went out as "In Progress" still looked Completed on screen
   // until the next reload. The request now carries exactly what was asked for.
   let taskStatus = forceStatus || currentTask.status;
+
+  // The status as stored *before* the derivations below. Compared against the
+  // final value to tell "this save changes the status" from "this save merely
+  // restates it" — the New→In Progress promotion and the terminal demotion are
+  // both real changes and must not be suppressed.
+  const statusBeforeDerivation = currentTask.status;
 
   if (canWrite && !keepStatus) {
     // Opening a New task and doing any work naturally starts it.
@@ -252,6 +259,48 @@ export function syncToBackend({ useBeacon = false, keepStatus = false, allowClea
 
   currentTask.status = taskStatus;
   currentTask.annotations = [...state.annotations];
+
+  // A save that would change nothing is not made at all.
+  //
+  // This path always passes both `status` and `annotations`, so timer.js's own
+  // gate never fires from here — the suppression has to be stated explicitly,
+  // and this is the call site that matters: the 30s tick, the gallery switch
+  // and the pagehide beacon all arrive through here having touched nothing.
+  // Sending them grew `time_spent` and moved `updated_at` for a look-only
+  // visit (.devnotes/unwanted-time-change/01_DIAGNOSIS.md).
+  //
+  // The conditions are all necessary:
+  //   * `!forceStatus` — "Save as Complete" states an intent; never suppress it.
+  //   * `taskStatus === currentTaskStatusBefore` — the derived New→In Progress
+  //     promotion and the terminal→In Progress demotion above are real changes.
+  //   * `!annotationsChangedSinceHydration(...)` — fails safe, reporting
+  //     "changed" whenever it cannot prove otherwise (no fingerprint, an
+  //     unserialisable state), so an unprovable case still saves.
+  //   * `!allowClear` — a deliberate delete-all is an edit by definition, and
+  //     must never be swallowed.
+  //
+  // Beacons matter most here: sendBeacon reports only that it queued, so a
+  // pointless one can never be judged after the fact. Not sending it is the
+  // only way to be sure it did nothing.
+  //   * `!userInitiated` — the Save button is a stated intent. Suppressing it
+  //     would report "Saved Successfully" for a request that was never sent,
+  //     which is the same class of lie as the old unconditional "Saved" (see
+  //     restingStatus() above). Automatic saves make no such promise, so only
+  //     they are eligible for suppression.
+  const nothingToSave = !userInitiated
+    && !forceStatus
+    && !allowClear
+    && taskStatus === statusBeforeDerivation
+    && !annotationsChangedSinceHydration(state.annotations);
+
+  if (nothingToSave) {
+    // Discard the seconds accrued while only looking, and leave the draft and
+    // the offline queue alone: nothing was sent, so there is nothing to
+    // confirm and nothing to retry.
+    timerState.taskSessionSeconds = 0;
+    refreshTimerDisplays();
+    return Promise.resolve(DRAIN_SKIPPED);
+  }
 
   // Time accounting (drain, retry-on-failure, task binding) lives in timer.js
   // so there is exactly one drain point for taskSessionSeconds. See
@@ -527,6 +576,9 @@ export async function manualSaveWithUI() {
     // off and the server refuses the empty write with a 422.
     const ok = await syncToBackend({
       allowClear: clearIsUserIntent(state.annotations.length),
+      // The user pressed Save and is watching for an answer, so this one is
+      // always sent even when nothing changed.
+      userInitiated: true,
     });
 
     // A manual save is the one place the user is actively watching, so a

@@ -66,7 +66,21 @@ class Task(Base):
     assignee = Column(String)
     time_spent = Column(Integer, default=0)
     created_at = Column(DateTime, server_default=func.now())
-    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    # No `onupdate=func.now()`, deliberately. This column is the
+    # optimistic-concurrency token (CLAUDE.md rule 11), not a passive audit
+    # field, so *when* it moves is a decision the router makes explicitly —
+    # every write path assigns it.
+    #
+    # An implicit onupdate broke that in two ways at once. It fired on any
+    # UPDATE to the row, so a save that changed nothing but `last_client_id`
+    # still rotated the token (.devnotes/unwanted-time-change/01_DIAGNOSIS.md),
+    # defeating the router's "only bump when something changed" gate from
+    # underneath it. And `func.now()` resolves to the database's second-
+    # resolution clock, so it silently truncated the microseconds the router
+    # had just written — leaving the value the response reported and the value
+    # actually stored different, which makes the token comparison fail for a
+    # client that did nothing wrong.
+    updated_at = Column(DateTime, server_default=func.now())
     annotations = Column(Text)
     # Pixel dimensions of the image at image_path, captured at upload.
     # Nullable because rows predating this column have never been measured;

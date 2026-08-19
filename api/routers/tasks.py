@@ -1227,19 +1227,52 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
                         status_code=409,
                         detail="Task was updated by another user. Please refresh to see latest annotations.",
                     )
+        # Did this write actually change anything?
+        #
+        # `updated_at` is only moved when the answer is yes. A reviewer who
+        # opens a task, pans and zooms, and leaves produces a time-only save
+        # (the timer auto-starts on the first canvas pointerdown), and bumping
+        # the timestamp for it made a look-only visit indistinguishable from a
+        # fresh edit — in the Tasks list, and in the concurrency token every
+        # other client holds. See .devnotes/unwanted-time-change/01_DIAGNOSIS.md.
+        #
+        # The test is *value* difference, not key presence: clients resend the
+        # full record on every drain, so "the key was supplied" says nothing
+        # about whether anything moved.
+        #
+        # Deliberately NOT counted as a change:
+        #   * `last_client_id` — it records who wrote last, not what they wrote.
+        #     Counting it would bump on the first look-only save from every new
+        #     tab, which is precisely the case being fixed. It is still assigned
+        #     below, because conflict detection depends on it being current.
+        #   * a zero `time_spent_delta` — adding nothing changes nothing.
+        changed = False
+
         if task.client_id is not None:
             db_task.last_client_id = task.client_id
         if task.assignee is not None:
+            if task.assignee != db_task.assignee:
+                changed = True
             db_task.assignee = task.assignee
         if task.status is not None:
             # The review gate for 'Approved'/'Rejected' is enforced above, in
             # _require_review_role_for_status, before conflict detection runs.
             # (This is the line the old comment predicted would need a check
             # "if projects ever gain shared members" — they now have them.)
+            if task.status != db_task.status:
+                changed = True
             db_task.status = task.status
         if task.description is not None:
+            if task.description != db_task.description:
+                changed = True
             db_task.description = task.description
-        if task.time_spent_delta is not None:
+        if task.time_spent_delta:
+            # Truthiness, so a zero delta is inert. A non-zero one is a real
+            # column write and does count: once the client stops sending
+            # seconds for no-edit visits, a non-zero delta only arrives when
+            # work genuinely happened, and treating it as inert would leave a
+            # real session's final drain with a stale timestamp.
+            changed = True
             db_task.time_spent = (db_task.time_spent or 0) + task.time_spent_delta
         if task.annotations is not None:
             # Refuse a save that would silently erase existing work unless the
@@ -1293,16 +1326,30 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
             _record_annotation_history(
                 db, db_task, task.annotations, user, task.client_id
             )
+            # Compared before the assignment, obviously — and byte-wise, which
+            # is the same test `_record_annotation_history` already uses to
+            # dedup identical resaves. Two blobs that differ only in key order
+            # or whitespace count as a change; that is the conservative
+            # direction (an extra bump, never a missed one) and it keeps this
+            # flag in lockstep with what history recorded.
+            if task.annotations != db_task.annotations:
+                changed = True
             db_task.annotations = task.annotations
-        now_utc = datetime.datetime.now(datetime.timezone.utc)
-        if db_task.updated_at:
-            if db_task.updated_at.tzinfo is None:
-                db_task_updated_at_utc = db_task.updated_at.replace(tzinfo=datetime.timezone.utc)
-            else:
-                db_task_updated_at_utc = db_task.updated_at
-            if now_utc <= db_task_updated_at_utc:
-                now_utc = db_task_updated_at_utc + datetime.timedelta(microseconds=1000)
-        db_task.updated_at = now_utc
+
+        # Only a write that changed something moves the timestamp. When nothing
+        # changed the stored value is returned untouched, so the caller's
+        # concurrency token stays valid rather than being rotated by a no-op
+        # (CLAUDE.md rule 11).
+        if changed:
+            now_utc = datetime.datetime.now(datetime.timezone.utc)
+            if db_task.updated_at:
+                if db_task.updated_at.tzinfo is None:
+                    db_task_updated_at_utc = db_task.updated_at.replace(tzinfo=datetime.timezone.utc)
+                else:
+                    db_task_updated_at_utc = db_task.updated_at
+                if now_utc <= db_task_updated_at_utc:
+                    now_utc = db_task_updated_at_utc + datetime.timedelta(microseconds=1000)
+            db_task.updated_at = now_utc
         task_id = db_task.id
         new_updated_at = db_task.updated_at
     else:

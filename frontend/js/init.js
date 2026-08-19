@@ -4,7 +4,7 @@ import {
   state, snapshot, resetWorkspaceForNewImage,
   beginHydration, completeHydration, failHydration, hydrationOk, hydrationFailed,
   hydrationSaveBlock, currentHydrationGeneration, noteHydratedAnnotationCount,
-  noteHydratedAnnotations
+  noteHydratedAnnotations, annotationsChangedSinceHydration
 } from "./state.js?v=7";
 import { view } from "./canvas/view.js?v=1";
 import { commentOverlayRefs, clearCommentOverlayAnchor } from "./comment-overlay.js?v=2";
@@ -19,7 +19,7 @@ import { drawAllLayers } from "./canvas/draw.js?v=5";
 import {
   setStatus, syncToBackend, save, loadSaved, saveDraft, restoreDraft,
   render, manualSaveWithUI, refreshSaveStatus, pruneStaleDrafts, unhideAllObjects
-} from "./components/workspace.js?v=17";
+} from "./components/workspace.js?v=18";
 import {
   configureQueue, startQueue, subscribe as subscribeQueue, drainQueue,
   enqueueWrite, retryablePendingCount, noteServerReachable, noteServerUnreachable,
@@ -29,8 +29,8 @@ import { autoDetectObjects, autoTagObjects } from "./ai/detect.js?v=2";
 import {
   syncTaskTime, syncTimeToServer, drainTaskTime, setActiveTaskResolver,
   setConflictHandler, resetSessionForTask, refreshTimerDisplays,
-  handleVisibilityChange, setFrozenResolver
-} from "./components/timer.js?v=4";
+  handleVisibilityChange, setFrozenResolver, setEditedResolver
+} from "./components/timer.js?v=5";
 import {
   finalizePolygon, deleteSelected, undoAction, redoAction, setZoomChangeHandler
 } from "./canvas/interactions.js?v=10";
@@ -1453,6 +1453,18 @@ document.addEventListener('DOMContentLoaded', () => {
     if (state.galleryIndex < 0 || !state.gallery) return false;
     const task = state.gallery[state.galleryIndex];
     return !!task && isFrozenForRole(task.status, currentRole());
+  });
+
+  // Has the open task been edited since it hydrated? Consulted by the time
+  // drain so a look-only visit — pan, zoom, and nothing else — banks no seconds
+  // and moves no timestamp (.devnotes/unwanted-time-change/01_DIAGNOSIS.md).
+  //
+  // Asked per drain rather than latched, for the same reason as
+  // setFrozenResolver above: the answer changes as the user works, and the
+  // fingerprint is re-baselined after every confirmed save.
+  setEditedResolver(() => {
+    if (typeof state === 'undefined' || !state) return true; // unknown ⇒ save
+    return annotationsChangedSinceHydration(state.annotations);
   });
 
   // T2.2 — heartbeat: refresh the soft lock every 30 s while a task is open.

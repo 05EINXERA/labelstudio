@@ -1,4 +1,5 @@
 import csv
+import datetime
 import io
 import json
 import logging
@@ -53,6 +54,11 @@ def purge_annotations_for_labels(project_id: int, label_ids: set, db: Session) -
         if len(kept) != len(anns):
             removed += len(anns) - len(kept)
             task.annotations = json.dumps(kept)
+            # Set explicitly. `Task.updated_at` carries no `onupdate` (see
+            # models.py for why), so a write that does not assign it leaves the
+            # task looking untouched — and leaves every open tab holding a
+            # token that no longer describes the stored annotations.
+            task.updated_at = datetime.datetime.now(datetime.timezone.utc)
 
     return removed
 
