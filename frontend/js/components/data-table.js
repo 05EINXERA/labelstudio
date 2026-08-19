@@ -425,17 +425,25 @@ export function createDataTable(opts) {
     getState() { return publicState(); },
 
     /**
-     * Server mode: jump to a page without emitting onStateChange.
+     * Server mode: restore page, sort, search and filters without emitting
+     * onStateChange and without fetching.
      *
-     * Used to restore the page from the URL on load. Going through setPage()
-     * would fire onStateChange and rewrite the very URL being read, which is
-     * harmless but circular; more importantly the caller wants the initial sort
-     * applied in the same pass rather than as a second fetch.
+     * Used to restore the whole view from the URL on load. Going through
+     * setPage()/setQuery()/setFilter() would fire onStateChange and rewrite the
+     * very URL being read, issue one request per control, and — because those
+     * setters mean "the user just changed this", so page 1 is the only sane
+     * landing — reset the page the caller is trying to restore. Applying it all
+     * here instead leaves exactly one fetch, on the page the URL asked for.
+     *
+     * `filters` is merged, not assigned: a caller restoring only `status` must
+     * not silently drop a filter set elsewhere.
      */
-    setInitialState({ page, sortKey, sortDesc } = {}) {
+    setInitialState({ page, sortKey, sortDesc, query, filters } = {}) {
       if (Number.isFinite(page) && page >= 1) state.page = Math.floor(page);
       if (sortKey) state.sortKey = sortKey;
       if (sortDesc !== undefined) state.sortDesc = !!sortDesc;
+      if (query !== undefined) state.query = query || "";
+      if (filters) Object.assign(state.filters, filters);
     },
 
     /** Server mode: (re)load the current page. */

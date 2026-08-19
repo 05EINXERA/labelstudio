@@ -15,6 +15,7 @@ import { renderNav, setActive, visibleNavItems } from "../../components/project-
 import { renderAppNav, wireLogout } from "../../components/app-nav.js?v=1";
 import { getCurrentUser } from "../../session.js?v=1";
 import { wireAccountSettings } from "../../components/account-settings.js?v=1";
+import { consumeReturnTicket } from "./tasks-view-restore.js?v=2";
 
 const DEFAULT_ROUTE = "home";
 
@@ -30,11 +31,22 @@ const els = {
 
 const projectId = new URLSearchParams(window.location.search).get("id");
 
+/** sessionStorage, or null where it is unavailable (private mode, storage
+ *  disabled by policy). Reading the property itself can throw, so the guard
+ *  cannot be a plain truthiness check. */
+function _sessionStorage() {
+  try {
+    return window.sessionStorage ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // View loaders. Keyed by route; the dynamic import path must be a literal so
 // it stays statically analysable.
 const VIEWS = {
-  home: () => import("./home.js?v=2"),
-  tasks: () => import("./tasks.js?v=13"),
+  home: () => import("./home.js?v=3"),
+  tasks: () => import("./tasks.js?v=15"),
   classes: () => import("./classes.js?v=2"),
   imports: () => import("./imports.js?v=1"),
   exports: () => import("./exports.js?v=2"),
@@ -44,6 +56,17 @@ const VIEWS = {
 let currentView = null;   // the loaded module, so we can call unmount()
 let currentRoute = null;
 let loadToken = 0;        // guards against out-of-order async view loads
+
+/**
+ * False only for the very first render of this document; true once a hashchange
+ * has driven a render.
+ *
+ * Views use it to tell "the user just navigated here" from "the document was
+ * loaded at this URL". A Home tile linking to `#/tasks?status=Verified` is the
+ * former and must keep its filter; a reload of that same URL is the latter and
+ * starts clean (tasks-view-restore.js).
+ */
+let hasNavigatedInPage = false;
 
 const ctx = {
   projectId,
@@ -161,7 +184,7 @@ async function renderRoute() {
     // A newer navigation started while this module was loading; discard.
     if (token !== loadToken) return;
     currentView = mod;
-    await mod.mount(els.view, ctx, paramsFromHash());
+    await mod.mount(els.view, ctx, paramsFromHash(), { inPageNavigation: hasNavigatedInPage });
   } catch (err) {
     if (token !== loadToken) return;
     console.error(`Failed to load view "${route}"`, err);
@@ -208,7 +231,25 @@ async function init() {
     );
   }
 
-  window.addEventListener("hashchange", renderRoute);
+  window.addEventListener("hashchange", () => {
+    // Every hashchange is by definition an in-page navigation, so from here on
+    // a mounted view is arriving because the user asked for this URL — not
+    // because the document happened to load at it.
+    hasNavigatedInPage = true;
+    renderRoute();
+  });
+
+  // A bfcache restore (Back from the canvas, where the browser had the whole
+  // document parked) resurrects this page without re-running any view's
+  // mount() — the filters are simply still applied, which is exactly what a
+  // return should do. But nobody consumed the return ticket the canvas left, so
+  // spend it here: an unspent ticket would otherwise survive to wrongly restore
+  // the *next* reload, which must start clean.
+  window.addEventListener("pageshow", (e) => {
+    if (!e.persisted) return;   // a normal load; mount() consumed it already
+    consumeReturnTicket(_sessionStorage());
+  });
+
   await renderRoute();
 }
 

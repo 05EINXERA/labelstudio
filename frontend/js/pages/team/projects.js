@@ -8,7 +8,7 @@
  */
 import { apiFetch } from "../../api.js?v=3";
 import { escapeHTML } from "../../utils.js?v=1";
-import { createDataTable } from "../../components/data-table.js?v=3";
+import { createDataTable } from "../../components/data-table.js?v=4";
 import { roleBadge } from "../../components/role-badge.js?v=1";
 
 let ctx = null;

@@ -12,7 +12,7 @@ import models
 import schemas
 from config import DATA_DIR, MAX_UPLOAD_FILES
 from database import get_db, commit_with_retry
-from schemas import ProjectModel, ProjectMetrics, ProjectSummary, is_approved
+from schemas import ProjectModel, ProjectMetrics, ProjectSummary, TASK_STATUSES, is_approved
 from api.auth import get_current_user, require_csrf
 from api.permissions import (
     ProjectRole,
@@ -79,7 +79,11 @@ def _aggregate_metrics(project_ids: List[int], db: Session) -> dict:
     metrics = {
         pid: {"total": 0, "completed": 0, "awaiting_review": 0, "in_progress": 0,
               "comments": 0, "progress": 0, "classes": 0, "total_time": 0,
-              "avg_time_per_task": 0}
+              "avg_time_per_task": 0,
+              # Seeded with the whole vocabulary so a status with no tasks reads
+              # 0 rather than being absent — the dashboard renders a tile per key
+              # and an absent one would show `undefined`.
+              "by_status": {s: 0 for s in TASK_STATUSES}}
         for pid in project_ids
     }
     if not project_ids:
@@ -93,6 +97,11 @@ def _aggregate_metrics(project_ids: List[int], db: Session) -> dict:
     for t in tasks:
         entry = metrics[t.project_id]
         entry["total"] += 1
+        # Per-status detail. A status outside the vocabulary (a legacy row, a
+        # hand-edited DB) gets its own key rather than being dropped, so the map
+        # always sums to `total`.
+        if t.status is not None:
+            entry["by_status"][t.status] = entry["by_status"].get(t.status, 0) + 1
         # Completion means *signed off*, not merely submitted. A task an
         # annotator marked 'Completed' is waiting for a reviewer, so counting it
         # as done overstated progress: the project read 100% while none of it had

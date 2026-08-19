@@ -36,6 +36,7 @@ interop `value`. An interop COCO export puts the value form in
 ("Rust Area"), so importing both files from one source project would
 otherwise create two labels for the same class.
 """
+import datetime
 import io
 import json
 import logging
@@ -446,6 +447,10 @@ async def import_annotations(
                 existing_kept = []
 
         task.annotations = json.dumps(existing_kept + resolved)
+        # Set explicitly — `Task.updated_at` has no `onupdate` (models.py). An
+        # import rewrites annotations wholesale, so a stale timestamp here
+        # would hide the biggest change a task can undergo.
+        task.updated_at = datetime.datetime.now(datetime.timezone.utc)
         applied += 1
         annotations_imported += len(resolved)
 

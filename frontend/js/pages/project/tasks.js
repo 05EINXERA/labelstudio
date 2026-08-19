@@ -18,11 +18,16 @@
  */
 import { apiFetch } from "../../api.js?v=3";
 import { escapeHTML, formatTime, clientId } from "../../utils.js?v=1";
-import { createDataTable } from "../../components/data-table.js?v=3";
+import { createDataTable } from "../../components/data-table.js?v=4";
 import { fillTeamSelect } from "../../components/team-picker.js?v=1";
 import { canManage, canReview } from "../../permissions.js?v=1";
 import { openAssignDialog } from "./assign-modal.js?v=2";
 import { matchAssignees, isSearchFilterValue } from "./assignee-search.js?v=1";
+import {
+  RETURN_TICKET_KEY,
+  shouldRestoreFilters,
+  clearResettableParams,
+} from "./tasks-view-restore.js?v=2";
 import { APPROVED_STATUSES, isReviewStatus } from "../../task-status.js?v=2";
 import {
   STATUSES,
@@ -897,6 +902,17 @@ function writeViewStateToHash(view) {
 // tasks page to return to.
 const CAME_FROM_TASKS_KEY = "tasks_nav_origin";
 
+/** sessionStorage, or null where it is unavailable (private mode, storage
+ *  disabled by policy). Accessing the property itself can throw, so the guard
+ *  cannot simply be a truthiness check on `window.sessionStorage`. */
+function _sessionStorage() {
+  try {
+    return window.sessionStorage ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Mark that the annotator is leaving for the canvas via a task link.
  *
@@ -914,6 +930,12 @@ function markCanvasNavigation(e) {
   if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
   try {
     sessionStorage.setItem(CAME_FROM_TASKS_KEY, String(Date.now()));
+    // Drop any ticket left over from an earlier round trip. One should never be
+    // outstanding here — mount() and the bfcache handler both consume it — but
+    // an orphan would restore the filters on a later *reload*, which is exactly
+    // what this whole mechanism exists to prevent. The canvas writes a fresh
+    // one when its back arrow is used.
+    sessionStorage.removeItem(RETURN_TICKET_KEY);
   } catch { /* private mode: the back arrow just falls back to its href */ }
 }
 
@@ -1007,13 +1029,28 @@ async function review(row, action) {
 
 // --- mount -------------------------------------------------------------
 
-export async function mount(hostRoot, hostCtx, hashParams) {
+export async function mount(hostRoot, hostCtx, hashParams, { inPageNavigation = false } = {}) {
   root = hostRoot;
   ctx = hostCtx;
   root.innerHTML = template();
 
   const role = ctx.myRole;
-  const view = readViewStateFromHash(hashParams);
+
+  // Filters survive a return from the canvas, and an in-page navigation that
+  // asked for them (a Home dashboard tile links straight to
+  // `#/tasks?status=Verified`). On a *reload* they are dropped before the hash
+  // is read, so the controls, the table and the URL all start from the same
+  // clean state — a select showing "Approved" over an unfiltered list is the
+  // worst of the three options, and re-picking the option it already shows
+  // fires no `change` event, leaving the control apparently dead.
+  // See tasks-view-restore.js for all three signals.
+  const restoreFilters = shouldRestoreFilters({
+    storage: _sessionStorage(),
+    performance: typeof performance !== "undefined" ? performance : null,
+    inPageNavigation,
+  });
+  const params = restoreFilters ? hashParams : clearResettableParams(hashParams);
+  const view = readViewStateFromHash(params);
   _activeFilters.status = view.status;
   _activeFilters.team = view.team;
   _activeFilters.assignee = view.assignee;
@@ -1190,12 +1227,29 @@ export async function mount(hostRoot, hostCtx, hashParams) {
   // Restore the view the URL describes *before* the first fetch, so a return
   // from the canvas issues one request for page 4 rather than fetching page 1
   // and then correcting itself.
+  //
+  // query and filters go in here too, not through setQuery()/setFilter(): those
+  // mean "the user just changed this" and reset to page 1, which would undo the
+  // page being restored one line above and cost a request each. Without this
+  // the restored values reached the *controls* but never the table, so the
+  // dropdown read "Approved" over a list of every task — the bug this fixes.
   table.setInitialState({
     page: view.page,
     sortKey: view.sortKey,
     sortDesc: view.sortDesc,
+    query: view.query,
+    filters: {
+      status: view.status,
+      team: view.team,
+      assignee: view.assignee,
+    },
   });
   if (view.query) el("searchInput").value = view.query;
+
+  // A reset dropped params the address bar still shows. Rewrite it now rather
+  // than waiting for the table's first onStateChange, so a reload-then-copy of
+  // the URL yields the view actually on screen.
+  if (!restoreFilters) writeViewStateToHash(table.getState());
 
   // An assignee value produced by the name search ("user-3,user-7" or "none")
   // has no matching <option>; assigning it would blank the select instead. Such

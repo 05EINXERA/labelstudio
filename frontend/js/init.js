@@ -4,7 +4,7 @@ import {
   state, snapshot, resetWorkspaceForNewImage,
   beginHydration, completeHydration, failHydration, hydrationOk, hydrationFailed,
   hydrationSaveBlock, currentHydrationGeneration, noteHydratedAnnotationCount,
-  noteHydratedAnnotations
+  noteHydratedAnnotations, annotationsChangedSinceHydration
 } from "./state.js?v=7";
 import { view } from "./canvas/view.js?v=1";
 import { commentOverlayRefs, clearCommentOverlayAnchor } from "./comment-overlay.js?v=2";
@@ -19,7 +19,7 @@ import { drawAllLayers } from "./canvas/draw.js?v=5";
 import {
   setStatus, syncToBackend, save, loadSaved, saveDraft, restoreDraft,
   render, manualSaveWithUI, refreshSaveStatus, pruneStaleDrafts, unhideAllObjects
-} from "./components/workspace.js?v=17";
+} from "./components/workspace.js?v=18";
 import {
   configureQueue, startQueue, subscribe as subscribeQueue, drainQueue,
   enqueueWrite, retryablePendingCount, noteServerReachable, noteServerUnreachable,
@@ -29,8 +29,8 @@ import { autoDetectObjects, autoTagObjects } from "./ai/detect.js?v=2";
 import {
   syncTaskTime, syncTimeToServer, drainTaskTime, setActiveTaskResolver,
   setConflictHandler, resetSessionForTask, refreshTimerDisplays,
-  handleVisibilityChange, setFrozenResolver
-} from "./components/timer.js?v=4";
+  handleVisibilityChange, setFrozenResolver, setEditedResolver
+} from "./components/timer.js?v=5";
 import {
   finalizePolygon, deleteSelected, undoAction, redoAction, setZoomChangeHandler
 } from "./canvas/interactions.js?v=10";
@@ -1266,6 +1266,23 @@ function cameFromTasksPage() {
   }
 }
 
+// One-shot ticket telling the tasks page "this load is a return from the
+// canvas, keep the filters the URL carries". Must match RETURN_TICKET_KEY in
+// pages/project/tasks-view-restore.js — there is no build step to share one
+// constant, so the two files name each other.
+//
+// Written on *both* back-arrow paths, not just the href one: a `history.back()`
+// load is normally recognised by its `back_forward` navigation type, but that
+// signal is missing when the page is served from the bfcache in some browsers,
+// and a ticket costs nothing when the type already answers.
+const RETURN_TICKET_KEY = "tasks_return_ticket";
+
+function markReturnToTasks() {
+  try {
+    sessionStorage.setItem(RETURN_TICKET_KEY, String(Date.now()));
+  } catch { /* private mode: the tasks page starts clean, which is the safe way to be wrong */ }
+}
+
 function clearCameFromTasks() {
   try {
     sessionStorage.removeItem(CAME_FROM_TASKS_KEY);
@@ -1296,6 +1313,10 @@ async function initWorkspaceContext() {
     backToProject.addEventListener("click", (e) => {
       // Let the browser handle modifier-clicks (open in new tab) normally.
       if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+      // Before the history check, so the href fallback carries a ticket too:
+      // that path is an ordinary `navigate` and has no other way to say it is a
+      // return rather than a pasted URL.
+      markReturnToTasks();
       if (!cameFromTasksPage()) return;   // no history to pop; follow the href
 
       // Step back instead of navigating forward. Following the href would push
@@ -1432,6 +1453,18 @@ document.addEventListener('DOMContentLoaded', () => {
     if (state.galleryIndex < 0 || !state.gallery) return false;
     const task = state.gallery[state.galleryIndex];
     return !!task && isFrozenForRole(task.status, currentRole());
+  });
+
+  // Has the open task been edited since it hydrated? Consulted by the time
+  // drain so a look-only visit — pan, zoom, and nothing else — banks no seconds
+  // and moves no timestamp (.devnotes/unwanted-time-change/01_DIAGNOSIS.md).
+  //
+  // Asked per drain rather than latched, for the same reason as
+  // setFrozenResolver above: the answer changes as the user works, and the
+  // fingerprint is re-baselined after every confirmed save.
+  setEditedResolver(() => {
+    if (typeof state === 'undefined' || !state) return true; // unknown ⇒ save
+    return annotationsChangedSinceHydration(state.annotations);
   });
 
   // T2.2 — heartbeat: refresh the soft lock every 30 s while a task is open.

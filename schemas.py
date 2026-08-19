@@ -71,6 +71,10 @@ class ProjectSummary(BaseModel):
     classes: int = 0
     total_time: int = 0
     avg_time_per_task: int = 0
+    # Per-status counts — see ProjectMetrics.by_status. Declared here too because
+    # this row is built with `**_aggregate_metrics(...)[pid]`; without the field
+    # the key would be silently dropped rather than merged.
+    by_status: Dict[str, int] = Field(default_factory=dict)
     # The caller's effective role on this project, and whether they own it. The
     # Phase 4 UI levels every control on these two (04_UI_UX.md). Added fields,
     # never renames — a cached JS bundle ignores them and behaves as before.
@@ -94,6 +98,12 @@ class ProjectMetrics(BaseModel):
     status: Optional[str] = None
     in_progress: int = 0
     classes: int = 0
+    # Per-status counts: one key per TASK_STATUSES member, always present even
+    # at zero. `completed` above stays the whole approved *group*; this splits
+    # it back into its export batches (Approved / Verified / Checked / Passed),
+    # which is the distinction the batch names exist to make. Additive only —
+    # nothing derives progress or project status from it.
+    by_status: Dict[str, int] = Field(default_factory=dict)
 
 class BulkDelete(BaseModel):
     ids: List[int]

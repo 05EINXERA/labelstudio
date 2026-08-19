@@ -362,3 +362,18 @@ the data-integrity work; 3–5 are behaviour and polish.
 | `fix/time-api-hardening` | 3 | F9, F10, F13, F7 (identity) |
 | `feat/timer-controls` | 4 | F5, F6, F8 |
 | `feat/project-time-metrics` | 5 | F11, F12 |
+
+---
+
+## Follow-up: time and `updated_at` banked for no-edit visits (2026-08-19)
+
+F8 stopped the timer accruing against *no* task and added the idle auto-pause,
+but it never separated *navigating* a task from *working on* one. Pan
+(`pointerdown`) and zoom (`wheel`) both count as activity and both auto-start
+the timer, so a reviewer who only looked at a task accrued seconds, was never
+rescued by the idle rollback, and had those seconds banked into
+`Task.time_spent` — while the save that carried them also moved
+`Task.updated_at`, which is the optimistic-concurrency token, not just a
+display column.
+
+Diagnosis, plan and implementation record: `.devnotes/unwanted-time-change/`.

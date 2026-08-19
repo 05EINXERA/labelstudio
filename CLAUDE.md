@@ -88,7 +88,7 @@ old pattern into new code.
 
 - Branch from `main`: `feat/<slug>`, `fix/<slug>`, `docs/<slug>`.
 - Commits: imperative summary line ≤ 72 chars, conventional prefix (`feat:`, `fix:`, `docs:`, `refactor:`, `chore:`, `test:`).
-- Before pushing: run the app locally (`venv\Scripts\uvicorn.exe main:app --port 8000`, or `scripts/run.ps1` which loads `.env`) and exercise the feature; run `pytest tests/` if tests exist for the area (see
+- Before pushing: run the app locally (`venv\Scripts\uvicorn.exe main:app --port 8001`, or `scripts/run-dev.ps1` which loads `.env`) and exercise the feature; run `pytest tests/` if tests exist for the area (see
   *Running the tests* below — bare `pytest` does not work here).
 - Full workflow: `docs/DEVELOPMENT_GUIDE.md`.
 

@@ -80,6 +80,42 @@ function activeTaskIsFrozen() {
   }
 }
 
+// Answers "has the open task actually been edited since it hydrated?",
+// registered by the page for the same reason as the two resolvers above:
+// timer.js must not import state.js just to ask one question, and injecting it
+// keeps the drain testable without a DOM or a workspace.
+//
+// Defaults to `true` — "assume edited" — so a page that never registers it
+// behaves exactly as it did before this existed. Every fail-open path in this
+// module points the same way: when we cannot prove nothing changed, we save.
+// Never the reverse; the cost of a redundant save is a wasted request, and the
+// cost of a wrongly suppressed one is lost annotation work (CLAUDE.md rule 11).
+let editedResolver = () => true;
+
+export function setEditedResolver(fn) {
+  if (typeof fn === 'function') editedResolver = fn;
+}
+
+function activeTaskWasEdited() {
+  try {
+    return !!editedResolver();
+  } catch (e) {
+    return true; // unknown ⇒ save
+  }
+}
+
+/**
+ * Sentinel returned by a drain that was deliberately not sent because nothing
+ * had changed.
+ *
+ * Distinct from both `true` (server accepted) and `false` (send failed) on
+ * purpose. Callers treat `false` as "keep the draft, the work is still only
+ * local", and `true` as "the server has it, the draft can go". A suppressed
+ * drain is neither: there is no work to protect and nothing was sent, so it
+ * must not clear the draft (rule 18) and must not enqueue a retry.
+ */
+export const DRAIN_SKIPPED = 'skipped';
+
 function currentTaskResolver() {
   try {
     return activeTaskResolver() || null;
@@ -108,6 +144,32 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
   // normally nothing there, and anything that did accrue stays put rather than
   // becoming a doomed queue entry the server would only 403.
   if (activeTaskIsFrozen()) return false;
+
+  // Nothing changed ⇒ bank nothing, send nothing.
+  //
+  // The timer auto-starts on the first canvas pointerdown, and pan (pointerdown)
+  // and zoom (wheel) both count as activity, so simply *looking* at a task
+  // accrues seconds and the 5-minute idle rollback never trips. Sending them
+  // grew `time_spent` and moved `updated_at` for a visit that changed nothing —
+  // and `updated_at` is the concurrency token, not just a display column, so a
+  // reviewer who only looked made the task appear freshly edited to everyone.
+  // See .devnotes/unwanted-time-change/01_DIAGNOSIS.md.
+  //
+  // Zeroing the accumulator is the "reset" the report asks for: the seconds are
+  // discarded here rather than carried into the next task or banked later.
+  //
+  // Scoped as narrowly as it can be. The gate applies ONLY when the caller
+  // supplied neither an annotation set nor an explicit status — i.e. a pure
+  // time drain (the 30s tick, the gallery-switch flush, the unload beacon).
+  // A caller that passed `annotations` is making a real save; a caller that
+  // passed `status` is performing a deliberate act — "Save as Complete",
+  // Approve, Reject — and both go through untouched.
+  const isTimeOnlyDrain = annotations === undefined && !status;
+  if (isTimeOnlyDrain && !activeTaskWasEdited()) {
+    timerState.taskSessionSeconds = 0;
+    updateTimerDisplays();
+    return DRAIN_SKIPPED;
+  }
 
   const taskId = task.id;
   const timeDelta = timerState.taskSessionSeconds;
