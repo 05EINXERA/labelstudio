@@ -10,12 +10,14 @@ let compositeStrokeCanvas = null;
 let compositeStrokeCtx = null;
 
 // ── Static-layer cache ──────────────────────────────────────────────────
-// Pre-renders non-selected annotations in image-space so that pan/zoom
-// frames need only a single drawImage() blit instead of re-rendering
-// every annotation individually.
+// Pre-renders non-selected annotations at the current zoom resolution so
+// that pan frames need only a single drawImage() blit.  When zoom changes
+// the cache is invalidated and rebuilt at the new resolution so annotations
+// stay crisp.
 let staticCacheCanvas = null;
 let staticCacheCtx = null;
 let staticCacheDirty = true;
+let cachedZoom = -1;
 const MAX_CACHE_DIM = 4096;
 
 export function invalidateStaticCache() {
@@ -142,9 +144,14 @@ function ensureStaticCache() {
   if (!view.imageLoaded) return false;
   const natW = view.imageElement.naturalWidth;
   const natH = view.imageElement.naturalHeight;
-  const scaleFactor = Math.min(1, MAX_CACHE_DIM / Math.max(natW, natH, 1));
-  const cw = Math.ceil(natW * scaleFactor);
-  const ch = Math.ceil(natH * scaleFactor);
+  // Size the cache to match the current screen zoom so annotations stay
+  // crisp.  At extreme zoom, cap at MAX_CACHE_DIM to bound memory usage.
+  const screenScale = view.imageBox.scale;
+  const idealW = Math.ceil(natW * screenScale);
+  const idealH = Math.ceil(natH * screenScale);
+  const capFactor = Math.min(1, MAX_CACHE_DIM / Math.max(idealW, idealH, 1));
+  const cw = Math.max(1, Math.ceil(idealW * capFactor));
+  const ch = Math.max(1, Math.ceil(idealH * capFactor));
 
   if (!staticCacheCanvas) {
     staticCacheCanvas = document.createElement("canvas");
@@ -212,10 +219,19 @@ export function drawStaticLayer() {
   staticCtx.clearRect(0, 0, rect.width, rect.height);
   if (!view.imageLoaded) return;
 
-  if (!ensureStaticCache()) return;
-  if (staticCacheDirty) rebuildStaticCache();
+  // Invalidate when zoom changes so the cache is rebuilt at the new
+  // resolution.  Pan-only changes reuse the existing cache.
+  if (view.viewZoom !== cachedZoom) {
+    staticCacheDirty = true;
+  }
 
-  // Blit the cached image-space bitmap at the current viewport position/scale.
+  if (!ensureStaticCache()) return;
+  if (staticCacheDirty) {
+    rebuildStaticCache();
+    cachedZoom = view.viewZoom;
+  }
+
+  // Blit the cached bitmap at the current viewport position/scale.
   if (staticCacheCanvas.width > 0 && staticCacheCanvas.height > 0) {
     staticCtx.drawImage(
       staticCacheCanvas,
