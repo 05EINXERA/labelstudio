@@ -15,7 +15,7 @@ import { renderNav, setActive, visibleNavItems } from "../../components/project-
 import { renderAppNav, wireLogout } from "../../components/app-nav.js?v=1";
 import { getCurrentUser } from "../../session.js?v=1";
 import { wireAccountSettings } from "../../components/account-settings.js?v=1";
-import { consumeReturnTicket } from "./tasks-view-restore.js?v=1";
+import { consumeReturnTicket } from "./tasks-view-restore.js?v=2";
 
 const DEFAULT_ROUTE = "home";
 
@@ -46,7 +46,7 @@ function _sessionStorage() {
 // it stays statically analysable.
 const VIEWS = {
   home: () => import("./home.js?v=3"),
-  tasks: () => import("./tasks.js?v=14"),
+  tasks: () => import("./tasks.js?v=15"),
   classes: () => import("./classes.js?v=2"),
   imports: () => import("./imports.js?v=1"),
   exports: () => import("./exports.js?v=2"),
@@ -56,6 +56,17 @@ const VIEWS = {
 let currentView = null;   // the loaded module, so we can call unmount()
 let currentRoute = null;
 let loadToken = 0;        // guards against out-of-order async view loads
+
+/**
+ * False only for the very first render of this document; true once a hashchange
+ * has driven a render.
+ *
+ * Views use it to tell "the user just navigated here" from "the document was
+ * loaded at this URL". A Home tile linking to `#/tasks?status=Verified` is the
+ * former and must keep its filter; a reload of that same URL is the latter and
+ * starts clean (tasks-view-restore.js).
+ */
+let hasNavigatedInPage = false;
 
 const ctx = {
   projectId,
@@ -173,7 +184,7 @@ async function renderRoute() {
     // A newer navigation started while this module was loading; discard.
     if (token !== loadToken) return;
     currentView = mod;
-    await mod.mount(els.view, ctx, paramsFromHash());
+    await mod.mount(els.view, ctx, paramsFromHash(), { inPageNavigation: hasNavigatedInPage });
   } catch (err) {
     if (token !== loadToken) return;
     console.error(`Failed to load view "${route}"`, err);
@@ -220,7 +231,13 @@ async function init() {
     );
   }
 
-  window.addEventListener("hashchange", renderRoute);
+  window.addEventListener("hashchange", () => {
+    // Every hashchange is by definition an in-page navigation, so from here on
+    // a mounted view is arriving because the user asked for this URL — not
+    // because the document happened to load at it.
+    hasNavigatedInPage = true;
+    renderRoute();
+  });
 
   // A bfcache restore (Back from the canvas, where the browser had the whole
   // document parked) resurrects this page without re-running any view's

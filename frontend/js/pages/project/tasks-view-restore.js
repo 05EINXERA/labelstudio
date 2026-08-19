@@ -23,6 +23,16 @@
  *     URL — so the canvas leaves a one-shot ticket in sessionStorage and this
  *     module consumes it.
  *
+ * A third signal is not a *return* at all but must restore just the same: an
+ * **in-page navigation**, where the hash changed while the document stayed put.
+ * That is what a Home dashboard tile does — `#/home` -> `#/tasks?status=Verified`
+ * asks, in the same breath, to go to the tasks view *and* to filter it. Only a
+ * document load can be a "reload"; a hash change never is, so filters the URL
+ * carries are always the ones the user just asked for. Without this the tile's
+ * status was stripped on arrival and the table opened unfiltered — the exact
+ * complaint this module's reset was meant to prevent, arriving from the other
+ * direction.
+ *
  * Pure by design, like `objects-filter.js` and `assignee-search.js`: the
  * storage and navigation objects are arguments, so every branch is testable
  * without a browser.
@@ -93,14 +103,24 @@ export function isBackForwardNavigation(perf) {
 }
 
 /**
- * Should this load keep the filters the hash carries?
+ * Should this mount keep the filters the hash carries?
  *
- * Order matters: the ticket is consumed even when the navigation type already
- * says "back", so a ticket can never outlive the load it was written for.
+ * Order matters: the ticket is consumed even when another signal already said
+ * "restore", so a ticket can never outlive the load it was written for.
+ *
+ * @param {boolean} inPageNavigation  true when the hash changed while this
+ *   document stayed loaded (a dashboard tile, or any in-app link). Such a
+ *   navigation carries filters the user is asking for right now, so it restores
+ *   unconditionally — the reset exists for filters forgotten across a reload.
  */
-export function shouldRestoreFilters({ storage, performance: perf, now = Date.now() } = {}) {
+export function shouldRestoreFilters({
+  storage,
+  performance: perf,
+  inPageNavigation = false,
+  now = Date.now(),
+} = {}) {
   const hadTicket = consumeReturnTicket(storage, now);
-  return hadTicket || isBackForwardNavigation(perf);
+  return hadTicket || inPageNavigation || isBackForwardNavigation(perf);
 }
 
 /**

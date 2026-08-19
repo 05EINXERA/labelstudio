@@ -27,7 +27,7 @@ import {
   RETURN_TICKET_KEY,
   shouldRestoreFilters,
   clearResettableParams,
-} from "./tasks-view-restore.js?v=1";
+} from "./tasks-view-restore.js?v=2";
 import { APPROVED_STATUSES, isReviewStatus } from "../../task-status.js?v=2";
 import {
   STATUSES,
@@ -1029,22 +1029,25 @@ async function review(row, action) {
 
 // --- mount -------------------------------------------------------------
 
-export async function mount(hostRoot, hostCtx, hashParams) {
+export async function mount(hostRoot, hostCtx, hashParams, { inPageNavigation = false } = {}) {
   root = hostRoot;
   ctx = hostCtx;
   root.innerHTML = template();
 
   const role = ctx.myRole;
 
-  // Filters survive a return from the canvas and nothing else. On a reload they
-  // are dropped *before* the hash is read, so the controls, the table and the
-  // URL all start from the same clean state — a select showing "Approved" over
-  // an unfiltered list is the worst of the three options, and re-picking the
-  // option it already shows fires no `change` event, leaving the control
-  // apparently dead. See tasks-view-restore.js for the two return signals.
+  // Filters survive a return from the canvas, and an in-page navigation that
+  // asked for them (a Home dashboard tile links straight to
+  // `#/tasks?status=Verified`). On a *reload* they are dropped before the hash
+  // is read, so the controls, the table and the URL all start from the same
+  // clean state — a select showing "Approved" over an unfiltered list is the
+  // worst of the three options, and re-picking the option it already shows
+  // fires no `change` event, leaving the control apparently dead.
+  // See tasks-view-restore.js for all three signals.
   const restoreFilters = shouldRestoreFilters({
     storage: _sessionStorage(),
     performance: typeof performance !== "undefined" ? performance : null,
+    inPageNavigation,
   });
   const params = restoreFilters ? hashParams : clearResettableParams(hashParams);
   const view = readViewStateFromHash(params);

@@ -127,6 +127,54 @@ ok('the legacy API says no for a reload',
   ok('the ticket is spent even when unneeded', store.has(RETURN_TICKET_KEY) === false);
 }
 
+// --- in-page navigation (the dashboard tiles) ------------------------------
+//
+// A Home tile links to `#/tasks?status=Verified`: it asks to change view *and*
+// to filter, in one hash change. Only a document load can be a reload, so a
+// hash change must always keep the filters it carries — otherwise the tile's
+// status is stripped on arrival and the table opens unfiltered, which is the
+// bug this block exists to prevent.
+
+{
+  const now = 1_000_000;
+
+  ok('an in-page navigation restores without a ticket', shouldRestoreFilters({
+    storage: fakeStorage(), performance: perfWith('navigate'),
+    inPageNavigation: true, now,
+  }) === true);
+
+  // The performance entry describes the original document load and stays
+  // 'reload' for the life of the page. A tile clicked after a reload must still
+  // filter, so the in-page signal has to win over it.
+  ok('an in-page navigation outranks a stale reload entry', shouldRestoreFilters({
+    storage: fakeStorage(), performance: perfWith('reload'),
+    inPageNavigation: true, now,
+  }) === true);
+
+  // The first render of a document is not an in-page navigation, so a plain
+  // reload of a filtered URL still resets — the original behaviour is intact.
+  ok('the first render of a reloaded document still resets', shouldRestoreFilters({
+    storage: fakeStorage(), performance: perfWith('reload'),
+    inPageNavigation: false, now,
+  }) === false);
+
+  ok('omitting the flag keeps the old behaviour', shouldRestoreFilters({
+    storage: fakeStorage(), performance: perfWith('reload'), now,
+  }) === false);
+}
+
+{
+  // The ticket is spent on an in-page navigation too, or it would survive to
+  // wrongly restore a later reload.
+  const now = 1_000_000;
+  const store = fakeStorage({ [RETURN_TICKET_KEY]: String(now) });
+  shouldRestoreFilters({
+    storage: store, performance: perfWith('navigate'), inPageNavigation: true, now,
+  });
+  ok('an in-page navigation still spends the ticket',
+    store.has(RETURN_TICKET_KEY) === false);
+}
+
 // --- what actually gets cleared --------------------------------------------
 
 {
