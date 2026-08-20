@@ -2,7 +2,7 @@ import { generateUUID, clamp, round } from "../utils.js?v=1";
 import { state, snapshot, isAnnotationHidden, labelById, labelDisplayName } from "../state.js?v=7";
 import { annotationPoints, updateAnnotationBounds, pointInPolygon } from "./geometry.js?v=1";
 import { untangleRing } from "./untangle.js?v=2";
-import { unionAll } from "./merge.js?v=2";
+import { unionAll } from "./merge.js?v=3";
 import { view } from "./view.js?v=1";
 import { draw, drawAllLayers } from "./draw.js?v=6";
 import { canvas, ctx, undoButton } from "../dom.js?v=4";
@@ -719,7 +719,8 @@ if (mergeButton) {
  * Usually one shape. Not always: an annotation holds a single flat ring, so a
  * union whose boundary has several components becomes one annotation per
  * component rather than a single shape bridging the untouched space between
- * them. A union enclosing a void has no faithful form at all and is refused.
+ * them. Two shapes overlapping in two places enclose a void, and that region
+ * is cut into pieces around the void so the untouched space stays unannotated.
  *
  * Destructive in a way Group is not: the inputs are consumed, not linked. So it
  * refuses loudly rather than doing something approximate — a selection that
@@ -758,9 +759,10 @@ export function mergeSelectedAnnotations() {
   // silently dropped a pending redo would be a real loss for a no-op command.
   const { components, skipped, holes } = unionAll(rings);
 
-  // A union that encloses a void cannot be stored: an annotation is one flat
-  // ring, so the void would simply fill in and claim image the annotator never
-  // marked. Reported and refused rather than approximated.
+  // A union enclosing a void is normally cut into pieces around it (merge.js
+  // splitAnnulus), so this flag only survives when that cut could not be
+  // trusted. Refused rather than filled: filling claims image the annotator
+  // never marked, which is the bug this whole path exists to avoid.
   if (holes) {
     setStatus("Cannot merge: the result would enclose an unannotated gap");
     return;

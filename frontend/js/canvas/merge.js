@@ -21,11 +21,13 @@
 //     creates one annotation per piece. That is the only faithful answer the
 //     single-ring model can give, and it is what keeps a merge from claiming
 //     the untouched space between two overlaps.
-//   - Holes are refused, not filled. A ring enclosing a void would need a
+//   - Holes are cut around, not filled. A ring enclosing a void would need a
 //     second ring to describe it, and there is nowhere to put one. An earlier
-//     version kept the outer boundary and let the void fill in; that silently
-//     annotated image the user never marked, so a union with a hole now
-//     refuses and leaves every input untouched. See .devnotes/fix-merge/.
+//     version kept the outer boundary and let the void fill in, silently
+//     annotating image the user never marked. Instead splitAnnulus cuts the
+//     region in two along a line through the void, so each piece carries one
+//     side of it and the void belongs to neither. Where that cut cannot be
+//     trusted the merge is refused outright. See .devnotes/fix-merge/.
 //
 // Never automatic. Overlapping shapes are a legal, untouched state on the
 // canvas; nothing here runs unless the user presses M or the toolbar button.
@@ -432,6 +434,153 @@ export function unionRings(ringA, ringB) {
 }
 
 /**
+ * Cut a ring with an axis-aligned line, returning the pieces on each side.
+ *
+ * `axis` is "x" or "y", `at` the coordinate of the line. Every edge straddling
+ * the line gains a vertex exactly on it, then the ring is split into the runs
+ * that lie below and above. Returns { below, above } as arrays of open chains
+ * (each an ordered vertex list), or null when the line does not properly cut
+ * the ring in two.
+ */
+function cutRing(ring, axis, at) {
+  const value = (p) => (axis === "x" ? p.x : p.y);
+
+  // Splice in the crossing points so both sides share exact endpoints.
+  const dense = [];
+  for (let i = 0; i < ring.length; i += 1) {
+    const a = ring[i];
+    const b = ring[(i + 1) % ring.length];
+    dense.push({ x: a.x, y: a.y });
+    const va = value(a);
+    const vb = value(b);
+    if ((va < at && vb > at) || (va > at && vb < at)) {
+      const t = (at - va) / (vb - va);
+      dense.push({ x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y) });
+    }
+  }
+
+  // Walk the densified ring, breaking a chain whenever it changes side. Points
+  // exactly on the line belong to whichever run they are travelling with, so
+  // they are appended to both.
+  const side = (p) => {
+    const v = value(p);
+    if (Math.abs(v - at) < EPS) return 0;
+    return v < at ? -1 : 1;
+  };
+
+  // Rotate so the walk starts on the line, making the runs contiguous.
+  const startAt = dense.findIndex((p) => side(p) === 0);
+  if (startAt < 0) return null;
+  const rotated = dense.slice(startAt).concat(dense.slice(0, startAt));
+
+  const runs = [];
+  let currentRun = null;
+  let currentSide = 0;
+  for (let i = 0; i < rotated.length; i += 1) {
+    const point = rotated[i];
+    const here = side(point);
+    if (here === 0) {
+      if (currentRun) {
+        currentRun.points.push(point);
+        runs.push(currentRun);
+        currentRun = null;
+        currentSide = 0;
+      }
+      // Start a fresh run; its side is decided by the next off-line point.
+      currentRun = { side: 0, points: [point] };
+      continue;
+    }
+    if (!currentRun) currentRun = { side: here, points: [] };
+    if (currentSide === 0) {
+      currentSide = here;
+      currentRun.side = here;
+    } else if (here !== currentSide) {
+      return null; // crossed without a vertex on the line: densifying failed
+    }
+    currentRun.points.push(point);
+  }
+  if (currentRun && currentRun.points.length > 1) {
+    // Close the loop back onto the first point, which lies on the line.
+    currentRun.points.push(rotated[0]);
+    if (currentRun.side !== 0) runs.push(currentRun);
+  }
+
+  const below = runs.filter((r) => r.side < 0).map((r) => r.points);
+  const above = runs.filter((r) => r.side > 0).map((r) => r.points);
+  if (!below.length || !above.length) return null;
+  return { below, above };
+}
+
+/**
+ * Split an annulus into simple rings that cover it without covering the hole.
+ *
+ * An annotation is one flat ring, so a shape with a void in it cannot be
+ * stored. Rather than filling the void — which is the bug this whole change
+ * exists to fix — the region is cut in two along a line through the hole. Each
+ * piece then carries one side of the hole's boundary as part of its own
+ * outline, and the void belongs to neither.
+ *
+ * The cut runs across the hole's *narrower* axis, so the seam is as short as
+ * possible and tends to fall where the two overlap lobes already pinch the
+ * shape. That choice is a convention, not something the geometry dictates: any
+ * line through the hole produces a valid pair, and this one produces the least
+ * surprising pair.
+ *
+ * Returns the pieces, or null when the cut cannot be trusted — in which case
+ * the caller refuses the merge rather than emitting geometry it cannot vouch
+ * for. Only single-hole regions are attempted; anything more is refused.
+ */
+export function splitAnnulus(outer, hole) {
+  if (!Array.isArray(outer) || !Array.isArray(hole)) return null;
+  if (outer.length < 3 || hole.length < 3) return null;
+
+  const xs = hole.map((p) => p.x);
+  const ys = hole.map((p) => p.y);
+  const width = Math.max(...xs) - Math.min(...xs);
+  const height = Math.max(...ys) - Math.min(...ys);
+
+  // Cut across the narrow axis: a wide, short hole is split by a vertical line.
+  const axis = width <= height ? "x" : "y";
+  const values = axis === "x" ? xs : ys;
+  const at = (Math.min(...values) + Math.max(...values)) / 2;
+
+  const outerCut = cutRing(outer, axis, at);
+  const holeCut = cutRing(hole, axis, at);
+  if (!outerCut || !holeCut) return null;
+
+  // One piece per side. Each is the outer chain on that side, closed by the
+  // hole's chain on the same side walked in reverse, so the piece wraps around
+  // the void instead of through it.
+  const pieces = [];
+  for (const key of ["below", "above"]) {
+    if (outerCut[key].length !== 1 || holeCut[key].length !== 1) return null;
+    const outerChain = outerCut[key][0];
+    const holeChain = holeCut[key][0];
+
+    // The hole's chain has to be walked against the outer chain for the void to
+    // end up *outside* the piece; walked with it, the piece swallows the void
+    // and we are back to the bug. Which of the two directions does that depends
+    // on where each chain happened to start, so both are built and the one
+    // whose area is the outer chain minus the hole chain is the correct one.
+    const target = Math.abs(ringArea(outerChain) - ringArea(holeChain));
+    let best = null;
+    for (const chain of [holeChain.slice().reverse(), holeChain]) {
+      const ring = normaliseRing(outerChain.concat(chain));
+      if (ring.length < 3) continue;
+      if (!isSimpleRing(ring)) continue;
+      if (Math.abs(ringArea(ring) - target) > 1e-6) continue;
+      best = ring;
+      break;
+    }
+    if (!best) return null;
+    if (ringArea(best) < MIN_LOOP_AREA) return null;
+    pieces.push(best);
+  }
+
+  return pieces;
+}
+
+/**
  * Fold N rings into as few pieces as possible. Returns:
  *   components — the union's boundary rings, or null when nothing was usable
  *   merged     — how many input rings were absorbed
@@ -484,10 +633,20 @@ export function unionAll(rings) {
     const result = unionComponents(component, ring);
     if (!result) return null;
     if (result.holes.length) {
-      // A void the annotation model cannot express. Flagged for the caller and
-      // treated as a refusal so nothing is committed over the gap.
-      sawHole = true;
-      return null;
+      // A void the annotation model cannot express. Rather than filling it,
+      // the region is cut into pieces that leave it uncovered. Only the
+      // single-outer/single-hole shape is attempted — that is what two shapes
+      // overlapping twice always produce; anything more exotic is refused.
+      if (result.outer.length !== 1 || result.holes.length !== 1) {
+        sawHole = true;
+        return null;
+      }
+      const pieces = splitAnnulus(result.outer[0], result.holes[0]);
+      if (!pieces) {
+        sawHole = true;
+        return null;
+      }
+      return pieces;
     }
     return result.outer;
   };

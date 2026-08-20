@@ -262,14 +262,56 @@ ok('the hole contains the gap centre',
 // unionRings can only answer with one ring, so it must refuse here rather than
 // hand back the outer boundary. That refusal is the fix at the kernel level.
 ok('a holed union has no single-ring answer', m.unionRings(crossbar, legs) === null);
-ok('a holed union is refused by unionAll and flagged',
-   m.unionAll([crossbar, legs]).holes === true);
-
-// ... and the refusal must not be mistaken for "these do not overlap", which
-// would send the caller down the wrong message path.
-ok('a holed union is not reported as non-overlapping',
-   m.unionAll([crossbar, legs]).skipped.length === 0);
 ok('the rings genuinely do overlap', m.ringsOverlap(crossbar, legs) === true);
+
+// --- 10b-ii. The gap survives the merge (splitAnnulus) ------------------
+//
+// unionAll does not stop at the refusal: it cuts the region in two so the void
+// is left outside both pieces. This is the assertion the whole change exists
+// for — if it ever fails, a merge is annotating image nobody marked.
+
+// A C-shape crossed at both tips: the same topology drawn differently.
+const cShape = [P(0, 0), P(40, 0), P(40, 12), P(10, 12),
+                P(10, 28), P(40, 28), P(40, 40), P(0, 40)];
+const capBar = [P(35, -5), P(45, -5), P(45, 45), P(35, 45)];
+
+const split = m.unionAll([crossbar, legs]);
+ok('a holed union still merges', split.components !== null);
+ok('a holed union is split into two pieces', split.components.length === 2);
+ok('splitting is not reported as a hole', split.holes === false);
+ok('nothing is reported as non-overlapping', split.skipped.length === 0);
+ok('both inputs were absorbed', split.merged === 2);
+
+ok('THE GAP IS NOT COVERED BY ANY PIECE',
+   !split.components.some((piece) => pointInside(gapPoint, piece)));
+
+// Area is the arithmetic proof of the same thing: outer minus the hole, with
+// no double-counting between the pieces.
+ok('the pieces cover the union minus the gap',
+   near(split.components.reduce((sum, r) => sum + u.ringArea(r), 0), 1880 - 160));
+ok('every piece is a simple ring', split.components.every((r) => u.isSimpleRing(r)));
+ok('every piece has real area', split.components.every((r) => u.ringArea(r) > 0));
+ok('every piece has at least 3 vertices', split.components.every((r) => r.length >= 3));
+
+// Each input's own area must still be fully covered — the split may not shave
+// off anything the annotator actually drew.
+const covered = (pt) => split.components.some((piece) => pointInside(pt, piece));
+ok('a point inside the crossbar only is still covered', covered(P(5, 25)));
+ok('a point inside the left leg only is still covered', covered(P(16, 5)));
+ok('a point inside the right leg only is still covered', covered(P(44, 5)));
+ok('a point in the overlap is still covered', covered(P(16, 25)));
+ok('a point outside everything stays outside', !covered(P(100, 100)));
+
+// splitAnnulus refuses rather than guessing on nonsense input.
+ok('splitAnnulus refuses a missing hole', m.splitAnnulus(twoLobes.outer[0], null) === null);
+ok('splitAnnulus refuses a degenerate ring',
+   m.splitAnnulus([P(0, 0), P(1, 1)], twoLobes.holes[0]) === null);
+
+// The capped C is the same topology drawn differently and must split too.
+const cappedFold = m.unionAll([cShape, capBar]);
+ok('the capped C splits rather than refusing', cappedFold.components.length === 2);
+ok('the capped C leaves its gap uncovered',
+   !cappedFold.components.some((piece) => pointInside(P(25, 20), piece)));
 
 // The same pair the other way round must reach the same conclusion.
 const flipped = m.unionComponents(legs, crossbar);
@@ -277,10 +319,6 @@ ok('hole detection is order-independent',
    flipped !== null && flipped.holes.length === 1 && flipped.outer.length === 1);
 ok('the hole is the same either way', near(u.ringArea(flipped.holes[0]), 160));
 
-// A C-shape crossed at both tips is the same topology drawn differently.
-const cShape = [P(0, 0), P(40, 0), P(40, 12), P(10, 12),
-                P(10, 28), P(40, 28), P(40, 40), P(0, 40)];
-const capBar = [P(35, -5), P(45, -5), P(45, 45), P(35, 45)];
 const capped = m.unionComponents(cShape, capBar);
 ok('a capped C also reports a hole', capped !== null && capped.holes.length === 1);
 ok('a capped C has a single outer ring', capped.outer.length === 1);
