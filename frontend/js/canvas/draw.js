@@ -137,6 +137,30 @@ export function draw() {
     drawAnnotation(view.drag.draft, true, ctx);
   }
 
+  // The marquee rectangle (Shift + left-drag to select). Stored in image space
+  // so it stays glued to the image, and converted here — the same transform
+  // every annotation goes through.
+  //
+  // Dashed and near-transparent, in a neutral slate rather than a class colour:
+  // it is a transient tool, and it sits on top of the very shapes it is
+  // highlighting, so it must not read as a shape itself. Interactive layer
+  // only — it is never part of the static painting.
+  if (view.drag?.type === "marquee" && view.drag.rect) {
+    const { x1, y1, x2, y2 } = view.drag.rect;
+    const sx = view.imageBox.x + x1 * view.imageBox.scale;
+    const sy = view.imageBox.y + y1 * view.imageBox.scale;
+    const sw = (x2 - x1) * view.imageBox.scale;
+    const sh = (y2 - y1) * view.imageBox.scale;
+    ctx.save();
+    ctx.fillStyle = "rgba(148, 163, 184, 0.15)";
+    ctx.fillRect(sx, sy, sw, sh);
+    ctx.setLineDash([5, 4]);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "#e2e8f0";
+    ctx.strokeRect(sx, sy, sw, sh);
+    ctx.restore();
+  }
+
   if (view.pendingCommentPoint) {
     const screenX = view.imageBox.x + view.pendingCommentPoint.x * view.imageBox.scale;
     const screenY = view.imageBox.y + view.pendingCommentPoint.y * view.imageBox.scale;

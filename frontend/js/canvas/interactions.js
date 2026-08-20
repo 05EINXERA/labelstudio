@@ -4,9 +4,10 @@ import { annotationPoints, updateAnnotationBounds, pointInPolygon } from "./geom
 import { untangleRing } from "./untangle.js?v=2";
 import { unionAll } from "./merge.js?v=1";
 import { view } from "./view.js?v=1";
-import { draw, drawAllLayers } from "./draw.js?v=5";
+import { draw, drawAllLayers } from "./draw.js?v=6";
 import { canvas, ctx, undoButton } from "../dom.js?v=4";
-import { commentHitTest, COMMENT_FONT } from "./comment-geometry.js?v=2";
+import { commentHitTest, commentScreenGeometry, COMMENT_FONT } from "./comment-geometry.js?v=2";
+import { normalizeRect, rectIsDegenerate, marqueeHits } from "./marquee.js?v=1";
 import { shouldCanvasClickBeBlocked } from "../comment-mode.js?v=1";
 import { commentOverlayRefs, openCommentEditor, anchorCommentOverlay } from "../comment-overlay.js?v=2";
 import { setStatus, save, render, activateLabel, toggleAnnotationsHidden, unhideAllObjects, editBlockReason } from "../components/workspace.js?v=18";
@@ -217,6 +218,13 @@ export function updateCanvasCursor(point) {
     return;
   }
 
+  // A marquee in flight describes the cursor entirely — no hover state under
+  // the box may repaint it mid-drag.
+  if (view.drag?.type === "marquee") {
+    canvas.style.cursor = "crosshair";
+    return;
+  }
+
   if (state.mode === "select") {
     if (state.selectedId) {
       const selected = state.annotations.find(a => a.id === state.selectedId);
@@ -251,6 +259,60 @@ export function updateCanvasCursor(point) {
     return;
   }
   canvas.style.cursor = state.mode === "draw" ? "crosshair" : "default";
+}
+
+// Add one annotation to the selection, taking its whole group with it.
+// Groups are atomic everywhere else on this canvas (the state.selectedId setter
+// enforces it, and the click path replicates it inline), so a marquee that
+// caught one member must select the rest — otherwise Group/Merge would act on
+// half a group.
+function addWithGroup(id) {
+  const annotation = state.annotations.find((a) => a.id === id);
+  if (!annotation) return;
+  if (annotation.groupId) {
+    state.annotations.forEach((a) => {
+      if (a.groupId === annotation.groupId) state.selectedIds.add(a.id);
+    });
+  } else {
+    state.selectedIds.add(id);
+  }
+}
+
+// Rebuild state.selectedIds as (pre-drag selection + everything the marquee
+// currently covers). Recomputed from view.drag.previousIds on every move rather
+// than accumulated, so shrinking the box releases shapes again.
+//
+// Writes state._selectedId, never state.selectedId: the public setter cascades
+// and clears selectedIds, which would wipe the set we just built (see the
+// Shift+click path below, which does the same for the same reason).
+function applyMarqueeSelection() {
+  const rect = view.drag?.rect;
+  if (!rect) return;
+  const hits = marqueeHits(state.annotations, rect, {
+    isHidden: isAnnotationHidden,
+    commentRect: (a) => commentScreenGeometry(a, view.imageBox, measureCommentText),
+    screenRect: {
+      x1: view.imageBox.x + rect.x1 * view.imageBox.scale,
+      y1: view.imageBox.y + rect.y1 * view.imageBox.scale,
+      x2: view.imageBox.x + rect.x2 * view.imageBox.scale,
+      y2: view.imageBox.y + rect.y2 * view.imageBox.scale
+    }
+  });
+  state.selectedIds.clear();
+  view.drag.previousIds.forEach((id) => state.selectedIds.add(id));
+  hits.forEach(addWithGroup);
+  state._selectedId = state.selectedIds.size > 0 ? Array.from(state.selectedIds)[0] : null;
+}
+
+// Put back the selection the marquee started from. Used by every abort path
+// (Escape, pointercancel, and a drag too small to be deliberate): a gesture
+// that did not complete must not cost the user a selection they had built up
+// by hand.
+function restoreMarqueeSelection() {
+  if (view.drag?.type !== "marquee") return;
+  state.selectedIds.clear();
+  view.drag.previousIds.forEach((id) => state.selectedIds.add(id));
+  state._selectedId = view.drag.previousSelectedId;
 }
 
 // Drop the selection left over from a completed shape. Called on the first canvas
@@ -822,6 +884,36 @@ canvas.addEventListener("pointerdown", (event) => {
     }
   }
 
+  // Shift + left-drag on empty space starts a marquee selection.
+  //
+  // Every clause is load-bearing:
+  //  - !altKey — Shift+Alt+LMB is pan, handled above and left alone.
+  //  - a hit-test miss — Shift+click ON a shape still toggles that one shape
+  //    into the selection (the documented Group workflow), so the marquee can
+  //    only claim the gesture that today does nothing but clear.
+  //  - select mode only — in draw mode a Shift+drag is how a box is drawn, and
+  //    stealing it would make the box tool unusable with Shift held. The
+  //    needsLabelSelection exception matches the selection path below: that
+  //    state is inert, no shape can be started until a class is picked.
+  //  - not mid-polygon — the in-progress shape is itself a hit target, and
+  //    overwriting view.drag would silently end it.
+  // See .devnotes/drag-selection/01_DESIGN.md § 3.
+  if (event.button === 0 && event.shiftKey && !event.altKey &&
+      (state.mode !== "draw" || state.needsLabelSelection) &&
+      view.drag?.type !== "draw-polygon" &&
+      !hitTest(point)) {
+    view.drag = {
+      type: "marquee",
+      startImage: imagePoint(point),
+      rect: null,
+      // A copy, not a reference: selectedIds is mutated in place below.
+      previousIds: new Set(state.selectedIds),
+      previousSelectedId: state._selectedId
+    };
+    canvas.style.cursor = "crosshair";
+    return;
+  }
+
   // Left-click on a polygon edge to add a vertex.
   // Skipped while drawing: hitTestLine treats the shape as already closed, so it
   // reports a phantom edge from the last vertex back to the first. Splitting it
@@ -1151,6 +1243,22 @@ canvas.addEventListener("pointermove", (event) => {
     return;
   }
   const point = canvasPoint(event);
+
+  // A marquee owns the pointer for its whole lifetime: returning here keeps the
+  // vertex/edge hover logic below from fighting the crosshair cursor and from
+  // hit-testing against a selection that is being rewritten on every frame.
+  //
+  // drawAllLayers(), not render(): the Objects panel filters itself to the
+  // selection, so a full render would rebuild every row on every frame of the
+  // drag. The panel settles once, on release (design § 5).
+  if (view.drag?.type === "marquee") {
+    view.drag.rect = normalizeRect(view.drag.startImage, imagePoint(point));
+    applyMarqueeSelection();
+    canvas.style.cursor = "crosshair";
+    drawAllLayers();
+    return;
+  }
+
   updateCanvasCursor(point);
 
   // Detect line hover on selected polygon (even when no view.drag)
@@ -1353,6 +1461,31 @@ canvas.addEventListener("pointerup", (e) => {
     canvas.style.cursor = "default";
     return;
   }
+  if (view.drag?.type === "marquee") {
+    // A drag too small to be deliberate is a Shift+click that twitched. Putting
+    // the previous selection back matters more than it looks: without it, one
+    // stray pixel of travel while Shift-clicking would replace a multi-select
+    // the annotator had built up shape by shape.
+    const deliberate = !rectIsDegenerate(view.drag.rect, view.imageBox.scale);
+    if (deliberate) {
+      const count = state.selectedIds.size;
+      setStatus(count === 1 ? "1 object selected" : `${count} objects selected`);
+    } else {
+      restoreMarqueeSelection();
+    }
+    view.drag = null;
+    // Both refer to edges of a single selected polygon and mean nothing for a
+    // multi-selection.
+    view.selectedLineIndex = -1;
+    view.hoveredLineIndex = -1;
+    canvas.style.cursor = "default";
+    // The one full render of the gesture: the Objects panel catches up here.
+    // No snapshot() and no save() — selecting is not an edit, so it must not
+    // reach the undo stack, the draft, or the server.
+    render();
+    return;
+  }
+
   if (view.drag?.type === "move-point") {
     // Untangle on release, not on every pointermove. Rewriting the ring
     // mid-drag would invalidate view.drag.pointIndex the instant it happened,
@@ -1480,6 +1613,9 @@ canvas.addEventListener("pointercancel", () => {
       state.annotations = state.annotations.filter((item) => item.id !== annotation.id);
     }
   }
+  // A cancelled marquee never happened: the provisional selection painted
+  // during the drag is discarded and the pre-drag one comes back.
+  restoreMarqueeSelection();
   // A cancelled shape move keeps wherever it currently sits — the snapshot taken
   // on the first move still lets Ctrl+Z put it back. Only persist if it actually
   // moved (a snapshot was taken).
@@ -1550,6 +1686,17 @@ window.addEventListener("keydown", (event) => {
   }
 
   if (event.key === "Escape") {
+    // Escape during a marquee aborts *the marquee*, not the selection. Falling
+    // through to the clear below would punish the user twice: the box they
+    // cancelled and the selection they already had.
+    if (view.drag?.type === "marquee") {
+      restoreMarqueeSelection();
+      view.drag = null;
+      canvas.style.cursor = "default";
+      render();
+      return;
+    }
+
     // If drawing a polygon, cancel and remove the incomplete annotation
     if (view.drag?.type === "draw-polygon") {
       const annotation = state.annotations.find((item) => item.id === view.drag.annotationId);

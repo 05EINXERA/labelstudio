@@ -14,7 +14,7 @@ import { view } from "../canvas/view.js?v=1";
 import { drainTaskTime, DRAIN_SKIPPED, refreshTimerDisplays } from "./timer.js?v=5";
 import { timerState } from "../timer-state.js?v=3";
 import { detectState } from "../ai/detect-state.js?v=3";
-import { draw, drawAllLayers } from "../canvas/draw.js?v=5";
+import { draw, drawAllLayers } from "../canvas/draw.js?v=6";
 import {
   emptyState, classesList, annotationList, annotationCount, selectedInfo,
   hiddenFilterButton, hiddenCount,
