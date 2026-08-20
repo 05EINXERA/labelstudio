@@ -9,7 +9,7 @@
  */
 import { apiFetch } from "../../api.js?v=3";
 import { escapeHTML, formatTime } from "../../utils.js?v=1";
-import { APPROVED_STATUSES } from "../../task-status.js?v=2";
+import { APPROVED_STATUSES, statusClass } from "../../task-status.js?v=3";
 
 let abortController = null;
 
@@ -52,6 +52,13 @@ export function statusTiles(metrics) {
     value: count(status),
     sub,
     href: tasksHref(status),
+    // The tile wears the same colour as the status pill everywhere else, via
+    // the one modifier function (task-status.js::statusClass) rather than a
+    // second mapping that could drift. Rendering only — the tile's meaning is
+    // its `status`, never its class.
+    // 'New' has no pill modifier of its own; the dashboard still gives it a
+    // neutral slate accent so no tile in the grid reads as unstyled.
+    cls: statusClass(status) || "is-new",
   });
 
   return [
@@ -63,14 +70,17 @@ export function statusTiles(metrics) {
   ];
 }
 
-function tile({ label, value, sub, href }) {
+function tile({ label, value, sub, href, cls }) {
+  // `cls` comes from statusClass, so it is one of a fixed set of literals and
+  // never user text; the tile's own strings are still escaped.
+  const klass = `metric-tile${cls ? ` status-tile ${cls}` : ""}`;
   const inner = `
     <p class="label">${escapeHTML(label)}</p>
     <p class="value">${escapeHTML(value)}</p>
     ${sub ? `<p class="sub">${escapeHTML(sub)}</p>` : ""}`;
   return href
-    ? `<a class="metric-tile" href="${href}">${inner}</a>`
-    : `<div class="metric-tile">${inner}</div>`;
+    ? `<a class="${klass}" href="${href}">${inner}</a>`
+    : `<div class="${klass}">${inner}</div>`;
 }
 
 function render(root, project, m) {
@@ -109,7 +119,17 @@ function render(root, project, m) {
       ${tile({ label: "Comments", value: m.comments || 0 })}
       ${tile({ label: "Time logged", value: formatTime(m.total_time || 0), sub: "Across all tasks" })}
       ${tile({ label: "Avg per task", value: formatTime(m.avg_time_per_task || 0) })}
-      ${tile({ label: "Status", value: m.status || project?.status || "New" })}
+      ${(() => {
+        // The project's *stored* status, which is what the projects list and the
+        // shell's nav pill both show. `m.status` is not it: the metrics endpoint
+        // recomputes a status from the task counts and returns that in
+        // preference to the stored one, so a project manually marked 'Completed'
+        // while some tasks are still unapproved came back as 'In Progress' —
+        // this tile disagreeing with the pill directly above it. The derived
+        // value is already represented on this page by the completion bar.
+        const st = project?.status || m.status || "New";
+        return tile({ label: "Status", value: st, cls: statusClass(st) || "is-new" });
+      })()}
     </div>
 
     ${total === 0 ? `

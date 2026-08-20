@@ -2513,6 +2513,37 @@ table.data-table tbody tr:last-child td { border-bottom: none; }
 a.metric-tile { text-decoration: none; color: inherit; display: block; }
 a.metric-tile:hover { border-color: var(--accent); }
 
+/* ── Status tiles on the project dashboard ────────────────────────────────────
+   A metric tile that represents one task status wears that status's colour, so
+   the dashboard, the tasks table and the canvas pill all agree at a glance. The
+   modifier is whatever task-status.js::statusClass returns — this is the only
+   place the tile colours are defined, and adding a batch status needs one rule
+   here.
+
+   The accent is carried on a left bar and the big number, not a flooded
+   background: seven saturated tiles side by side would be unreadable, and the
+   count is what the eye is looking for. `--tile-tint` keeps the surface barely
+   off-white so the tiles still read as one grid. */
+.metric-tile.status-tile {
+  border-left: 4px solid var(--tile-accent, var(--line));
+  background: var(--tile-tint, var(--panel));
+}
+.metric-tile.status-tile .value { color: var(--tile-accent, inherit); }
+a.metric-tile.status-tile:hover { border-color: var(--tile-accent, var(--accent)); }
+
+/* The approved group: one colour per export batch, same family as the pills. */
+.metric-tile.is-approved  { --tile-accent: #15803d; --tile-tint: #f3fcf6; }
+.metric-tile.is-verified  { --tile-accent: #0f766e; --tile-tint: #f1fbfa; }
+.metric-tile.is-checked   { --tile-accent: #6d28d9; --tile-tint: #f8f6ff; }
+.metric-tile.is-passed    { --tile-accent: #c2410c; --tile-tint: #fff8f3; }
+/* The working vocabulary. 'Passed' is orange and 'Completed' bright yellow:
+   they were the two warm tiles nearest each other and read as the same colour
+   at tile size. */
+.metric-tile.is-completed { --tile-accent: #a16207; --tile-tint: #fefce8; }
+.metric-tile.is-progress  { --tile-accent: #0284c7; --tile-tint: #f1f9fe; }
+.metric-tile.is-new       { --tile-accent: #64748b; --tile-tint: #f8fafc; }
+.metric-tile.is-rejected  { --tile-accent: #b91c1c; --tile-tint: #fef6f6; }
+
 @media (max-width: 820px) {
   .project-shell { flex-direction: column; }
   .project-nav {
