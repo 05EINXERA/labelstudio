@@ -265,6 +265,19 @@ function doDrawSync() {
     drawAnnotation(view.drag.draft, true, ctx);
   }
 
+  if (view.drag?.type === "marquee") {
+    ctx.save();
+    ctx.strokeStyle = "#4dabf7";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.fillStyle = "rgba(77, 171, 247, 0.2)";
+    const w = view.drag.currentX - view.drag.startX;
+    const h = view.drag.currentY - view.drag.startY;
+    ctx.fillRect(view.drag.startX, view.drag.startY, w, h);
+    ctx.strokeRect(view.drag.startX, view.drag.startY, w, h);
+    ctx.restore();
+  }
+
   if (view.pendingCommentPoint) {
     const screenX = view.imageBox.x + view.pendingCommentPoint.x * view.imageBox.scale;
     const screenY = view.imageBox.y + view.pendingCommentPoint.y * view.imageBox.scale;
@@ -342,7 +355,8 @@ export function drawAnnotation(annotation, selected = false, targetCtx = ctx, sk
     targetCtx.lineWidth = 2;
     targetCtx.stroke();
 
-    const text = `${annotation.author || 'User'}: ${annotation.text}`;
+    const author = annotation.author || (annotation.extra && annotation.extra.author) || 'User';
+    const text = `${author}: ${annotation.text}`;
     targetCtx.font = "600 12px Inter, system-ui, sans-serif";
     const tw = targetCtx.measureText(text).width + 12;
     targetCtx.fillStyle = "rgba(0,0,0,0.75)";

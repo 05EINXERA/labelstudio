@@ -798,15 +798,23 @@ canvas.addEventListener("pointerdown", (event) => {
     }
   }
 
-  // Clicking empty space clears the selection — but never while a polygon is being
-  // drawn, or this would discard view.drag (and the in-progress shape) on every click.
+  // Clicking empty space clears the selection (unless Shift is held)
   if (state.mode === "select" && view.drag?.type !== "draw-polygon") {
-    state.selectedId = null;
-    state.selectedIds.clear();
+    if (!event.shiftKey) {
+      state.selectedId = null;
+      state.selectedIds.clear();
+    }
     state.justFinalized = false;
     view.selectedLineIndex = -1;
     view.hoveredLineIndex = -1;
-    view.drag = null;
+    view.drag = {
+      type: "marquee",
+      startX: point.x,
+      startY: point.y,
+      currentX: point.x,
+      currentY: point.y,
+      isShift: event.shiftKey
+    };
     render();
     return;
   }
@@ -1019,6 +1027,10 @@ canvas.addEventListener("pointermove", (event) => {
     view.drag.draft.width = Math.max(1, x2 - x1);
     view.drag.draft.height = Math.max(1, y2 - y1);
     draw();
+  } else if (view.drag.type === "marquee") {
+    view.drag.currentX = point.x;
+    view.drag.currentY = point.y;
+    draw();
   }
 
   if (view.drag.type === "move-point") {
@@ -1122,6 +1134,49 @@ canvas.addEventListener("pointerup", (e) => {
     setCanvasCursor("default");
     render();
     if (moved) save();
+    return;
+  }
+
+  if (view.drag?.type === "marquee") {
+    const dx = view.drag.currentX - view.drag.startX;
+    const dy = view.drag.currentY - view.drag.startY;
+    if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
+      const minX = Math.min(view.drag.startX, view.drag.currentX);
+      const minY = Math.min(view.drag.startY, view.drag.currentY);
+      const maxX = Math.max(view.drag.startX, view.drag.currentX);
+      const maxY = Math.max(view.drag.startY, view.drag.currentY);
+      
+      const startPt = imagePoint({ x: minX, y: minY });
+      const endPt = imagePoint({ x: maxX, y: maxY });
+      
+      const hitIds = [];
+      state.annotations.forEach(ann => {
+        if (isAnnotationHidden(ann)) return;
+        const ax1 = ann.x;
+        const ay1 = ann.y;
+        const ax2 = ann.x + ann.width;
+        const ay2 = ann.y + ann.height;
+        
+        // Intersect bounding boxes
+        if (!(ax2 < startPt.x || ax1 > endPt.x || ay2 < startPt.y || ay1 > endPt.y)) {
+          hitIds.push(ann.id);
+        }
+      });
+      
+      if (hitIds.length > 0) {
+        if (!view.drag.isShift) {
+          state.selectedIds.clear();
+        }
+        hitIds.forEach(id => state.selectedIds.add(id));
+        state._selectedId = hitIds[0];
+      }
+    } else if (!view.drag.isShift) {
+      // Just a click without shift should clear selection
+      state.selectedId = null;
+      state.selectedIds.clear();
+    }
+    view.drag = null;
+    render();
     return;
   }
 

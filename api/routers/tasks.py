@@ -139,7 +139,9 @@ def _get_owned_task(task_id: int, user: models.User, db: Session, annotator: Opt
         raise HTTPException(status_code=404, detail="Task not found")
         
     if require_edit and annotator and task.assignee and task.assignee != annotator.name:
-        raise HTTPException(status_code=403, detail="Task is assigned to another user")
+        project = db.query(models.Project).filter(models.Project.id == task.project_id).first()
+        if not project or not is_project_creator(project, user, annotator):
+            raise HTTPException(status_code=403, detail="Task is assigned to another user")
         
     return task
 
@@ -521,7 +523,9 @@ def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: 
                     seen_ids.add(ann_id)
                     
                     known_keys = {'id', 'type', 'labelId', 'points', 'x', 'y', 'width', 'height', 'text', 'color', 'order', 'groupId'}
-                    extra_dict = {k: v for k, v in a.items() if k not in known_keys}
+                    extra_dict = {k: v for k, v in a.items() if k not in known_keys and k != 'extra'}
+                    if 'extra' in a and isinstance(a['extra'], dict):
+                        extra_dict.update(a['extra'])
                     extra = json.dumps(extra_dict) if extra_dict else None
                     points = json.dumps(a['points']) if a.get('points') is not None else None
                     
@@ -594,7 +598,9 @@ def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: 
                     seen_ids.add(ann_id)
                     
                     known_keys = {'id', 'type', 'labelId', 'points', 'x', 'y', 'width', 'height', 'text', 'color', 'order', 'groupId'}
-                    extra_dict = {k: v for k, v in a.items() if k not in known_keys}
+                    extra_dict = {k: v for k, v in a.items() if k not in known_keys and k != 'extra'}
+                    if 'extra' in a and isinstance(a['extra'], dict):
+                        extra_dict.update(a['extra'])
                     extra = json.dumps(extra_dict) if extra_dict else None
                     points = json.dumps(a['points']) if a.get('points') is not None else None
                     

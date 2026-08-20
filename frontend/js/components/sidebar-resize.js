@@ -45,6 +45,10 @@ export function initSidebarResize() {
     if (!dragging) return;
     // Sidebar starts at the viewport's left edge, so clientX is the width.
     applyWidth(clampWidth(event.clientX));
+    
+    // The canvas is sized from its container's pixel dimensions, so it has to
+    // be told the container changed continuously during the drag.
+    window.dispatchEvent(new Event("resize"));
   });
 
   function endDrag(event) {

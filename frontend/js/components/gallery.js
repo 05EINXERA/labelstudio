@@ -189,16 +189,19 @@ export async function switchImage(index) {
         item.annotations = [];
       });
 
-    const lockPromise = claimTask(item.id, clientId())
-      .then((lock) => {
-        if (lock && lock.status === 'locked') {
-          const secsLeft = lock.seconds_remaining || 60;
-          setStatus(`⚠ Task in use by another annotator (~${secsLeft}s remaining)`);
-        }
-      })
-      .catch((e) => {
-        console.warn('[task-lock] claim on open failed:', e);
-      });
+    const lockPromise = detailPromise.then(() => {
+      if (!item.isFullyLoaded) return;
+      return claimTask(item.id, clientId())
+        .then((lock) => {
+          if (lock && lock.status === 'locked') {
+            const secsLeft = lock.seconds_remaining || 60;
+            setStatus(`⚠ Task in use by another annotator (~${secsLeft}s remaining)`);
+          }
+        })
+        .catch((e) => {
+          console.warn('[task-lock] claim on open failed:', e);
+        });
+    });
 
     await Promise.all([detailPromise, lockPromise]);
   }

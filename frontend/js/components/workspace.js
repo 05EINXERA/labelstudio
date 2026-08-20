@@ -393,7 +393,8 @@ export function renderAnnotations() {
     const selected = state.annotations.find((item) => item.id === state.selectedId);
     if (selected) {
       if (selected.type === "comment") {
-        selectedInfo.innerHTML = `Comment by ${selected.author || "User"} <button id="editCommentBtn" class="icon-button" style="font-size: 0.8rem; margin-left: 8px;">✏️ Edit</button>`;
+        const author = selected.author || (selected.extra && selected.extra.author) || "User";
+        selectedInfo.innerHTML = `Comment by ${author} <button id="editCommentBtn" class="icon-button" style="font-size: 0.8rem; margin-left: 8px;">✏️ Edit</button>`;
         document.getElementById('editCommentBtn').addEventListener('click', () => {
           view.pendingCommentEditId = selected.id;
           const screenX = view.imageBox.x + selected.x * view.imageBox.scale;
@@ -615,7 +616,8 @@ export function renderAnnotations() {
   const selected = state.annotations.find((item) => item.id === state.selectedId);
   if (selected) {
     if (selected.type === "comment") {
-      selectedInfo.innerHTML = `Comment by ${selected.author || "User"} <button id="editCommentBtn" class="icon-button" style="font-size: 0.8rem; margin-left: 8px;">✏️ Edit</button>`;
+      const author = selected.author || (selected.extra && selected.extra.author) || "User";
+      selectedInfo.innerHTML = `Comment by ${author} <button id="editCommentBtn" class="icon-button" style="font-size: 0.8rem; margin-left: 8px;">✏️ Edit</button>`;
       document.getElementById('editCommentBtn').addEventListener('click', () => {
         view.pendingCommentEditId = selected.id;
         const screenX = view.imageBox.x + selected.x * view.imageBox.scale;
