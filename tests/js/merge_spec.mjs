@@ -24,6 +24,22 @@ const near = (a, b, tol = 1e-6) => Math.abs(a - b) < tol;
 const hasVertex = (pts, x, y, tol = 1e-6) =>
   pts.some((p) => near(p.x, x, tol) && near(p.y, y, tol));
 
+// Ray cast, for asking whether a merged piece covers a point the annotator
+// never marked. Boundary behaviour is irrelevant here: every point tested is
+// well inside or well outside.
+const pointInside = (point, ring) => {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i, i += 1) {
+    const c = ring[i];
+    const d = ring[j];
+    if ((c.y > point.y) !== (d.y > point.y) &&
+        point.x < ((d.x - c.x) * (point.y - c.y)) / (d.y - c.y) + c.x) {
+      inside = !inside;
+    }
+  }
+  return inside;
+};
+
 // A square with corner (x, y) and the given side length.
 const square = (x, y, side) => [P(x, y), P(x + side, y), P(x + side, y + side), P(x, y + side)];
 
@@ -119,13 +135,15 @@ const C = square(10, 10, 10);          // overlaps B, not A
 const chain = m.unionAll([A, B, C]);
 ok('three chained rings all merge', chain.merged === 3);
 ok('three chained rings skip nothing', chain.skipped.length === 0);
-ok('three chained rings give a simple ring', u.isSimpleRing(chain.points));
-ok('three chained rings exceed any one input', u.ringArea(chain.points) > u.ringArea(B));
+ok('three chained rings give one component', chain.components.length === 1);
+ok('three chained rings give a simple ring', u.isSimpleRing(chain.components[0]));
+ok('three chained rings exceed any one input',
+   u.ringArea(chain.components[0]) > u.ringArea(B));
 
 // A and C touch only through B, so this also proves the repeated-pass fold:
 // a naive single left-to-right pass would strand one of them.
 ok('chained fold covers the full extent',
-   hasVertex(chain.points, 0, 0) && hasVertex(chain.points, 20, 20));
+   hasVertex(chain.components[0], 0, 0) && hasVertex(chain.components[0], 20, 20));
 
 // N=3 where one is disjoint (PLAN 5.6)
 const partial = m.unionAll([A, B, far]);
@@ -185,8 +203,9 @@ ok('an empty ring cannot merge', m.unionRings([], A) === null);
 ok('a two-point ring cannot merge', m.unionRings([P(0, 0), P(1, 1)], A) === null);
 ok('a null ring cannot merge', m.unionRings(null, A) === null);
 ok('unionAll of nothing reports nothing merged', m.unionAll([]).merged === 0);
-ok('unionAll of nothing has null points', m.unionAll([]).points === null);
-ok('unionAll of one ring returns it', near(u.ringArea(m.unionAll([A]).points), 100));
+ok('unionAll of nothing has null components', m.unionAll([]).components === null);
+ok('unionAll of one ring returns it',
+   near(u.ringArea(m.unionAll([A]).components[0]), 100));
 ok('unionAll ignores a non-array argument', m.unionAll(null).merged === 0);
 // A triangle is a perfectly legal input — 3 points is the minimum real ring.
 // Offset from the origin on purpose: a triangle at (0,0) would share a corner
@@ -209,13 +228,132 @@ ok('re-merging stays simple', u.isSimpleRing(again));
 ok('re-merging is stable a second time',
    near(u.ringArea(m.unionRings(again, A)), u.ringArea(venn)));
 
+// --- 10b. The reported bug: two overlaps must not swallow the gap -------
+//
+// A horizontal bar crossing the two legs of an inverted-U. The outlines cross
+// four times, the overlap happens in two separate lobes, and the untouched
+// space between the legs sits enclosed between them. The original walk started
+// at one outside vertex, traced back to it, and returned that single ring —
+// which is the outer boundary with the gap filled in. It passed every guard
+// (simple, above the area floor, larger than either input), so a merge silently
+// annotated image the user never marked.
+
+const legs = [P(10, 0), P(50, 0), P(50, 50), P(38, 50),
+              P(38, 10), P(22, 10), P(22, 50), P(10, 50)];
+const crossbar = [P(0, 20), P(60, 20), P(60, 30), P(0, 30)];
+const twoLobes = m.unionComponents(crossbar, legs);
+
+ok('two-lobe overlap yields components', twoLobes !== null);
+ok('two-lobe overlap has one outer ring', twoLobes.outer.length === 1);
+ok('two-lobe overlap reports the enclosed gap as a hole', twoLobes.holes.length === 1);
+ok('the hole is the gap between the legs', near(u.ringArea(twoLobes.holes[0]), 160));
+ok('every reported ring is simple',
+   [...twoLobes.outer, ...twoLobes.holes].every((r) => u.isSimpleRing(r)));
+
+// The point that proves the bug is gone. (30, 15) is dead centre of the gap:
+// inside the outer boundary, but inside neither input and inside no part of the
+// union. Anything that reports it as covered has re-introduced the defect.
+const gapPoint = P(30, 15);
+ok('the gap is enclosed by the outer boundary, not part of it',
+   m.unionRings(crossbar, legs) === null);
+ok('the hole contains the gap centre',
+   twoLobes.holes.some((r) => pointInside(gapPoint, r)));
+
+// unionRings can only answer with one ring, so it must refuse here rather than
+// hand back the outer boundary. That refusal is the fix at the kernel level.
+ok('a holed union has no single-ring answer', m.unionRings(crossbar, legs) === null);
+ok('the rings genuinely do overlap', m.ringsOverlap(crossbar, legs) === true);
+
+// --- 10b-ii. The gap survives the merge (splitAnnulus) ------------------
+//
+// unionAll does not stop at the refusal: it cuts the region in two so the void
+// is left outside both pieces. This is the assertion the whole change exists
+// for — if it ever fails, a merge is annotating image nobody marked.
+
+// A C-shape crossed at both tips: the same topology drawn differently.
+const cShape = [P(0, 0), P(40, 0), P(40, 12), P(10, 12),
+                P(10, 28), P(40, 28), P(40, 40), P(0, 40)];
+const capBar = [P(35, -5), P(45, -5), P(45, 45), P(35, 45)];
+
+const split = m.unionAll([crossbar, legs]);
+ok('a holed union still merges', split.components !== null);
+ok('a holed union is split into two pieces', split.components.length === 2);
+ok('splitting is not reported as a hole', split.holes === false);
+ok('nothing is reported as non-overlapping', split.skipped.length === 0);
+ok('both inputs were absorbed', split.merged === 2);
+
+ok('THE GAP IS NOT COVERED BY ANY PIECE',
+   !split.components.some((piece) => pointInside(gapPoint, piece)));
+
+// Area is the arithmetic proof of the same thing: outer minus the hole, with
+// no double-counting between the pieces.
+ok('the pieces cover the union minus the gap',
+   near(split.components.reduce((sum, r) => sum + u.ringArea(r), 0), 1880 - 160));
+ok('every piece is a simple ring', split.components.every((r) => u.isSimpleRing(r)));
+ok('every piece has real area', split.components.every((r) => u.ringArea(r) > 0));
+ok('every piece has at least 3 vertices', split.components.every((r) => r.length >= 3));
+
+// Each input's own area must still be fully covered — the split may not shave
+// off anything the annotator actually drew.
+const covered = (pt) => split.components.some((piece) => pointInside(pt, piece));
+ok('a point inside the crossbar only is still covered', covered(P(5, 25)));
+ok('a point inside the left leg only is still covered', covered(P(16, 5)));
+ok('a point inside the right leg only is still covered', covered(P(44, 5)));
+ok('a point in the overlap is still covered', covered(P(16, 25)));
+ok('a point outside everything stays outside', !covered(P(100, 100)));
+
+// splitAnnulus refuses rather than guessing on nonsense input.
+ok('splitAnnulus refuses a missing hole', m.splitAnnulus(twoLobes.outer[0], null) === null);
+ok('splitAnnulus refuses a degenerate ring',
+   m.splitAnnulus([P(0, 0), P(1, 1)], twoLobes.holes[0]) === null);
+
+// The capped C is the same topology drawn differently and must split too.
+const cappedFold = m.unionAll([cShape, capBar]);
+ok('the capped C splits rather than refusing', cappedFold.components.length === 2);
+ok('the capped C leaves its gap uncovered',
+   !cappedFold.components.some((piece) => pointInside(P(25, 20), piece)));
+
+// The same pair the other way round must reach the same conclusion.
+const flipped = m.unionComponents(legs, crossbar);
+ok('hole detection is order-independent',
+   flipped !== null && flipped.holes.length === 1 && flipped.outer.length === 1);
+ok('the hole is the same either way', near(u.ringArea(flipped.holes[0]), 160));
+
+const capped = m.unionComponents(cShape, capBar);
+ok('a capped C also reports a hole', capped !== null && capped.holes.length === 1);
+ok('a capped C has a single outer ring', capped.outer.length === 1);
+
+// --- 10c. A plain two-crossing overlap still gives exactly one ring -----
+//
+// The regression fence for the rewrite: enumerating components must not turn
+// the ordinary case into several pieces or a spurious hole.
+
+const plain = m.unionComponents(A, B);
+ok('a simple overlap has one outer component', plain.outer.length === 1);
+ok('a simple overlap has no hole', plain.holes.length === 0);
+ok('the single component is the ring unionRings returns',
+   near(u.ringArea(plain.outer[0]), u.ringArea(venn)));
+ok('a simple overlap still merges through unionAll',
+   m.unionAll([A, B]).components.length === 1);
+ok('a simple overlap flags no hole', m.unionAll([A, B]).holes === false);
+
+// Containment and the comb both stay single-component too.
+ok('containment is one component',
+   m.unionComponents(square(0, 0, 100), A).outer.length === 1);
+ok('containment has no hole',
+   m.unionComponents(square(0, 0, 100), A).holes.length === 0);
+ok('the comb over the bar is one component',
+   m.unionComponents(bar, comb).outer.length === 1);
+ok('the comb over the bar has no hole',
+   m.unionComponents(bar, comb).holes.length === 0);
+
 // --- 11. The invariant, asserted across every ring produced above -------
 //
 // The union of simple rings is a simple ring. Anything else means the walk
 // went wrong, and the caller would write corrupt geometry into an annotation.
 
-const produced = [venn, combined, contained, chain.points, mixedWinding, again,
-                  partial.points, teeth, triangleUnion];
+const produced = [venn, combined, contained, chain.components[0], mixedWinding,
+                  again, partial.components[0], teeth, triangleUnion];
 ok('every produced ring is simple', produced.every((r) => r === null || u.isSimpleRing(r)));
 ok('every produced ring has at least 3 vertices',
    produced.every((r) => r === null || r.length >= 3));

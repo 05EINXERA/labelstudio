@@ -382,9 +382,16 @@ button {
   white-space: nowrap;
 }
 .task-status-pill.is-new        { background: var(--panel-2); color: var(--muted); }
-.task-status-pill.is-progress   { background: #dbeafe;        color: #1d4ed8; }
-.task-status-pill.is-completed  { background: #d1fae5;        color: #065f46; }
-.task-status-pill.is-approved   { background: #d1fae5;        color: #065f46; }
+.task-status-pill.is-progress   { background: #d5eefe;        color: #0369a1; }
+.task-status-pill.is-completed  { background: #fef08a;        color: #713f12; }
+/* The approved group: one colour family per export batch. They mean the same
+   thing about the work (see task-status.js), so they stay in the calm,
+   "accepted" end of the palette — distinct enough to tell batches apart at a
+   glance, never as loud as Rejected. */
+.task-status-pill.is-approved   { background: #bbf7d0;        color: #15803d; }
+.task-status-pill.is-verified   { background: #ccfbf1;        color: #115e59; }
+.task-status-pill.is-checked    { background: #ede9fe;        color: #5b21b6; }
+.task-status-pill.is-passed     { background: #ffedd5;        color: #9a3412; }
 .task-status-pill.is-rejected   { background: #fee2e2;        color: #991b1b; }
 
 .app-shell {
@@ -2371,9 +2378,12 @@ table.data-table tbody tr:last-child td { border-bottom: none; }
   font-size: .75rem; font-weight: 600; white-space: nowrap;
   background: var(--panel-2); color: var(--muted); border: 1px solid var(--line);
 }
-.pill.is-completed { background: rgba(15,139,141,.12); color: var(--accent-dark); border-color: transparent; }
-.pill.is-progress  { background: rgba(234,179,8,.15);  color: #8a6d0b; border-color: transparent; }
-.pill.is-approved  { background: rgba(59,130,246,.14); color: #1e5fbf; border-color: transparent; }
+.pill.is-completed { background: rgba(250,204,21,.28); color: #854d0e; border-color: transparent; }
+.pill.is-progress  { background: rgba(14,165,233,.16); color: #0369a1; border-color: transparent; }
+.pill.is-approved  { background: rgba(34,197,94,.20);  color: #15803d; border-color: transparent; }
+.pill.is-verified  { background: rgba(20,184,166,.16); color: #0f766e; border-color: transparent; }
+.pill.is-checked   { background: rgba(139,92,246,.16); color: #6d28d9; border-color: transparent; }
+.pill.is-passed    { background: rgba(249,115,22,.16); color: #9a3412; border-color: transparent; }
 
 .row-actions { display: flex; gap: 6px; justify-content: center; }
 .row-actions button {
@@ -2502,6 +2512,37 @@ table.data-table tbody tr:last-child td { border-bottom: none; }
 .metric-tile .sub { font-size: .8rem; color: var(--muted); margin: 4px 0 0; }
 a.metric-tile { text-decoration: none; color: inherit; display: block; }
 a.metric-tile:hover { border-color: var(--accent); }
+
+/* ── Status tiles on the project dashboard ────────────────────────────────────
+   A metric tile that represents one task status wears that status's colour, so
+   the dashboard, the tasks table and the canvas pill all agree at a glance. The
+   modifier is whatever task-status.js::statusClass returns — this is the only
+   place the tile colours are defined, and adding a batch status needs one rule
+   here.
+
+   The accent is carried on a left bar and the big number, not a flooded
+   background: seven saturated tiles side by side would be unreadable, and the
+   count is what the eye is looking for. `--tile-tint` keeps the surface barely
+   off-white so the tiles still read as one grid. */
+.metric-tile.status-tile {
+  border-left: 4px solid var(--tile-accent, var(--line));
+  background: var(--tile-tint, var(--panel));
+}
+.metric-tile.status-tile .value { color: var(--tile-accent, inherit); }
+a.metric-tile.status-tile:hover { border-color: var(--tile-accent, var(--accent)); }
+
+/* The approved group: one colour per export batch, same family as the pills. */
+.metric-tile.is-approved  { --tile-accent: #15803d; --tile-tint: #f3fcf6; }
+.metric-tile.is-verified  { --tile-accent: #0f766e; --tile-tint: #f1fbfa; }
+.metric-tile.is-checked   { --tile-accent: #6d28d9; --tile-tint: #f8f6ff; }
+.metric-tile.is-passed    { --tile-accent: #c2410c; --tile-tint: #fff8f3; }
+/* The working vocabulary. 'Passed' is orange and 'Completed' bright yellow:
+   they were the two warm tiles nearest each other and read as the same colour
+   at tile size. */
+.metric-tile.is-completed { --tile-accent: #a16207; --tile-tint: #fefce8; }
+.metric-tile.is-progress  { --tile-accent: #0284c7; --tile-tint: #f1f9fe; }
+.metric-tile.is-new       { --tile-accent: #64748b; --tile-tint: #f8fafc; }
+.metric-tile.is-rejected  { --tile-accent: #b91c1c; --tile-tint: #fef6f6; }
 
 @media (max-width: 820px) {
   .project-shell { flex-direction: column; }
@@ -2906,9 +2947,12 @@ button.switch[aria-checked="true"] .switch-knob {
   border-color: #d1d5db;
 }
 .status-select.status-new        { background: #ffffff; color: #374151; border-color: #d1d5db; }
-.status-select.status-inprogress { background: #dbeafe; color: #1d4ed8; border-color: #93c5fd; }
-.status-select.status-completed  { background: #fef9c3; color: #854d0e; border-color: #fde047; }
-.status-select.status-approved   { background: #dcfce7; color: #166534; border-color: #86efac; }
+.status-select.status-inprogress { background: #d5eefe; color: #0369a1; border-color: #7dd3fc; }
+.status-select.status-completed  { background: #fef08a; color: #713f12; border-color: #facc15; }
+.status-select.status-approved   { background: #bbf7d0; color: #15803d; border-color: #4ade80; }
+.status-select.status-verified   { background: #ccfbf1; color: #115e59; border-color: #5eead4; }
+.status-select.status-checked    { background: #ede9fe; color: #5b21b6; border-color: #c4b5fd; }
+.status-select.status-passed     { background: #ffedd5; color: #9a3412; border-color: #fdba74; }
 .status-select.status-rejected   { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
 
 .inline-code {

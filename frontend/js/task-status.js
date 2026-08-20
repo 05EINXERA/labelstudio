@@ -108,12 +108,15 @@ export function statusForReviewAction(action) {
 /**
  * CSS modifier for a status chip/pill.
  *
- * The batch synonyms deliberately reuse `is-approved`: they *are* approvals, so
- * giving each its own colour would suggest a distinction in the work that does
- * not exist. Callers that need to tell batches apart read the text.
+ * Each approved-group status gets its own modifier (`is-approved`,
+ * `is-verified`, ...) so export batches are distinguishable at a glance. The
+ * modifiers are styled in one colour family (see styles.css) because the
+ * statuses mean the same thing about the work — only the batch differs. This is
+ * a *rendering* distinction only: every group membership test still goes
+ * through `isApproved`, never through the class name.
  */
 export function statusClass(status) {
-  if (isApproved(status)) return "is-approved";
+  if (isApproved(status)) return `is-${status.toLowerCase()}`;
   switch (status) {
     case "Completed": return "is-completed";
     case "In Progress": return "is-progress";
@@ -126,7 +129,7 @@ export function statusClass(status) {
 
 /** `status-*` variant used by the Tasks table's status <select>. */
 export function statusSelectClass(status) {
-  if (isApproved(status)) return "status-approved";
+  if (isApproved(status)) return `status-${status.toLowerCase()}`;
   switch (status) {
     case "In Progress": return "status-inprogress";
     case "Completed": return "status-completed";

@@ -163,6 +163,75 @@ def test_partially_approved_project_is_in_progress(client, alice):
         assert db.get(models.Project, project_id).status == "In Progress"
 
 
+# --- stored status vs derived status -----------------------------------------
+#
+# GET /metrics used to return `derived or project.status`, so the derivation
+# *overrode* the stored value for any project with at least one approved task.
+# A project manually marked 'Completed' with work still outstanding was reported
+# as 'In Progress', and the dashboard's Status tile contradicted the project
+# header right above it. The two are now separate fields.
+
+
+def test_metrics_reports_the_stored_status_not_the_derived_one(client, alice):
+    """The manual status wins in `status`; the derivation gets its own field."""
+    project_id = _project(client, alice)
+    first = _task(client, alice, project_id, "New")
+    _task(client, alice, project_id, "New")
+
+    # One of two tasks approved -> the counts imply 'In Progress'.
+    client.post(
+        f"/api/tasks/{first}/review", json={"action": "approved"}, headers=alice
+    )
+    # ...but a manager declares the project done anyway.
+    client.patch(
+        f"/api/projects/{project_id}", json={"status": "Completed"}, headers=alice
+    )
+
+    m = client.get(f"/api/projects/{project_id}/metrics", headers=alice).json()
+    assert m["status"] == "Completed", "the derivation overrode the stored status"
+    assert m["derived_status"] == "In Progress"
+
+
+def test_metrics_status_matches_the_project_endpoint(client, alice):
+    """The two endpoints must never disagree about `status` — the dashboard and
+    the project header read one each."""
+    project_id = _project(client, alice)
+    task_id = _task(client, alice, project_id, "New")
+    client.post(
+        f"/api/tasks/{task_id}/review", json={"action": "passed"}, headers=alice
+    )
+
+    detail = client.get(f"/api/projects/{project_id}", headers=alice).json()
+    metrics = client.get(f"/api/projects/{project_id}/metrics", headers=alice).json()
+    assert metrics["status"] == detail["status"]
+
+
+def test_a_status_outside_the_derivation_survives(client, alice):
+    """`_derive_status` only knows New/In Progress/Completed. A project parked in
+    any other state must keep it once tasks start being approved."""
+    project_id = _project(client, alice)
+    task_id = _task(client, alice, project_id, "New")
+    client.post(
+        f"/api/tasks/{task_id}/review", json={"action": "verified"}, headers=alice
+    )
+    client.patch(
+        f"/api/projects/{project_id}", json={"status": "Archived"}, headers=alice
+    )
+
+    m = client.get(f"/api/projects/{project_id}/metrics", headers=alice).json()
+    assert m["status"] == "Archived"
+    assert m["derived_status"] == "Completed"
+
+
+def test_derived_status_is_null_when_nothing_is_approved(client, alice):
+    """No approvals implies nothing, so the field is null rather than a guess."""
+    project_id = _project(client, alice)
+    _task(client, alice, project_id, "Completed")
+
+    m = client.get(f"/api/projects/{project_id}/metrics", headers=alice).json()
+    assert m["derived_status"] is None
+
+
 # --- per-status detail (the dashboard tiles) ---------------------------------
 #
 # `completed` above is the whole approved *group*. `by_status` splits it back

@@ -15,7 +15,7 @@ import {
   autoDetectButton, undoButton, redoButton, deleteButton, clearButton, unhideAllButton,
   assignTaskButton, saveButton
 } from "./dom.js?v=4";
-import { drawAllLayers } from "./canvas/draw.js?v=5";
+import { drawAllLayers } from "./canvas/draw.js?v=6";
 import {
   setStatus, syncToBackend, save, loadSaved, saveDraft, restoreDraft,
   render, manualSaveWithUI, refreshSaveStatus, pruneStaleDrafts, unhideAllObjects
@@ -33,7 +33,7 @@ import {
 } from "./components/timer.js?v=5";
 import {
   finalizePolygon, deleteSelected, undoAction, redoAction, setZoomChangeHandler
-} from "./canvas/interactions.js?v=10";
+} from "./canvas/interactions.js?v=13";
 import { initContextMenu } from "./canvas/context-menu.js?v=3";
 import { getCurrentUser } from "./session.js?v=1";
 import { initCanvasAssign, renderAssignButton } from "./canvas-assign.js?v=1";
@@ -42,8 +42,8 @@ import {
   reportSaveForbidden, reportSaveRefused, setMyTeams, setMyUserId, updateTaskBanner,
   renderStatusDropdown, renderSaveSplitMenu, updateTaskStatusPill, currentRole,
   taskWriteBlock,
-} from "./canvas-permissions.js?v=8";
-import { isFrozenForRole } from "./task-status.js?v=2";
+} from "./canvas-permissions.js?v=9";
+import { isFrozenForRole } from "./task-status.js?v=3";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
 import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=3";
 import { claimTask, heartbeatTask, releaseTask } from "./task-lock.js?v=2";

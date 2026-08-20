@@ -199,10 +199,20 @@ def get_project_metrics(project_id: int, db: Session = Depends(get_db), user: mo
 
     # This endpoint used to write the derived status back to the project, which
     # made a GET mutate the database (CLAUDE.md rule 4). The status is now
-    # reported without being persisted; the write happens on task update.
-    derived = _derive_status(m["total"], m["completed"])
-
-    return ProjectMetrics(status=derived or project.status, **m)
+    # reported without being persisted; the write happens on task update
+    # (tasks.py::_sync_project_status), which is the single writer.
+    #
+    # `status` is the stored value and `derived_status` the one implied by the
+    # task counts. They used to be collapsed into `derived or project.status`,
+    # which meant the derivation *overrode* the stored status for every project
+    # with at least one approved task — reporting a value the project did not
+    # have, under the name of the one it did. Keeping them separate lets a
+    # caller pick deliberately instead of guessing which it received.
+    return ProjectMetrics(
+        status=project.status,
+        derived_status=_derive_status(m["total"], m["completed"]),
+        **m,
+    )
 
 @router.post("")
 def create_project(project: ProjectModel, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):

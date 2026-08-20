@@ -14,7 +14,7 @@ import { view } from "../canvas/view.js?v=1";
 import { drainTaskTime, DRAIN_SKIPPED, refreshTimerDisplays } from "./timer.js?v=5";
 import { timerState } from "../timer-state.js?v=3";
 import { detectState } from "../ai/detect-state.js?v=3";
-import { draw, drawAllLayers } from "../canvas/draw.js?v=5";
+import { draw, drawAllLayers } from "../canvas/draw.js?v=6";
 import {
   emptyState, classesList, annotationList, annotationCount, selectedInfo,
   hiddenFilterButton, hiddenCount,
@@ -29,8 +29,8 @@ import { toolAvailability } from "../feature-flags.js?v=1";
 // for an annotator who simply is not assigned the open task — the sidepanel
 // needs the per-task answer, which is what taskWriteBlock() gives.
 // canvas-permissions.js does not import this module, so there is no cycle.
-import { taskWriteBlock } from "../canvas-permissions.js?v=8";
-import { isTerminal } from "../task-status.js?v=2";
+import { taskWriteBlock } from "../canvas-permissions.js?v=9";
+import { isTerminal } from "../task-status.js?v=3";
 
 
 /**

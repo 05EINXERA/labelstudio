@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Label Studio</title>
   <link rel="icon" type="image/png" href="logo.png">
-  <link rel="stylesheet" href="styles.css?v=27">
+  <link rel="stylesheet" href="styles.css?v=30">
   <!-- sync.js (legacy global annotation-slot sync to /api/data) removed in T3.1.
        Under a shared account the 'image-annotation-mvp-v1' row was last-writer-wins
        across all 25 clients. Per-task localStorage drafts (workspace.js restoreDraft)
@@ -276,7 +276,7 @@
             <button class="icon-button" id="undoButton" type="button" title="Undo (Ctrl+Z)"><span class="btn-icon">↩</span><span class="btn-label">Undo</span></button>
             <button class="icon-button" id="redoButton" type="button" title="Redo (Ctrl+Shift+Z)"><span class="btn-icon">↪</span><span class="btn-label">Redo</span></button>
             <button class="icon-button" id="deleteButton" type="button" title="Delete selected"><span class="btn-icon">🗑</span><span class="btn-label">Delete</span></button>
-            <button class="icon-button" id="groupButton" type="button" title="Group selected (Shift+Click to select multiple)" disabled><span class="btn-icon">🔗</span><span class="btn-label">Group</span></button>
+            <button class="icon-button" id="groupButton" type="button" title="Group selected (Shift+Click to select multiple, or Shift+Drag a box)" disabled><span class="btn-icon">🔗</span><span class="btn-label">Group</span></button>
             <button class="icon-button" id="ungroupButton" type="button" title="Ungroup selected" disabled><span class="btn-icon">💥</span><span class="btn-label">Ungroup</span></button>
             <button class="icon-button" id="mergeButton" type="button" title="Merge overlapping selected objects (M)" disabled><span class="btn-icon">⬤</span><span class="btn-label">Merge</span></button>
             <button class="icon-button" id="unhideAllButton" type="button" title="Show all hidden objects (U)"><span class="btn-icon">👁</span><span class="btn-label">Unhide</span></button>
@@ -530,7 +530,7 @@
     </div>
   </div>
 
-  <script type="module" src="js/init.js?v=21"></script>
+  <script type="module" src="js/init.js?v=25"></script>
 
 </body>
 
