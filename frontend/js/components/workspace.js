@@ -29,8 +29,8 @@ import { toolAvailability } from "../feature-flags.js?v=1";
 // for an annotator who simply is not assigned the open task — the sidepanel
 // needs the per-task answer, which is what taskWriteBlock() gives.
 // canvas-permissions.js does not import this module, so there is no cycle.
-import { taskWriteBlock } from "../canvas-permissions.js?v=8";
-import { isTerminal } from "../task-status.js?v=2";
+import { taskWriteBlock } from "../canvas-permissions.js?v=9";
+import { isTerminal } from "../task-status.js?v=3";
 
 
 /**

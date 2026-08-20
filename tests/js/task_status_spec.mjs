@@ -55,8 +55,12 @@ for (const status of ['Approved', 'Verified', 'Checked', 'Passed']) {
   ok(`isApproved('${status}')`, s.isApproved(status) === true);
   ok(`'${status}' is a review status`, s.isReviewStatus(status) === true);
   ok(`'${status}' is terminal`, s.isTerminal(status) === true);
-  ok(`'${status}' pills as approved`, s.statusClass(status) === 'is-approved');
-  ok(`'${status}' selects as approved`, s.statusSelectClass(status) === 'status-approved');
+  // Each batch gets its own colour modifier so exports are distinguishable at
+  // a glance; the modifier is derived from the name, never hand-maintained.
+  ok(`'${status}' pills with its own batch class`,
+     s.statusClass(status) === `is-${status.toLowerCase()}`);
+  ok(`'${status}' selects with its own batch class`,
+     s.statusSelectClass(status) === `status-${status.toLowerCase()}`);
 }
 
 for (const status of ['New', 'In Progress', 'Completed', 'Rejected', null, undefined, '']) {

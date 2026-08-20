@@ -28,7 +28,7 @@ import {
   shouldRestoreFilters,
   clearResettableParams,
 } from "./tasks-view-restore.js?v=2";
-import { APPROVED_STATUSES, isReviewStatus } from "../../task-status.js?v=2";
+import { APPROVED_STATUSES, isReviewStatus } from "../../task-status.js?v=3";
 import {
   STATUSES,
   buildColumns,

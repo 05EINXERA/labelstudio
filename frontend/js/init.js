@@ -42,8 +42,8 @@ import {
   reportSaveForbidden, reportSaveRefused, setMyTeams, setMyUserId, updateTaskBanner,
   renderStatusDropdown, renderSaveSplitMenu, updateTaskStatusPill, currentRole,
   taskWriteBlock,
-} from "./canvas-permissions.js?v=8";
-import { isFrozenForRole } from "./task-status.js?v=2";
+} from "./canvas-permissions.js?v=9";
+import { isFrozenForRole } from "./task-status.js?v=3";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
 import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=3";
 import { claimTask, heartbeatTask, releaseTask } from "./task-lock.js?v=2";

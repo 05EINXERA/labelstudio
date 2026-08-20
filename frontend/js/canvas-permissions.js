@@ -22,7 +22,7 @@ import {
   isReviewStatus,
   statusClass,
   statusForReviewAction,
-} from "./task-status.js?v=2";
+} from "./task-status.js?v=3";
 
 const state = {
   project: null,
@@ -416,7 +416,7 @@ export function updateTaskStatusPill(task) {
     return;
   }
   const s = task.status || 'New';
-  // Every approved-group status shares the approved colour — see statusClass.
+  // Each approved-group batch has its own colour modifier — see statusClass.
   const cls = statusClass(s) || 'is-new';
   pill.className = `status-pill task-status-pill ${cls}`;
   pill.textContent = s;
