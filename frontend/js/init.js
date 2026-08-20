@@ -8,7 +8,7 @@ import {
   setStatus, syncToBackend, loadSaved, saveDraft, render, loadTeamForWorkspace
 } from "./components/workspace.js?v=1";
 import {
-  syncTimeToServer, setActiveTaskResolver, setConflictHandler
+  syncTimeToServer, setActiveTaskResolver, setConflictHandler, handleVisibilityChange as handleTimerVisibility
 } from "./components/timer.js?v=1";
 import { setZoomChangeHandler } from "./canvas/interactions.js?v=1";
 import { initContextMenu } from "./canvas/context-menu.js?v=1";
@@ -63,12 +63,13 @@ function flushPendingSaves({ useBeacon = false } = {}) {
 function _releaseCurrentLock({ useBeacon = false } = {}) {
   const task = state.gallery && state.galleryIndex >= 0
     ? state.gallery[state.galleryIndex] : null;
-  if (task && task.id) {
+  if (task && task.id && task.isFullyLoaded) {
     releaseTask(task.id, clientId(), { useBeacon });
   }
 }
 
 window.addEventListener('visibilitychange', () => {
+  handleTimerVisibility();
   if (document.visibilityState === 'hidden') {
     flushPendingSaves({ useBeacon: true });
     _releaseCurrentLock({ useBeacon: true });
@@ -196,7 +197,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setInterval(() => {
     const task = state.gallery && state.galleryIndex >= 0
       ? state.gallery[state.galleryIndex] : null;
-    if (task && task.id) {
+    if (task && task.id && task.isFullyLoaded) {
       heartbeatTask(task.id, clientId()).catch(() => { });
     }
   }, 30_000);

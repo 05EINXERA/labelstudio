@@ -127,7 +127,7 @@ def _creator_project_ids(user: models.User, db: Session, annotator: Optional[mod
     ]
 
 
-def _get_owned_task(task_id: int, user: models.User, db: Session, annotator: Optional[models.TeamMember] = None) -> models.Task:
+def _get_owned_task(task_id: int, user: models.User, db: Session, annotator: Optional[models.TeamMember] = None, require_edit: bool = True) -> models.Task:
     """Return the task if it belongs to a project `user` can access, else 404."""
     proj_ids = _accessible_project_ids(user, db, annotator)
     task = (
@@ -138,7 +138,7 @@ def _get_owned_task(task_id: int, user: models.User, db: Session, annotator: Opt
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
         
-    if annotator and task.assignee and task.assignee != annotator.name:
+    if require_edit and annotator and task.assignee and task.assignee != annotator.name:
         raise HTTPException(status_code=403, detail="Task is assigned to another user")
         
     return task
@@ -252,7 +252,7 @@ def get_task(task_id: int, db: Session = Depends(get_db), user: models.User = De
     """
     # _get_owned_task does not eager-load annotations, but since it's one task, lazy load is fine.
     # Pydantic TaskDetail response_model will handle serialization of `task.annotations`.
-    task = _get_owned_task(task_id, user, db, annotator)
+    task = _get_owned_task(task_id, user, db, annotator, require_edit=False)
     return TaskDetail(
         id=task.id,
         description=task.description,
@@ -346,7 +346,6 @@ def heartbeat_task(task_id: int, client_id: str = Query(..., max_length=64),
 def release_task(task_id: int, client_id: str = Query(..., max_length=64),
                  db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
     """Release a claim when the annotator closes or switches away from the task."""
-    _get_owned_task(task_id, user, db, annotator)
     deleted = db.query(models.TaskLock).filter(
         models.TaskLock.task_id == task_id,
         models.TaskLock.client_id == client_id,
@@ -365,7 +364,6 @@ def release_task_beacon(task_id: int, client_id: str = Query(..., max_length=64)
     guaranteed to complete. The advisory lock will expire via TTL anyway, but
     an explicit release is cleaner UX for the waiting annotator.
     """
-    _get_owned_task(task_id, user, db, annotator)
     deleted = db.query(models.TaskLock).filter(
         models.TaskLock.task_id == task_id,
         models.TaskLock.client_id == client_id,
@@ -379,7 +377,7 @@ def release_task_beacon(task_id: int, client_id: str = Query(..., max_length=64)
 def get_lock_status(task_id: int,
                     db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
     """Query the current lock state without claiming. Used by the task list."""
-    _get_owned_task(task_id, user, db, annotator)
+    _get_owned_task(task_id, user, db, annotator, require_edit=False)
     lock = _lock_status(task_id, db)
     if not lock:
         return {"locked": False}

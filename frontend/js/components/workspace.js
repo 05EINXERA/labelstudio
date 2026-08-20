@@ -68,7 +68,10 @@ export function syncToBackend({ useBeacon = false, targetStatus = null } = {}) {
   if (typeof state === 'undefined' || state.galleryIndex < 0 || !state.gallery || !state.gallery[state.galleryIndex]) return;
   const currentTask = state.gallery[state.galleryIndex];
   if (!currentTask.id) return;
-  if (!currentTask.isFullyLoaded) return Promise.resolve(false);
+  if (!currentTask.isFullyLoaded) {
+    setStatus("Cannot save: Task not fully loaded");
+    return Promise.resolve(false);
+  }
 
   let taskStatus = targetStatus || currentTask.status;
   if (taskStatus === 'New') taskStatus = 'In Progress';
@@ -157,6 +160,15 @@ export function restoreDraft(task) {
       clearDraft(task.id);
       return false;
     }
+    
+    // Warn if server has annotations and draft is different
+    if (state.annotations && state.annotations.length > 0) {
+      if (!confirm("You have a local draft that differs from the server's version. Restore your local draft?\n\n(Click 'Cancel' to keep the server's version)")) {
+        clearDraft(task.id);
+        return false;
+      }
+    }
+    
     state.annotations = draft.annotations;
     if (Array.isArray(draft.labels) && draft.labels.length) {
       state.labels = draft.labels;

@@ -125,7 +125,9 @@ export async function switchImage(index) {
     // it stays correct even though galleryIndex moves before it resolves.
     syncTaskTime(prevTask);
     // Release soft lock on outgoing task
-    releaseTask(prevTask.id, clientId());
+    if (prevTask.isFullyLoaded) {
+      releaseTask(prevTask.id, clientId());
+    }
   }
 
   state.galleryIndex = index;
@@ -165,11 +167,26 @@ export async function switchImage(index) {
           if (detail.updated_at) item.updated_at = detail.updated_at;
           if (detail.time_spent != null) item.time_spent = detail.time_spent;
           if (detail.assignee !== undefined) item.assignee = detail.assignee;
-          item.isFullyLoaded = true;
+          
+          const currentUsername = localStorage.getItem("dataset_username") || "";
+          if (item.assignee && item.assignee !== currentUsername) {
+            setStatus("⚠ Task is assigned to another user (Read-only)");
+            item.isFullyLoaded = false;
+          } else {
+            item.isFullyLoaded = true;
+          }
+        } else if (res && res.status === 403) {
+          setStatus("⚠ Task is assigned to another user (Read-only)");
+          item.annotations = [];
+          item.isFullyLoaded = false;
+        } else {
+          item.annotations = [];
+          item.isFullyLoaded = false;
         }
       })
       .catch((e) => {
         console.error("Failed to hydrate task annotations:", e);
+        item.annotations = [];
       });
 
     const lockPromise = claimTask(item.id, clientId())

@@ -463,8 +463,6 @@ export function handleVisibilityChange() {
     if (timerLocalState.isTimerRunning) {
       pausedByVisibility = true;
       pauseTimer({ useBeacon: true });
-      const task = currentTaskResolver();
-      if (task) drainTaskTime(task, { useBeacon: true });
     }
   } else if (document.visibilityState === 'visible') {
     if (pausedByVisibility) {
