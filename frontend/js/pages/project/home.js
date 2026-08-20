@@ -120,13 +120,12 @@ function render(root, project, m) {
       ${tile({ label: "Time logged", value: formatTime(m.total_time || 0), sub: "Across all tasks" })}
       ${tile({ label: "Avg per task", value: formatTime(m.avg_time_per_task || 0) })}
       ${(() => {
-        // The project's *stored* status, which is what the projects list and the
-        // shell's nav pill both show. `m.status` is not it: the metrics endpoint
-        // recomputes a status from the task counts and returns that in
-        // preference to the stored one, so a project manually marked 'Completed'
-        // while some tasks are still unapproved came back as 'In Progress' —
-        // this tile disagreeing with the pill directly above it. The derived
-        // value is already represented on this page by the completion bar.
+        // The project's stored status — the same value the projects list and
+        // the shell's nav pill show. `m.status` now carries it too (the metrics
+        // endpoint reports the derivation separately as `derived_status`), but
+        // `project` is preferred because a cached bundle can be talking to a
+        // server that still collapses the two. The derived value is already
+        // represented on this page by the completion bar.
         const st = project?.status || m.status || "New";
         return tile({ label: "Status", value: st, cls: statusClass(st) || "is-new" });
       })()}

@@ -95,7 +95,18 @@ class ProjectMetrics(BaseModel):
     # Seconds aggregated from Task.time_spent. See docs/TIMER_AUDIT.md F12.
     total_time: int = 0
     avg_time_per_task: int = 0
+    # The project's *stored* status — the same value GET /api/projects/{id} and
+    # the projects list report. Not derived: a project can be 'Preparing' or
+    # 'Archived' regardless of its task counts, and `_derive_status` cannot
+    # express either.
     status: Optional[str] = None
+    # The status the task counts *imply*, or None when they imply nothing (no
+    # task approved yet). Reported alongside `status` rather than in place of
+    # it: this endpoint used to return `derived or project.status`, so a
+    # project manually marked 'Completed' with some tasks still unapproved was
+    # reported as 'In Progress' — the dashboard contradicting the project
+    # header. A consumer that wants the derivation must now ask for it by name.
+    derived_status: Optional[str] = None
     in_progress: int = 0
     classes: int = 0
     # Per-status counts: one key per TASK_STATUSES member, always present even
