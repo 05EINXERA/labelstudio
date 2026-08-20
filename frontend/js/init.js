@@ -33,7 +33,7 @@ import {
 } from "./components/timer.js?v=5";
 import {
   finalizePolygon, deleteSelected, undoAction, redoAction, setZoomChangeHandler
-} from "./canvas/interactions.js?v=11";
+} from "./canvas/interactions.js?v=12";
 import { initContextMenu } from "./canvas/context-menu.js?v=3";
 import { getCurrentUser } from "./session.js?v=1";
 import { initCanvasAssign, renderAssignButton } from "./canvas-assign.js?v=1";

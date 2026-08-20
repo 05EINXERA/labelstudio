@@ -15,10 +15,17 @@
 //   - Only *overlapping* rings merge. Two disjoint shapes have a two-piece
 //     union, so the command refuses rather than inventing a bridge between them
 //     or silently dropping one.
-//   - Holes are impossible by construction: a ring enclosing a void would need
-//     a second ring to describe it. A union that would produce one (an annulus,
-//     e.g. a C-shape closed off by a bar) keeps the outer boundary only, and
-//     the enclosed void is simply filled. An accepted limitation, not a bug.
+//   - One ring per *annotation*, not per merge. The boundary of a union can
+//     have several components — two shapes overlapping twice can fall into two
+//     disjoint pieces — so unionComponents returns them all and the caller
+//     creates one annotation per piece. That is the only faithful answer the
+//     single-ring model can give, and it is what keeps a merge from claiming
+//     the untouched space between two overlaps.
+//   - Holes are refused, not filled. A ring enclosing a void would need a
+//     second ring to describe it, and there is nowhere to put one. An earlier
+//     version kept the outer boundary and let the void fill in; that silently
+//     annotated image the user never marked, so a union with a hole now
+//     refuses and leaves every input untouched. See .devnotes/fix-merge/.
 //
 // Never automatic. Overlapping shapes are a legal, untouched state on the
 // canvas; nothing here runs unless the user presses M or the toolbar button.
@@ -227,38 +234,20 @@ function splitEdges(ring, hits, paramKey, indexKey) {
 const indexOfKey = (list, key) => list.findIndex((p) => p.crossing && p.key === key);
 
 /**
- * Union of two rings. Returns a new ring, or null when they do not properly
- * overlap or the walk cannot be trusted.
+ * Shared setup for the walks: normalise, orient, cross, and splice.
  *
- * The walk (Weiler-Atherton style, outer boundary only):
- *   1. Both rings are wound counter-clockwise and their crossings computed.
- *   2. Containment short-circuits: no crossing but one ring inside the other
- *      means the union is just the container.
- *   3. Crossings are spliced into both rings as shared vertices.
- *   4. Start from a vertex of A known to be outside B — guaranteed to be on the
- *      union's boundary — and walk forward.
- *   5. At each crossing, switch to the other ring and keep walking. Alternating
- *      at every crossing traces the outer boundary and never enters the
- *      overlapped interior.
- *   6. Stop on return to the start. A walk exceeding the total vertex count is
- *      knotted (a degenerate or tangential crossing), so refuse rather than
- *      emit a wrong ring — merge destroys its inputs, and a silently wrong
- *      union is unrecoverable except by undo.
+ * Returns { a, b, splitA, splitB, hits }, or null when the pair is unusable.
+ * `hits` is empty when the outlines never properly cross — the caller decides
+ * whether that means containment or disjointness, because the two want
+ * different answers.
  */
-export function unionRings(ringA, ringB) {
+function prepareRings(ringA, ringB) {
   const a = ensureCCW(normaliseRing(ringA));
   const b = ensureCCW(normaliseRing(ringB));
   if (a.length < 3 || b.length < 3) return null;
 
   const hits = collectCrossings(a, b);
-
-  // No proper crossing: either containment (the union is the container) or the
-  // rings are disjoint / merely touching, which has no single-ring union.
-  if (hits.length === 0) {
-    if (anyVertexInside(a, b)) return b.map((p) => ({ x: p.x, y: p.y }));
-    if (anyVertexInside(b, a)) return a.map((p) => ({ x: p.x, y: p.y }));
-    return null;
-  }
+  if (hits.length === 0) return { a, b, splitA: null, splitB: null, hits };
 
   // An odd crossing count means an outline entered without leaving — only
   // possible when a crossing was missed or double-counted at a vertex. Refuse.
@@ -269,33 +258,53 @@ export function unionRings(ringA, ringB) {
   const splitA = splitEdges(a, hits, "t", "i");
   const splitB = splitEdges(b, hits, "u", "j");
 
-  // Every crossing must have landed on both rings, or the walk has nowhere to
-  // cross over to.
+  // Every crossing must have landed on both rings, or a walk reaching it has
+  // nowhere to cross over to.
   for (const hit of hits) {
     if (indexOfKey(splitA, hit.key) < 0 || indexOfKey(splitB, hit.key) < 0) return null;
   }
 
-  // Start outside the other ring, so the first step is on the outer boundary.
-  const startIndex = splitA.findIndex((p) => !p.crossing && !strictlyInside(p, b) &&
-    !onBoundary(p, b));
-  if (startIndex < 0) return null;
+  return { a, b, splitA, splitB, hits };
+}
 
-  const limit = splitA.length + splitB.length + hits.length + 4;
+/**
+ * Trace one boundary component, starting from `startIndex` on `startRing`.
+ *
+ * The walk itself is unchanged from the original single-component version:
+ * step forward, and at every crossing hop to the same crossing on the other
+ * ring. What is new is `visited` — every slot the walk consumes is recorded as
+ * "A:12" / "B:3" so the caller can tell which seeds are still unaccounted for
+ * and start another component from one of them. That bookkeeping is the whole
+ * fix: the boundary of a union of two rings can have several components, and
+ * the original code walked exactly one of them and discarded the rest.
+ *
+ * Returns the traced ring, or null when the walk knots (a degenerate or
+ * tangential crossing). Area and simplicity are judged by the caller, per
+ * component.
+ */
+function walkFrom(splitA, splitB, startRing, startIndex, visited) {
+  const limit = splitA.length + splitB.length + 4;
   const result = [];
-  let current = splitA;
-  let other = splitB;
+  let current = startRing;
+  let other = startRing === splitA ? splitB : splitA;
   let index = startIndex;
   let steps = 0;
 
   do {
     const point = current[index];
+    visited.add(`${current === splitA ? "A" : "B"}:${index}`);
+
     const last = result[result.length - 1];
     if (!last || !samePoint(last, point)) result.push({ x: point.x, y: point.y });
 
     if (point.crossing) {
-      // Hop to the same crossing on the other ring and continue there.
+      // Hop to the same crossing on the other ring and continue there. The
+      // mirror slot is the same point in space, so mark it consumed too —
+      // otherwise it looks like an unvisited seed and yields a duplicate
+      // component.
       const mirror = indexOfKey(other, point.key);
       if (mirror < 0) return null;
+      visited.add(`${other === splitA ? "A" : "B"}:${mirror}`);
       const swap = current;
       current = other;
       other = swap;
@@ -305,35 +314,140 @@ export function unionRings(ringA, ringB) {
     index = (index + 1) % current.length;
     steps += 1;
     if (steps > limit) return null;
-  } while (!(current === splitA && index === startIndex));
+  } while (!(current === startRing && index === startIndex));
 
   // The ring closes implicitly; drop an explicit repeat of the start point.
   while (result.length > 1 && samePoint(result[0], result[result.length - 1])) result.pop();
 
-  if (result.length < 3) return null;
-  if (ringArea(result) < MIN_LOOP_AREA) return null;
-
-  // The union of two simple rings is a simple ring. If what came out is not
-  // simple then the walk went wrong, and emitting it would corrupt geometry.
-  if (!isSimpleRing(result)) return null;
-
-  // A correct union is never smaller than its largest input.
-  if (ringArea(result) + EPS < Math.max(ringArea(a), ringArea(b))) return null;
-
   return result;
 }
 
+/** True when every vertex of `inner` is inside or on the boundary of `outer`. */
+function ringInsideRing(inner, outer) {
+  return inner.every((p) => strictlyInside(p, outer) || onBoundary(p, outer));
+}
+
 /**
- * Fold N rings into one. Returns { points, merged, skipped }:
- *   points  — the union ring, or null when nothing usable was given
- *   merged  — how many input rings were absorbed
- *   skipped — input indices that could not be absorbed
+ * Every boundary component of the union of two rings, classified.
+ *
+ * Returns { outer, holes } — arrays of rings — or null when the geometry
+ * cannot be trusted. `outer` is never empty on success.
+ *
+ * The walk (Weiler-Atherton style):
+ *   1. Both rings are wound counter-clockwise and their crossings computed.
+ *   2. Containment short-circuits: no crossing but one ring inside the other
+ *      means the union is just the container.
+ *   3. Crossings are spliced into both rings as shared vertices.
+ *   4. *Every* vertex of either ring that lies outside the other is a seed: it
+ *      is on the union's boundary by definition. Walk from each seed not
+ *      already consumed by an earlier walk, alternating rings at every
+ *      crossing.
+ *   5. Each completed walk is one boundary component. A component contained in
+ *      another is a hole; the rest are outer pieces.
+ *
+ * Step 4 is where this differs from the original implementation, which took
+ * only the *first* such seed and returned after one walk. That is correct
+ * whenever the union happens to be a single hole-free piece, and silently wrong
+ * otherwise: two shapes overlapping twice either enclose a void (the walk
+ * returned the outer ring and the void was filled) or fall into two disjoint
+ * pieces (the walk returned one and the other was dropped). Both cases now come
+ * back complete, and the caller decides what to do with them.
+ */
+export function unionComponents(ringA, ringB) {
+  const prepared = prepareRings(ringA, ringB);
+  if (!prepared) return null;
+
+  const { a, b, splitA, splitB, hits } = prepared;
+
+  // No proper crossing: either containment (the union is the container) or the
+  // rings are disjoint / merely touching, which has no union we will trace.
+  if (hits.length === 0) {
+    if (anyVertexInside(a, b)) return { outer: [b.map((p) => ({ x: p.x, y: p.y }))], holes: [] };
+    if (anyVertexInside(b, a)) return { outer: [a.map((p) => ({ x: p.x, y: p.y }))], holes: [] };
+    return null;
+  }
+
+  // Seeds: non-crossing vertices lying strictly outside the other ring. Taken
+  // from both rings — a component can easily contain no vertex of A at all.
+  const seeds = [];
+  const outside = (point, ring) => !strictlyInside(point, ring) && !onBoundary(point, ring);
+  splitA.forEach((point, index) => {
+    if (!point.crossing && outside(point, b)) seeds.push({ ring: splitA, index, tag: `A:${index}` });
+  });
+  splitB.forEach((point, index) => {
+    if (!point.crossing && outside(point, a)) seeds.push({ ring: splitB, index, tag: `B:${index}` });
+  });
+  if (seeds.length === 0) return null;
+
+  const visited = new Set();
+  const rings = [];
+
+  for (const seed of seeds) {
+    if (visited.has(seed.tag)) continue;
+    const ring = walkFrom(splitA, splitB, seed.ring, seed.index, visited);
+    // A knotted walk taints the whole result: merge destroys its inputs, so a
+    // partially-trusted union is not worth emitting.
+    if (!ring) return null;
+    if (ring.length < 3) continue;
+    if (ringArea(ring) < MIN_LOOP_AREA) continue;
+    // The boundary of a union of two simple rings is a set of simple rings. If
+    // what came out is not simple then the walk went wrong.
+    if (!isSimpleRing(ring)) return null;
+    rings.push(ring);
+  }
+
+  if (rings.length === 0) return null;
+
+  // Classify: a ring wholly inside another is a hole in it.
+  const outer = [];
+  const holes = [];
+  for (const ring of rings) {
+    const enclosed = rings.some((other) => other !== ring && ringInsideRing(ring, other));
+    (enclosed ? holes : outer).push(ring);
+  }
+  if (outer.length === 0) return null;
+
+  // A correct union covers at least as much as its largest input.
+  const covered = outer.reduce((sum, ring) => sum + ringArea(ring), 0) -
+    holes.reduce((sum, ring) => sum + ringArea(ring), 0);
+  if (covered + EPS < Math.max(ringArea(a), ringArea(b))) return null;
+
+  return { outer, holes };
+}
+
+/**
+ * Union of two rings as a single ring, or null.
+ *
+ * Kept for callers that can only hold one ring. It is deliberately strict: a
+ * union that comes back as several pieces, or with a hole in it, has no
+ * faithful single-ring answer, so it refuses rather than returning the outer
+ * boundary and quietly swallowing the gap. Callers that can hold several shapes
+ * should use unionComponents.
+ */
+export function unionRings(ringA, ringB) {
+  const result = unionComponents(ringA, ringB);
+  if (!result) return null;
+  if (result.holes.length || result.outer.length !== 1) return null;
+  return result.outer[0];
+}
+
+/**
+ * Fold N rings into as few pieces as possible. Returns:
+ *   components — the union's boundary rings, or null when nothing was usable
+ *   merged     — how many input rings were absorbed
+ *   skipped    — input indices that could not be absorbed
+ *   holes      — true when some union enclosed a void it could not represent
  *
  * Folded largest-area first, so the accumulator starts as the biggest shape —
  * the one most likely to overlap the rest. Repeated passes for the same reason:
- * a ring that misses the accumulator on one pass can be reachable once the
- * accumulator has grown by absorbing another, so a chain A-B-C where A and C
- * meet only through B still absorbs everything regardless of selection order.
+ * a ring that misses every accumulator component on one pass can be reachable
+ * once a component has grown by absorbing another, so a chain A-B-C where A and
+ * C meet only through B still absorbs everything regardless of selection order.
+ *
+ * The accumulator is a *list* of components rather than one ring. Absorbing a
+ * ring can also bridge two existing components into one, so after a successful
+ * union the ring being absorbed is re-tried against the remaining components
+ * and any it also reaches are folded in.
  *
  * Partial folds are reported, never hidden: the caller refuses the whole
  * command when `skipped` is non-empty rather than committing some of it.
@@ -348,27 +462,75 @@ export function unionAll(rings) {
   const usable = prepared.filter((entry) => entry.area >= 0);
   const skipped = prepared.filter((entry) => entry.area < 0).map((entry) => entry.index);
 
-  if (usable.length === 0) return { points: null, merged: 0, skipped };
+  if (usable.length === 0) return { components: null, merged: 0, skipped, holes: false };
   if (usable.length === 1) {
     return {
-      points: usable[0].points.map((p) => ({ x: p.x, y: p.y })),
+      components: [usable[0].points.map((p) => ({ x: p.x, y: p.y }))],
       merged: 1,
-      skipped
+      skipped,
+      holes: false
     };
   }
 
   const ordered = usable.slice().sort((p, q) => q.area - p.area);
-  let accumulator = ordered[0].points;
+  let components = [ordered[0].points];
   let merged = 1;
+  let sawHole = false;
   const pending = ordered.slice(1);
+
+  // Union one ring against the component list. Returns the new list, or null
+  // when the ring reaches none of them (or the union could not be trusted).
+  const absorb = (component, ring) => {
+    const result = unionComponents(component, ring);
+    if (!result) return null;
+    if (result.holes.length) {
+      // A void the annotation model cannot express. Flagged for the caller and
+      // treated as a refusal so nothing is committed over the gap.
+      sawHole = true;
+      return null;
+    }
+    return result.outer;
+  };
 
   let progressed = true;
   while (progressed && pending.length) {
     progressed = false;
     for (let i = 0; i < pending.length; i += 1) {
-      const union = unionRings(accumulator, pending[i].points);
-      if (!union) continue;
-      accumulator = union;
+      const ring = pending[i].points;
+      const reached = [];
+      const untouched = [];
+      let grown = null;
+
+      for (const component of components) {
+        const union = grown === null ? absorb(component, ring) : null;
+        if (union) {
+          grown = union;
+          reached.push(component);
+        } else {
+          untouched.push(component);
+        }
+      }
+      if (grown === null) continue;
+
+      // The absorbed ring may also bridge components it did not reach on the
+      // first pass, now that `grown` covers more ground. Fold those in too.
+      let bridged = true;
+      while (bridged) {
+        bridged = false;
+        for (let j = 0; j < untouched.length; j += 1) {
+          for (let k = 0; k < grown.length; k += 1) {
+            const union = absorb(grown[k], untouched[j]);
+            if (!union) continue;
+            grown = grown.slice(0, k).concat(union, grown.slice(k + 1));
+            untouched.splice(j, 1);
+            j -= 1;
+            bridged = true;
+            break;
+          }
+        }
+      }
+
+      components = untouched.concat(grown);
       merged += 1;
       pending.splice(i, 1);
       i -= 1;
@@ -376,8 +538,15 @@ export function unionAll(rings) {
     }
   }
 
-  for (const entry of pending) skipped.push(entry.index);
-  skipped.sort((p, q) => p - q);
+  // A ring left pending because its union enclosed a void is *not* a
+  // non-overlapping input, and must not be reported as one — "does not overlap
+  // the rest" would send the annotator looking for a gap between the shapes
+  // when the problem is a gap inside them. The hole flag carries that case, and
+  // the caller reports it separately.
+  if (!sawHole) {
+    for (const entry of pending) skipped.push(entry.index);
+    skipped.sort((p, q) => p - q);
+  }
 
-  return { points: accumulator, merged, skipped };
+  return { components, merged, skipped, holes: sawHole };
 }

@@ -2,7 +2,7 @@ import { generateUUID, clamp, round } from "../utils.js?v=1";
 import { state, snapshot, isAnnotationHidden, labelById, labelDisplayName } from "../state.js?v=7";
 import { annotationPoints, updateAnnotationBounds, pointInPolygon } from "./geometry.js?v=1";
 import { untangleRing } from "./untangle.js?v=2";
-import { unionAll } from "./merge.js?v=1";
+import { unionAll } from "./merge.js?v=2";
 import { view } from "./view.js?v=1";
 import { draw, drawAllLayers } from "./draw.js?v=6";
 import { canvas, ctx, undoButton } from "../dom.js?v=4";
@@ -714,7 +714,12 @@ if (mergeButton) {
 }
 
 /**
- * Replace the selected overlapping shapes with one shape covering their union.
+ * Replace the selected overlapping shapes with shapes covering their union.
+ *
+ * Usually one shape. Not always: an annotation holds a single flat ring, so a
+ * union whose boundary has several components becomes one annotation per
+ * component rather than a single shape bridging the untouched space between
+ * them. A union enclosing a void has no faithful form at all and is refused.
  *
  * Destructive in a way Group is not: the inputs are consumed, not linked. So it
  * refuses loudly rather than doing something approximate — a selection that
@@ -751,11 +756,19 @@ export function mergeSelectedAnnotations() {
   // every refusal below can return without having disturbed the undo stack at
   // all — snapshot() also clears the redo stack, and an aborted merge that
   // silently dropped a pending redo would be a real loss for a no-op command.
-  const { points, skipped } = unionAll(rings);
+  const { components, skipped, holes } = unionAll(rings);
+
+  // A union that encloses a void cannot be stored: an annotation is one flat
+  // ring, so the void would simply fill in and claim image the annotator never
+  // marked. Reported and refused rather than approximated.
+  if (holes) {
+    setStatus("Cannot merge: the result would enclose an unannotated gap");
+    return;
+  }
 
   // Partial merges are never committed: silently dropping the shapes that did
   // not overlap would look like the command ate them.
-  if (!points || skipped.length) {
+  if (!components || skipped.length) {
     const count = skipped.length;
     setStatus(
       count
@@ -765,7 +778,9 @@ export function mergeSelectedAnnotations() {
     return;
   }
 
-  if (points.length < 3) {
+  // Every piece must be a real shape before anything is destroyed.
+  const usable = components.filter((ring) => Array.isArray(ring) && ring.length >= 3);
+  if (usable.length !== components.length || usable.length === 0) {
     setStatus("Cannot merge: the result is not a valid shape");
     return;
   }
@@ -776,33 +791,40 @@ export function mergeSelectedAnnotations() {
   const baseAnnotation = selectedList[0];
   const mixedClasses = selectedList.some((a) => a.labelId !== baseAnnotation.labelId);
 
-  const merged = {
-    id: generateUUID(),
-    // Explicit: draw.js and the hit-test infer "polygon" from the point count
-    // when type is absent, and a union that rounds to 4 points would be read
-    // back as a box.
-    type: "polygon",
-    labelId: baseAnnotation.labelId,
-    points
-    // Deliberately no groupId. The merged shape is one object, so inheriting a
-    // group would leave it linked to shapes it just absorbed.
-  };
-  updateAnnotationBounds(merged);
+  // One annotation per boundary component. The union of a selection can be
+  // several disjoint pieces, and a piece is the largest thing a single flat
+  // `points` array can hold — so the pieces become siblings rather than being
+  // fused across ground the annotator never marked.
+  const mergedShapes = usable.map((ring) => {
+    const shape = {
+      id: generateUUID(),
+      // Explicit: draw.js and the hit-test infer "polygon" from the point count
+      // when type is absent, and a union that rounds to 4 points would be read
+      // back as a box.
+      type: "polygon",
+      labelId: baseAnnotation.labelId,
+      points: ring
+      // Deliberately no groupId. Each piece is its own object, and a group would
+      // re-assert the single-shape fiction the split exists to avoid.
+    };
+    updateAnnotationBounds(shape);
+    return shape;
+  });
 
-  // Keep the merged shape where the frontmost input sat, rather than letting it
-  // jump to the top of the z-order.
+  // Keep the merged shapes where the frontmost input sat, rather than letting
+  // them jump to the top of the z-order.
   const consumedIds = new Set(selectedList.map((a) => a.id));
   const insertAt = state.annotations.findIndex((a) => consumedIds.has(a.id));
   const remaining = state.annotations.filter((a) => !consumedIds.has(a.id));
-  remaining.splice(insertAt, 0, merged);
+  remaining.splice(insertAt, 0, ...mergedShapes);
   state.annotations = remaining;
 
   // The consumed ids are gone; leaving them in these sets would hide or
   // re-select a shape that no longer exists.
   consumedIds.forEach((id) => state.hiddenAnnotationIds.delete(id));
   state.selectedIds.clear();
-  state.selectedIds.add(merged.id);
-  state.selectedId = merged.id;
+  mergedShapes.forEach((shape) => state.selectedIds.add(shape.id));
+  state.selectedId = mergedShapes[0].id;
 
   // Edge indices refer to the old shapes' vertices.
   view.hoveredLineIndex = -1;
@@ -811,11 +833,12 @@ export function mergeSelectedAnnotations() {
   render();
   save();
 
-  const className = labelDisplayName(labelById(merged.labelId));
+  const className = labelDisplayName(labelById(mergedShapes[0].labelId));
+  const pieces = mergedShapes.length > 1 ? ` into ${mergedShapes.length} shapes` : "";
   setStatus(
     mixedClasses
-      ? `Merged ${selectedList.length} objects as ${className}`
-      : `Merged ${selectedList.length} objects`
+      ? `Merged ${selectedList.length} objects${pieces} as ${className}`
+      : `Merged ${selectedList.length} objects${pieces}`
   );
 }
 

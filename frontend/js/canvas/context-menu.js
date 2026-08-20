@@ -5,7 +5,7 @@ import { render } from "../components/workspace.js?v=18";
 import {
   canvasPoint, hitTest,
   sendToBack, sendBackward, bringToFront, bringForward
-} from "./interactions.js?v=11";
+} from "./interactions.js?v=12";
 
 // Right-click z-order menu for annotations.
 //
