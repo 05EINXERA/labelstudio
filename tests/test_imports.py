@@ -56,8 +56,8 @@ def test_preview_reports_match_without_writing(client, alice):
     assert body["total_annotations"] == 1
 
     # nothing written
-    tasks = client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=alice).json()
-    assert tasks[0]["annotations"] == []
+    tasks = client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=alice).json()["items"]
+    assert client.get(f"/api/tasks/{tasks[0]['id']}", headers=alice).json()["annotations"] == []
 
 
 def test_preview_reports_unmatched_filenames(client, alice):
@@ -100,7 +100,7 @@ def test_import_coco_matches_by_filename_and_creates_label(client, alice):
     assert body["annotations_imported"] == 1
     assert body["unmatched"] == []
 
-    task = next(t for t in client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=alice).json() if t["id"] == tid)
+    task = client.get(f"/api/tasks/{tid}", headers=alice).json()
     assert len(task["annotations"]) == 1
     assert task["annotations"][0]["x"] == 10
     assert task["annotations"][0]["width"] == 20
@@ -135,7 +135,7 @@ def test_import_merge_appends_to_existing_annotations(client, alice):
         files={"file": ("coco.json", COCO_PAYLOAD, "application/json")},
         headers=alice,
     )
-    task = next(t for t in client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=alice).json() if t["id"] == tid)
+    task = client.get(f"/api/tasks/{tid}", headers=alice).json()
     assert len(task["annotations"]) == 2
     assert any(a.get("id") == "pre-existing" for a in task["annotations"])
 
@@ -151,7 +151,7 @@ def test_import_replace_overwrites_existing_annotations(client, alice):
         files={"file": ("coco.json", COCO_PAYLOAD, "application/json")},
         headers=alice,
     )
-    task = next(t for t in client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=alice).json() if t["id"] == tid)
+    task = client.get(f"/api/tasks/{tid}", headers=alice).json()
     assert len(task["annotations"]) == 1
     assert not any(a.get("id") == "pre-existing" for a in task["annotations"])
 
@@ -178,7 +178,7 @@ def test_import_does_not_create_new_tasks(client, alice):
         files={"file": ("coco.json", COCO_PAYLOAD, "application/json")},
         headers=alice,
     )
-    tasks = client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=alice).json()
+    tasks = client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=alice).json()["items"]
     assert tasks == []
 
 

@@ -76,8 +76,9 @@ def _preview(client, auth, pid, filename, raw, ctype="application/zip"):
 
 
 def _annotations(client, auth, pid, description):
-    tasks = client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=auth).json()
-    return next(t for t in tasks if t["description"] == description)["annotations"]
+    tasks = client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=auth).json()["items"]
+    _tid = next(t["id"] for t in tasks if t["description"] == description)
+    return client.get(f"/api/tasks/{_tid}", headers=auth).json()["annotations"]
 
 
 # ---------------------------------------------------------------------------
@@ -171,7 +172,7 @@ def test_yolo_export_import_round_trip(client, alice):
     src = _new_project(client, alice, "src")
     lid = _new_label(client, alice, src, "Rust Area", "#D95319")
     _upload_png(client, alice, src, "rt.png", 200, 100)
-    tasks = client.get(f"/api/tasks?projectId={src}&include_annotations=true", headers=alice).json()
+    tasks = client.get(f"/api/tasks?projectId={src}&include_annotations=true", headers=alice).json()["items"]
     tid = next(t["id"] for t in tasks if t["description"] == "rt.png")
     original = [{"x": 10, "y": 20}, {"x": 150, "y": 20}, {"x": 80, "y": 90}]
     client.patch(f"/api/tasks/{tid}", json={"annotations": json.dumps([

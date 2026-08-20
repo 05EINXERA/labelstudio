@@ -78,3 +78,16 @@ def unique_label_id(prefix="lbl"):
     problem they are meant to solve.
     """
     return f"{prefix}-{uuid.uuid4().hex[:12]}"
+
+from database import SessionLocal
+from sqlalchemy import text
+
+@pytest.fixture(autouse=True)
+def clear_db():
+    yield
+    with SessionLocal() as db:
+        db.execute(text("DELETE FROM annotations;"))
+        db.execute(text("DELETE FROM tasks;"))
+        db.execute(text("DELETE FROM labels;"))
+        db.execute(text("DELETE FROM projects;"))
+        db.commit()

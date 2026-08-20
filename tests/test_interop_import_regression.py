@@ -111,9 +111,9 @@ def test_import_interop_json_option_writes_geometry(client, alice):
     _make_tasks(client, alice, pid, [t["name"] for t in source])
     _import(client, alice, pid, "annotations.json", raw)
 
-    tasks = client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=alice).json()
-    task = next(t for t in tasks if t["description"] == first["name"])
-    anns = task["annotations"]  # the list endpoint parses the JSON column
+    tasks = client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=alice).json()["items"]
+    _tid = next(t["id"] for t in tasks if t["description"] == first["name"])
+    anns = client.get(f"/api/tasks/{_tid}", headers=alice).json()["annotations"]  # the list endpoint parses the JSON column
 
     assert len(anns) == len(first["annotations"])
     flat = first["annotations"][0]["points"]
@@ -168,16 +168,16 @@ def test_import_interop_coco_segmentation_becomes_points(client, alice):
     _make_tasks(client, alice, pid, [i["file_name"] for i in coco["images"]])
     _import(client, alice, pid, "coco_annotations.json", raw)
 
-    tasks = client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=alice).json()
-    total = sum(len(t["annotations"]) for t in tasks)
+    tasks = client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=alice).json()["items"]
+    total = sum(len(client.get(f"/api/tasks/{t['id']}", headers=alice).json()["annotations"]) for t in tasks)
     assert total == len(coco["annotations"])
 
     first_img = coco["images"][0]["id"]
     first_ann = next(a for a in coco["annotations"] if a["image_id"] == first_img)
     task = next(t for t in tasks if t["description"] == coco["images"][0]["file_name"])
-    stored = task["annotations"]
+    stored = client.get(f"/api/tasks/{task['id']}", headers=alice).json()["annotations"]
     seg = first_ann["segmentation"][0]
-    assert stored[0]["points"][0] == {"x": seg[0], "y": seg[1]}
+    assert stored[0]["points"][0]["x"] == seg[0] and stored[0]["points"][0]["y"] == seg[1]
 
 
 # ---------------------------------------------------------------------------

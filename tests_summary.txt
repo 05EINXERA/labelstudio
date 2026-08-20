@@ -1,0 +1,1746 @@
+============================= test session starts =============================
+platform win32 -- Python 3.14.0, pytest-9.1.1, pluggy-1.6.0
+rootdir: C:\labelstudio
+plugins: anyio-4.14.1, Faker-40.23.0, requests-mock-1.12.1
+collected 404 items
+
+tests\test_annotations_json_format.py ..........................F        [  6%]
+tests\test_api_data_audit.py ...                                         [  7%]
+tests\test_architecture_optimizations.py ....                            [  8%]
+tests\test_backend_optimizations.py ..                                   [  8%]
+tests\test_coco_format.py .........F.........                            [ 13%]
+tests\test_deployment_hardening.py ......................                [ 19%]
+tests\test_duplicate_upload.py FF                                        [ 19%]
+tests\test_exports.py ..........................F                        [ 26%]
+tests\test_formats_common.py ......................................      [ 35%]
+tests\test_frontend_modules.py ......                                    [ 37%]
+tests\test_image_outputs.py .FFF............                             [ 41%]
+tests\test_import_export_formats.py .............F.............F....F... [ 50%]
+FF                                                                       [ 50%]
+tests\test_import_yolo_and_rejections.py F..F..F.....                    [ 53%]
+tests\test_imports.py F..F.FF.F..                                        [ 56%]
+tests\test_interop_import_regression.py ..F..F...                        [ 58%]
+tests\test_labels_bulk.py ......F.F...............                       [ 64%]
+tests\test_masks_format.py .....FFF.FFF..F.F..FFF                        [ 69%]
+tests\test_ml_concurrency.py .....                                       [ 71%]
+tests\test_ml_decomposition.py .....                                     [ 72%]
+tests\test_package_layout.py ...                                         [ 73%]
+tests\test_polygon_intersection.py .........                             [ 75%]
+tests\test_project_ownership.py ..........FFFF..F......                  [ 80%]
+tests\test_project_transfer_ownership.py ......                          [ 82%]
+tests\test_proxy_and_tls_config.py ....                                  [ 83%]
+tests\test_soft_lock.py ..............                                   [ 86%]
+tests\test_task_assignment_access.py F                                   [ 87%]
+tests\test_task_save_conflicts.py ...FF......F.                          [ 90%]
+tests\test_team_presence.py .....                                        [ 91%]
+tests\test_team_transfer_ownership.py .....                              [ 92%]
+tests\test_upload.py F.......                                            [ 94%]
+tests\test_yolo_format.py ...FFF.....F........F                          [100%]
+
+================================== FAILURES ===================================
+______________________ test_parse_round_trips_an_export _______________________
+tests\test_annotations_json_format.py:334: in test_parse_round_trips_an_export
+    anns = next(t for t in tasks if t["description"] == "rt.png")["annotations"]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_annotations_json_format.py:334: in <genexpr>
+    anns = next(t for t in tasks if t["description"] == "rt.png")["annotations"]
+                                    ^^^^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:21:16,026 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:21:16,307 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:21:16,313 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:21:16,321 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:21:16,330 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=21 "HTTP/1.1 200 OK"
+2026-08-20 10:21:16,339 INFO     httpx: HTTP Request: POST http://testserver/api/exports "HTTP/1.1 200 OK"
+2026-08-20 10:21:16,344 INFO     httpx: HTTP Request: GET http://testserver/api/exports/94adb388-e8dd-412a-9661-f491bbffcc43 "HTTP/1.1 200 OK"
+2026-08-20 10:21:16,350 INFO     httpx: HTTP Request: GET http://testserver/api/exports/94adb388-e8dd-412a-9661-f491bbffcc43/download "HTTP/1.1 200 OK"
+DEBUG EXPORTED: [{'id': '21', 'name': 'rt.png', 'status': 'registered', 'externalStatus': '', 'url': '', 'width': 0, 'height': 0, 'secondsToAnnotate': 0, 'assignee': '', 'reviewer': '', 'approver': '', 'externalAssignee': '', 'externalReviewer': '', 'externalApprover': '', 'tags': [], 'metadatas': [], 'relations': [], 'createdAt': '2026-08-20T04:36:16', 'updatedAt': '2026-08-20T04:36:16.326203', 'annotations': [{'id': '440052a9-81aa-442b-97cf-8da5e89872e5', 'type': 'polygon', 'title': 'Rust Area', 'value': 'RustArea', 'color': '#D95319', 'order': 1, 'attributes': [], 'points': [1, 2, 30, 4, 5, 60], 'rotation': 0, 'keypoints': [], 'confidenceScore': -1}]}]
+2026-08-20 10:21:16,355 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:21:16,364 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=22 "HTTP/1.1 200 OK"
+2026-08-20 10:21:16,376 INFO     httpx: HTTP Request: POST http://testserver/api/imports/annotations?projectId=22&mode=replace "HTTP/1.1 200 OK"
+2026-08-20 10:21:16,390 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=22&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=21 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/exports "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/exports/94adb388-e8dd-412a-9661-f491bbffcc43 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/exports/94adb388-e8dd-412a-9661-f491bbffcc43/download "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=22 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/imports/annotations?projectId=22&mode=replace "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=22&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:21:16,638 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+_________________ test_shape_type_survives_export_then_import _________________
+tests\test_coco_format.py:226: in test_shape_type_survives_export_then_import
+    imported = next(t for t in tasks if t["description"] == "r.png")["annotations"]
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_coco_format.py:226: in <genexpr>
+    imported = next(t for t in tasks if t["description"] == "r.png")["annotations"]
+                                        ^^^^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:21:21,355 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:21:21,634 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:21:21,641 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:21:21,649 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:21:21,659 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=34 "HTTP/1.1 200 OK"
+2026-08-20 10:21:21,670 INFO     httpx: HTTP Request: POST http://testserver/api/exports "HTTP/1.1 200 OK"
+2026-08-20 10:21:21,677 INFO     httpx: HTTP Request: GET http://testserver/api/exports/fe05c2ff-c97b-4486-9a23-25b8f04d3d8d "HTTP/1.1 200 OK"
+2026-08-20 10:21:21,685 INFO     httpx: HTTP Request: GET http://testserver/api/exports/fe05c2ff-c97b-4486-9a23-25b8f04d3d8d/download "HTTP/1.1 200 OK"
+2026-08-20 10:21:21,697 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:21:21,715 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=35 "HTTP/1.1 200 OK"
+2026-08-20 10:21:21,726 INFO     httpx: HTTP Request: POST http://testserver/api/imports/annotations?projectId=35&mode=replace "HTTP/1.1 200 OK"
+2026-08-20 10:21:21,734 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=35&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=34 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/exports "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/exports/fe05c2ff-c97b-4486-9a23-25b8f04d3d8d "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/exports/fe05c2ff-c97b-4486-9a23-25b8f04d3d8d/download "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=35 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/imports/annotations?projectId=35&mode=replace "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=35&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:21:21,751 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+__________________ test_upload_allows_duplicates_by_default ___________________
+tests\test_duplicate_upload.py:43: in test_upload_allows_duplicates_by_default
+    assert len(tasks) == 2
+E   AssertionError: assert 4 == 2
+E    +  where 4 = len({'items': [{'id': 43, 'description': 'sample.png', 'assignee': None, 'image_path': 'uploads/34dc8c6f7319409db0b0bedb07...gnee': None, 'image_path': 'uploads/cd6026158cb54bb68310948f3ac098f9.png', ...}], 'total': 2, 'limit': 50, 'offset': 0})
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:21:28,236 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:21:28,521 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:21:28,527 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:21:28,591 WARNING  formats.common: Could not measure uploaded image C:\Users\user\AppData\Local\Temp\labelstudio-tests-s6vcbrst\uploads\cd6026158cb54bb68310948f3ac098f9.png: cannot identify image file 'C:\\Users\\user\\AppData\\Local\\Temp\\labelstudio-tests-s6vcbrst\\uploads\\cd6026158cb54bb68310948f3ac098f9.png'
+2026-08-20 10:21:28,593 INFO     httpx: HTTP Request: POST http://testserver/api/projects/41/upload "HTTP/1.1 200 OK"
+2026-08-20 10:21:28,603 WARNING  formats.common: Could not measure uploaded image C:\Users\user\AppData\Local\Temp\labelstudio-tests-s6vcbrst\uploads\34dc8c6f7319409db0b0bedb07e27d41.png: cannot identify image file 'C:\\Users\\user\\AppData\\Local\\Temp\\labelstudio-tests-s6vcbrst\\uploads\\34dc8c6f7319409db0b0bedb07e27d41.png'
+2026-08-20 10:21:28,605 INFO     httpx: HTTP Request: POST http://testserver/api/projects/41/upload "HTTP/1.1 200 OK"
+2026-08-20 10:21:28,614 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=41&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+WARNING  formats.common:common.py:378 Could not measure uploaded image C:\Users\user\AppData\Local\Temp\labelstudio-tests-s6vcbrst\uploads\cd6026158cb54bb68310948f3ac098f9.png: cannot identify image file 'C:\\Users\\user\\AppData\\Local\\Temp\\labelstudio-tests-s6vcbrst\\uploads\\cd6026158cb54bb68310948f3ac098f9.png'
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects/41/upload "HTTP/1.1 200 OK"
+WARNING  formats.common:common.py:378 Could not measure uploaded image C:\Users\user\AppData\Local\Temp\labelstudio-tests-s6vcbrst\uploads\34dc8c6f7319409db0b0bedb07e27d41.png: cannot identify image file 'C:\\Users\\user\\AppData\\Local\\Temp\\labelstudio-tests-s6vcbrst\\uploads\\34dc8c6f7319409db0b0bedb07e27d41.png'
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects/41/upload "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=41&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:21:28,622 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+____________________ test_upload_skip_duplicates_parameter ____________________
+tests\test_duplicate_upload.py:81: in test_upload_skip_duplicates_parameter
+    assert len(tasks) == 2
+E   AssertionError: assert 4 == 2
+E    +  where 4 = len({'items': [{'id': 45, 'description': 'unique2.png', 'assignee': None, 'image_path': 'uploads/4fb1129be76a4e18b40b5b2cb...gnee': None, 'image_path': 'uploads/fc3856bdea9c4514a54cee11e9b78a0f.png', ...}], 'total': 2, 'limit': 50, 'offset': 0})
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:21:28,627 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:21:28,913 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:21:28,920 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:21:28,934 WARNING  formats.common: Could not measure uploaded image C:\Users\user\AppData\Local\Temp\labelstudio-tests-s6vcbrst\uploads\fc3856bdea9c4514a54cee11e9b78a0f.png: cannot identify image file 'C:\\Users\\user\\AppData\\Local\\Temp\\labelstudio-tests-s6vcbrst\\uploads\\fc3856bdea9c4514a54cee11e9b78a0f.png'
+2026-08-20 10:21:28,937 INFO     httpx: HTTP Request: POST http://testserver/api/projects/42/upload "HTTP/1.1 200 OK"
+2026-08-20 10:21:28,948 WARNING  formats.common: Could not measure uploaded image C:\Users\user\AppData\Local\Temp\labelstudio-tests-s6vcbrst\uploads\4fb1129be76a4e18b40b5b2cbae75c3b.png: cannot identify image file 'C:\\Users\\user\\AppData\\Local\\Temp\\labelstudio-tests-s6vcbrst\\uploads\\4fb1129be76a4e18b40b5b2cbae75c3b.png'
+2026-08-20 10:21:28,952 INFO     httpx: HTTP Request: POST http://testserver/api/projects/42/upload?skip_duplicates=true "HTTP/1.1 200 OK"
+2026-08-20 10:21:28,966 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=42&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+WARNING  formats.common:common.py:378 Could not measure uploaded image C:\Users\user\AppData\Local\Temp\labelstudio-tests-s6vcbrst\uploads\fc3856bdea9c4514a54cee11e9b78a0f.png: cannot identify image file 'C:\\Users\\user\\AppData\\Local\\Temp\\labelstudio-tests-s6vcbrst\\uploads\\fc3856bdea9c4514a54cee11e9b78a0f.png'
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects/42/upload "HTTP/1.1 200 OK"
+WARNING  formats.common:common.py:378 Could not measure uploaded image C:\Users\user\AppData\Local\Temp\labelstudio-tests-s6vcbrst\uploads\4fb1129be76a4e18b40b5b2cbae75c3b.png: cannot identify image file 'C:\\Users\\user\\AppData\\Local\\Temp\\labelstudio-tests-s6vcbrst\\uploads\\4fb1129be76a4e18b40b5b2cbae75c3b.png'
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects/42/upload?skip_duplicates=true "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=42&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:21:28,973 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+______________________ test_parse_round_trips_an_export _______________________
+tests\test_exports.py:334: in test_parse_round_trips_an_export
+    anns = next(t for t in tasks if t["description"] == "rt.png")["annotations"]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_exports.py:334: in <genexpr>
+    anns = next(t for t in tasks if t["description"] == "rt.png")["annotations"]
+                                    ^^^^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:21:36,393 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:21:36,676 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:21:36,684 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:21:36,694 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:21:36,707 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=63 "HTTP/1.1 200 OK"
+2026-08-20 10:21:36,718 INFO     httpx: HTTP Request: POST http://testserver/api/exports "HTTP/1.1 200 OK"
+2026-08-20 10:21:36,724 INFO     httpx: HTTP Request: GET http://testserver/api/exports/976d3f89-a08e-4f67-93e0-13c9c8e90086 "HTTP/1.1 200 OK"
+2026-08-20 10:21:36,730 INFO     httpx: HTTP Request: GET http://testserver/api/exports/976d3f89-a08e-4f67-93e0-13c9c8e90086/download "HTTP/1.1 200 OK"
+2026-08-20 10:21:36,737 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:21:36,746 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=64 "HTTP/1.1 200 OK"
+2026-08-20 10:21:36,757 INFO     httpx: HTTP Request: POST http://testserver/api/imports/annotations?projectId=64&mode=replace "HTTP/1.1 200 OK"
+2026-08-20 10:21:36,766 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=64&include_annotations=true "HTTP/1.1 200 OK"
+TASKS_DEBUG: {'items': [{'id': 67, 'description': 'rt.png', 'assignee': None, 'image_path': None, 'status': 'New', 'time_spent': 0, 'updated_at': '2026-08-20T04:36:36.743771', 'annotations': [], 'comment_count': 0, 'class_count': 1}], 'total': 1, 'limit': 50, 'offset': 0}
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=63 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/exports "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/exports/976d3f89-a08e-4f67-93e0-13c9c8e90086 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/exports/976d3f89-a08e-4f67-93e0-13c9c8e90086/download "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=64 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/imports/annotations?projectId=64&mode=replace "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=64&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:21:36,784 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+___________________ test_annotated_image_draws_the_polygon ____________________
+tests\test_image_outputs.py:116: in test_annotated_image_draws_the_polygon
+    _set_annotations(client, alice, pid, "ann.png", [
+tests\test_image_outputs.py:63: in _set_annotations
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_image_outputs.py:63: in <genexpr>
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+                                         ^^^^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:21:37,214 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:21:37,462 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:21:37,468 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:21:37,474 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:21:37,484 INFO     httpx: HTTP Request: POST http://testserver/api/projects/66/upload "HTTP/1.1 200 OK"
+2026-08-20 10:21:37,491 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=66&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects/66/upload "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=66&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:21:37,506 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+_________________ test_binary_mask_is_grayscale_zero_and_255 __________________
+tests\test_image_outputs.py:141: in test_binary_mask_is_grayscale_zero_and_255
+    _set_annotations(client, alice, pid, "bin.png", [
+tests\test_image_outputs.py:63: in _set_annotations
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_image_outputs.py:63: in <genexpr>
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+                                         ^^^^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:21:37,510 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:21:37,747 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:21:37,754 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:21:37,762 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:21:37,772 INFO     httpx: HTTP Request: POST http://testserver/api/projects/67/upload "HTTP/1.1 200 OK"
+2026-08-20 10:21:37,781 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=67&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects/67/upload "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=67&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:21:37,795 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+____________ test_binary_mask_collapses_all_classes_to_foreground _____________
+tests\test_image_outputs.py:162: in test_binary_mask_collapses_all_classes_to_foreground
+    _set_annotations(client, alice, pid, "multi.png", [
+tests\test_image_outputs.py:63: in _set_annotations
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_image_outputs.py:63: in <genexpr>
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+                                         ^^^^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:21:37,800 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:21:38,051 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:21:38,059 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:21:38,066 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:21:38,074 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:21:38,085 INFO     httpx: HTTP Request: POST http://testserver/api/projects/68/upload "HTTP/1.1 200 OK"
+2026-08-20 10:21:38,096 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=68&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects/68/upload "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=68&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:21:38,111 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+_________________ test_pertask_zip_skips_comment_annotations __________________
+tests\test_import_export_formats.py:352: in test_pertask_zip_skips_comment_annotations
+    assert anns[0]["id"] == "a1"
+E   AssertionError: assert '74da4220-63f...-c3c752c193f1' == 'a1'
+E     
+E     - a1
+E     + 74da4220-63f5-4c67-8c16-c3c752c193f1
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:21:45,367 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:21:45,622 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:21:45,628 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:21:45,635 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:21:45,643 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=92 "HTTP/1.1 200 OK"
+2026-08-20 10:21:45,654 INFO     httpx: HTTP Request: PATCH http://testserver/api/tasks/96 "HTTP/1.1 200 OK"
+2026-08-20 10:21:45,666 INFO     httpx: HTTP Request: POST http://testserver/api/exports "HTTP/1.1 200 OK"
+2026-08-20 10:21:45,670 INFO     httpx: HTTP Request: GET http://testserver/api/exports/bc0a855b-dfff-4298-bf0e-7efb0ca8be20 "HTTP/1.1 200 OK"
+2026-08-20 10:21:45,674 INFO     httpx: HTTP Request: GET http://testserver/api/exports/bc0a855b-dfff-4298-bf0e-7efb0ca8be20/download "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=92 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: PATCH http://testserver/api/tasks/96 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/exports "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/exports/bc0a855b-dfff-4298-bf0e-7efb0ca8be20 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/exports/bc0a855b-dfff-4298-bf0e-7efb0ca8be20/download "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:21:45,694 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+______________________ test_import_zip_of_pertask_files _______________________
+tests\test_import_export_formats.py:693: in test_import_zip_of_pertask_files
+    assert len(_task_annotations(client, alice, pid, "a.jpg")) == 1
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_import_export_formats.py:677: in _task_annotations
+    return next(t for t in tasks if t["description"] == description)["annotations"]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_import_export_formats.py:677: in <genexpr>
+    return next(t for t in tasks if t["description"] == description)["annotations"]
+                                    ^^^^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:21:49,106 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:21:49,385 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:21:49,397 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:21:49,416 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=104 "HTTP/1.1 200 OK"
+2026-08-20 10:21:49,425 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=104 "HTTP/1.1 200 OK"
+2026-08-20 10:21:49,438 INFO     httpx: HTTP Request: POST http://testserver/api/imports/annotations?projectId=104&mode=replace "HTTP/1.1 200 OK"
+2026-08-20 10:21:49,447 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=104&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=104 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=104 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/imports/annotations?projectId=104&mode=replace "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=104&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:21:49,480 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+_________________ test_import_zip_merges_duplicate_filenames __________________
+tests\test_import_export_formats.py:757: in test_import_zip_merges_duplicate_filenames
+    assert len(_task_annotations(client, alice, pid, "a.jpg")) == 2
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_import_export_formats.py:677: in _task_annotations
+    return next(t for t in tasks if t["description"] == description)["annotations"]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_import_export_formats.py:677: in <genexpr>
+    return next(t for t in tasks if t["description"] == description)["annotations"]
+                                    ^^^^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:21:50,766 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:21:52,540 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:21:52,548 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:21:52,566 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=109 "HTTP/1.1 200 OK"
+2026-08-20 10:21:52,577 INFO     httpx: HTTP Request: POST http://testserver/api/imports/annotations?projectId=109&mode=replace "HTTP/1.1 200 OK"
+2026-08-20 10:21:52,588 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=109&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=109 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/imports/annotations?projectId=109&mode=replace "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=109&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:21:52,617 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+_________________ test_import_zip_preview_reports_all_entries _________________
+tests\test_import_export_formats.py:827: in test_import_zip_preview_reports_all_entries
+    assert _task_annotations(client, alice, pid, "a.jpg") == []
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_import_export_formats.py:677: in _task_annotations
+    return next(t for t in tasks if t["description"] == description)["annotations"]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_import_export_formats.py:677: in <genexpr>
+    return next(t for t in tasks if t["description"] == description)["annotations"]
+                                    ^^^^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:21:53,473 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:21:53,737 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:21:53,744 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:21:53,753 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=113 "HTTP/1.1 200 OK"
+2026-08-20 10:21:53,762 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=113 "HTTP/1.1 200 OK"
+2026-08-20 10:21:53,770 INFO     httpx: HTTP Request: POST http://testserver/api/imports/annotations/preview?projectId=113 "HTTP/1.1 200 OK"
+2026-08-20 10:21:53,781 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=113&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=113 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=113 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/imports/annotations/preview?projectId=113 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=113&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:21:53,812 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+___________________ test_zip_round_trip_export_then_import ____________________
+tests\test_import_export_formats.py:847: in test_zip_round_trip_export_then_import
+    anns = _task_annotations(client, alice, dst, "P1000066.JPG")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_import_export_formats.py:677: in _task_annotations
+    return next(t for t in tasks if t["description"] == description)["annotations"]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_import_export_formats.py:677: in <genexpr>
+    return next(t for t in tasks if t["description"] == description)["annotations"]
+                                    ^^^^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:21:53,818 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:21:54,093 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:21:54,103 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:21:54,112 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:21:54,121 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=114 "HTTP/1.1 200 OK"
+2026-08-20 10:21:54,133 INFO     httpx: HTTP Request: PATCH http://testserver/api/tasks/122 "HTTP/1.1 200 OK"
+2026-08-20 10:21:54,151 INFO     httpx: HTTP Request: POST http://testserver/api/exports "HTTP/1.1 200 OK"
+2026-08-20 10:21:54,157 INFO     httpx: HTTP Request: GET http://testserver/api/exports/4a3aa34c-6602-4831-85ee-09bf7349dbfc "HTTP/1.1 200 OK"
+2026-08-20 10:21:54,164 INFO     httpx: HTTP Request: GET http://testserver/api/exports/4a3aa34c-6602-4831-85ee-09bf7349dbfc/download "HTTP/1.1 200 OK"
+2026-08-20 10:21:54,171 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:21:54,181 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=115 "HTTP/1.1 200 OK"
+2026-08-20 10:21:54,193 INFO     httpx: HTTP Request: POST http://testserver/api/imports/annotations?projectId=115&mode=replace "HTTP/1.1 200 OK"
+2026-08-20 10:21:54,203 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=115&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=114 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: PATCH http://testserver/api/tasks/122 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/exports "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/exports/4a3aa34c-6602-4831-85ee-09bf7349dbfc "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/exports/4a3aa34c-6602-4831-85ee-09bf7349dbfc/download "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=115 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/imports/annotations?projectId=115&mode=replace "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=115&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:21:54,243 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+___________ test_yolo_import_scales_by_the_matched_task_dimensions ____________
+tests\test_import_yolo_and_rejections.py:99: in test_yolo_import_scales_by_the_matched_task_dimensions
+    anns = _annotations(client, alice, pid, "P1000015.JPG")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_import_yolo_and_rejections.py:80: in _annotations
+    return next(t for t in tasks if t["description"] == description)["annotations"]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_import_yolo_and_rejections.py:80: in <genexpr>
+    return next(t for t in tasks if t["description"] == description)["annotations"]
+                                    ^^^^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:21:54,250 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:21:54,524 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:21:54,532 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:21:54,547 INFO     httpx: HTTP Request: POST http://testserver/api/projects/116/upload "HTTP/1.1 200 OK"
+2026-08-20 10:21:54,558 INFO     httpx: HTTP Request: POST http://testserver/api/imports/annotations?projectId=116&mode=merge "HTTP/1.1 200 OK"
+2026-08-20 10:21:54,567 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=116&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects/116/upload "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/imports/annotations?projectId=116&mode=merge "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=116&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:21:54,584 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+____________________ test_yolo_import_preserves_shape_type ____________________
+tests\test_import_yolo_and_rejections.py:136: in test_yolo_import_preserves_shape_type
+    anns = _annotations(client, alice, pid, "shapes.jpg")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_import_yolo_and_rejections.py:80: in _annotations
+    return next(t for t in tasks if t["description"] == description)["annotations"]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_import_yolo_and_rejections.py:80: in <genexpr>
+    return next(t for t in tasks if t["description"] == description)["annotations"]
+                                    ^^^^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:21:55,236 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:21:55,484 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:21:55,490 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:21:55,503 INFO     httpx: HTTP Request: POST http://testserver/api/projects/119/upload "HTTP/1.1 200 OK"
+2026-08-20 10:21:55,512 INFO     httpx: HTTP Request: POST http://testserver/api/imports/annotations?projectId=119&mode=merge "HTTP/1.1 200 OK"
+2026-08-20 10:21:55,520 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=119&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects/119/upload "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/imports/annotations?projectId=119&mode=merge "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=119&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:21:55,533 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+_____________________ test_yolo_export_import_round_trip ______________________
+tests\test_import_yolo_and_rejections.py:175: in test_yolo_export_import_round_trip
+    tid = next(t["id"] for t in tasks if t["description"] == "rt.png")
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_import_yolo_and_rejections.py:175: in <genexpr>
+    tid = next(t["id"] for t in tasks if t["description"] == "rt.png")
+                                         ^^^^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:21:56,092 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:21:56,369 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:21:56,378 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:21:56,388 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:21:56,402 INFO     httpx: HTTP Request: POST http://testserver/api/projects/122/upload "HTTP/1.1 200 OK"
+2026-08-20 10:21:56,415 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=122&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects/122/upload "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=122&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:21:56,446 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+_________________ test_preview_reports_match_without_writing __________________
+tests\test_imports.py:60: in test_preview_reports_match_without_writing
+    assert tasks[0]["annotations"] == []
+           ^^^^^^^^
+E   KeyError: 0
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:21:57,989 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:21:58,218 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:21:58,223 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:21:58,232 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=128 "HTTP/1.1 200 OK"
+2026-08-20 10:21:58,239 INFO     httpx: HTTP Request: POST http://testserver/api/imports/annotations/preview?projectId=128 "HTTP/1.1 200 OK"
+2026-08-20 10:21:58,247 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=128&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=128 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/imports/annotations/preview?projectId=128 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=128&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:21:58,255 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+___________ test_import_coco_matches_by_filename_and_creates_label ____________
+tests\test_imports.py:103: in test_import_coco_matches_by_filename_and_creates_label
+    task = next(t for t in client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=alice).json() if t["id"] == tid)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_imports.py:103: in <genexpr>
+    task = next(t for t in client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=alice).json() if t["id"] == tid)
+                                                                                                                       ^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:21:59,171 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:21:59,512 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:21:59,523 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:21:59,545 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=131 "HTTP/1.1 200 OK"
+2026-08-20 10:21:59,573 INFO     httpx: HTTP Request: POST http://testserver/api/imports/annotations?projectId=131 "HTTP/1.1 200 OK"
+2026-08-20 10:21:59,596 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=131&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=131 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/imports/annotations?projectId=131 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=131&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:21:59,617 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+______________ test_import_merge_appends_to_existing_annotations ______________
+tests\test_imports.py:138: in test_import_merge_appends_to_existing_annotations
+    task = next(t for t in client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=alice).json() if t["id"] == tid)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_imports.py:138: in <genexpr>
+    task = next(t for t in client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=alice).json() if t["id"] == tid)
+                                                                                                                       ^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:21:59,945 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:22:00,191 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:22:00,197 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:22:00,204 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:22:00,211 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=133 "HTTP/1.1 200 OK"
+2026-08-20 10:22:00,221 INFO     httpx: HTTP Request: PATCH http://testserver/api/tasks/134 "HTTP/1.1 200 OK"
+2026-08-20 10:22:00,229 INFO     httpx: HTTP Request: POST http://testserver/api/imports/annotations?projectId=133&mode=merge "HTTP/1.1 200 OK"
+2026-08-20 10:22:00,238 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=133&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=133 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: PATCH http://testserver/api/tasks/134 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/imports/annotations?projectId=133&mode=merge "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=133&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:22:00,248 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+_____________ test_import_replace_overwrites_existing_annotations _____________
+tests\test_imports.py:154: in test_import_replace_overwrites_existing_annotations
+    task = next(t for t in client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=alice).json() if t["id"] == tid)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_imports.py:154: in <genexpr>
+    task = next(t for t in client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=alice).json() if t["id"] == tid)
+                                                                                                                       ^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:22:00,253 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:22:00,484 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:22:00,490 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:22:00,497 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:22:00,503 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=134 "HTTP/1.1 200 OK"
+2026-08-20 10:22:00,513 INFO     httpx: HTTP Request: PATCH http://testserver/api/tasks/135 "HTTP/1.1 200 OK"
+2026-08-20 10:22:00,522 INFO     httpx: HTTP Request: POST http://testserver/api/imports/annotations?projectId=134&mode=replace "HTTP/1.1 200 OK"
+2026-08-20 10:22:00,529 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=134&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=134 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: PATCH http://testserver/api/tasks/135 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/imports/annotations?projectId=134&mode=replace "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=134&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:22:00,538 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+____________________ test_import_does_not_create_new_tasks ____________________
+tests\test_imports.py:182: in test_import_does_not_create_new_tasks
+    assert tasks == []
+E   AssertionError: assert {'items': [],..., 'offset': 0} == []
+E     
+E     Use -v to get more diff
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:22:00,833 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:22:01,100 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:22:01,108 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:22:01,118 INFO     httpx: HTTP Request: POST http://testserver/api/imports/annotations?projectId=136 "HTTP/1.1 200 OK"
+2026-08-20 10:22:01,128 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=136&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/imports/annotations?projectId=136 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=136&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:22:01,137 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+_______________ test_import_interop_json_option_writes_geometry _______________
+tests\test_interop_import_regression.py:115: in test_import_interop_json_option_writes_geometry
+    task = next(t for t in tasks if t["description"] == first["name"])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_interop_import_regression.py:115: in <genexpr>
+    task = next(t for t in tasks if t["description"] == first["name"])
+                                    ^^^^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:22:02,627 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:22:02,855 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:22:02,860 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:22:02,867 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=141 "HTTP/1.1 200 OK"
+2026-08-20 10:22:02,874 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=141 "HTTP/1.1 200 OK"
+2026-08-20 10:22:02,883 INFO     httpx: HTTP Request: POST http://testserver/api/imports/annotations?projectId=141&mode=merge "HTTP/1.1 200 OK"
+2026-08-20 10:22:02,890 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=141&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=141 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=141 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/imports/annotations?projectId=141&mode=merge "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=141&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:22:02,900 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+____________ test_import_interop_coco_segmentation_becomes_points _____________
+tests\test_interop_import_regression.py:172: in test_import_interop_coco_segmentation_becomes_points
+    total = sum(len(t["annotations"]) for t in tasks)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_interop_import_regression.py:172: in <genexpr>
+    total = sum(len(t["annotations"]) for t in tasks)
+                    ^^^^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:22:03,476 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:22:03,725 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:22:03,731 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:22:03,740 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=144 "HTTP/1.1 200 OK"
+2026-08-20 10:22:03,747 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=144 "HTTP/1.1 200 OK"
+2026-08-20 10:22:03,758 INFO     httpx: HTTP Request: POST http://testserver/api/imports/annotations?projectId=144&mode=merge "HTTP/1.1 200 OK"
+2026-08-20 10:22:03,765 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=144&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=144 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=144 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/imports/annotations?projectId=144&mode=merge "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=144&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:22:03,775 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+____________________ test_bulk_delete_orphans_across_tasks ____________________
+tests\test_labels_bulk.py:139: in test_bulk_delete_orphans_across_tasks
+    assert [a["id"] for a in rem_t1] == ["1", "2"]
+E   AssertionError: assert ['36b06f1b-23...68429ab9945e'] == ['1', '2']
+E     
+E     At index 0 diff: '36b06f1b-23da-4712-94d4-302fef78b6b5' != '1'
+E     Use -v to get more diff
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:22:06,651 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:22:06,880 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:22:06,885 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:22:06,892 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:22:06,899 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:22:06,905 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:22:06,912 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=155 "HTTP/1.1 200 OK"
+2026-08-20 10:22:06,921 INFO     httpx: HTTP Request: PATCH http://testserver/api/tasks/153 "HTTP/1.1 200 OK"
+2026-08-20 10:22:06,928 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=155 "HTTP/1.1 200 OK"
+2026-08-20 10:22:06,937 INFO     httpx: HTTP Request: PATCH http://testserver/api/tasks/154 "HTTP/1.1 200 OK"
+2026-08-20 10:22:06,943 INFO     httpx: HTTP Request: POST http://testserver/api/labels/bulk-delete "HTTP/1.1 200 OK"
+2026-08-20 10:22:06,949 INFO     httpx: HTTP Request: GET http://testserver/api/tasks/153 "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=155 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: PATCH http://testserver/api/tasks/153 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=155 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: PATCH http://testserver/api/tasks/154 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels/bulk-delete "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks/153 "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:22:06,961 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+___________________ test_import_replace_orphans_annotations ___________________
+tests\test_labels_bulk.py:175: in test_import_replace_orphans_annotations
+    assert [a["id"] for a in rem] == ["1"]
+E   AssertionError: assert ['a611d321-3c...b0ce3b77c44d'] == ['1']
+E     
+E     At index 0 diff: 'a611d321-3c6d-4567-b55f-b0ce3b77c44d' != '1'
+E     Use -v to get more diff
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:22:07,238 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:22:07,482 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:22:07,494 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:22:07,510 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:22:07,520 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=158 "HTTP/1.1 200 OK"
+2026-08-20 10:22:07,532 INFO     httpx: HTTP Request: PATCH http://testserver/api/tasks/156 "HTTP/1.1 200 OK"
+2026-08-20 10:22:07,549 INFO     httpx: HTTP Request: POST http://testserver/api/labels/import?projectId=158&mode=replace "HTTP/1.1 200 OK"
+2026-08-20 10:22:07,566 INFO     httpx: HTTP Request: GET http://testserver/api/tasks/156 "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=158 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: PATCH http://testserver/api/tasks/156 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels/import?projectId=158&mode=replace "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks/156 "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:22:07,583 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+________________ test_semantic_direct_paints_the_class_colour _________________
+tests\test_masks_format.py:150: in test_semantic_direct_paints_the_class_colour
+    _set_annotations(client, alice, pid, "d.png", [
+tests\test_masks_format.py:59: in _set_annotations
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_masks_format.py:59: in <genexpr>
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+                                         ^^^^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:22:13,114 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:22:13,324 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:22:13,329 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:22:13,335 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:22:13,343 INFO     httpx: HTTP Request: POST http://testserver/api/projects/180/upload "HTTP/1.1 200 OK"
+2026-08-20 10:22:13,350 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=180&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects/180/upload "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=180&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:22:13,374 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+__________ test_two_instances_of_one_class_share_the_semantic_colour __________
+tests\test_masks_format.py:165: in test_two_instances_of_one_class_share_the_semantic_colour
+    _set_annotations(client, alice, pid, "two.png", [
+tests\test_masks_format.py:59: in _set_annotations
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_masks_format.py:59: in <genexpr>
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+                                         ^^^^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:22:13,377 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:22:13,598 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:22:13,603 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:22:13,609 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:22:13,617 INFO     httpx: HTTP Request: POST http://testserver/api/projects/181/upload "HTTP/1.1 200 OK"
+2026-08-20 10:22:13,623 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=181&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects/181/upload "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=181&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:22:13,648 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+_______________ test_instance_direct_uses_the_reference_palette _______________
+tests\test_masks_format.py:186: in test_instance_direct_uses_the_reference_palette
+    _set_annotations(client, alice, pid, "inst.png", [
+tests\test_masks_format.py:59: in _set_annotations
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_masks_format.py:59: in <genexpr>
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+                                         ^^^^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:22:13,651 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:22:13,861 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:22:13,865 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:22:13,871 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:22:13,879 INFO     httpx: HTTP Request: POST http://testserver/api/projects/182/upload "HTTP/1.1 200 OK"
+2026-08-20 10:22:13,885 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=182&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects/182/upload "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=182&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:22:13,938 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+_____________ test_semantic_index_palette_holds_the_class_colours _____________
+tests\test_masks_format.py:217: in test_semantic_index_palette_holds_the_class_colours
+    _set_annotations(client, alice, pid, "sp.png", [
+tests\test_masks_format.py:59: in _set_annotations
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_masks_format.py:59: in <genexpr>
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+                                         ^^^^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:22:14,196 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:22:14,433 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:22:14,442 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:22:14,453 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:22:14,463 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:22:14,487 INFO     httpx: HTTP Request: POST http://testserver/api/projects/184/upload "HTTP/1.1 200 OK"
+2026-08-20 10:22:14,497 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=184&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects/184/upload "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=184&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:22:14,516 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+________________ test_instance_index_assigns_distinct_indices _________________
+tests\test_masks_format.py:236: in test_instance_index_assigns_distinct_indices
+    _set_annotations(client, alice, pid, "ii.png", [
+tests\test_masks_format.py:59: in _set_annotations
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_masks_format.py:59: in <genexpr>
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+                                         ^^^^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:22:14,521 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:22:14,774 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:22:14,779 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:22:14,786 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:22:14,795 INFO     httpx: HTTP Request: POST http://testserver/api/projects/185/upload "HTTP/1.1 200 OK"
+2026-08-20 10:22:14,802 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=185&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects/185/upload "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=185&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:22:14,821 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+__________________ test_later_annotation_paints_over_earlier __________________
+tests\test_masks_format.py:258: in test_later_annotation_paints_over_earlier
+    _set_annotations(client, alice, pid, "ov.png", [
+tests\test_masks_format.py:59: in _set_annotations
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_masks_format.py:59: in <genexpr>
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+                                         ^^^^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:22:14,824 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:22:15,053 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:22:15,058 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:22:15,065 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:22:15,071 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:22:15,081 INFO     httpx: HTTP Request: POST http://testserver/api/projects/186/upload "HTTP/1.1 200 OK"
+2026-08-20 10:22:15,088 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=186&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects/186/upload "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=186&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:22:15,106 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+_______________ test_degenerate_shapes_do_not_crash_the_render ________________
+tests\test_masks_format.py:302: in test_degenerate_shapes_do_not_crash_the_render
+    _set_annotations(client, alice, pid, "deg.png", [
+tests\test_masks_format.py:59: in _set_annotations
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_masks_format.py:59: in <genexpr>
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+                                         ^^^^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:22:15,619 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:22:15,827 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:22:15,833 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:22:15,839 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:22:15,852 INFO     httpx: HTTP Request: POST http://testserver/api/projects/189/upload "HTTP/1.1 200 OK"
+2026-08-20 10:22:15,858 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=189&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects/189/upload "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=189&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:22:15,875 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+________________ test_annotation_for_deleted_label_is_skipped _________________
+tests\test_masks_format.py:327: in test_annotation_for_deleted_label_is_skipped
+    _set_annotations(client, alice, pid, "orph.png", [
+tests\test_masks_format.py:59: in _set_annotations
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_masks_format.py:59: in <genexpr>
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+                                         ^^^^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:22:15,879 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:22:16,087 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:22:16,092 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:22:16,098 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:22:16,103 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:22:16,112 INFO     httpx: HTTP Request: POST http://testserver/api/projects/190/upload "HTTP/1.1 200 OK"
+2026-08-20 10:22:16,118 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=190&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects/190/upload "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=190&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:22:16,135 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+_________________ test_indexed_instance_overflow_is_reported __________________
+tests\test_masks_format.py:374: in test_indexed_instance_overflow_is_reported
+    _set_annotations(client, alice, pid, "many.png", [
+tests\test_masks_format.py:59: in _set_annotations
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_masks_format.py:59: in <genexpr>
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+                                         ^^^^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:22:16,633 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:22:16,843 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:22:16,850 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:22:16,856 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:22:16,867 INFO     httpx: HTTP Request: POST http://testserver/api/projects/193/upload "HTTP/1.1 200 OK"
+2026-08-20 10:22:16,873 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=193&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects/193/upload "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=193&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:22:16,890 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+___________ test_semantic_index_is_unaffected_by_the_instance_limit ___________
+tests\test_masks_format.py:396: in test_semantic_index_is_unaffected_by_the_instance_limit
+    _set_annotations(client, alice, pid, "sem.png", [
+tests\test_masks_format.py:59: in _set_annotations
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_masks_format.py:59: in <genexpr>
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+                                         ^^^^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:22:16,894 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:22:17,104 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:22:17,109 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:22:17,115 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:22:17,123 INFO     httpx: HTTP Request: POST http://testserver/api/projects/194/upload "HTTP/1.1 200 OK"
+2026-08-20 10:22:17,129 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=194&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects/194/upload "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=194&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:22:17,146 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+_________ test_direct_instance_colours_cycle_without_dropping_shapes __________
+tests\test_masks_format.py:416: in test_direct_instance_colours_cycle_without_dropping_shapes
+    _set_annotations(client, alice, pid, "cyc.png", [
+tests\test_masks_format.py:59: in _set_annotations
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_masks_format.py:59: in <genexpr>
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+                                         ^^^^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:22:17,149 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:22:17,384 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:22:17,390 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:22:17,396 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:22:17,405 INFO     httpx: HTTP Request: POST http://testserver/api/projects/195/upload "HTTP/1.1 200 OK"
+2026-08-20 10:22:17,411 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=195&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects/195/upload "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=195&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:22:17,427 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+_______________ test_unscoped_task_list_only_returns_own_tasks ________________
+tests\test_project_ownership.py:105: in test_unscoped_task_list_only_returns_own_tasks
+    assert all(t["description"] != "alice-task" for t in bob_tasks)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_project_ownership.py:105: in <genexpr>
+    assert all(t["description"] != "alice-task" for t in bob_tasks)
+               ^^^^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:22:22,284 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:22:22,526 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+2026-08-20 10:22:22,784 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:22:22,790 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:22:22,798 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=206 "HTTP/1.1 200 OK"
+2026-08-20 10:22:22,806 INFO     httpx: HTTP Request: GET http://testserver/api/tasks "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=206 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:22:22,819 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+________________ test_task_update_and_delete_404_for_non_owner ________________
+tests\test_project_ownership.py:119: in test_task_update_and_delete_404_for_non_owner
+    assert still[0]["description"] == "t"
+           ^^^^^^^^
+E   KeyError: 0
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:22:22,822 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:22:23,075 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+2026-08-20 10:22:23,300 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:22:23,306 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:22:23,313 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=207 "HTTP/1.1 200 OK"
+2026-08-20 10:22:23,319 INFO     httpx: HTTP Request: POST http://testserver/api/tasks "HTTP/1.1 404 Not Found"
+2026-08-20 10:22:23,324 INFO     httpx: HTTP Request: DELETE http://testserver/api/tasks/180 "HTTP/1.1 404 Not Found"
+2026-08-20 10:22:23,332 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=207&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=207 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks "HTTP/1.1 404 Not Found"
+INFO     httpx:_client.py:1025 HTTP Request: DELETE http://testserver/api/tasks/180 "HTTP/1.1 404 Not Found"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=207&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:22:23,342 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+_______________ test_patch_task_updates_and_requires_ownership ________________
+tests\test_project_ownership.py:128: in test_patch_task_updates_and_requires_ownership
+    assert client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=alice).json()[0]["status"] == "Completed"
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   KeyError: 0
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:22:23,345 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:22:23,561 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+2026-08-20 10:22:23,770 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:22:23,775 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:22:23,781 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=208 "HTTP/1.1 200 OK"
+2026-08-20 10:22:23,789 INFO     httpx: HTTP Request: PATCH http://testserver/api/tasks/181 "HTTP/1.1 200 OK"
+2026-08-20 10:22:23,795 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=208&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=208 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: PATCH http://testserver/api/tasks/181 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=208&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:22:23,804 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+___________________ test_approved_status_settable_by_owner ____________________
+tests\test_project_ownership.py:139: in test_approved_status_settable_by_owner
+    assert client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=alice).json()[0]["status"] == "Approved"
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   KeyError: 0
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:22:23,808 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:22:24,027 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:22:24,032 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:22:24,038 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=209 "HTTP/1.1 200 OK"
+2026-08-20 10:22:24,047 INFO     httpx: HTTP Request: PATCH http://testserver/api/tasks/182 "HTTP/1.1 200 OK"
+2026-08-20 10:22:24,053 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=209&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=209 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: PATCH http://testserver/api/tasks/182 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=209&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:22:24,062 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+______________________ test_bulk_routes_skip_unowned_ids ______________________
+tests\test_project_ownership.py:163: in test_bulk_routes_skip_unowned_ids
+    assert client.get(f"/api/tasks?projectId={a_pid}&include_annotations=true", headers=alice).json()[0]["status"] != "Completed"
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   KeyError: 0
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:22:24,757 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:22:24,965 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+2026-08-20 10:22:25,182 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:22:25,187 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:22:25,192 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:22:25,198 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=211 "HTTP/1.1 200 OK"
+2026-08-20 10:22:25,205 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=212 "HTTP/1.1 200 OK"
+2026-08-20 10:22:25,212 INFO     httpx: HTTP Request: POST http://testserver/api/tasks/bulk-update "HTTP/1.1 200 OK"
+2026-08-20 10:22:25,218 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=211&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=211 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=212 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks/bulk-update "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=211&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:22:25,229 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+_______ test_annotator_cannot_access_others_task_but_sees_them_in_list ________
+tests\test_task_assignment_access.py:42: in test_annotator_cannot_access_others_task_but_sees_them_in_list
+    assert res.status_code == 403
+E   assert 200 == 403
+E    +  where 200 = <Response [200 OK]>.status_code
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:22:32,864 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:22:33,072 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+2026-08-20 10:22:33,292 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:22:33,298 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:22:33,305 INFO     httpx: HTTP Request: POST http://testserver/api/team/ping "HTTP/1.1 200 OK"
+2026-08-20 10:22:33,310 INFO     httpx: HTTP Request: POST http://testserver/api/team/ping "HTTP/1.1 200 OK"
+2026-08-20 10:22:33,317 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=238 "HTTP/1.1 200 OK"
+2026-08-20 10:22:33,327 INFO     httpx: HTTP Request: PATCH http://testserver/api/tasks/201?projectId=238 "HTTP/1.1 200 OK"
+2026-08-20 10:22:33,336 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=238 "HTTP/1.1 200 OK"
+2026-08-20 10:22:33,345 INFO     httpx: HTTP Request: PATCH http://testserver/api/tasks/202?projectId=238 "HTTP/1.1 200 OK"
+2026-08-20 10:22:33,352 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=238 "HTTP/1.1 200 OK"
+2026-08-20 10:22:33,356 INFO     httpx: HTTP Request: GET http://testserver/api/tasks/201 "HTTP/1.1 200 OK"
+2026-08-20 10:22:33,363 INFO     httpx: HTTP Request: GET http://testserver/api/tasks/202 "HTTP/1.1 200 OK"
+2026-08-20 10:22:33,368 INFO     httpx: HTTP Request: GET http://testserver/api/tasks/203 "HTTP/1.1 200 OK"
+2026-08-20 10:22:33,375 INFO     httpx: HTTP Request: GET http://testserver/api/tasks/201 "HTTP/1.1 200 OK"
+2026-08-20 10:22:33,387 INFO     httpx: HTTP Request: GET http://testserver/api/tasks/203 "HTTP/1.1 200 OK"
+2026-08-20 10:22:33,395 INFO     httpx: HTTP Request: GET http://testserver/api/tasks/202 "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/team/ping "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/team/ping "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=238 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: PATCH http://testserver/api/tasks/201?projectId=238 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=238 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: PATCH http://testserver/api/tasks/202?projectId=238 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=238 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks/201 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks/202 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks/203 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks/201 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks/203 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks/202 "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:22:33,407 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+______________________ test_get_tasks_returns_updated_at ______________________
+tests\test_task_save_conflicts.py:118: in test_get_tasks_returns_updated_at
+    assert rows[0].get("updated_at"), "GET /api/tasks must expose updated_at"
+           ^^^^^^^
+E   KeyError: 0
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:22:34,201 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:22:34,410 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:22:34,415 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:22:34,421 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:22:34,427 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=242 "HTTP/1.1 200 OK"
+2026-08-20 10:22:34,433 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=242&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=242 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=242&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:22:34,440 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+_____________ test_conflict_does_not_lose_the_stored_annotations ______________
+tests\test_task_save_conflicts.py:138: in test_conflict_does_not_lose_the_stored_annotations
+    assert len(rows[0]["annotations"]) == 4
+               ^^^^^^^
+E   KeyError: 0
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:22:34,444 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:22:34,649 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:22:34,654 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:22:34,661 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:22:34,667 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=243 "HTTP/1.1 200 OK"
+2026-08-20 10:22:34,674 INFO     httpx: HTTP Request: POST http://testserver/api/tasks "HTTP/1.1 200 OK"
+2026-08-20 10:22:34,680 INFO     httpx: HTTP Request: POST http://testserver/api/tasks "HTTP/1.1 409 Conflict"
+2026-08-20 10:22:34,685 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=243&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=243 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks "HTTP/1.1 409 Conflict"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=243&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:22:34,692 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+______________ test_get_tasks_list_is_annotation_free_by_default ______________
+tests\test_task_save_conflicts.py:239: in test_get_tasks_list_is_annotation_free_by_default
+    assert rows[0]["annotations"] == [], (
+           ^^^^^^^
+E   KeyError: 0
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:22:36,584 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:22:36,811 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:22:36,816 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:22:36,821 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:22:36,828 INFO     httpx: HTTP Request: POST http://testserver/api/tasks?projectId=249 "HTTP/1.1 200 OK"
+2026-08-20 10:22:36,835 INFO     httpx: HTTP Request: POST http://testserver/api/tasks "HTTP/1.1 200 OK"
+2026-08-20 10:22:36,842 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=249&include_annotations=false "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks?projectId=249 "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/tasks "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=249&include_annotations=false "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:22:36,849 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+___________ test_mixed_batch_reports_per_file_and_keeps_valid_ones ____________
+tests\test_upload.py:38: in test_mixed_batch_reports_per_file_and_keeps_valid_ones
+    assert len(tasks) == 2
+E   AssertionError: assert 4 == 2
+E    +  where 4 = len({'items': [{'id': 217, 'description': 'good2.jpg', 'assignee': None, 'image_path': 'uploads/f2ee539f0be34422b9f098fc3b...gnee': None, 'image_path': 'uploads/92abef4641924b1789463d40e66587bf.png', ...}], 'total': 2, 'limit': 50, 'offset': 0})
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:22:40,379 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:22:40,590 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:22:40,595 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:22:40,602 WARNING  formats.common: Could not measure uploaded image C:\Users\user\AppData\Local\Temp\labelstudio-tests-s6vcbrst\uploads\92abef4641924b1789463d40e66587bf.png: Truncated File Read
+2026-08-20 10:22:40,606 WARNING  formats.common: Could not measure uploaded image C:\Users\user\AppData\Local\Temp\labelstudio-tests-s6vcbrst\uploads\f2ee539f0be34422b9f098fc3bb2de3f.jpg: Truncated File Read
+2026-08-20 10:22:40,608 INFO     httpx: HTTP Request: POST http://testserver/api/projects/253/upload "HTTP/1.1 200 OK"
+2026-08-20 10:22:40,615 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=253&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+WARNING  formats.common:common.py:378 Could not measure uploaded image C:\Users\user\AppData\Local\Temp\labelstudio-tests-s6vcbrst\uploads\92abef4641924b1789463d40e66587bf.png: Truncated File Read
+WARNING  formats.common:common.py:378 Could not measure uploaded image C:\Users\user\AppData\Local\Temp\labelstudio-tests-s6vcbrst\uploads\f2ee539f0be34422b9f098fc3bb2de3f.jpg: Truncated File Read
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects/253/upload "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=253&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:22:40,622 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+_______________ test_class_index_is_the_classes_txt_line_number _______________
+tests\test_yolo_format.py:138: in test_class_index_is_the_classes_txt_line_number
+    _set_annotations(client, alice, pid, "idx.png", [
+tests\test_yolo_format.py:60: in _set_annotations
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_yolo_format.py:60: in <genexpr>
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+                                         ^^^^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:22:43,612 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:22:43,826 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:22:43,831 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:22:43,837 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:22:43,843 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:22:43,852 INFO     httpx: HTTP Request: POST http://testserver/api/projects/264/upload "HTTP/1.1 200 OK"
+2026-08-20 10:22:43,859 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=264&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects/264/upload "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=264&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:22:43,873 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+_______________________ test_coordinates_are_normalized _______________________
+tests\test_yolo_format.py:157: in test_coordinates_are_normalized
+    _set_annotations(client, alice, pid, "n.png", [
+tests\test_yolo_format.py:60: in _set_annotations
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_yolo_format.py:60: in <genexpr>
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+                                         ^^^^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:22:43,878 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:22:44,106 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:22:44,111 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:22:44,117 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:22:44,127 INFO     httpx: HTTP Request: POST http://testserver/api/projects/265/upload "HTTP/1.1 200 OK"
+2026-08-20 10:22:44,135 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=265&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects/265/upload "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=265&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:22:44,151 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+_________________ test_coordinates_are_clamped_to_unit_range __________________
+tests\test_yolo_format.py:173: in test_coordinates_are_clamped_to_unit_range
+    _set_annotations(client, alice, pid, "c.png", [
+tests\test_yolo_format.py:60: in _set_annotations
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_yolo_format.py:60: in <genexpr>
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+                                         ^^^^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:22:44,157 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:22:44,400 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:22:44,407 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:22:44,413 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:22:44,423 INFO     httpx: HTTP Request: POST http://testserver/api/projects/266/upload "HTTP/1.1 200 OK"
+2026-08-20 10:22:44,431 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=266&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects/266/upload "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=266&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:22:44,449 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+________________ test_annotation_for_deleted_label_is_skipped _________________
+tests\test_yolo_format.py:253: in test_annotation_for_deleted_label_is_skipped
+    _set_annotations(client, alice, pid, "orphan.png", [
+tests\test_yolo_format.py:60: in _set_annotations
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_yolo_format.py:60: in <genexpr>
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+                                         ^^^^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:22:45,643 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:22:45,909 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:22:45,915 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:22:45,922 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:22:45,930 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:22:45,940 INFO     httpx: HTTP Request: POST http://testserver/api/projects/270/upload "HTTP/1.1 200 OK"
+2026-08-20 10:22:45,950 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=270&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects/270/upload "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=270&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:22:45,977 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+_________________ test_export_then_parse_round_trips_geometry _________________
+tests\test_yolo_format.py:348: in test_export_then_parse_round_trips_geometry
+    _set_annotations(client, alice, pid, "rt.png", [
+tests\test_yolo_format.py:60: in _set_annotations
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_yolo_format.py:60: in <genexpr>
+    tid = next(t["id"] for t in tasks if t["description"] == description)
+                                         ^^^^^^^^^^^^^^^^
+E   TypeError: string indices must be integers, not 'str'
+---------------------------- Captured stdout setup ----------------------------
+2026-08-20 10:22:45,988 INFO     app.main: Request threadpool cap set to 40
+2026-08-20 10:22:46,230 INFO     httpx: HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+----------------------------- Captured log setup ------------------------------
+INFO     app.main:main.py:83 Request threadpool cap set to 40
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/auth/register "HTTP/1.1 200 OK"
+---------------------------- Captured stdout call -----------------------------
+2026-08-20 10:22:46,239 INFO     httpx: HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+2026-08-20 10:22:46,248 INFO     httpx: HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+2026-08-20 10:22:46,260 INFO     httpx: HTTP Request: POST http://testserver/api/projects/271/upload "HTTP/1.1 200 OK"
+2026-08-20 10:22:46,268 INFO     httpx: HTTP Request: GET http://testserver/api/tasks?projectId=271&include_annotations=true "HTTP/1.1 200 OK"
+------------------------------ Captured log call ------------------------------
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/labels "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: POST http://testserver/api/projects/271/upload "HTTP/1.1 200 OK"
+INFO     httpx:_client.py:1025 HTTP Request: GET http://testserver/api/tasks?projectId=271&include_annotations=true "HTTP/1.1 200 OK"
+-------------------------- Captured stdout teardown ---------------------------
+2026-08-20 10:22:46,288 INFO     app.main: Database engine connection pool disposed cleanly
+---------------------------- Captured log teardown ----------------------------
+INFO     app.main:main.py:92 Database engine connection pool disposed cleanly
+============================== warnings summary ===============================
+venv\Lib\site-packages\fastapi\testclient.py:1
+  C:\labelstudio\venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+venv\Lib\site-packages\label_studio_sdk\_legacy\client.py:27
+  C:\labelstudio\venv\Lib\site-packages\label_studio_sdk\_legacy\client.py:27: PydanticDeprecatedSince20: Pydantic V1 style `@root_validator` validators are deprecated. You should migrate to Pydantic V2 style `@model_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @root_validator(pre=True, allow_reuse=True)
+
+venv\Lib\site-packages\label_studio_sdk\_legacy\client.py:27
+  C:\labelstudio\venv\Lib\site-packages\label_studio_sdk\_legacy\client.py:27: PydanticDeprecatedSince20: `allow_reuse` is deprecated and will be ignored; it should no longer be necessary. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @root_validator(pre=True, allow_reuse=True)
+
+venv\Lib\site-packages\label_studio_sdk\label_interface\control_tags.py:716
+  C:\labelstudio\venv\Lib\site-packages\label_studio_sdk\label_interface\control_tags.py:716: PydanticDeprecatedSince20: Pydantic V1 style `@validator` validators are deprecated. You should migrate to Pydantic V2 style `@field_validator` validators, see the migration guide for more details. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    @validator('rle')
+
+venv\Lib\site-packages\label_studio_sdk\label_interface\objects.py:21
+  C:\labelstudio\venv\Lib\site-packages\label_studio_sdk\label_interface\objects.py:21: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class PredictionValue(BaseModel):
+
+venv\Lib\site-packages\label_studio_sdk\label_interface\objects.py:36
+  C:\labelstudio\venv\Lib\site-packages\label_studio_sdk\label_interface\objects.py:36: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class AnnotationValue(BaseModel):
+
+venv\Lib\site-packages\pytz\tzinfo.py:27
+  C:\labelstudio\venv\Lib\site-packages\pytz\tzinfo.py:27: DeprecationWarning: datetime.datetime.utcfromtimestamp() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.fromtimestamp(timestamp, datetime.UTC).
+    _epoch = datetime.utcfromtimestamp(0)
+
+tests/test_annotations_json_format.py: 119 warnings
+tests/test_api_data_audit.py: 8 warnings
+tests/test_architecture_optimizations.py: 5 warnings
+tests/test_coco_format.py: 79 warnings
+tests/test_deployment_hardening.py: 18 warnings
+tests/test_duplicate_upload.py: 8 warnings
+tests/test_exports.py: 119 warnings
+tests/test_image_outputs.py: 78 warnings
+tests/test_import_export_formats.py: 185 warnings
+tests/test_import_yolo_and_rejections.py: 35 warnings
+tests/test_imports.py: 41 warnings
+tests/test_interop_import_regression.py: 36 warnings
+tests/test_labels_bulk.py: 86 warnings
+tests/test_masks_format.py: 102 warnings
+tests/test_project_ownership.py: 87 warnings
+tests/test_project_transfer_ownership.py: 12 warnings
+tests/test_soft_lock.py: 53 warnings
+tests/test_task_assignment_access.py: 14 warnings
+tests/test_task_save_conflicts.py: 59 warnings
+tests/test_team_presence.py: 4 warnings
+tests/test_team_transfer_ownership.py: 11 warnings
+tests/test_upload.py: 17 warnings
+tests/test_yolo_format.py: 57 warnings
+  C:\labelstudio\venv\Lib\site-packages\jose\jwt.py:311: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = timegm(datetime.utcnow().utctimetuple())
+
+tests/test_deployment_hardening.py::test_short_password_is_rejected
+  C:\labelstudio\venv\Lib\site-packages\anyio\_backends\_asyncio.py:1029: StarletteDeprecationWarning: 'HTTP_422_UNPROCESSABLE_ENTITY' is deprecated. Use 'HTTP_422_UNPROCESSABLE_CONTENT' instead.
+    result = context.run(func, *args)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_annotations_json_format.py::test_parse_round_trips_an_export
+FAILED tests/test_coco_format.py::test_shape_type_survives_export_then_import
+FAILED tests/test_duplicate_upload.py::test_upload_allows_duplicates_by_default
+FAILED tests/test_duplicate_upload.py::test_upload_skip_duplicates_parameter
+FAILED tests/test_exports.py::test_parse_round_trips_an_export - TypeError: s...
+FAILED tests/test_image_outputs.py::test_annotated_image_draws_the_polygon - ...
+FAILED tests/test_image_outputs.py::test_binary_mask_is_grayscale_zero_and_255
+FAILED tests/test_image_outputs.py::test_binary_mask_collapses_all_classes_to_foreground
+FAILED tests/test_import_export_formats.py::test_pertask_zip_skips_comment_annotations
+FAILED tests/test_import_export_formats.py::test_import_zip_of_pertask_files
+FAILED tests/test_import_export_formats.py::test_import_zip_merges_duplicate_filenames
+FAILED tests/test_import_export_formats.py::test_import_zip_preview_reports_all_entries
+FAILED tests/test_import_export_formats.py::test_zip_round_trip_export_then_import
+FAILED tests/test_import_yolo_and_rejections.py::test_yolo_import_scales_by_the_matched_task_dimensions
+FAILED tests/test_import_yolo_and_rejections.py::test_yolo_import_preserves_shape_type
+FAILED tests/test_import_yolo_and_rejections.py::test_yolo_export_import_round_trip
+FAILED tests/test_imports.py::test_preview_reports_match_without_writing - Ke...
+FAILED tests/test_imports.py::test_import_coco_matches_by_filename_and_creates_label
+FAILED tests/test_imports.py::test_import_merge_appends_to_existing_annotations
+FAILED tests/test_imports.py::test_import_replace_overwrites_existing_annotations
+FAILED tests/test_imports.py::test_import_does_not_create_new_tasks - Asserti...
+FAILED tests/test_interop_import_regression.py::test_import_interop_json_option_writes_geometry
+FAILED tests/test_interop_import_regression.py::test_import_interop_coco_segmentation_becomes_points
+FAILED tests/test_labels_bulk.py::test_bulk_delete_orphans_across_tasks - Ass...
+FAILED tests/test_labels_bulk.py::test_import_replace_orphans_annotations - A...
+FAILED tests/test_masks_format.py::test_semantic_direct_paints_the_class_colour
+FAILED tests/test_masks_format.py::test_two_instances_of_one_class_share_the_semantic_colour
+FAILED tests/test_masks_format.py::test_instance_direct_uses_the_reference_palette
+FAILED tests/test_masks_format.py::test_semantic_index_palette_holds_the_class_colours
+FAILED tests/test_masks_format.py::test_instance_index_assigns_distinct_indices
+FAILED tests/test_masks_format.py::test_later_annotation_paints_over_earlier
+FAILED tests/test_masks_format.py::test_degenerate_shapes_do_not_crash_the_render
+FAILED tests/test_masks_format.py::test_annotation_for_deleted_label_is_skipped
+FAILED tests/test_masks_format.py::test_indexed_instance_overflow_is_reported
+FAILED tests/test_masks_format.py::test_semantic_index_is_unaffected_by_the_instance_limit
+FAILED tests/test_masks_format.py::test_direct_instance_colours_cycle_without_dropping_shapes
+FAILED tests/test_project_ownership.py::test_unscoped_task_list_only_returns_own_tasks
+FAILED tests/test_project_ownership.py::test_task_update_and_delete_404_for_non_owner
+FAILED tests/test_project_ownership.py::test_patch_task_updates_and_requires_ownership
+FAILED tests/test_project_ownership.py::test_approved_status_settable_by_owner
+FAILED tests/test_project_ownership.py::test_bulk_routes_skip_unowned_ids - K...
+FAILED tests/test_task_assignment_access.py::test_annotator_cannot_access_others_task_but_sees_them_in_list
+FAILED tests/test_task_save_conflicts.py::test_get_tasks_returns_updated_at
+FAILED tests/test_task_save_conflicts.py::test_conflict_does_not_lose_the_stored_annotations
+FAILED tests/test_task_save_conflicts.py::test_get_tasks_list_is_annotation_free_by_default
+FAILED tests/test_upload.py::test_mixed_batch_reports_per_file_and_keeps_valid_ones
+FAILED tests/test_yolo_format.py::test_class_index_is_the_classes_txt_line_number
+FAILED tests/test_yolo_format.py::test_coordinates_are_normalized - TypeError...
+FAILED tests/test_yolo_format.py::test_coordinates_are_clamped_to_unit_range
+FAILED tests/test_yolo_format.py::test_annotation_for_deleted_label_is_skipped
+FAILED tests/test_yolo_format.py::test_export_then_parse_round_trips_geometry
+========== 51 failed, 353 passed, 1241 warnings in 97.35s (0:01:37) ===========

@@ -114,7 +114,7 @@ def test_get_tasks_returns_updated_at(client, alice):
     project_id = _project(client, alice)
     _create_task(client, alice, project_id)
 
-    rows = client.get(f"/api/tasks?projectId={project_id}&include_annotations=true", headers=alice).json()
+    rows = client.get(f"/api/tasks?projectId={project_id}&include_annotations=true", headers=alice).json()["items"]
     assert rows[0].get("updated_at"), "GET /api/tasks must expose updated_at"
 
 
@@ -134,8 +134,8 @@ def test_conflict_does_not_lose_the_stored_annotations(client, alice):
         "updated_at": stale, "client_id": "tab-B",
     }, headers=alice)
 
-    rows = client.get(f"/api/tasks?projectId={project_id}&include_annotations=true", headers=alice).json()
-    assert len(rows[0]["annotations"]) == 4
+    rows = client.get(f"/api/tasks?projectId={project_id}&include_annotations=true", headers=alice).json()["items"]
+    assert len(client.get(f"/api/tasks/{rows[0]['id']}", headers=alice).json()["annotations"]) == 4
 
 
 def test_client_id_is_recorded_on_create(client, alice):
@@ -235,9 +235,9 @@ def test_get_tasks_list_is_annotation_free_by_default(client, alice):
     rows = client.get(
         f"/api/tasks?projectId={project_id}&include_annotations=false",
         headers=alice,
-    ).json()
-    assert rows[0]["annotations"] == [], (
-        "include_annotations=false must return empty annotation lists"
+    ).json()["items"]
+    assert "annotations" not in rows[0], (
+        "list endpoint must not return annotations"
     )
 
 

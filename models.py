@@ -15,6 +15,7 @@ from app.models import (
     TeamMemberAssociation,
     User,
     WorkspaceData,
+    ExportJob,
 )
 
 __all__ = [
@@ -30,4 +31,5 @@ __all__ = [
     "TeamMemberAssociation",
     "User",
     "WorkspaceData",
+    "ExportJob",
 ]

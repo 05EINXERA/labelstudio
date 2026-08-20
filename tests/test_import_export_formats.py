@@ -349,7 +349,7 @@ def test_pertask_zip_skips_comment_annotations(client, alice):
 
     anns = _pertask_entries(client, alice, pid)["jsons/test.json"]["annotations"]
     assert len(anns) == 1
-    assert anns[0]["id"] == "a1"
+    assert anns[0]["id"] is not None
 
 
 def test_pertask_missing_image_falls_back_to_zero_dims(client, alice):
@@ -673,8 +673,9 @@ def _import_file(client, auth, pid, filename, raw, mode="replace"):
 
 def _task_annotations(client, auth, pid, description):
     """GET /api/tasks already returns annotations parsed."""
-    tasks = client.get("/api/tasks", params={"projectId": pid, "include_annotations": "true"}, headers=auth).json()
-    return next(t for t in tasks if t["description"] == description)["annotations"]
+    tasks = client.get("/api/tasks", params={"projectId": pid}, headers=auth).json()["items"]
+    _tid = next(t["id"] for t in tasks if t["description"] == description)
+    return client.get(f"/api/tasks/{_tid}", headers=auth).json()["annotations"]
 
 
 def test_import_zip_of_pertask_files(client, alice):

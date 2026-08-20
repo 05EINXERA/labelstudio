@@ -54,9 +54,10 @@ from typing import List, Tuple, Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy.orm import Session, selectinload
+import datetime
 
 import models
-from database import get_db, SessionLocal
+from database import get_db, SessionLocal, commit_with_retry
 from schemas import (
     ExportRequest,
     EXPORT_FORMATS,
@@ -78,7 +79,42 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/exports", tags=["exports"], dependencies=[Depends(get_current_user), Depends(require_csrf)])
 
-JOBS = {}
+JOB_TTL_SECONDS = 3600.0  # 1 hour
+
+def _cleanup_stale_jobs(db: Optional[Session] = None, max_age_seconds: float = JOB_TTL_SECONDS) -> int:
+    close_on_exit = False
+    if db is None:
+        db = SessionLocal()
+        close_on_exit = True
+    try:
+        cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=max_age_seconds)
+        deleted = db.query(models.ExportJob).filter(models.ExportJob.created_at < cutoff).delete(synchronize_session=False)
+        if deleted:
+            commit_with_retry(db)
+        return deleted
+    finally:
+        if close_on_exit:
+            db.close()
+
+def _create_job(db: Optional[Session] = None) -> str:
+    close_on_exit = False
+    if db is None:
+        db = SessionLocal()
+        close_on_exit = True
+    try:
+        _cleanup_stale_jobs(db)
+        job_id = str(uuid.uuid4())
+        job = models.ExportJob(
+            id=job_id,
+            status="pending",
+            created_at=datetime.datetime.now(datetime.timezone.utc),
+        )
+        db.add(job)
+        commit_with_retry(db)
+        return job_id
+    finally:
+        if close_on_exit:
+            db.close()
 
 
 # The legacy CSV builder still reads through these short aliases; the shared
@@ -263,12 +299,14 @@ def _run_export_job(job_id: str, req: ExportRequest, project_id: int):
         # CSV is a legacy single-file format with no folder and no image axis.
         if fmt == "csv":
             body = _build_csv(tasks, labels_by_id)
-            db.commit()
-            JOBS[job_id] = {
-                "status": "completed", "body": body, "media_type": "text/csv",
-                "filename": f"export-{project_id}.csv", "task_count": len(tasks),
-                "format": fmt, "image_output": image_output, "skipped": [],
-            }
+            job = db.query(models.ExportJob).filter(models.ExportJob.id == job_id).first()
+            if job:
+                job.status = "completed"
+                job.content = body.encode("utf-8") if isinstance(body, str) else body
+                job.media_type = "text/csv"
+                job.filename = f"export-{project_id}.csv"
+                job.meta_info = json.dumps({"task_count": len(tasks), "format": fmt, "image_output": image_output, "skipped": []})
+                commit_with_retry(db)
             return
 
         # Compat carve-out: a single-file annotation format with no image output
@@ -279,12 +317,14 @@ def _run_export_job(job_id: str, req: ExportRequest, project_id: int):
                 body = json.dumps(coco_format.build(tasks, labels, db=db), indent=2)
             else:
                 body = annotations_json.build_single(tasks, labels, db=db)
-            db.commit()
-            JOBS[job_id] = {
-                "status": "completed", "body": body, "media_type": "application/json",
-                "filename": f"export-{project_id}.json", "task_count": len(tasks),
-                "format": fmt, "image_output": image_output, "skipped": [],
-            }
+            job = db.query(models.ExportJob).filter(models.ExportJob.id == job_id).first()
+            if job:
+                job.status = "completed"
+                job.content = body.encode("utf-8") if isinstance(body, str) else body
+                job.media_type = "application/json"
+                job.filename = f"export-{project_id}.json"
+                job.meta_info = json.dumps({"task_count": len(tasks), "format": fmt, "image_output": image_output, "skipped": []})
+                commit_with_retry(db)
             return
 
         # General case: one ZIP, each axis in its own top-level folder.
@@ -301,17 +341,25 @@ def _run_export_job(job_id: str, req: ExportRequest, project_id: int):
             skipped += img_skipped
 
         body = _zip_entries(entries)
-        db.commit()
-
-        JOBS[job_id] = {
-            "status": "completed", "body": body, "media_type": "application/zip",
-            "filename": archive_name(project) if project else f"export-{project_id}.zip",
-            "task_count": len(tasks), "format": fmt,
-            "image_output": image_output, "skipped": skipped,
-        }
+        
+        job = db.query(models.ExportJob).filter(models.ExportJob.id == job_id).first()
+        if job:
+            job.status = "completed"
+            job.content = body
+            job.media_type = "application/zip"
+            job.filename = archive_name(project) if project else f"export-{project_id}.zip"
+            job.meta_info = json.dumps({
+                "task_count": len(tasks), "format": fmt,
+                "image_output": image_output, "skipped": skipped,
+            })
+            commit_with_retry(db)
     except Exception:
         traceback.print_exc()
-        JOBS[job_id] = {"status": "failed", "error": "Export failed."}
+        job = db.query(models.ExportJob).filter(models.ExportJob.id == job_id).first()
+        if job:
+            job.status = "failed"
+            job.error = "Export failed."
+            commit_with_retry(db)
     finally:
         db.close()
 
@@ -359,46 +407,47 @@ def create_export(req: ExportRequest, background_tasks: BackgroundTasks, db: Ses
                 ),
             )
 
-    job_id = str(uuid.uuid4())
-    JOBS[job_id] = {"status": "pending"}
+    job_id = _create_job(db)
     background_tasks.add_task(_run_export_job, job_id, req, req.projectId)
     return {"job_id": job_id}
 
 
 @router.get("/{job_id}")
-def get_export_status(job_id: str):
-    job = JOBS.get(job_id)
+def get_export_status(job_id: str, db: Session = Depends(get_db)):
+    _cleanup_stale_jobs(db)
+    job = db.query(models.ExportJob).filter(models.ExportJob.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Export job not found or expired")
-    if job["status"] == "completed":
+    
+    if job.status == "completed":
+        meta = json.loads(job.meta_info or "{}")
         return {
             "status": "completed",
-            "task_count": job["task_count"],
-            "format": job["format"],
-            "image_output": job.get("image_output", "none"),
-            # Tasks a format could not represent (YOLO without image
-            # dimensions, for example). Reported so a short export is visible
-            # rather than silently missing files.
-            "skipped": job.get("skipped", []),
+            "task_count": meta.get("task_count", 0),
+            "format": meta.get("format", "unknown"),
+            "image_output": meta.get("image_output", "none"),
+            "skipped": meta.get("skipped", []),
         }
-    if job["status"] == "failed":
-        return {"status": "failed", "error": job["error"]}
+    if job.status == "failed":
+        return {"status": "failed", "error": job.error}
     return {"status": "pending"}
 
 
 @router.get("/{job_id}/download")
-def download_export(job_id: str):
-    job = JOBS.get(job_id)
-    if not job or job["status"] != "completed":
+def download_export(job_id: str, db: Session = Depends(get_db)):
+    job = db.query(models.ExportJob).filter(models.ExportJob.id == job_id).first()
+    if not job or job.status != "completed":
         raise HTTPException(status_code=404, detail="Export not ready or expired")
-    body = job["body"]
-    media_type = job["media_type"]
-    filename = job["filename"]
-    del JOBS[job_id]  # one-shot download, consistent with detect.py's job cleanup
-    # Response, not PlainTextResponse: the per-task format is a binary ZIP that
-    # a text response would UTF-8 encode and corrupt. Response takes str or
-    # bytes, so the CSV and COCO branches are unaffected.
+    
+    content = job.content
+    media_type = job.media_type
+    filename = job.filename
+    
+    # one-shot download
+    db.delete(job)
+    commit_with_retry(db)
+    
     return Response(
-        content=body, media_type=media_type,
+        content=content, media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

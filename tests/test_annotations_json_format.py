@@ -330,8 +330,9 @@ def test_parse_round_trips_an_export(client, alice):
     )
     assert res.status_code == 200, res.text
 
-    tasks = client.get(f"/api/tasks?projectId={target}&include_annotations=true", headers=alice).json()
-    anns = next(t for t in tasks if t["description"] == "rt.png")["annotations"]
+    tasks = client.get(f"/api/tasks?projectId={target}&include_annotations=true", headers=alice).json()["items"]
+    _tid = next(t["id"] for t in tasks if t["description"] == "rt.png")
+    anns = client.get(f"/api/tasks/{_tid}", headers=alice).json()["annotations"]
     assert len(anns) == 1
     assert anns[0]["type"] == "polygon"
     assert anns[0]["points"] == [{"x": 1, "y": 2}, {"x": 30, "y": 4}, {"x": 5, "y": 60}]

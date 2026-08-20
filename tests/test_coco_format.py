@@ -222,8 +222,9 @@ def test_shape_type_survives_export_then_import(client, alice):
     )
     assert res.status_code == 200, res.text
 
-    tasks = client.get(f"/api/tasks?projectId={target}&include_annotations=true", headers=alice).json()
-    imported = next(t for t in tasks if t["description"] == "r.png")["annotations"]
+    tasks = client.get(f"/api/tasks?projectId={target}&include_annotations=true", headers=alice).json()["items"]
+    _tid = next(t["id"] for t in tasks if t["description"] == "r.png")
+    imported = client.get(f"/api/tasks/{_tid}", headers=alice).json()["annotations"]
     assert imported[0]["type"] == "bbox"
 
 

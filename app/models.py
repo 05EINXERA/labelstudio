@@ -1,5 +1,5 @@
 """SQLAlchemy ORM models for database persistence."""
-from sqlalchemy import Column, Integer, String, DateTime, func, Text, ForeignKey, Float
+from sqlalchemy import Column, Integer, String, DateTime, func, Text, ForeignKey, Float, LargeBinary
 from sqlalchemy.orm import relationship
 try:
     from app.database import Base
@@ -125,3 +125,14 @@ class Annotation(Base):
     group_id = Column(String(36), nullable=True, index=True)
     extra = Column(Text, nullable=True) # JSON string for unmodeled fields
     created_at = Column(DateTime, server_default=func.now())
+
+class ExportJob(Base):
+    __tablename__ = "export_jobs"
+    id = Column(String(36), primary_key=True, index=True)
+    status = Column(String(32), default="pending", nullable=False)
+    media_type = Column(String(128), nullable=True)
+    filename = Column(String(255), nullable=True)
+    content = Column(LargeBinary, nullable=True) # ZIP/CSV/JSON content
+    meta_info = Column(Text, nullable=True) # JSON payload containing task_count, format, etc.
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False, index=True)
