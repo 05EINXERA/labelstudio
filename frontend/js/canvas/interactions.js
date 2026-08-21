@@ -609,6 +609,12 @@ canvas.addEventListener("contextmenu", (event) => {
 
 canvas.addEventListener("pointerdown", (event) => {
   if (!view.imageLoaded) return;
+
+  // Guard: allow panning in locked state, but reject draw/edit interactions
+  if (state.statusLocked && event.button !== 2 && !(event.button === 0 && event.shiftKey && event.altKey)) {
+    return;
+  }
+
   canvas.setPointerCapture(event.pointerId);
 
   if (event.button === 2 || (event.button === 0 && event.shiftKey && event.altKey)) {

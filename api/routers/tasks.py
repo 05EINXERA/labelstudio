@@ -26,6 +26,8 @@ router = APIRouter(
 
 logger = logging.getLogger(__name__)
 
+LOCKED_STATUSES = {"Completed", "Approved", "Verified"}
+
 # ---------------------------------------------------------------------------
 # Soft task lock (T2.1 / D3)
 #
@@ -422,6 +424,17 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
 def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: Session, user: models.User, annotator: Optional[models.TeamMember]):
     if task.id:
         db_task = _get_owned_task(task.id, user, db, annotator)
+
+        # Lock guard: reject annotation changes on locked-status tasks
+        if db_task.status in LOCKED_STATUSES:
+            has_annotation_changes = task.annotations is not None
+            trying_to_unlock = task.status is not None and task.status not in LOCKED_STATUSES
+            if has_annotation_changes and not trying_to_unlock:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Task is locked (status: {db_task.status}). Change status to unlock.",
+                )
+
         # Conflict detection guards one thing: a client overwriting a write it
         # never saw. It deliberately does *not* fire when a client overwrites
         # its own earlier save — one browser tab writes the same task from

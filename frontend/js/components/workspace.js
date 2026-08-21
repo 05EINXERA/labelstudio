@@ -73,6 +73,12 @@ export function syncToBackend({ useBeacon = false, targetStatus = null } = {}) {
     return Promise.resolve(false);
   }
 
+  // Guard: skip save if task is locked and not changing status
+  if (state.statusLocked && !targetStatus) {
+    setStatus(`🔒 Task is locked (status: ${currentTask.status})`);
+    return Promise.resolve(false);
+  }
+
   let taskStatus = targetStatus || currentTask.status;
   if (taskStatus === 'New') taskStatus = 'In Progress';
   currentTask.status = taskStatus;
@@ -209,16 +215,22 @@ export async function manualSaveWithUI(targetStatus = null) {
   const overlay = document.getElementById('saveOverlay');
   if (!overlay) return;
 
+  // Guard: if locked and not unlocking, show message and return
+  if (state.statusLocked && !targetStatus) {
+    setStatus(`🔒 Task is locked (status: ${state.gallery[state.galleryIndex].status}). Change status to unlock.`);
+    return;
+  }
+
   // Show the overlay
   overlay.classList.add('is-active');
 
   try {
     // Save the draft locally
     saveDraft();
-    
+
     // Sync to backend
     const ok = await syncToBackend({ targetStatus });
-    
+
     // Update status message
     const message = ok === false ? "Not saved—retrying" : "Saved Successfully";
     setStatus(message);
