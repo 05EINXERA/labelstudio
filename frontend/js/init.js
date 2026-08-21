@@ -155,15 +155,23 @@ async function initWorkspaceContext() {
     const res = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}`);
     if (!res || !res.ok) return;
     const project = await res.json();
-    if (project && breadcrumbProject) {
+    if (!project) return;
+
+    // Owner-or-not decides whether the workspace treats a task assigned to
+    // someone else as read-only (see gallery.js). It comes from the server's
+    // is_owner, which resolves through project.owner_id — the account — rather
+    // than comparing the annotator's display name, which differs from the
+    // account name as soon as anyone picks a profile on the shared login.
+    state.isProjectOwner = Boolean(project.is_owner);
+
+    if (breadcrumbProject) {
       breadcrumbProject.textContent = project.name || "Untitled project";
       breadcrumbProject.title = project.name || "Untitled project";
-      
-      if (project.is_owner) {
-        document.querySelectorAll(".owner-only-status").forEach(el => {
-          el.style.display = "block";
-        });
-      }
+    }
+    if (project.is_owner) {
+      document.querySelectorAll(".owner-only-status").forEach(el => {
+        el.style.display = "block";
+      });
     }
   } catch (e) {
     console.error("Failed to resolve project name for breadcrumb", e);
@@ -207,12 +215,24 @@ document.addEventListener('DOMContentLoaded', () => {
   resizeCanvas();
   render();
 
-  // Parallel high-speed workspace data bootstrap
+  // Parallel high-speed workspace data bootstrap.
+  //
+  // Ownership is the one ordering constraint: opening a task decides whether it
+  // is read-only, and that decision reads state.isProjectOwner (gallery.js). If
+  // the tasks won the race the owner would be treated as a non-owner on any task
+  // assigned to someone else — read-only, isFullyLoaded false, and every save
+  // dropped before it reached the network. So the context resolves first, and
+  // the rest still loads alongside it.
+  const contextReady = initWorkspaceContext();
   Promise.all([
-    initWorkspaceContext(),
+    contextReady,
     fetchLabels(),
     projectId ? loadTeamForWorkspace(projectId) : Promise.resolve(),
-    projectId ? loadWorkspaceTasks(projectId, targetTaskId) : Promise.resolve(),
+    projectId
+      ? contextReady
+          .catch(() => {})
+          .then(() => loadWorkspaceTasks(projectId, targetTaskId))
+      : Promise.resolve(),
   ]).catch((err) => {
     console.error("Failed to bootstrap workspace data in parallel:", err);
   });
