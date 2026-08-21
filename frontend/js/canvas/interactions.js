@@ -547,6 +547,10 @@ if (groupButton) {
 }
 
 export function groupSelectedAnnotations() {
+  if (state.statusLocked) {
+    setStatus("🔒 Cannot group: Task is locked");
+    return;
+  }
   if (state.selectedIds.size <= 1) return;
 
   snapshot();
@@ -575,6 +579,10 @@ export function groupSelectedAnnotations() {
 const ungroupButton = document.querySelector("#ungroupButton");
 if (ungroupButton) {
   ungroupButton.addEventListener("click", () => {
+    if (state.statusLocked) {
+      setStatus("🔒 Cannot ungroup: Task is locked");
+      return;
+    }
     snapshot();
     let ungrouped = false;
     state.annotations.forEach(a => {

@@ -135,7 +135,11 @@ export function initCommentInput() {
 export function updateModeControlsLockState() {
   const modeButtons = [drawMode, boxMode, polygonMode, commentMode, magicWandMode];
   const actionButtons = [undoButton, redoButton, deleteButton, clearButton, saveButton];
-  const allButtons = [...modeButtons, ...actionButtons];
+  const groupButtons = [
+    document.querySelector("#groupButton"),
+    document.querySelector("#ungroupButton")
+  ];
+  const allButtons = [...modeButtons, ...actionButtons, ...groupButtons];
 
   allButtons.forEach(btn => {
     if (btn) {
