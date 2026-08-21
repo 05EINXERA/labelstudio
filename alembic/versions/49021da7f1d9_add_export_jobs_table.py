@@ -36,7 +36,7 @@ def upgrade() -> None:
     op.create_index(op.f('ix_export_jobs_id'), 'export_jobs', ['id'], unique=False)
     op.drop_index(op.f('ix_notifications_id'), table_name='notifications')
     op.drop_index(op.f('ix_notifications_recipient_name'), table_name='notifications')
-    op.drop_table('notifications')
+    op.drop_table('notifications', sqlite_ignore_check=True)
     # ### end Alembic commands ###
 
 
