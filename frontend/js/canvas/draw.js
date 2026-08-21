@@ -1,5 +1,5 @@
 import { canvas, ctx, backgroundImage, staticCanvas, staticCtx } from "../dom.js?v=1";
-import { state, labelById, isAnnotationHidden } from "../state.js?v=1";
+import { state, labelById, isAnnotationHidden } from "../state.js?v=2";
 import { annotationSettings, annotationOpacity } from "../feature-flags.js?v=1";
 import { view } from "./view.js?v=1";
 import { annotationPoints, hexToRgba, isPointInsideOtherGroupPolygons } from "./geometry.js?v=1";

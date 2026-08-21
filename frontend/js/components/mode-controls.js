@@ -6,7 +6,7 @@
  * move objects lock/unlock toggle, and comment overlay keyboard handling.
  */
 import { generateUUID, round } from "../utils.js?v=1";
-import { state, snapshot } from "../state.js?v=1";
+import { state, snapshot } from "../state.js?v=2";
 import { view } from "../canvas/view.js?v=1";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
 import {

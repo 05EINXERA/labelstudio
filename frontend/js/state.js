@@ -53,7 +53,13 @@ export const state = {
   // a class for the *next* shape would re-label the finished one). It must be
   // one-shot: needsLabelSelection stays true until a class is picked, so reusing
   // that flag here would swallow every later click and break vertex editing.
-  justFinalized: false
+  justFinalized: false,
+  // Who the caller is relative to the open task. These drive UI affordances
+  // only — the server re-derives both and is the authority on what a write may
+  // change (see _is_task_editor in api/routers/tasks.py). Never gate a save on
+  // them: doing that client-side is what silently dropped edits on locked tasks.
+  isProjectOwner: false,
+  isTaskAssignee: false
 };
 
 // Setting selectedId cascades to selectedIds: selecting a grouped annotation
@@ -149,6 +155,7 @@ export function resetWorkspaceForNewImage() {
   state.activeLabelId = null;
   state.needsLabelSelection = false;
   state.justFinalized = false;
+  state.isTaskAssignee = false;
 }
 
 export function selectedAnnotation() {

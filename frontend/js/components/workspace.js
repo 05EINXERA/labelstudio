@@ -3,7 +3,7 @@ import { apiFetch } from "../api.js?v=1";
 import {
   state, storageKey, draftKey, colorForName, labelByName, labelById,
   labelDisplayName, snapshot, selectedAnnotation
-} from "../state.js?v=1";
+} from "../state.js?v=2";
 import { annotationPoints, updateAnnotationBounds } from "../canvas/geometry.js?v=1";
 import { view } from "../canvas/view.js?v=1";
 import { drainTaskTime } from "./timer.js?v=2";

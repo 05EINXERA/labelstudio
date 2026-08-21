@@ -537,11 +537,16 @@ function openEditModal(task) {
   const statusSelect = el("editStatus");
   statusSelect.value = task.status || "New";
 
+  // Mirrors _is_task_editor in api/routers/tasks.py: the assignee and the
+  // project owner have equal authority over a task, so both may move it out of
+  // a terminal status. Anyone else sees the status frozen.
   const isOwner = Boolean(ctx?.project?.is_owner);
-  const statusIsLocked = LOCKED_STATUSES.has(task.status) && !isOwner;
+  const isAssignee = Boolean(task.assignee) &&
+    task.assignee === (localStorage.getItem("dataset_username") || "");
+  const statusIsLocked = LOCKED_STATUSES.has(task.status) && !isOwner && !isAssignee;
   statusSelect.disabled = statusIsLocked;
   statusSelect.title = statusIsLocked
-    ? `Only the project owner can change the status of a ${task.status} task.`
+    ? `Only ${task.assignee} or the project owner can change the status of a ${task.status} task.`
     : "";
 
   const preview = el("editPreview");

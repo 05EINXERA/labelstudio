@@ -129,6 +129,20 @@ def _creator_project_ids(user: models.User, db: Session, annotator: Optional[mod
     ]
 
 
+def _is_task_editor(task: models.Task, user: models.User, db: Session, annotator: Optional[models.TeamMember] = None) -> bool:
+    """True if the caller may edit `task`, as its assignee or as the project owner.
+
+    The two have equal authority over a task: the assignee owns the work itself,
+    the project owner owns everything in the project. Every rule that restricts a
+    task write is keyed on this, so an unassigned task is editable by anyone with
+    project access, and an assigned one only by its assignee or the owner.
+    """
+    if annotator and task.assignee and task.assignee == annotator.name:
+        return True
+    project = db.query(models.Project).filter(models.Project.id == task.project_id).first()
+    return bool(project and is_project_creator(project, user, annotator))
+
+
 def _get_owned_task(task_id: int, user: models.User, db: Session, annotator: Optional[models.TeamMember] = None, require_edit: bool = True) -> models.Task:
     """Return the task if it belongs to a project `user` can access, else 404."""
     proj_ids = _accessible_project_ids(user, db, annotator)
@@ -139,12 +153,11 @@ def _get_owned_task(task_id: int, user: models.User, db: Session, annotator: Opt
     )
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-        
+
     if require_edit and annotator and task.assignee and task.assignee != annotator.name:
-        project = db.query(models.Project).filter(models.Project.id == task.project_id).first()
-        if not project or not is_project_creator(project, user, annotator):
+        if not _is_task_editor(task, user, db, annotator):
             raise HTTPException(status_code=403, detail="Task is assigned to another user")
-        
+
     return task
 
 @router.get("", response_model=PaginatedTasks)
@@ -425,11 +438,12 @@ def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: 
     if task.id:
         db_task = _get_owned_task(task.id, user, db, annotator)
 
-        # Status lock: once a task reaches a terminal status, only the project
-        # owner may change the status field further. Annotations themselves
-        # are never locked — only the status transition out of a terminal
-        # state is restricted, so annotators can keep editing a "Completed"
-        # task but cannot flip it back to "In Progress" themselves.
+        # Status lock: once a task reaches a terminal status, only the people
+        # responsible for it — its assignee and the project owner — may move it
+        # out again (_is_task_editor). The lock exists to stop a *third* party
+        # from reopening someone else's finished work, not to stop the annotator
+        # who did the work from correcting it. Annotations are never locked at
+        # all; only the status transition is restricted.
         #
         # A rejected status change is dropped from this write rather than
         # raising, so it never blocks the annotations/time bundled in the
@@ -440,10 +454,9 @@ def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: 
             db_task.status in LOCKED_STATUSES
             and task.status is not None
             and task.status != db_task.status
+            and not _is_task_editor(db_task, user, db, annotator)
         ):
-            project = db.query(models.Project).filter(models.Project.id == db_task.project_id).first()
-            if not project or not is_project_creator(project, user, annotator):
-                task.status = None
+            task.status = None
 
         # Conflict detection guards one thing: a client overwriting a write it
         # never saw. It deliberately does *not* fire when a client overwrites

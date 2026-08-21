@@ -3,7 +3,7 @@
  */
 import { clientId } from "./utils.js?v=1";
 import { apiFetch } from "./api.js?v=1";
-import { state } from "./state.js?v=1";
+import { state } from "./state.js?v=2";
 import {
   setStatus, syncToBackend, loadSaved, saveDraft, render, loadTeamForWorkspace
 } from "./components/workspace.js?v=2";
@@ -18,7 +18,7 @@ import { releaseTask, heartbeatTask } from "./task-lock.js?v=1";
 import { initFftControls } from "./fft-controls.js?v=1";
 import {
   switchImage, initGalleryNavigation, loadWorkspaceTasks, resizeCanvas
-} from "./components/gallery.js?v=1";
+} from "./components/gallery.js?v=2";
 import { initModals } from "./components/modals.js?v=1";
 import { initModeControls } from "./components/mode-controls.js?v=1";
 import { initOpacityControl } from "./components/opacity-control.js?v=1";

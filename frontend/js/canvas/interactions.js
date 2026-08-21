@@ -1,5 +1,5 @@
 import { generateUUID, clamp, round } from "../utils.js?v=1";
-import { state, snapshot, isAnnotationHidden } from "../state.js?v=1";
+import { state, snapshot, isAnnotationHidden } from "../state.js?v=2";
 import {
   annotationPoints,
   updateAnnotationBounds,
