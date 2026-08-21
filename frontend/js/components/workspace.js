@@ -73,8 +73,8 @@ export function syncToBackend({ useBeacon = false, targetStatus = null } = {}) {
     return Promise.resolve(false);
   }
 
-  // Guard: skip save if task is locked and not changing status
-  if (state.statusLocked && !targetStatus) {
+  // Guard: skip save if task is locked and not changing status (unless owner)
+  if (state.statusLocked && !targetStatus && !state.isProjectOwner) {
     setStatus(`🔒 Task is locked (status: ${currentTask.status})`);
     return Promise.resolve(false);
   }
@@ -215,8 +215,8 @@ export async function manualSaveWithUI(targetStatus = null) {
   const overlay = document.getElementById('saveOverlay');
   if (!overlay) return;
 
-  // Guard: if locked and not unlocking, show message and return
-  if (state.statusLocked && !targetStatus) {
+  // Guard: if locked and not unlocking, show message and return (unless owner)
+  if (state.statusLocked && !targetStatus && !state.isProjectOwner) {
     setStatus(`🔒 Task is locked (status: ${state.gallery[state.galleryIndex].status}). Change status to unlock.`);
     return;
   }

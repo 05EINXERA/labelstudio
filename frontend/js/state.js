@@ -55,7 +55,9 @@ export const state = {
   // that flag here would swallow every later click and break vertex editing.
   justFinalized: false,
   // True when task status is Completed/Approved/Verified — annotations locked for editing
-  statusLocked: false
+  statusLocked: false,
+  // True if current user is the project owner (can override locks)
+  isProjectOwner: false
 };
 
 // Setting selectedId cascades to selectedIds: selecting a grouped annotation

@@ -213,7 +213,19 @@ document.addEventListener('DOMContentLoaded', () => {
     initWorkspaceContext(),
     fetchLabels(),
     projectId ? loadTeamForWorkspace(projectId) : Promise.resolve(),
-    projectId ? loadWorkspaceTasks(projectId, targetTaskId) : Promise.resolve(),
+    projectId ? (async () => {
+      try {
+        const res = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}`);
+        if (res && res.ok) {
+          const project = await res.json();
+          const username = localStorage.getItem("dataset_username") || "";
+          state.isProjectOwner = Boolean(project.creator && project.creator === username);
+        }
+      } catch (e) {
+        console.error("Failed to determine project ownership:", e);
+      }
+      await loadWorkspaceTasks(projectId, targetTaskId);
+    })() : Promise.resolve(),
   ]).catch((err) => {
     console.error("Failed to bootstrap workspace data in parallel:", err);
   });

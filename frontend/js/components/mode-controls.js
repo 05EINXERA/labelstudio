@@ -137,11 +137,14 @@ export function updateModeControlsLockState() {
   const actionButtons = [undoButton, redoButton, deleteButton, clearButton, saveButton];
   const allButtons = [...modeButtons, ...actionButtons];
 
+  // Project owners can always edit, even when locked
+  const isLocked = state.statusLocked && !state.isProjectOwner;
+
   allButtons.forEach(btn => {
     if (btn) {
-      btn.disabled = state.statusLocked;
-      btn.style.opacity = state.statusLocked ? "0.5" : "1";
-      btn.style.cursor = state.statusLocked ? "not-allowed" : "pointer";
+      btn.disabled = isLocked;
+      btn.style.opacity = isLocked ? "0.5" : "1";
+      btn.style.cursor = isLocked ? "not-allowed" : "pointer";
     }
   });
 
@@ -159,7 +162,7 @@ export function updateModeControlsLockState() {
 export function initModeControls() {
   if (drawMode) {
     drawMode.addEventListener("click", () => {
-      if (state.statusLocked) return;
+      if (state.statusLocked && !state.isProjectOwner) return;
       if (!state.activeLabelId) {
         setStatus("Pick a class first, then draw");
         render();
