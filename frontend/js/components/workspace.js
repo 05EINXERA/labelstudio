@@ -131,6 +131,17 @@ function currentTask() {
 export function saveDraft() {
   const task = currentTask();
   if (!task || !task.id) return;
+
+  // An empty canvas is not work worth protecting, and writing it anyway meant
+  // every task the annotator merely opened left a draft behind for good. Those
+  // accumulate until localStorage hits its quota (at which point the real
+  // drafts stop being written), and each one prompts a pointless "restore your
+  // draft?" on the next open. Drop any stale draft instead of storing nothing.
+  if (!state.annotations || state.annotations.length === 0) {
+    clearDraft(task.id);
+    return;
+  }
+
   try {
     localStorage.setItem(draftKey(task.id), JSON.stringify({
       annotations: state.annotations,
@@ -161,6 +172,17 @@ export function clearDraft(taskId) {
  */
 export function restoreDraft(task) {
   if (!task || !task.id) return false;
+
+  // Only meaningful once the server's own annotations are in state. When the
+  // detail fetch failed (timeout, 5xx, dropped LAN link) the caller leaves
+  // annotations empty and isFullyLoaded false — indistinguishable here from a
+  // task the server says is genuinely empty. Restoring against that would
+  // compare the draft to a phantom empty server copy: the "server has
+  // annotations" guard below could not fire, so the draft would be adopted
+  // silently, and a later save could push it over real server data. Keep the
+  // draft untouched and let the next successful open recover it.
+  if (!task.isFullyLoaded) return false;
+
   let raw;
   try {
     raw = localStorage.getItem(draftKey(task.id));
@@ -180,15 +202,35 @@ export function restoreDraft(task) {
       clearDraft(task.id);
       return false;
     }
-    
-    // Warn if server has annotations and draft is different
-    if (state.annotations && state.annotations.length > 0) {
-      if (!confirm("You have a local draft that differs from the server's version. Restore your local draft?\n\n(Click 'Cancel' to keep the server's version)")) {
-        clearDraft(task.id);
-        return false;
-      }
+    // An empty draft never carries work. It is the residue of a task that was
+    // opened and closed without drawing, and prompting about it asks the
+    // annotator to arbitrate between two empty sets.
+    if (draft.annotations.length === 0) {
+      clearDraft(task.id);
+      return false;
     }
-    
+    // Nothing on the server to overwrite: adopting the draft can only add the
+    // annotator's unsaved work back, so there is no decision to put to them.
+    if (!state.annotations || state.annotations.length === 0) {
+      state.annotations = draft.annotations;
+      if (Array.isArray(draft.labels) && draft.labels.length) {
+        state.labels = draft.labels;
+      }
+      repairLabelsFromAnnotations();
+      return true;
+    }
+    // Both sides hold real, differing work — the only case where the annotator
+    // has something to lose either way, and so the only case worth a prompt.
+    if (!confirm(
+      `This task has ${state.annotations.length} annotation(s) saved on the server, ` +
+      `and ${draft.annotations.length} in an unsaved local draft.\n\n` +
+      `OK — use your local draft (${draft.annotations.length})\n` +
+      `Cancel — keep the server's version (${state.annotations.length}), discarding the draft`
+    )) {
+      clearDraft(task.id);
+      return false;
+    }
+
     state.annotations = draft.annotations;
     if (Array.isArray(draft.labels) && draft.labels.length) {
       state.labels = draft.labels;
@@ -279,7 +321,44 @@ export async function manualSaveWithUI(targetStatus = null) {
   }
 }
 
+/**
+ * Drop per-task drafts that hold no annotations.
+ *
+ * Until saveDraft started skipping them, every task that was merely opened
+ * left an empty draft behind permanently. On a long-lived browser those
+ * accumulate until localStorage hits its quota — at which point writes of
+ * *real* drafts start failing — and each one triggers a spurious "restore
+ * your draft?" prompt on open. Runs once at startup; cheap, and bounded by
+ * how many tasks this browser has touched.
+ */
+function pruneEmptyDrafts() {
+  const prefix = draftKey("");
+  let removed = 0;
+  try {
+    for (const key of Object.keys(localStorage)) {
+      if (!key.startsWith(prefix)) continue;
+      try {
+        const draft = JSON.parse(localStorage.getItem(key));
+        if (!draft || !Array.isArray(draft.annotations) || draft.annotations.length === 0) {
+          localStorage.removeItem(key);
+          removed += 1;
+        }
+      } catch {
+        // Unparseable draft can never be restored; it only occupies quota.
+        localStorage.removeItem(key);
+        removed += 1;
+      }
+    }
+  } catch (e) {
+    // Storage unavailable (private mode, blocked site data). Nothing to prune.
+    console.warn('Could not prune local drafts', e);
+  }
+  if (removed) console.info(`Pruned ${removed} empty local draft(s)`);
+}
+
 export function loadSaved() {
+  pruneEmptyDrafts();
+
   // Legacy global-slot draft. Kept only to migrate anything a previous version
   // left behind; drafts are per-task now (see restoreDraft).
   const saved = localStorage.getItem(storageKey);
