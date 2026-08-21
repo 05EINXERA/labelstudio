@@ -1,5 +1,12 @@
 """SQLAlchemy ORM models for database persistence."""
 from sqlalchemy import Column, Integer, String, DateTime, func, Text, ForeignKey, Float, LargeBinary
+
+# All timestamp columns store timezone-aware UTC (CLAUDE.md rule 7). Without
+# timezone=True, Postgres silently strips tzinfo on write and hands back a
+# naive datetime on read — every conflict-detection comparison in
+# api/routers/tasks.py that re-attaches tzinfo=utc on a naive read was only
+# safe by coincidence of this server's timezone being UTC.
+UTCDateTime = DateTime(timezone=True)
 from sqlalchemy.orm import relationship
 try:
     from app.database import Base
@@ -30,7 +37,7 @@ class Project(Base):
     # keyed on owner_id, never on this string.
     creator = Column(String, index=True)
     owner_id = Column(Integer, ForeignKey("users.id"), index=True)
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(UTCDateTime, server_default=func.now())
     team_id = Column(Integer, ForeignKey("teams.id"), nullable=True, index=True)
 
 class Task(Base):
@@ -42,8 +49,8 @@ class Task(Base):
     status = Column(String, index=True)
     assignee = Column(String, index=True)
     time_spent = Column(Integer, default=0)
-    created_at = Column(DateTime, server_default=func.now())
-    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    created_at = Column(UTCDateTime, server_default=func.now())
+    updated_at = Column(UTCDateTime, server_default=func.now(), onupdate=func.now())
     annotations_legacy = Column("annotations_legacy", Text, nullable=True)
     annotations = relationship("Annotation", cascade="all, delete-orphan", passive_deletes=True)
     # Pixel dimensions of the image at image_path, captured at upload.
@@ -65,13 +72,13 @@ class Team(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     name = Column(String, unique=True, index=True)
     creator = Column(String, nullable=True)
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(UTCDateTime, server_default=func.now())
 
 class TeamMember(Base):
     __tablename__ = "team_members"
     name = Column(String, primary_key=True, index=True)
     time_logged = Column(Integer, default=0)
-    last_active_at = Column(DateTime, nullable=True)
+    last_active_at = Column(UTCDateTime, nullable=True)
 
 class TeamMemberAssociation(Base):
     __tablename__ = "team_member_associations"
@@ -91,13 +98,13 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     username = Column(String, unique=True, index=True)
     hashed_password = Column(String)
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(UTCDateTime, server_default=func.now())
 
 class TaskLock(Base):
     __tablename__ = "task_locks"
     task_id = Column(Integer, ForeignKey("tasks.id", ondelete="CASCADE"), primary_key=True, index=True)
     client_id = Column(String(64), nullable=False)
-    claimed_at = Column(DateTime, server_default=func.now(), nullable=False, index=True)
+    claimed_at = Column(UTCDateTime, server_default=func.now(), nullable=False, index=True)
 
 class AIJob(Base):
     __tablename__ = "ai_jobs"
@@ -105,7 +112,7 @@ class AIJob(Base):
     status = Column(String(32), default="pending", nullable=False)
     result = Column(Text, nullable=True)
     error = Column(Text, nullable=True)
-    created_at = Column(DateTime, server_default=func.now(), nullable=False, index=True)
+    created_at = Column(UTCDateTime, server_default=func.now(), nullable=False, index=True)
 
 class Annotation(Base):
     __tablename__ = "annotations"
@@ -124,7 +131,7 @@ class Annotation(Base):
     order = Column(Integer, nullable=True)
     group_id = Column(String(36), nullable=True, index=True)
     extra = Column(Text, nullable=True) # JSON string for unmodeled fields
-    created_at = Column(DateTime, server_default=func.now())
+    created_at = Column(UTCDateTime, server_default=func.now())
 
 class ExportJob(Base):
     __tablename__ = "export_jobs"
@@ -135,4 +142,4 @@ class ExportJob(Base):
     content = Column(LargeBinary, nullable=True) # ZIP/CSV/JSON content
     meta_info = Column(Text, nullable=True) # JSON payload containing task_count, format, etc.
     error = Column(Text, nullable=True)
-    created_at = Column(DateTime, server_default=func.now(), nullable=False, index=True)
+    created_at = Column(UTCDateTime, server_default=func.now(), nullable=False, index=True)
