@@ -14,7 +14,7 @@ import {
   autoDetectButton, autoTagButton, undoButton, redoButton, deleteButton,
   clearButton, saveButton, stageWrap
 } from "../dom.js?v=1";
-import { setStatus, save, render, manualSaveWithUI } from "./workspace.js?v=1";
+import { setStatus, save, render, manualSaveWithUI } from "./workspace.js?v=2";
 import { autoDetectObjects, autoTagObjects, preloadMagicWand } from "../ai/detect.js?v=1";
 import { finalizePolygon, deleteSelected, undoAction, redoAction } from "../canvas/interactions.js?v=1";
 
@@ -132,37 +132,12 @@ export function initCommentInput() {
   });
 }
 
-export function updateModeControlsLockState() {
-  const modeButtons = [drawMode, boxMode, polygonMode, commentMode, magicWandMode];
-  const actionButtons = [undoButton, redoButton, deleteButton, clearButton, saveButton];
-  const allButtons = [...modeButtons, ...actionButtons];
-
-  // Project owners can always edit, even when locked
-  const isLocked = state.statusLocked && !state.isProjectOwner;
-
-  allButtons.forEach(btn => {
-    if (btn) {
-      btn.disabled = isLocked;
-      btn.style.opacity = isLocked ? "0.5" : "1";
-      btn.style.cursor = isLocked ? "not-allowed" : "pointer";
-    }
-  });
-
-  // Keep status dropdown enabled
-  const statusDropdown = document.getElementById('taskStatusSelect');
-  if (statusDropdown) {
-    statusDropdown.disabled = false;
-    statusDropdown.style.opacity = "1";
-  }
-}
-
 /**
  * Initializes toolbar mode buttons, undo/redo, delete, clear, and save actions.
  */
 export function initModeControls() {
   if (drawMode) {
     drawMode.addEventListener("click", () => {
-      if (state.statusLocked && !state.isProjectOwner) return;
       if (!state.activeLabelId) {
         setStatus("Pick a class first, then draw");
         render();
@@ -177,7 +152,6 @@ export function initModeControls() {
 
   if (selectMode) {
     selectMode.addEventListener("click", () => {
-      if (state.statusLocked) return;
       if (view.drag?.type === "draw-polygon") {
         finalizePolygon();
       }
@@ -188,7 +162,6 @@ export function initModeControls() {
 
   if (boxMode) {
     boxMode.addEventListener("click", () => {
-      if (state.statusLocked) return;
       if (view.drag?.type === "draw-polygon") {
         finalizePolygon();
       }
@@ -202,7 +175,6 @@ export function initModeControls() {
 
   if (polygonMode) {
     polygonMode.addEventListener("click", () => {
-      if (state.statusLocked) return;
       state.mode = "draw";
       state.shape = "polygon";
       state.selectedId = null;
@@ -213,7 +185,6 @@ export function initModeControls() {
 
   if (commentMode) {
     commentMode.addEventListener("click", () => {
-      if (state.statusLocked) return;
       if (view.drag?.type === "draw-polygon") {
         finalizePolygon();
       }
@@ -227,7 +198,6 @@ export function initModeControls() {
 
   if (magicWandMode) {
     magicWandMode.addEventListener("click", () => {
-      if (state.statusLocked) return;
       if (view.drag?.type === "draw-polygon") {
         finalizePolygon();
       }
@@ -249,15 +219,11 @@ export function initModeControls() {
   }
 
   if (deleteButton) {
-    deleteButton.addEventListener("click", () => {
-      if (state.statusLocked) return;
-      deleteSelected();
-    });
+    deleteButton.addEventListener("click", () => deleteSelected());
   }
 
   if (clearButton) {
     clearButton.addEventListener("click", () => {
-      if (state.statusLocked) return;
       state.annotations = [];
       state.selectedIds.clear();
       state.selectedId = null;
@@ -300,12 +266,6 @@ export function initModeControls() {
       btn.addEventListener('click', (e) => {
         saveDropdownMenu.style.display = 'none';
         const targetStatus = e.currentTarget.dataset.status;
-        const wasLocked = state.statusLocked;
-        const lockingStatus = ["Completed", "Approved", "Verified"];
-        state.statusLocked = lockingStatus.includes(targetStatus);
-        if (wasLocked && !state.statusLocked) {
-          updateModeControlsLockState();
-        }
         manualSaveWithUI(targetStatus);
       });
     });

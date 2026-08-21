@@ -10,8 +10,8 @@
 import { smoothPolygon, autoTolerance } from './canvas/fft-smooth.js?v=1';
 import { state, snapshot } from './state.js?v=1';
 import { updateAnnotationBounds } from './canvas/geometry.js?v=1';
-import { render } from './components/workspace.js?v=1';
-import { setStatus } from './components/workspace.js?v=1';
+import { render } from './components/workspace.js?v=2';
+import { setStatus } from './components/workspace.js?v=2';
 
 // ---------------------------------------------------------------------------
 // Persistence keys

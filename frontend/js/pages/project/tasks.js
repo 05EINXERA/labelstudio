@@ -44,6 +44,10 @@ const ICON_DELETE = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none"
 
 const STATUSES = ["New", "In Progress", "Completed", "Approved", "Declined", "Verified", "Checked"];
 
+// Once a task reaches one of these, only the project owner may change its
+// status further (see api/routers/tasks.py LOCKED_STATUSES — kept in sync).
+const LOCKED_STATUSES = new Set(["Completed", "Approved", "Verified"]);
+
 function statusPill(status) {
   const s = status || "New";
   const cls = s === "Completed" ? "is-completed" : s === "In Progress" ? "is-progress" : s === "Approved" ? "is-approved" : s === "Declined" ? "is-declined" : s === "Verified" ? "is-verified" : s === "Checked" ? "is-checked" : "";
@@ -530,7 +534,16 @@ function openEditModal(task) {
   el("editId").value = task.id;
   el("editDescription").value = task.description || "";
   el("editAssignee").value = task.assignee || "";
-  el("editStatus").value = task.status || "New";
+  const statusSelect = el("editStatus");
+  statusSelect.value = task.status || "New";
+
+  const isOwner = Boolean(ctx?.project?.is_owner);
+  const statusIsLocked = LOCKED_STATUSES.has(task.status) && !isOwner;
+  statusSelect.disabled = statusIsLocked;
+  statusSelect.title = statusIsLocked
+    ? `Only the project owner can change the status of a ${task.status} task.`
+    : "";
+
   const preview = el("editPreview");
   if (task.image_path) {
     preview.src = "/" + String(task.image_path).replace(/\\/g, "/");
@@ -657,8 +670,7 @@ export async function mount(hostRoot, hostCtx) {
   root = hostRoot;
   ctx = hostCtx;
 
-  const datasetUsername = localStorage.getItem("dataset_username") || "";
-  const isCreator = Boolean(ctx?.project?.creator && ctx.project.creator === datasetUsername);
+  const isCreator = Boolean(ctx?.project?.is_owner);
 
   const urlParams = new URLSearchParams(window.location.search);
   const activeTaskId = urlParams.get("activeTaskId") ||

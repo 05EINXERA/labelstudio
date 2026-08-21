@@ -6,10 +6,10 @@ import { apiFetch } from "./api.js?v=1";
 import { state } from "./state.js?v=1";
 import {
   setStatus, syncToBackend, loadSaved, saveDraft, render, loadTeamForWorkspace
-} from "./components/workspace.js?v=1";
+} from "./components/workspace.js?v=2";
 import {
   syncTimeToServer, setActiveTaskResolver, setConflictHandler, handleVisibilityChange as handleTimerVisibility
-} from "./components/timer.js?v=1";
+} from "./components/timer.js?v=2";
 import { setZoomChangeHandler } from "./canvas/interactions.js?v=1";
 import { initContextMenu } from "./canvas/context-menu.js?v=1";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
@@ -159,8 +159,7 @@ async function initWorkspaceContext() {
       breadcrumbProject.textContent = project.name || "Untitled project";
       breadcrumbProject.title = project.name || "Untitled project";
       
-      const username = localStorage.getItem("dataset_username") || "";
-      if (project.creator && project.creator === username) {
+      if (project.is_owner) {
         document.querySelectorAll(".owner-only-status").forEach(el => {
           el.style.display = "block";
         });
@@ -213,19 +212,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initWorkspaceContext(),
     fetchLabels(),
     projectId ? loadTeamForWorkspace(projectId) : Promise.resolve(),
-    projectId ? (async () => {
-      try {
-        const res = await apiFetch(`/api/projects/${encodeURIComponent(projectId)}`);
-        if (res && res.ok) {
-          const project = await res.json();
-          const username = localStorage.getItem("dataset_username") || "";
-          state.isProjectOwner = Boolean(project.creator && project.creator === username);
-        }
-      } catch (e) {
-        console.error("Failed to determine project ownership:", e);
-      }
-      await loadWorkspaceTasks(projectId, targetTaskId);
-    })() : Promise.resolve(),
+    projectId ? loadWorkspaceTasks(projectId, targetTaskId) : Promise.resolve(),
   ]).catch((err) => {
     console.error("Failed to bootstrap workspace data in parallel:", err);
   });

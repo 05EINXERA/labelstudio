@@ -130,7 +130,13 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
-      keepalive: useBeacon || undefined
+      keepalive: useBeacon || undefined,
+      // A heavily-annotated task can take longer than the default 10s to
+      // serialize, upload, and be processed server-side (the diff/rewrite
+      // loop in _update_or_create_task_impl is per-annotation) — the default
+      // was aborting large-but-otherwise-healthy saves and showing an
+      // indefinite "Not saved—retrying" with no indication it was a timeout.
+      timeoutMs: 45000
     });
 
     if (res.status === 409) {
@@ -156,6 +162,15 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
     if (!res.ok) {
       timerState.taskSessionSeconds += timeDelta;
       updateTimerDisplays();
+      // Surface *why* on a rejection the user can act on (e.g. a non-owner
+      // trying to change a locked task's status) rather than leaving it to
+      // look like a transient "Not saved—retrying" that never explains
+      // itself. Best-effort: a malformed error body still leaves lastError
+      // unset, and callers already handle that case.
+      try {
+        const body = await res.json();
+        if (body && body.detail) task.lastSaveError = body.detail;
+      } catch { /* non-JSON error body; no detail to surface */ }
       return false;
     }
     // The server has banked the delta, so move it from the pending accumulator
@@ -172,6 +187,9 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
   } catch (e) {
     timerState.taskSessionSeconds += timeDelta;
     updateTimerDisplays();
+    if (e && e.name === 'AbortError') {
+      task.lastSaveError = 'Save timed out — this task may have too many annotations to save quickly. Retrying…';
+    }
     return false;
   }
 }

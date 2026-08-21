@@ -13,10 +13,9 @@ import {
   canvas, ctx, backgroundImage, staticCanvas, staticCtx, stageWrap, emptyState
 } from "../dom.js?v=1";
 import { drawAllLayers } from "../canvas/draw.js?v=1";
-import { setStatus, render, restoreDraft } from "./workspace.js?v=1";
-import { updateModeControlsLockState } from "./mode-controls.js?v=1";
+import { setStatus, render, restoreDraft } from "./workspace.js?v=2";
 import { autoDetectObjects, preloadMagicWand, preloadDetectAndTag } from "../ai/detect.js?v=1";
-import { syncTaskTime, resetSessionForTask, refreshTimerDisplays } from "./timer.js?v=1";
+import { syncTaskTime, resetSessionForTask, refreshTimerDisplays } from "./timer.js?v=2";
 import { updateZoomDisplay } from "./zoom-control.js?v=1";
 import { claimTask, releaseTask } from "../task-lock.js?v=1";
 
@@ -170,9 +169,6 @@ export async function switchImage(index) {
           if (detail.assignee !== undefined) item.assignee = detail.assignee;
           if (detail.status !== undefined) item.status = detail.status;
 
-          const lockedStatuses = ["Completed", "Approved", "Verified"];
-          state.statusLocked = lockedStatuses.includes(detail.status);
-
           const currentUsername = localStorage.getItem("dataset_username") || "";
           if (item.assignee && item.assignee !== currentUsername) {
             setStatus("⚠ Task is assigned to another user (Read-only)");
@@ -216,7 +212,6 @@ export async function switchImage(index) {
   if (restoreDraft(item)) {
     setStatus("Recovered unsaved changes");
   }
-  updateModeControlsLockState();
   render();
 }
 

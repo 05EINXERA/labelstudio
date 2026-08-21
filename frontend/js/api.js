@@ -36,8 +36,15 @@ export async function apiFetch(url, options = {}) {
     if (csrf) options.headers[CSRF_HEADER] = csrf;
   }
 
+  // Most calls are small and 10s is generous headroom for a stalled LAN
+  // connection. A handful of endpoints (annotation-heavy task saves) can
+  // legitimately take longer to serialize, upload, and process server-side
+  // on a single-worker box — callers that know their payload is large pass
+  // `timeoutMs` to avoid an artificial abort on an otherwise-healthy save.
+  const timeoutMs = options.timeoutMs || 10000;
+  delete options.timeoutMs;
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10000);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   options.signal = options.signal || controller.signal;
 
   let res;

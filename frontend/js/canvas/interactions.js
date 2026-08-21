@@ -13,7 +13,7 @@ import { view } from "./view.js?v=1";
 import { draw, drawAllLayers } from "./draw.js?v=1";
 import { canvas, undoButton } from "../dom.js?v=1";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
-import { setStatus, save, render } from "../components/workspace.js?v=1";
+import { setStatus, save, render } from "../components/workspace.js?v=2";
 import { performMagicWandSegmentation } from "../ai/detect.js?v=1";
 import { applyAutoSmooth } from "../fft-controls.js?v=1";
 import { annotationSettings } from "../feature-flags.js?v=1";
@@ -609,11 +609,6 @@ canvas.addEventListener("contextmenu", (event) => {
 
 canvas.addEventListener("pointerdown", (event) => {
   if (!view.imageLoaded) return;
-
-  // Guard: allow panning in locked state, but reject draw/edit interactions (unless owner)
-  if (state.statusLocked && !state.isProjectOwner && event.button !== 2 && !(event.button === 0 && event.shiftKey && event.altKey)) {
-    return;
-  }
 
   canvas.setPointerCapture(event.pointerId);
 

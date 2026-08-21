@@ -6,7 +6,7 @@ import {
 } from "../state.js?v=1";
 import { annotationPoints, updateAnnotationBounds } from "../canvas/geometry.js?v=1";
 import { view } from "../canvas/view.js?v=1";
-import { drainTaskTime } from "./timer.js?v=1";
+import { drainTaskTime } from "./timer.js?v=2";
 import { detectState } from "../ai/detect-state.js?v=1";
 import { draw, drawAllLayers } from "../canvas/draw.js?v=1";
 import {
@@ -73,15 +73,19 @@ export function syncToBackend({ useBeacon = false, targetStatus = null } = {}) {
     return Promise.resolve(false);
   }
 
-  // Guard: skip save if task is locked and not changing status (unless owner)
-  if (state.statusLocked && !targetStatus && !state.isProjectOwner) {
-    setStatus(`🔒 Task is locked (status: ${currentTask.status})`);
-    return Promise.resolve(false);
-  }
-
-  let taskStatus = targetStatus || currentTask.status;
+  // Only pass a status when this save actually intends to change it.
+  // Echoing currentTask.status back on every plain annotation autosave made
+  // the server unable to tell "no status change" from "change to the same
+  // value it already has" — which matters once terminal statuses are
+  // status-locked (see api/routers/tasks.py): the echo could get misread as
+  // an attempted change and, depending on how that guard is enforced, block
+  // or discard the very annotation edit this save exists to persist.
+  // `drainTaskTime` still owns the New → In Progress auto-promotion when no
+  // explicit status is given (see its own `status` param handling).
+  const previousStatus = currentTask.status;
+  let taskStatus = targetStatus;
   if (taskStatus === 'New') taskStatus = 'In Progress';
-  currentTask.status = taskStatus;
+  if (taskStatus) currentTask.status = taskStatus;
   currentTask.annotations = [...state.annotations];
 
   // Time accounting (drain, retry-on-failure, task binding) lives in timer.js
@@ -95,7 +99,17 @@ export function syncToBackend({ useBeacon = false, targetStatus = null } = {}) {
     // The draft exists to cover work the server does not have. Once it has
     // taken the write, the draft is stale and must go, or the next load would
     // "recover" it over fresher server data.
-    if (ok !== false && currentTask.id) clearDraft(currentTask.id);
+    if (ok !== false && currentTask.id) {
+      clearDraft(currentTask.id);
+    } else if (ok === false && taskStatus) {
+      // The status write above was optimistic; the server rejected this save
+      // (e.g. a non-owner attempting to change a locked task's status), so
+      // undo it rather than leave the UI showing a status that was never
+      // actually persisted. Only relevant when this save carried an explicit
+      // status change — a plain annotation autosave never touched
+      // currentTask.status in the first place (see above).
+      currentTask.status = previousStatus;
+    }
     return ok;
   });
 }
@@ -199,8 +213,16 @@ export function save() {
     // "Saved" is only claimed once the server has actually taken the write.
     // Reporting it on the localStorage write alone told annotators their work
     // was safe while it existed nowhere but their own browser.
+    const task = currentTask();
     Promise.resolve(syncToBackend())
-      .then((ok) => setStatus(ok === false ? "Not saved—retrying" : "Saved"))
+      .then((ok) => {
+        if (ok === false && task?.lastSaveError) {
+          setStatus(`⚠ ${task.lastSaveError}`);
+          task.lastSaveError = null;
+        } else {
+          setStatus(ok === false ? "Not saved—retrying" : "Saved");
+        }
+      })
       .catch(() => setStatus("Not saved—retrying"));
   }, 1000);
 }
@@ -215,12 +237,6 @@ export async function manualSaveWithUI(targetStatus = null) {
   const overlay = document.getElementById('saveOverlay');
   if (!overlay) return;
 
-  // Guard: if locked and not unlocking, show message and return (unless owner)
-  if (state.statusLocked && !targetStatus && !state.isProjectOwner) {
-    setStatus(`🔒 Task is locked (status: ${state.gallery[state.galleryIndex].status}). Change status to unlock.`);
-    return;
-  }
-
   // Show the overlay
   overlay.classList.add('is-active');
 
@@ -231,8 +247,15 @@ export async function manualSaveWithUI(targetStatus = null) {
     // Sync to backend
     const ok = await syncToBackend({ targetStatus });
 
-    // Update status message
-    const message = ok === false ? "Not saved—retrying" : "Saved Successfully";
+    // Update status message. A rejected save may have left a specific reason
+    // on the task (e.g. a non-owner status change on a locked task) — show
+    // that instead of the generic retry message when present.
+    const currentTask = state.gallery && state.galleryIndex >= 0 ? state.gallery[state.galleryIndex] : null;
+    let message = ok === false ? "Not saved—retrying" : "Saved Successfully";
+    if (ok === false && currentTask?.lastSaveError) {
+      message = `⚠ ${currentTask.lastSaveError}`;
+      currentTask.lastSaveError = null;
+    }
     setStatus(message);
     
     // Keep the overlay visible for a brief moment, then fade it out

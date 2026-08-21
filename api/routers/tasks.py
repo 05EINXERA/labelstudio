@@ -425,15 +425,25 @@ def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: 
     if task.id:
         db_task = _get_owned_task(task.id, user, db, annotator)
 
-        # Lock guard: reject annotation changes on locked-status tasks
-        if db_task.status in LOCKED_STATUSES:
-            has_annotation_changes = task.annotations is not None
-            trying_to_unlock = task.status is not None and task.status not in LOCKED_STATUSES
-            if has_annotation_changes and not trying_to_unlock:
-                raise HTTPException(
-                    status_code=403,
-                    detail=f"Task is locked (status: {db_task.status}). Change status to unlock.",
-                )
+        # Status lock: once a task reaches a terminal status, only the project
+        # owner may change the status field further. Annotations themselves
+        # are never locked — only the status transition out of a terminal
+        # state is restricted, so annotators can keep editing a "Completed"
+        # task but cannot flip it back to "In Progress" themselves.
+        #
+        # A rejected status change is dropped from this write rather than
+        # raising, so it never blocks the annotations/time bundled in the
+        # same request: every autosave echoes the task's current status
+        # alongside its real payload (see workspace.js syncToBackend), so a
+        # 403 here would silently block ordinary annotation edits too.
+        if (
+            db_task.status in LOCKED_STATUSES
+            and task.status is not None
+            and task.status != db_task.status
+        ):
+            project = db.query(models.Project).filter(models.Project.id == db_task.project_id).first()
+            if not project or not is_project_creator(project, user, annotator):
+                task.status = None
 
         # Conflict detection guards one thing: a client overwriting a write it
         # never saw. It deliberately does *not* fire when a client overwrites

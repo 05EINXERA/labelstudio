@@ -53,11 +53,7 @@ export const state = {
   // a class for the *next* shape would re-label the finished one). It must be
   // one-shot: needsLabelSelection stays true until a class is picked, so reusing
   // that flag here would swallow every later click and break vertex editing.
-  justFinalized: false,
-  // True when task status is Completed/Approved/Verified — annotations locked for editing
-  statusLocked: false,
-  // True if current user is the project owner (can override locks)
-  isProjectOwner: false
+  justFinalized: false
 };
 
 // Setting selectedId cascades to selectedIds: selecting a grouped annotation
@@ -153,7 +149,6 @@ export function resetWorkspaceForNewImage() {
   state.activeLabelId = null;
   state.needsLabelSelection = false;
   state.justFinalized = false;
-  state.statusLocked = false;
 }
 
 export function selectedAnnotation() {

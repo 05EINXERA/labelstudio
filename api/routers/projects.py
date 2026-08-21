@@ -72,16 +72,25 @@ def get_owned_project(project_id: int, user: models.User, db: Session, annotator
 
 
 def is_project_creator(project: models.Project, user: models.User, annotator: Optional[models.TeamMember] = None) -> bool:
-    """Return True if user or annotator is the creator/owner of the project."""
+    """Return True if user or annotator is the creator/owner of the project.
+
+    `owner_id` identifies the actual logged-in account and must be checked
+    unconditionally: on a shared login, the account holder can pick any
+    annotator display name to attribute their work, and that name will
+    usually differ from both `user.username` and `project.creator`. Gating
+    the owner_id check on the active annotator name (as this used to do)
+    meant the true owner lost owner privileges the moment they selected a
+    profile — which is the common case, not the exception.
+    """
     names = set()
     if annotator and annotator.name:
         names.add(annotator.name)
     else:
         names.add(user.username)
-        
+
     if project.creator in names:
         return True
-    if project.owner_id == user.id and (not annotator or annotator.name == user.username):
+    if project.owner_id == user.id:
         return True
     return False
 
