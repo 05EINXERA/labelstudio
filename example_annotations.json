@@ -1,0 +1,39 @@
+[
+  {
+    "type": "box",
+    "label": "person",
+    "x": 100,
+    "y": 200,
+    "width": 150,
+    "height": 250,
+    "color": "#e85d75"
+  },
+  {
+    "type": "box",
+    "label": "car",
+    "x": 350,
+    "y": 180,
+    "width": 200,
+    "height": 120,
+    "color": "#0f8b8d"
+  },
+  {
+    "type": "polygon",
+    "label": "building",
+    "points": [
+      {"x": 50, "y": 50},
+      {"x": 400, "y": 50},
+      {"x": 400, "y": 500},
+      {"x": 50, "y": 500}
+    ],
+    "color": "#f4a261"
+  },
+  {
+    "type": "comment",
+    "label": "note",
+    "text": "Important object",
+    "x": 200,
+    "y": 300,
+    "color": "#2a9d8f"
+  }
+]

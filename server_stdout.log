@@ -1,0 +1,1227 @@
+Loading environment from .env...
+V APP_ENV=production
+V APP_HOST=0.0.0.0
+V APP_PORT=8000
+V JWT_SECRET=430664cc988ae36234367d83bc67ab
+V CORS_ORIGINS=http://localhost:8000,http://1
+V ALLOW_REGISTRATION=1
+V MIN_PASSWORD_LENGTH=8
+V DATABASE_URL=postgresql://seinxera05:seinxe
+V DB_POOL_SIZE=20
+V DB_MAX_OVERFLOW=20
+V DB_POOL_TIMEOUT=30
+V DB_POOL_RECYCLE=1800
+V DATA_DIR=.
+V MAX_UPLOAD_FILES=200
+V MAX_IMPORT_BYTES=314572800
+V COOKIE_SECURE=0
+V COOKIE_SAMESITE=lax
+V LOG_LEVEL=INFO
+V LOG_DIR=logs
+V LOG_MAX_BYTES=10485760
+V LOG_BACKUP_COUNT=5
+
+Active configuration:
+  APP_ENV: production
+  APP_HOST: 0.0.0.0
+  APP_PORT: 8000
+  CORS_ORIGINS: http://localhost:8000,http://127.0.0.1:8000,http://192.168.18.250:8000,http://localhost:8765,http://127.0.0.1:8765,http://192.168.18.250:8000,https://localhost,https://192.168.1.250
+  ALLOW_REGISTRATION: 1
+  COOKIE_SECURE: 0
+  FORWARDED_ALLOW_IPS: 127.0.0.1
+
+Starting uvicorn (single-worker process, AnyIO threadpool enabled, proxy headers enabled)...
+
+2026-08-21 19:13:41,613 INFO     app.main: Request threadpool cap set to 40
+INFO:     192.168.18.5:62369 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.34:52434 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.15:54330 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.15:52830 - "POST /api/tasks/245/heartbeat?client_id=7155411b-c651-4b23-9f58-da69c5eeabac HTTP/1.1" 200 OK
+INFO:     192.168.18.34:52434 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.15:63084 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.250:60362 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.16:61055 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.34:55780 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.34:63469 - "POST /api/tasks/291/heartbeat?client_id=e196d61e-c36d-4325-8171-e88d6a7ffca2 HTTP/1.1" 200 OK
+INFO:     192.168.18.15:63084 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.15:63084 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.250:63875 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.250:63876 - "GET /api/tasks?projectId=42&limit=10&offset=0&sort_by=updated_at&sort_desc=true&status=Completed HTTP/1.1" 200 OK
+INFO:     192.168.18.15:63084 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.250:63875 - "GET /api/tasks/181/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:63876 - "GET /api/tasks/266/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:63878 - "GET /api/tasks/243/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:63880 - "GET /api/tasks/271/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.15:52266 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.250:63879 - "GET /api/tasks/274/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:63877 - "GET /api/tasks/247/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.34:50384 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.250:63876 - "GET /api/tasks/220/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.15:58498 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.250:63875 - "GET /api/tasks/177/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:63878 - "GET /api/tasks/277/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:63880 - "GET /api/tasks/175/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.34:50384 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.34:50384 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.15:58498 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.15:63186 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.15:58498 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.15:64354 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.15:50496 - "POST /api/tasks/245/heartbeat?client_id=7155411b-c651-4b23-9f58-da69c5eeabac HTTP/1.1" 200 OK
+INFO:     192.168.18.34:61786 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.15:64354 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.34:61402 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.34:60763 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.15:50496 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.34:61437 - "POST /api/tasks/291/heartbeat?client_id=e196d61e-c36d-4325-8171-e88d6a7ffca2 HTTP/1.1" 200 OK
+INFO:     192.168.18.34:61437 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.15:50496 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.15:50496 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57948 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57948 - "GET /api/tasks?projectId=42&limit=10&offset=0&sort_by=updated_at&sort_desc=true&status=Completed HTTP/1.1" 200 OK
+INFO:     192.168.18.15:64746 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57948 - "GET /api/tasks/266/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57978 - "GET /api/tasks/271/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57973 - "GET /api/tasks/181/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57976 - "GET /api/tasks/243/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57975 - "GET /api/tasks/247/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57977 - "GET /api/tasks/274/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57948 - "GET /api/tasks/177/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57978 - "GET /api/tasks/220/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57976 - "GET /api/tasks/175/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57973 - "GET /api/tasks/277/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:39083 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.34:65003 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.15:64746 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.15:50666 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.15:54624 - "POST /api/tasks/245/heartbeat?client_id=7155411b-c651-4b23-9f58-da69c5eeabac HTTP/1.1" 200 OK
+INFO:     192.168.18.250:63093 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.15:64746 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.16:53170 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.34:63207 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.34:57298 - "POST /api/tasks/291/heartbeat?client_id=e196d61e-c36d-4325-8171-e88d6a7ffca2 HTTP/1.1" 200 OK
+INFO:     192.168.18.15:64746 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.15:64746 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.34:57298 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.15:58942 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.15:58942 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.15:64746 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.34:57298 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62252 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62252 - "GET /api/tasks?projectId=42&limit=10&offset=0&sort_by=updated_at&sort_desc=true&status=Completed HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62252 - "GET /api/tasks/266/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62278 - "GET /api/tasks/181/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62279 - "GET /api/tasks/247/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62281 - "GET /api/tasks/274/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62280 - "GET /api/tasks/243/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62282 - "GET /api/tasks/271/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.34:57298 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62279 - "GET /api/tasks/277/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62278 - "GET /api/tasks/220/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62252 - "GET /api/tasks/177/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62281 - "GET /api/tasks/175/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.15:64746 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.34:57298 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.15:58942 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.34:60642 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.15:58942 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.34:60642 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.15:58942 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.15:64746 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.15:60037 - "POST /api/tasks/245/heartbeat?client_id=7155411b-c651-4b23-9f58-da69c5eeabac HTTP/1.1" 200 OK
+INFO:     192.168.18.16:51220 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.16:57712 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.15:60037 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.15:64746 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.16:57712 - "GET /app.html?projectId=42&taskId=247 HTTP/1.1" 200 OK
+INFO:     192.168.18.34:51849 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.16:51220 - "GET /js/init.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:57712 - "GET /styles.css?v=23 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:51220 - "GET /js/api.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:57712 - "GET /js/utils.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:63230 - "GET /js/components/timer.js?v=2 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:49168 - "GET /js/state.js?v=2 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:60942 - "GET /js/components/workspace.js?v=2 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:60213 - "GET /js/canvas/interactions.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:51220 - "GET /js/canvas/context-menu.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:60942 - "GET /js/task-lock.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:63230 - "GET /js/components/zoom-control.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:49168 - "GET /js/components/sidebar-resize.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:60213 - "GET /js/fft-controls.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:51220 - "GET /js/components/gallery.js?v=2 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:63230 - "GET /js/components/modals.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:57712 - "GET /js/components/mode-controls.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:63230 - "GET /js/canvas/view.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:51220 - "GET /js/components/opacity-control.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:57712 - "GET /js/timer-state.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:49168 - "GET /js/dom.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:60942 - "GET /js/ai/detect-state.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:60213 - "GET /js/canvas/geometry.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:60213 - "GET /js/ai/detect.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:57712 - "GET /js/comment-overlay.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:63230 - "GET /js/feature-flags.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:51220 - "GET /js/canvas/draw.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:60942 - "GET /js/canvas/fft-smooth.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:60213 - "GET /js/ai/shared.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:60213 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.16:60942 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:49168 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:57712 - "GET /api/labels?projectId=42 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:51220 - "GET /api/team HTTP/1.1" 200 OK
+INFO:     192.168.18.16:63230 - "GET /api/tasks/sequence/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:63230 - "GET /logo.png HTTP/1.1" 200 OK
+INFO:     192.168.18.16:60213 - "POST /api/detect HTTP/1.1" 200 OK
+INFO:     192.168.18.16:60942 - "POST /api/detect/classify HTTP/1.1" 200 OK
+INFO:     192.168.18.15:64746 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.16:60213 - "GET /api/detect/status/0d91ce97-4720-4bed-af4c-89cd3f4e2463 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:60942 - "GET /api/detect/status/521974ac-2517-4b7b-904a-9b10300f83a7 HTTP/1.1" 200 OK
+INFO:     192.168.18.34:51849 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.34:56252 - "POST /api/tasks/291/heartbeat?client_id=e196d61e-c36d-4325-8171-e88d6a7ffca2 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:60942 - "GET /api/detect/status/0d91ce97-4720-4bed-af4c-89cd3f4e2463 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:60213 - "GET /api/detect/status/521974ac-2517-4b7b-904a-9b10300f83a7 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:60213 - "GET /api/detect/status/0d91ce97-4720-4bed-af4c-89cd3f4e2463 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:49168 - "GET /api/tasks/247 HTTP/1.1" 200 OK
+INFO:     192.168.18.34:56252 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.16:60213 - "GET /api/detect/status/0d91ce97-4720-4bed-af4c-89cd3f4e2463 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:49168 - "GET /api/detect/status/0d91ce97-4720-4bed-af4c-89cd3f4e2463 HTTP/1.1" 200 OK
+INFO:     192.168.18.15:61178 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.16:49168 - "GET /api/detect/status/0d91ce97-4720-4bed-af4c-89cd3f4e2463 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:49168 - "GET /api/detect/status/0d91ce97-4720-4bed-af4c-89cd3f4e2463 HTTP/1.1" 200 OK
+INFO:     192.168.18.15:61178 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.34:56252 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.16:49168 - "GET /api/detect/status/0d91ce97-4720-4bed-af4c-89cd3f4e2463 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:49168 - "GET /api/detect/status/0d91ce97-4720-4bed-af4c-89cd3f4e2463 HTTP/1.1" 200 OK
+INFO:     192.168.18.15:61178 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.16:49168 - "GET /api/detect/status/0d91ce97-4720-4bed-af4c-89cd3f4e2463 HTTP/1.1" 200 OK
+INFO:     192.168.18.15:56088 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62580 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62581 - "GET /api/tasks?projectId=42&limit=10&offset=0&sort_by=updated_at&sort_desc=true&status=Completed HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62580 - "GET /api/tasks/181/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62581 - "GET /api/tasks/266/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62587 - "GET /api/tasks/247/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62590 - "GET /api/tasks/271/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62589 - "GET /api/tasks/274/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62588 - "GET /api/tasks/243/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:49168 - "GET /api/detect/status/0d91ce97-4720-4bed-af4c-89cd3f4e2463 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62581 - "GET /api/tasks/220/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62580 - "GET /api/tasks/177/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62590 - "GET /api/tasks/175/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62587 - "GET /api/tasks/277/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:28932 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.16:49168 - "GET /api/detect/status/0d91ce97-4720-4bed-af4c-89cd3f4e2463 HTTP/1.1" 200 OK
+INFO:     192.168.18.34:56252 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.34:56252 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.16:49168 - "GET /api/detect/status/0d91ce97-4720-4bed-af4c-89cd3f4e2463 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:49168 - "GET /api/detect/status/0d91ce97-4720-4bed-af4c-89cd3f4e2463 HTTP/1.1" 200 OK
+INFO:     192.168.18.15:56088 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.16:49168 - "GET /api/detect/status/0d91ce97-4720-4bed-af4c-89cd3f4e2463 HTTP/1.1" 200 OK
+INFO:     192.168.18.15:62215 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.16:49168 - "GET /project.html?id=42&activeTaskId=247 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.16:65495 - "GET /styles.css?v=3 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.16:49168 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.16:59063 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.16:65495 - "GET /js/pages/project/home.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.16:62414 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.16:65495 - "GET /js/pages/project/router.js?v=2 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.16:62012 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.16:56851 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:65495 - "GET /js/components/project-nav.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.16:65495 - "GET /js/pages/project/tasks.js?v=3 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:59063 - "GET /js/components/data-table.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.16:56851 - "GET /api/team HTTP/1.1" 200 OK
+INFO:     192.168.18.16:59063 - "GET /js/pages/project/classes.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.16:65495 - "GET /js/pages/project/imports.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.16:56851 - "GET /js/pages/project/exports.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.16:62012 - "GET /api/tasks?projectId=42&limit=10&offset=0&sort_by=updated_at&sort_desc=true&status=Completed HTTP/1.1" 200 OK
+INFO:     192.168.18.16:56851 - "GET /api/tasks/243/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:59063 - "GET /api/tasks/181/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:62414 - "GET /api/tasks/274/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:49168 - "GET /api/tasks/271/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:62012 - "GET /api/tasks/266/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:65495 - "GET /api/tasks/177/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:56851 - "GET /api/tasks/175/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:62012 - "GET /api/tasks/247/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:59063 - "GET /api/tasks/220/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:62414 - "GET /api/tasks/277/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.15:62215 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.16:62414 - "GET /app.html?projectId=42&taskId=247 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.15:56088 - "POST /api/tasks/245/heartbeat?client_id=7155411b-c651-4b23-9f58-da69c5eeabac HTTP/1.1" 200 OK
+INFO:     192.168.18.16:62012 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:62414 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.16:65495 - "GET /api/tasks/sequence/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:59063 - "GET /api/labels?projectId=42 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:56851 - "GET /api/team HTTP/1.1" 200 OK
+INFO:     192.168.18.16:62414 - "POST /api/detect HTTP/1.1" 200 OK
+INFO:     192.168.18.16:49168 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:62012 - "POST /api/detect/classify HTTP/1.1" 200 OK
+INFO:     192.168.18.16:49168 - "GET /api/detect/status/daa64e87-48a2-4791-93a2-de1d56dd91eb HTTP/1.1" 200 OK
+INFO:     192.168.18.16:62414 - "GET /api/detect/status/d079b79f-5aab-495d-a9fd-9848e8df0299 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:49168 - "GET /api/detect/status/d079b79f-5aab-495d-a9fd-9848e8df0299 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:62414 - "GET /api/detect/status/daa64e87-48a2-4791-93a2-de1d56dd91eb HTTP/1.1" 200 OK
+INFO:     192.168.18.250:53431 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.34:54546 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.16:65495 - "GET /api/tasks/247 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:49168 - "GET /api/detect/status/daa64e87-48a2-4791-93a2-de1d56dd91eb HTTP/1.1" 200 OK
+INFO:     192.168.18.16:62414 - "GET /api/detect/status/d079b79f-5aab-495d-a9fd-9848e8df0299 HTTP/1.1" 200 OK
+INFO:     192.168.18.15:56088 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.16:62414 - "GET /api/detect/status/d079b79f-5aab-495d-a9fd-9848e8df0299 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:65495 - "GET /api/detect/status/daa64e87-48a2-4791-93a2-de1d56dd91eb HTTP/1.1" 200 OK
+INFO:     192.168.18.34:54546 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.34:54546 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.34:53830 - "POST /api/tasks/291/heartbeat?client_id=e196d61e-c36d-4325-8171-e88d6a7ffca2 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:62414 - "GET /api/detect/status/daa64e87-48a2-4791-93a2-de1d56dd91eb HTTP/1.1" 200 OK
+INFO:     192.168.18.16:65495 - "GET /api/detect/status/d079b79f-5aab-495d-a9fd-9848e8df0299 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:62414 - "GET /api/detect/status/d079b79f-5aab-495d-a9fd-9848e8df0299 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:65495 - "GET /api/detect/status/daa64e87-48a2-4791-93a2-de1d56dd91eb HTTP/1.1" 200 OK
+INFO:     192.168.18.16:62414 - "GET /api/detect/status/daa64e87-48a2-4791-93a2-de1d56dd91eb HTTP/1.1" 200 OK
+INFO:     192.168.18.16:65495 - "GET /api/detect/status/d079b79f-5aab-495d-a9fd-9848e8df0299 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:65495 - "GET /api/detect/status/daa64e87-48a2-4791-93a2-de1d56dd91eb HTTP/1.1" 200 OK
+INFO:     192.168.18.16:62414 - "GET /api/detect/status/d079b79f-5aab-495d-a9fd-9848e8df0299 HTTP/1.1" 200 OK
+Loading CLIP model openai/clip-vit-base-patch32...
+INFO:     192.168.18.16:62414 - "GET /api/detect/status/daa64e87-48a2-4791-93a2-de1d56dd91eb HTTP/1.1" 200 OK
+INFO:     192.168.18.16:65495 - "GET /api/detect/status/d079b79f-5aab-495d-a9fd-9848e8df0299 HTTP/1.1" 200 OK
+2026-08-21 19:16:04,779 INFO     httpx: HTTP Request: HEAD https://huggingface.co/openai/clip-vit-base-patch32/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-08-21 19:16:04,828 INFO     httpx: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/openai/clip-vit-base-patch32/3d74acf9a28c67741b2f4f2ea7635f0aaf6f0268/config.json "HTTP/1.1 200 OK"
+2026-08-21 19:16:05,113 INFO     httpx: HTTP Request: HEAD https://huggingface.co/openai/clip-vit-base-patch32/resolve/main/model.safetensors "HTTP/1.1 404 Not Found"
+INFO:     192.168.18.16:62414 - "GET /api/detect/status/d079b79f-5aab-495d-a9fd-9848e8df0299 HTTP/1.1" 200 OK
+2026-08-21 19:16:05,370 INFO     httpx: HTTP Request: HEAD https://huggingface.co/openai/clip-vit-base-patch32/resolve/main/model.safetensors.index.json "HTTP/1.1 404 Not Found"
+2026-08-21 19:16:07,328 WARNING  huggingface_hub.utils._http: Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+INFO:     192.168.18.16:65495 - "GET /api/detect/status/daa64e87-48a2-4791-93a2-de1d56dd91eb HTTP/1.1" 200 OK
+2026-08-21 19:16:07,599 INFO     httpx: HTTP Request: HEAD https://huggingface.co/openai/clip-vit-base-patch32/resolve/main/pytorch_model.bin "HTTP/1.1 302 Found"
+2026-08-21 19:16:07,963 INFO     httpx: HTTP Request: HEAD https://huggingface.co/openai/clip-vit-base-patch32/resolve/main/model.safetensors "HTTP/1.1 404 Not Found"
+2026-08-21 19:16:08,226 INFO     httpx: HTTP Request: GET https://huggingface.co/api/models/openai/clip-vit-base-patch32 "HTTP/1.1 200 OK"
+2026-08-21 19:16:08,514 INFO     httpx: HTTP Request: GET https://huggingface.co/api/models/openai/clip-vit-base-patch32/commits/main "HTTP/1.1 200 OK"
+INFO:     192.168.18.16:62414 - "GET /api/detect/status/daa64e87-48a2-4791-93a2-de1d56dd91eb HTTP/1.1" 200 OK
+INFO:     192.168.18.16:65495 - "GET /api/detect/status/d079b79f-5aab-495d-a9fd-9848e8df0299 HTTP/1.1" 200 OK
+2026-08-21 19:16:08,822 INFO     httpx: HTTP Request: GET https://huggingface.co/api/models/openai/clip-vit-base-patch32/discussions?p=0 "HTTP/1.1 200 OK"
+INFO:     192.168.18.15:50800 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.15:55424 - "POST /api/tasks HTTP/1.1" 200 OK
+2026-08-21 19:16:09,197 INFO     httpx: HTTP Request: GET https://huggingface.co/api/models/openai/clip-vit-base-patch32/commits/refs%2Fpr%2F66 "HTTP/1.1 200 OK"
+2026-08-21 19:16:09,481 INFO     httpx: HTTP Request: HEAD https://huggingface.co/openai/clip-vit-base-patch32/resolve/refs%2Fpr%2F66/model.safetensors.index.json "HTTP/1.1 404 Not Found"
+INFO:     192.168.18.16:65495 - "GET /api/detect/status/daa64e87-48a2-4791-93a2-de1d56dd91eb HTTP/1.1" 200 OK
+2026-08-21 19:16:09,746 INFO     httpx: HTTP Request: HEAD https://huggingface.co/openai/clip-vit-base-patch32/resolve/refs%2Fpr%2F66/model.safetensors "HTTP/1.1 302 Found"
+INFO:     192.168.18.16:62414 - "GET /api/detect/status/d079b79f-5aab-495d-a9fd-9848e8df0299 HTTP/1.1" 200 OK
+2026-08-21 19:16:09,851 INFO     httpx: HTTP Request: GET https://huggingface.co/api/models/openai/clip-vit-base-patch32/tree/main/additional_chat_templates?recursive=false&expand=false "HTTP/1.1 404 Not Found"
+2026-08-21 19:16:10,122 INFO     httpx: HTTP Request: HEAD https://huggingface.co/openai/clip-vit-base-patch32/resolve/main/processor_config.json "HTTP/1.1 404 Not Found"
+2026-08-21 19:16:10,414 INFO     httpx: HTTP Request: HEAD https://huggingface.co/openai/clip-vit-base-patch32/resolve/main/chat_template.json "HTTP/1.1 404 Not Found"
+INFO:     192.168.18.15:55424 - "POST /api/tasks HTTP/1.1" 200 OK
+2026-08-21 19:16:10,842 INFO     httpx: HTTP Request: HEAD https://huggingface.co/openai/clip-vit-base-patch32/resolve/main/chat_template.jinja "HTTP/1.1 404 Not Found"
+INFO:     192.168.18.16:62414 - "GET /api/detect/status/daa64e87-48a2-4791-93a2-de1d56dd91eb HTTP/1.1" 200 OK
+INFO:     192.168.18.16:65495 - "GET /api/detect/status/d079b79f-5aab-495d-a9fd-9848e8df0299 HTTP/1.1" 200 OK
+2026-08-21 19:16:11,100 INFO     httpx: HTTP Request: HEAD https://huggingface.co/openai/clip-vit-base-patch32/resolve/main/audio_tokenizer_config.json "HTTP/1.1 404 Not Found"
+2026-08-21 19:16:11,357 INFO     httpx: HTTP Request: HEAD https://huggingface.co/openai/clip-vit-base-patch32/resolve/main/processor_config.json "HTTP/1.1 404 Not Found"
+2026-08-21 19:16:11,622 INFO     httpx: HTTP Request: HEAD https://huggingface.co/openai/clip-vit-base-patch32/resolve/main/preprocessor_config.json "HTTP/1.1 307 Temporary Redirect"
+2026-08-21 19:16:11,689 INFO     httpx: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/openai/clip-vit-base-patch32/3d74acf9a28c67741b2f4f2ea7635f0aaf6f0268/preprocessor_config.json "HTTP/1.1 200 OK"
+2026-08-21 19:16:11,986 INFO     httpx: HTTP Request: HEAD https://huggingface.co/openai/clip-vit-base-patch32/resolve/main/processor_config.json "HTTP/1.1 404 Not Found"
+2026-08-21 19:16:12,249 INFO     httpx: HTTP Request: HEAD https://huggingface.co/openai/clip-vit-base-patch32/resolve/main/preprocessor_config.json "HTTP/1.1 307 Temporary Redirect"
+INFO:     192.168.18.16:65495 - "GET /api/detect/status/daa64e87-48a2-4791-93a2-de1d56dd91eb HTTP/1.1" 200 OK
+2026-08-21 19:16:12,290 INFO     httpx: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/openai/clip-vit-base-patch32/3d74acf9a28c67741b2f4f2ea7635f0aaf6f0268/preprocessor_config.json "HTTP/1.1 200 OK"
+INFO:     192.168.18.16:62414 - "GET /api/detect/status/d079b79f-5aab-495d-a9fd-9848e8df0299 HTTP/1.1" 200 OK
+2026-08-21 19:16:12,549 INFO     httpx: HTTP Request: HEAD https://huggingface.co/openai/clip-vit-base-patch32/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-08-21 19:16:12,585 INFO     httpx: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/openai/clip-vit-base-patch32/3d74acf9a28c67741b2f4f2ea7635f0aaf6f0268/config.json "HTTP/1.1 200 OK"
+2026-08-21 19:16:12,856 INFO     httpx: HTTP Request: HEAD https://huggingface.co/openai/clip-vit-base-patch32/resolve/main/tokenizer_config.json "HTTP/1.1 307 Temporary Redirect"
+2026-08-21 19:16:12,931 INFO     httpx: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/openai/clip-vit-base-patch32/3d74acf9a28c67741b2f4f2ea7635f0aaf6f0268/tokenizer_config.json "HTTP/1.1 200 OK"
+INFO:     192.168.18.250:53605 - "POST /api/team/ping HTTP/1.1" 200 OK
+2026-08-21 19:16:13,210 INFO     httpx: HTTP Request: GET https://huggingface.co/api/models/openai/clip-vit-base-patch32/tree/main/additional_chat_templates?recursive=false&expand=false "HTTP/1.1 404 Not Found"
+INFO:     192.168.18.250:53606 - "GET /api/tasks?projectId=42&limit=10&offset=0&sort_by=updated_at&sort_desc=true&status=Completed HTTP/1.1" 200 OK
+2026-08-21 19:16:13,571 INFO     httpx: HTTP Request: GET https://huggingface.co/api/models/openai/clip-vit-base-patch32/tree/main?recursive=true&expand=false "HTTP/1.1 200 OK"
+Pre-computing CLIP text embeddings...
+INFO:     192.168.18.15:55424 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.16:62414 - "GET /api/detect/status/daa64e87-48a2-4791-93a2-de1d56dd91eb HTTP/1.1" 200 OK
+INFO:     192.168.18.16:65495 - "GET /api/detect/status/d079b79f-5aab-495d-a9fd-9848e8df0299 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:53605 - "GET /api/tasks/181/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:61982 - "GET /api/tasks/247/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:61984 - "GET /api/tasks/274/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:53606 - "GET /api/tasks/266/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:61983 - "GET /api/tasks/243/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:61985 - "GET /api/tasks/271/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:53605 - "GET /api/tasks/177/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:61982 - "GET /api/tasks/220/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:61984 - "GET /api/tasks/277/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:53606 - "GET /api/tasks/175/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.34:55814 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.16:65495 - "GET /api/detect/status/daa64e87-48a2-4791-93a2-de1d56dd91eb HTTP/1.1" 200 OK
+INFO:     192.168.18.16:62414 - "GET /api/detect/status/d079b79f-5aab-495d-a9fd-9848e8df0299 HTTP/1.1" 200 OK
+INFO:     192.168.18.34:55814 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.16:62414 - "GET /api/detect/status/daa64e87-48a2-4791-93a2-de1d56dd91eb HTTP/1.1" 200 OK
+INFO:     192.168.18.16:65495 - "GET /api/detect/status/d079b79f-5aab-495d-a9fd-9848e8df0299 HTTP/1.1" 200 OK
+INFO:     192.168.18.34:55814 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.34:55814 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.34:55814 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.15:56016 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.15:55424 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.15:53993 - "POST /api/tasks/245/heartbeat?client_id=7155411b-c651-4b23-9f58-da69c5eeabac HTTP/1.1" 200 OK
+INFO:     192.168.18.16:58500 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.15:53993 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.34:56035 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.34:62260 - "POST /api/tasks/291/heartbeat?client_id=e196d61e-c36d-4325-8171-e88d6a7ffca2 HTTP/1.1" 200 OK
+INFO:     192.168.18.34:62260 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.15:53993 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.16:65400 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.15:59357 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.15:59557 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.34:54282 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.34:54282 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.5:64165 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62313 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.34:65222 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62314 - "GET /api/tasks?projectId=42&limit=10&offset=0&sort_by=updated_at&sort_desc=true&status=Completed HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62313 - "GET /api/tasks/181/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.34:54282 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62323 - "GET /api/tasks/243/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62314 - "GET /api/tasks/266/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62324 - "GET /api/tasks/274/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62325 - "GET /api/tasks/271/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62322 - "GET /api/tasks/247/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62313 - "GET /api/tasks/177/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62323 - "GET /api/tasks/220/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62314 - "GET /api/tasks/277/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62324 - "GET /api/tasks/175/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62845 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57225 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57225 - "GET /project.html?id=42&activeTaskId=278 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.250:63140 - "GET /js/pages/project/home.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.250:57225 - "GET /styles.css?v=3 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.250:62845 - "GET /js/pages/project/router.js?v=2 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.250:57225 - "GET /js/utils.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.250:62845 - "GET /js/components/project-nav.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.250:63140 - "GET /js/api.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62845 - "GET /js/pages/project/tasks.js?v=3 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62845 - "GET /js/components/data-table.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.15:51581 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.250:63140 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57225 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.15:51581 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57225 - "GET /api/team HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57225 - "GET /js/pages/project/classes.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.250:62845 - "GET /js/pages/project/imports.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.250:55204 - "GET /js/pages/project/exports.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.15:55392 - "POST /api/tasks/245/heartbeat?client_id=7155411b-c651-4b23-9f58-da69c5eeabac HTTP/1.1" 200 OK
+INFO:     192.168.18.250:63140 - "GET /api/tasks?projectId=42&limit=10&offset=0&search=sannd&sort_by=updated_at&sort_desc=true HTTP/1.1" 200 OK
+INFO:     192.168.18.16:54872 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62845 - "GET /api/tasks/280/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:63140 - "GET /api/tasks/278/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57225 - "GET /api/tasks/199/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:55204 - "GET /api/tasks/284/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:55204 - "GET /api/tasks?projectId=42&limit=10&offset=0&search=sann&sort_by=updated_at&sort_desc=true HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62845 - "GET /api/tasks?projectId=42&limit=10&offset=0&search=s&sort_by=updated_at&sort_desc=true HTTP/1.1" 200 OK
+INFO:     192.168.18.250:63140 - "GET /api/tasks?projectId=42&limit=10&offset=0&search=sa&sort_by=updated_at&sort_desc=true HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57225 - "GET /api/tasks?projectId=42&limit=10&offset=0&search=san&sort_by=updated_at&sort_desc=true HTTP/1.1" 200 OK
+INFO:     192.168.18.250:65516 - "GET /api/tasks?projectId=42&limit=10&offset=0&sort_by=updated_at&sort_desc=true HTTP/1.1" 200 OK
+INFO:     192.168.18.15:55392 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.250:55204 - "GET /api/tasks/284/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:51224 - "GET /api/tasks/278/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62845 - "GET /api/tasks/280/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:63140 - "GET /api/tasks/199/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57225 - "GET /api/tasks/266/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:65516 - "GET /api/tasks/289/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:55204 - "GET /api/tasks/184/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:51224 - "GET /api/tasks/264/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62845 - "GET /api/tasks/291/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:63140 - "GET /api/tasks/181/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57225 - "GET /api/tasks/182/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:65516 - "GET /api/tasks/271/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:51224 - "GET /api/tasks/248/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:55204 - "GET /api/tasks/185/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62845 - "GET /api/tasks/196/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:51224 - "GET /api/tasks/273/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:63140 - "GET /api/tasks/245/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:65516 - "GET /api/tasks/255/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:55204 - "GET /api/tasks/187/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57225 - "GET /api/tasks/204/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62845 - "GET /api/tasks/284/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:63140 - "GET /api/tasks/280/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:51224 - "GET /api/tasks/278/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57225 - "GET /api/tasks/289/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:55204 - "GET /api/tasks/266/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:65516 - "GET /api/tasks/199/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62845 - "GET /api/tasks/184/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:51224 - "GET /api/tasks/291/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:63140 - "GET /api/tasks/264/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:65516 - "GET /api/tasks/185/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:55204 - "GET /api/tasks/182/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57225 - "GET /api/tasks/181/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.34:57171 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.34:57923 - "POST /api/tasks/291/heartbeat?client_id=e196d61e-c36d-4325-8171-e88d6a7ffca2 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62845 - "GET /api/tasks/284/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:63140 - "GET /api/tasks/278/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:51224 - "GET /api/tasks/280/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:65516 - "GET /api/tasks/289/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:55204 - "GET /api/tasks/266/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57225 - "GET /api/tasks/184/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57225 - "GET /uploads/878393ac12c84ab79eb7aa7415c3df5c.jpg HTTP/1.1" 200 OK
+INFO:     192.168.18.250:63140 - "GET /api/tasks/278/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62845 - "GET /api/tasks/284/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.34:57923 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.15:55392 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.250:65496 - "GET /app.html?projectId=42&taskId=266 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:65496 - "GET /styles.css?v=23 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.250:50208 - "GET /js/init.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:50208 - "GET /js/state.js?v=2 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:65496 - "GET /js/components/workspace.js?v=2 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:50950 - "GET /js/components/sidebar-resize.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.250:52952 - "GET /js/canvas/interactions.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:61533 - "GET /js/canvas/context-menu.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:50078 - "GET /js/components/timer.js?v=2 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:50950 - "GET /js/task-lock.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.250:50208 - "GET /js/components/zoom-control.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.250:65496 - "GET /js/components/gallery.js?v=2 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:50208 - "GET /js/canvas/view.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.250:61533 - "GET /js/components/modals.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:52952 - "GET /js/fft-controls.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:50078 - "GET /js/components/mode-controls.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:50950 - "GET /js/components/opacity-control.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:65496 - "GET /js/canvas/geometry.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.250:50208 - "GET /js/ai/detect-state.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.250:50208 - "GET /js/timer-state.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.250:65496 - "GET /js/feature-flags.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.250:50078 - "GET /js/comment-overlay.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.250:52952 - "GET /js/dom.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.250:50950 - "GET /js/ai/detect.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:61533 - "GET /js/canvas/draw.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:50208 - "GET /js/canvas/fft-smooth.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.250:50208 - "GET /js/ai/shared.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:50208 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.250:52952 - "GET /api/team HTTP/1.1" 200 OK
+INFO:     192.168.18.250:61533 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:50950 - "GET /api/labels?projectId=42 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:50078 - "GET /api/tasks/sequence/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:52952 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:50950 - "GET /uploads/c8df705a2e224c7ebd1506fbfed80227.jpg HTTP/1.1" 200 OK
+INFO:     192.168.18.250:50208 - "POST /api/detect/classify HTTP/1.1" 200 OK
+INFO:     192.168.18.250:61533 - "POST /api/detect HTTP/1.1" 200 OK
+INFO:     192.168.18.250:50208 - "GET /api/detect/status/2337cd46-554e-4fd1-bdae-9caa2f4d5fc6 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:61533 - "GET /api/detect/status/2b3291ae-9b4f-486d-908a-6422516474b7 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:50078 - "GET /api/tasks/266 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:51883 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.250:50078 - "GET /api/detect/status/2337cd46-554e-4fd1-bdae-9caa2f4d5fc6 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:50950 - "GET /api/detect/status/2b3291ae-9b4f-486d-908a-6422516474b7 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:50950 - "GET /api/detect/status/2337cd46-554e-4fd1-bdae-9caa2f4d5fc6 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:50078 - "GET /api/detect/status/2b3291ae-9b4f-486d-908a-6422516474b7 HTTP/1.1" 200 OK
+INFO:     192.168.18.34:53763 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.15:56328 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.250:50078 - "GET /api/detect/status/2337cd46-554e-4fd1-bdae-9caa2f4d5fc6 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:50078 - "GET /api/detect/status/2b3291ae-9b4f-486d-908a-6422516474b7 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:50078 - "GET /api/detect/status/2337cd46-554e-4fd1-bdae-9caa2f4d5fc6 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:50950 - "GET /api/detect/status/2b3291ae-9b4f-486d-908a-6422516474b7 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:50950 - "GET /api/detect/status/2337cd46-554e-4fd1-bdae-9caa2f4d5fc6 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:50078 - "GET /api/detect/status/2b3291ae-9b4f-486d-908a-6422516474b7 HTTP/1.1" 200 OK
+INFO:     192.168.18.15:56328 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.250:50078 - "GET /api/detect/status/2337cd46-554e-4fd1-bdae-9caa2f4d5fc6 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:50950 - "GET /api/detect/status/2b3291ae-9b4f-486d-908a-6422516474b7 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:51181 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.34:57950 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.250:51181 - "GET /api/tasks?projectId=42&limit=10&offset=0&sort_by=updated_at&sort_desc=true&status=Completed HTTP/1.1" 200 OK
+INFO:     192.168.18.15:56328 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.250:51197 - "GET /api/tasks/247/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:51181 - "GET /api/tasks/266/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:51200 - "GET /api/tasks/271/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:51196 - "GET /api/tasks/181/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:51199 - "GET /api/tasks/274/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:51198 - "GET /api/tasks/243/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:51181 - "GET /api/tasks/220/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:51197 - "GET /api/tasks/177/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:51200 - "GET /api/tasks/277/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:51196 - "GET /api/tasks/175/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.15:49553 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.16:56415 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.15:63782 - "POST /api/tasks/245/heartbeat?client_id=7155411b-c651-4b23-9f58-da69c5eeabac HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62689 - "GET /app.html?projectId=42&taskId=266 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:53509 - "GET /js/init.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:59454 - "GET /styles.css?v=23 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62689 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.250:59454 - "GET /js/utils.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:51926 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.250:65439 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.250:64355 - "GET /js/state.js?v=2 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:53509 - "GET /js/api.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62689 - "GET /js/components/workspace.js?v=2 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:59454 - "GET /js/components/timer.js?v=2 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57373 - "GET /js/canvas/context-menu.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:53509 - "GET /js/components/zoom-control.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:52753 - "GET /js/canvas/interactions.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:64355 - "GET /js/components/sidebar-resize.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.15:56328 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62689 - "GET /js/task-lock.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:59454 - "GET /js/fft-controls.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57373 - "GET /js/components/gallery.js?v=2 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:52753 - "GET /js/components/mode-controls.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:53509 - "GET /js/components/modals.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:64355 - "GET /js/components/opacity-control.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62689 - "GET /js/canvas/view.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:59454 - "GET /js/canvas/geometry.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57373 - "GET /js/ai/detect-state.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:64355 - "GET /js/comment-overlay.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:52753 - "GET /js/canvas/draw.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:53509 - "GET /js/dom.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62689 - "GET /js/feature-flags.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:59454 - "GET /js/timer-state.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57373 - "GET /js/ai/detect.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:64355 - "GET /js/canvas/fft-smooth.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57373 - "GET /js/ai/shared.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57373 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.250:64355 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:52753 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62689 - "GET /api/team HTTP/1.1" 200 OK
+INFO:     192.168.18.250:53509 - "GET /api/tasks/sequence/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57373 - "GET /logo.png HTTP/1.1" 200 OK
+INFO:     192.168.18.250:59454 - "GET /api/labels?projectId=42 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62689 - "POST /api/detect HTTP/1.1" 200 OK
+INFO:     192.168.18.250:52753 - "POST /api/detect/classify HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62689 - "GET /api/detect/status/088b049a-0862-4d0d-bef0-33ee2d5a8aca HTTP/1.1" 200 OK
+INFO:     192.168.18.250:52753 - "GET /api/detect/status/07f6a6de-bb68-47a5-b18f-ea82ee899ecc HTTP/1.1" 200 OK
+INFO:     192.168.18.250:53509 - "GET /api/tasks/266 HTTP/1.1" 200 OK
+INFO:     192.168.18.15:56328 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.34:58982 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.34:51507 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.34:65128 - "POST /api/tasks/291/heartbeat?client_id=e196d61e-c36d-4325-8171-e88d6a7ffca2 HTTP/1.1" 200 OK
+INFO:     192.168.18.15:63782 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.34:65128 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.34:65128 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.16:59682 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.34:65128 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.15:56120 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.15:64568 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.5:21071 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.34:63556 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.34:63556 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.15:64568 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57559 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.34:63556 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57560 - "GET /api/tasks?projectId=42&limit=10&offset=0&sort_by=updated_at&sort_desc=true&status=Completed HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57568 - "GET /api/tasks/247/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57559 - "GET /api/tasks/181/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57560 - "GET /api/tasks/266/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57569 - "GET /api/tasks/243/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57570 - "GET /api/tasks/274/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57571 - "GET /api/tasks/271/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57568 - "GET /api/tasks/177/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57559 - "GET /api/tasks/220/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57560 - "GET /api/tasks/277/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:57569 - "GET /api/tasks/175/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:60088 - "GET /project.html?id=42&activeTaskId=266 HTTP/1.1" 200 OK
+INFO:     192.168.18.15:64568 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.15:59650 - "POST /api/tasks/245/heartbeat?client_id=7155411b-c651-4b23-9f58-da69c5eeabac HTTP/1.1" 200 OK
+INFO:     192.168.18.250:49672 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:53075 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.250:61436 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.250:53473 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.250:60088 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.16:62713 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.250:53473 - "GET /api/team HTTP/1.1" 200 OK
+INFO:     192.168.18.250:61436 - "GET /api/tasks?projectId=42&limit=10&offset=0&sort_by=updated_at&sort_desc=true HTTP/1.1" 200 OK
+INFO:     192.168.18.250:53075 - "GET /api/tasks/181/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:60088 - "GET /api/tasks/266/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:61436 - "GET /api/tasks/291/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:53473 - "GET /api/tasks/245/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:61825 - "GET /api/tasks/289/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:49672 - "GET /api/tasks/255/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.34:63556 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.250:60088 - "GET /api/tasks/196/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:61436 - "GET /api/tasks/204/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:53473 - "GET /api/tasks/187/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:53075 - "GET /api/tasks/273/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:53075 - "GET /app.html?projectId=42&taskId=266 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.250:53075 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.250:53473 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:60088 - "GET /api/team HTTP/1.1" 200 OK
+INFO:     192.168.18.250:49672 - "GET /api/tasks/sequence/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:61436 - "GET /api/labels?projectId=42 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:53075 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:49672 - "POST /api/detect HTTP/1.1" 200 OK
+INFO:     192.168.18.250:60088 - "POST /api/detect/classify HTTP/1.1" 200 OK
+INFO:     192.168.18.250:49672 - "GET /api/detect/status/dda4fe3e-3ea2-48fe-abd7-b7e7c6c3b09b HTTP/1.1" 200 OK
+INFO:     192.168.18.250:60088 - "GET /api/detect/status/4f9dd877-e68f-492a-934c-72140a235d58 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:61436 - "GET /api/tasks/266 HTTP/1.1" 200 OK
+INFO:     192.168.18.15:59650 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.34:51448 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.34:55468 - "POST /api/tasks/291/heartbeat?client_id=e196d61e-c36d-4325-8171-e88d6a7ffca2 HTTP/1.1" 200 OK
+INFO:     192.168.18.34:64419 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.15:58185 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.15:59650 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.16:59743 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.34:64419 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.15:58185 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.34:64419 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.15:59650 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.34:64419 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.15:59650 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.34:60006 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62035 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62036 - "GET /api/tasks?projectId=42&limit=10&offset=0&sort_by=updated_at&sort_desc=true&status=Completed HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62036 - "GET /api/tasks/266/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62035 - "GET /api/tasks/181/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.15:55212 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62043 - "GET /api/tasks/243/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62046 - "GET /api/tasks/271/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62042 - "GET /api/tasks/247/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62044 - "GET /api/tasks/274/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62036 - "GET /api/tasks/177/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62035 - "GET /api/tasks/220/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62046 - "GET /api/tasks/175/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62043 - "GET /api/tasks/277/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:53525 - "GET /project.html?id=42&activeTaskId=266 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.250:62332 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.250:55451 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:65413 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.250:55855 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.250:53525 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.15:55212 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.15:59650 - "POST /api/tasks/245/heartbeat?client_id=7155411b-c651-4b23-9f58-da69c5eeabac HTTP/1.1" 200 OK
+INFO:     192.168.18.250:55855 - "GET /api/team HTTP/1.1" 200 OK
+INFO:     192.168.18.250:65413 - "GET /api/tasks?projectId=42&limit=10&offset=0&sort_by=updated_at&sort_desc=true HTTP/1.1" 200 OK
+INFO:     192.168.18.16:60628 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.250:53525 - "GET /api/tasks/266/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:65413 - "GET /api/tasks/245/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:55855 - "GET /api/tasks/291/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62332 - "GET /api/tasks/255/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:49798 - "GET /api/tasks/289/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:55451 - "GET /api/tasks/181/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62332 - "GET /api/tasks/187/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:53525 - "GET /api/tasks/273/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:55855 - "GET /api/tasks/204/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:65413 - "GET /api/tasks/196/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.34:60006 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.250:55451 - "GET /app.html?projectId=42&taskId=266 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.250:55451 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.250:53525 - "GET /api/team HTTP/1.1" 200 OK
+INFO:     192.168.18.250:65413 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:55855 - "GET /api/labels?projectId=42 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62332 - "GET /api/tasks/sequence/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:65413 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:55855 - "POST /api/detect HTTP/1.1" 200 OK
+INFO:     192.168.18.250:53525 - "POST /api/detect/classify HTTP/1.1" 200 OK
+INFO:     192.168.18.250:55855 - "GET /api/detect/status/74daf111-7556-4fab-8c0f-d5ff343f04a7 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:53525 - "GET /api/detect/status/29c18ada-9efe-47dd-ac39-70b9c82b5b5e HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62332 - "GET /api/tasks/266 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:53525 - "GET /api/detect/status/74daf111-7556-4fab-8c0f-d5ff343f04a7 HTTP/1.1" 200 OK
+INFO:     192.168.18.34:60006 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.15:59852 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.34:50400 - "POST /api/tasks/291/heartbeat?client_id=e196d61e-c36d-4325-8171-e88d6a7ffca2 HTTP/1.1" 200 OK
+INFO:     192.168.18.34:50400 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.15:59852 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.34:50400 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.15:50869 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.16:61483 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.15:59852 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.34:50400 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.15:50869 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.5:4967 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.34:50431 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.15:50869 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.15:52253 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.15:52253 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.15:58426 - "POST /api/tasks/245/heartbeat?client_id=7155411b-c651-4b23-9f58-da69c5eeabac HTTP/1.1" 200 OK
+INFO:     192.168.18.16:59426 - "GET /app.html?projectId=42&taskId=247 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:58863 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.15:50869 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.16:61529 - "GET /js/init.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:50018 - "GET /styles.css?v=23 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:58864 - "GET /api/tasks?projectId=42&limit=10&offset=0&sort_by=updated_at&sort_desc=true&status=Completed HTTP/1.1" 200 OK
+INFO:     192.168.18.16:50495 - "GET /js/state.js?v=2 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:61529 - "GET /js/api.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:50018 - "GET /js/utils.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:59426 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.16:56203 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.16:64068 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.16:50495 - "GET /js/components/timer.js?v=2 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:61529 - "GET /js/components/workspace.js?v=2 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:50018 - "GET /js/canvas/context-menu.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:56882 - "GET /js/canvas/interactions.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:65111 - "GET /js/components/sidebar-resize.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:49667 - "GET /js/components/zoom-control.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:50495 - "GET /js/task-lock.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:61529 - "GET /js/fft-controls.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:50018 - "GET /js/components/gallery.js?v=2 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:56882 - "GET /js/components/modals.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:49667 - "GET /js/components/mode-controls.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:65111 - "GET /js/components/opacity-control.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:50018 - "GET /js/canvas/view.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:50495 - "GET /js/dom.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:58864 - "GET /api/tasks/266/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:61529 - "GET /js/timer-state.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:58863 - "GET /api/tasks/181/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:56882 - "GET /js/canvas/geometry.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:50344 - "GET /api/tasks/247/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:49667 - "GET /js/ai/detect-state.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:50345 - "GET /api/tasks/243/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:50346 - "GET /api/tasks/274/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:50347 - "GET /api/tasks/271/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:56882 - "GET /js/feature-flags.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:65111 - "GET /js/comment-overlay.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:50018 - "GET /js/canvas/draw.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:61529 - "GET /js/canvas/fft-smooth.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:50495 - "GET /js/ai/detect.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:50495 - "GET /js/ai/shared.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:58863 - "GET /api/tasks/220/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:58864 - "GET /api/tasks/177/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:50344 - "GET /api/tasks/277/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:50345 - "GET /api/tasks/175/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:50495 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.16:56882 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:61529 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:50018 - "GET /api/team HTTP/1.1" 200 OK
+INFO:     192.168.18.16:65111 - "GET /api/labels?projectId=42 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:49667 - "GET /api/tasks/sequence/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:49667 - "GET /logo.png HTTP/1.1" 200 OK
+INFO:     192.168.18.16:61529 - "POST /api/detect/classify HTTP/1.1" 200 OK
+INFO:     192.168.18.16:56882 - "POST /api/detect HTTP/1.1" 200 OK
+INFO:     192.168.18.16:61529 - "GET /api/detect/status/de2d370b-0a97-429f-ad19-29d5e6a7e264 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:56882 - "GET /api/detect/status/2ae5aab5-b197-4929-bc94-e896383b2b72 HTTP/1.1" 200 OK
+INFO:     192.168.18.34:56974 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62711 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.16:50495 - "GET /api/tasks/247 HTTP/1.1" 200 OK
+INFO:     192.168.18.15:50869 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.5:13434 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.34:56974 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.34:63161 - "POST /api/tasks/291/heartbeat?client_id=e196d61e-c36d-4325-8171-e88d6a7ffca2 HTTP/1.1" 200 OK
+INFO:     192.168.18.34:63161 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.21:58267 - "GET / HTTP/1.1" 200 OK
+INFO:     192.168.18.21:58267 - "GET /login.css?v=3 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.5:13434 - "GET /app.html?projectId=42&taskId=242 HTTP/1.1" 200 OK
+INFO:     192.168.18.21:58267 - "GET /projects.html HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.5:13641 - "GET /js/init.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.21:58267 - "GET /styles.css?v=3 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.21:56491 - "GET /js/pages/projects-list.js?v=3 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.5:13434 - "GET /styles.css?v=23 HTTP/1.1" 200 OK
+INFO:     192.168.18.21:58267 - "GET /js/utils.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.21:57366 - "GET /js/api.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.21:57366 - "GET /js/components/data-table.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.5:13434 - "GET /js/utils.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:13641 - "GET /js/api.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:48052 - "GET /js/components/workspace.js?v=2 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:12526 - "GET /js/state.js?v=2 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:38130 - "GET /js/canvas/interactions.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:13641 - "GET /js/canvas/context-menu.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.21:58565 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.5:52703 - "GET /js/components/timer.js?v=2 HTTP/1.1" 200 OK
+INFO:     192.168.18.21:50180 - "GET /api/teams HTTP/1.1" 200 OK
+INFO:     192.168.18.5:13434 - "GET /js/components/sidebar-resize.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:48052 - "GET /js/components/zoom-control.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:13641 - "GET /js/components/gallery.js?v=2 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:38130 - "GET /js/fft-controls.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:12526 - "GET /js/task-lock.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:52703 - "GET /js/components/modals.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:48052 - "GET /js/components/mode-controls.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:13434 - "GET /js/components/opacity-control.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:13641 - "GET /js/canvas/geometry.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:52703 - "GET /js/canvas/view.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:38130 - "GET /js/ai/detect-state.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:12526 - "GET /js/canvas/draw.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:48052 - "GET /js/dom.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.21:58565 - "GET /api/teams HTTP/1.1" 200 OK
+INFO:     192.168.18.5:13434 - "GET /js/feature-flags.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:13641 - "GET /js/comment-overlay.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:13434 - "GET /js/timer-state.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:12526 - "GET /js/ai/detect.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:52703 - "GET /js/canvas/fft-smooth.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:12526 - "GET /js/ai/shared.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:62809 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.5:52703 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.5:38130 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:13641 - "GET /api/team HTTP/1.1" 200 OK
+INFO:     192.168.18.5:12526 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:13434 - "GET /api/labels?projectId=42 HTTP/1.1" 200 OK
+INFO:     192.168.18.34:63161 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.5:52703 - "GET /logo.png HTTP/1.1" 200 OK
+INFO:     192.168.18.5:48052 - "GET /api/tasks/sequence/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.21:56134 - "GET /api/projects HTTP/1.1" 200 OK
+INFO:     192.168.18.5:48052 - "POST /api/detect/classify HTTP/1.1" 200 OK
+INFO:     192.168.18.5:13434 - "POST /api/detect HTTP/1.1" 200 OK
+INFO:     192.168.18.5:12526 - "GET /api/tasks/242 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:13434 - "GET /api/detect/status/9d5fc614-22d1-48ad-98ff-c56b4713e94b HTTP/1.1" 200 OK
+INFO:     192.168.18.5:48052 - "GET /api/detect/status/cdb23deb-2d73-4df1-8003-fd5eebbddd37 HTTP/1.1" 200 OK
+INFO:     192.168.18.21:58565 - "GET /api/projects HTTP/1.1" 200 OK
+INFO:     192.168.18.34:63161 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.21:58565 - "GET /project.html?id=42 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.5:48052 - "GET /api/detect/status/9d5fc614-22d1-48ad-98ff-c56b4713e94b HTTP/1.1" 200 OK
+INFO:     192.168.18.5:13434 - "GET /api/detect/status/cdb23deb-2d73-4df1-8003-fd5eebbddd37 HTTP/1.1" 200 OK
+INFO:     192.168.18.21:58565 - "GET /js/pages/project/home.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.21:58267 - "GET /js/components/project-nav.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.21:56134 - "GET /js/pages/project/router.js?v=2 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.21:50180 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.15:49464 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.21:57366 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.21:57366 - "GET /api/projects/42/metrics HTTP/1.1" 200 OK
+INFO:     192.168.18.21:57366 - "GET /js/pages/project/classes.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.21:56134 - "GET /js/pages/project/imports.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.21:58267 - "GET /js/pages/project/exports.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.21:50180 - "GET /js/pages/project/tasks.js?v=3 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.5:48052 - "GET /api/detect/status/cdb23deb-2d73-4df1-8003-fd5eebbddd37 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:13434 - "GET /api/detect/status/9d5fc614-22d1-48ad-98ff-c56b4713e94b HTTP/1.1" 200 OK
+INFO:     192.168.18.15:49464 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.5:13434 - "GET /api/detect/status/cdb23deb-2d73-4df1-8003-fd5eebbddd37 HTTP/1.1" 200 OK
+INFO:     192.168.18.21:50180 - "GET /api/team HTTP/1.1" 200 OK
+INFO:     192.168.18.21:58267 - "GET /api/tasks?projectId=42&limit=10&offset=0&sort_by=updated_at&sort_desc=true HTTP/1.1" 200 OK
+INFO:     192.168.18.5:13434 - "GET /api/detect/status/cdb23deb-2d73-4df1-8003-fd5eebbddd37 HTTP/1.1" 200 OK
+INFO:     192.168.18.21:58267 - "GET /api/tasks/245/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.21:50180 - "GET /api/tasks/291/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.21:58565 - "GET /api/tasks/255/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.21:64525 - "GET /api/tasks/289/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.21:57366 - "GET /api/tasks/181/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.21:56134 - "GET /api/tasks/266/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.21:58267 - "GET /api/tasks/273/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.21:50180 - "GET /api/tasks/196/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.21:64525 - "GET /api/tasks/204/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.21:57366 - "GET /api/tasks/187/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.21:57366 - "GET /app.html?projectId=42&taskId=266 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.21:57366 - "GET /styles.css?v=23 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.21:64525 - "GET /js/init.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.15:49464 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.34:53846 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.5:40940 - "GET /project.html?id=42&activeTaskId=242 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.5:3646 - "GET /styles.css?v=3 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.5:13019 - "GET /js/pages/project/home.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.5:13019 - "GET /js/pages/project/router.js?v=2 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.5:13019 - "GET /js/components/project-nav.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.5:13019 - "GET /js/pages/project/tasks.js?v=3 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:13019 - "GET /js/components/data-table.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.5:3646 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:37854 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.5:4447 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.5:9796 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.5:40940 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.15:49464 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.5:3646 - "GET /api/team HTTP/1.1" 200 OK
+INFO:     192.168.18.5:37854 - "GET /api/tasks?projectId=42&limit=10&offset=0&search=kar&sort_by=updated_at&sort_desc=true HTTP/1.1" 200 OK
+INFO:     192.168.18.5:37854 - "GET /js/pages/project/classes.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.5:40940 - "GET /js/pages/project/exports.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.5:3646 - "GET /js/pages/project/imports.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.5:9796 - "GET /api/tasks/187/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:4447 - "GET /api/tasks/196/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:13019 - "GET /api/tasks/242/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:40940 - "GET /api/tasks/293/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:37854 - "GET /api/tasks/288/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:3646 - "GET /api/tasks/218/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:9796 - "GET /api/tasks/239/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:40940 - "GET /api/tasks/233/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:13019 - "GET /api/tasks/210/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:4447 - "GET /api/tasks/299/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:4447 - "GET /app.html?projectId=42&taskId=242 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.15:63607 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.16:54812 - "GET /project.html?id=42&activeTaskId=247 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.5:4447 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.5:40940 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:9796 - "GET /api/team HTTP/1.1" 200 OK
+INFO:     192.168.18.5:13019 - "GET /api/labels?projectId=42 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:37854 - "GET /api/tasks/sequence/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.15:49464 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.15:63733 - "POST /api/tasks/245/heartbeat?client_id=7155411b-c651-4b23-9f58-da69c5eeabac HTTP/1.1" 200 OK
+INFO:     192.168.18.5:3646 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:54812 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.16:52453 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:58260 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.5:4447 - "POST /api/detect/classify HTTP/1.1" 200 OK
+INFO:     192.168.18.16:63118 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.5:40940 - "POST /api/detect HTTP/1.1" 200 OK
+INFO:     192.168.18.16:61772 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.5:37854 - "GET /api/tasks/242 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:40940 - "GET /api/detect/status/91a89459-6f0c-4a0e-b068-c2145a6496a8 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:4447 - "GET /api/detect/status/0af9f0b5-10d3-4c54-9e5f-1549a9c99ecf HTTP/1.1" 200 OK
+INFO:     192.168.18.16:52453 - "GET /api/team HTTP/1.1" 200 OK
+INFO:     192.168.18.16:58260 - "GET /api/tasks?projectId=42&limit=10&offset=0&sort_by=updated_at&sort_desc=true&status=Completed HTTP/1.1" 200 OK
+INFO:     192.168.18.250:64981 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.250:64982 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.21:53279 - "GET /app.html?projectId=42&taskId=266 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.21:62191 - "GET /js/components/sidebar-resize.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.21:57601 - "GET /js/components/gallery.js?v=2 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:54812 - "GET /api/tasks/274/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:65059 - "GET /api/tasks/271/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:52453 - "GET /api/tasks/181/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:63118 - "GET /api/tasks/243/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:58260 - "GET /api/tasks/266/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.21:53279 - "GET /js/state.js?v=2 HTTP/1.1" 200 OK
+INFO:     192.168.18.21:63681 - "GET /js/components/zoom-control.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.21:62191 - "GET /js/components/timer.js?v=2 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.21:57601 - "GET /js/task-lock.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.21:58004 - "GET /js/canvas/interactions.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.21:64348 - "GET /js/canvas/context-menu.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:61772 - "GET /api/tasks/247/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.21:53279 - "GET /js/fft-controls.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.21:62191 - "GET /js/components/opacity-control.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.21:63681 - "GET /js/components/modals.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.21:64348 - "GET /js/dom.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.21:57601 - "GET /js/components/mode-controls.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.21:58004 - "GET /js/state.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.21:62191 - "GET /js/timer-state.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.21:63681 - "GET /js/canvas/view.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.21:57601 - "GET /js/canvas/fft-smooth.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.21:64348 - "GET /js/canvas/draw.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.21:53279 - "GET /js/canvas/geometry.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.21:58004 - "GET /js/feature-flags.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.21:63681 - "GET /js/comment-overlay.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.21:62191 - "GET /js/components/workspace.js?v=2 HTTP/1.1" 200 OK
+INFO:     192.168.18.21:57601 - "GET /js/ai/detect.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.21:64348 - "GET /js/ai/detect-state.js?v=1 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.21:53279 - "GET /js/ai/shared.js?v=1 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:54812 - "GET /api/tasks/175/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:52453 - "GET /api/tasks/177/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:65059 - "GET /api/tasks/220/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:63118 - "GET /api/tasks/277/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:52453 - "GET /project.html?id=42&activeTaskId=247 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.16:52453 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.16:65059 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:65059 - "GET /api/team HTTP/1.1" 200 OK
+INFO:     192.168.18.16:52453 - "GET /api/tasks?projectId=42&limit=10&offset=0&sort_by=updated_at&sort_desc=true&status=Completed HTTP/1.1" 200 OK
+INFO:     192.168.18.16:58260 - "GET /api/tasks/271/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:61772 - "GET /api/tasks/274/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:54812 - "GET /api/tasks/243/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:63118 - "GET /api/tasks/247/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:52453 - "GET /api/tasks/266/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:65059 - "GET /api/tasks/181/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:61772 - "GET /api/tasks/220/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:58260 - "GET /api/tasks/177/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:63118 - "GET /api/tasks/175/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:54812 - "GET /api/tasks/277/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:63118 - "GET /app.html?projectId=42&taskId=247 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.16:63118 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.16:54812 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:58260 - "GET /api/team HTTP/1.1" 200 OK
+INFO:     192.168.18.16:61772 - "GET /api/labels?projectId=42 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:65059 - "GET /api/tasks/sequence/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:52453 - "POST /api/detect HTTP/1.1" 200 OK
+INFO:     192.168.18.16:54812 - "POST /api/detect/classify HTTP/1.1" 200 OK
+INFO:     192.168.18.34:54468 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.16:63118 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:52453 - "GET /api/detect/status/a457dd3c-4a1d-439d-83ba-aa4f7c853a3d HTTP/1.1" 200 OK
+INFO:     192.168.18.16:54812 - "GET /api/detect/status/b340afe4-7527-430c-a706-8dad17ff85f7 HTTP/1.1" 200 OK
+INFO:     192.168.18.34:55895 - "POST /api/tasks/291/heartbeat?client_id=e196d61e-c36d-4325-8171-e88d6a7ffca2 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:12565 - "GET /project.html?id=42&activeTaskId=242 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.15:53709 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.16:65059 - "GET /api/tasks/247 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:35724 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:12565 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.5:49747 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.5:6793 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.5:9155 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.250:54719 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.5:35724 - "GET /api/team HTTP/1.1" 200 OK
+INFO:     192.168.18.34:55895 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.5:49747 - "GET /api/tasks?projectId=42&limit=10&offset=0&search=kar&sort_by=updated_at&sort_desc=true HTTP/1.1" 200 OK
+INFO:     192.168.18.5:35724 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.15:50741 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.15:53709 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.5:9155 - "GET /api/tasks/293/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:6793 - "GET /api/tasks/242/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:55001 - "GET /api/tasks/218/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:35724 - "GET /api/tasks/187/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:49747 - "GET /api/tasks/196/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:12565 - "GET /api/tasks/288/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.34:55895 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.5:9155 - "GET /api/tasks/239/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:6793 - "GET /api/tasks/210/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:35724 - "GET /api/tasks/233/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:55001 - "GET /api/tasks/299/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:61579 - "GET /project.html?id=42&activeTaskId=247 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.15:53709 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.16:61579 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.16:52879 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:54280 - "GET /api/tasks?projectId=42&limit=10&offset=0&sort_by=updated_at&sort_desc=true&status=Completed HTTP/1.1" 200 OK
+INFO:     192.168.18.250:54280 - "GET /api/tasks/266/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:54288 - "GET /api/tasks/271/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:54284 - "GET /api/tasks/181/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:54285 - "GET /api/tasks/247/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:54287 - "GET /api/tasks/274/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:54286 - "GET /api/tasks/243/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:52879 - "GET /api/team HTTP/1.1" 200 OK
+INFO:     192.168.18.250:54285 - "GET /api/tasks/175/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:54280 - "GET /api/tasks/177/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:54284 - "GET /api/tasks/277/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:54288 - "GET /api/tasks/220/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:61579 - "GET /api/tasks?projectId=42&limit=10&offset=0&sort_by=updated_at&sort_desc=true&status=Completed HTTP/1.1" 200 OK
+INFO:     192.168.18.16:52879 - "GET /api/tasks/181/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:61579 - "GET /api/tasks/266/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:62926 - "GET /api/tasks/247/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:57486 - "GET /api/tasks/243/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:52753 - "GET /api/tasks/274/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:55622 - "GET /api/tasks/271/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:61579 - "GET /api/tasks/277/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:57486 - "GET /api/tasks/175/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:52879 - "GET /api/tasks/177/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:62926 - "GET /api/tasks/220/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:55001 - "GET /app.html?projectId=42&taskId=242 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.5:55001 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.5:35724 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:9155 - "GET /api/labels?projectId=42 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:12565 - "GET /api/tasks/sequence/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:6793 - "GET /api/team HTTP/1.1" 200 OK
+INFO:     192.168.18.5:49747 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:35724 - "POST /api/detect/classify HTTP/1.1" 200 OK
+INFO:     192.168.18.5:55001 - "POST /api/detect HTTP/1.1" 200 OK
+INFO:     192.168.18.5:12565 - "GET /api/tasks/242 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:35724 - "GET /api/detect/status/e34f43c0-a305-4e09-a4be-bed9e7ca6c8c HTTP/1.1" 200 OK
+INFO:     192.168.18.5:55001 - "GET /api/detect/status/59d8bc7c-5d90-4aa0-ac62-6f1e040ff5f2 HTTP/1.1" 200 OK
+INFO:     192.168.18.34:62558 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.15:53709 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.15:53709 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.15:64130 - "POST /api/tasks/245/heartbeat?client_id=7155411b-c651-4b23-9f58-da69c5eeabac HTTP/1.1" 200 OK
+INFO:     192.168.18.5:18163 - "GET /project.html?id=42&activeTaskId=242 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.5:2474 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.5:29949 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.5:18163 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.5:64145 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.5:11132 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:11132 - "GET /api/team HTTP/1.1" 200 OK
+INFO:     192.168.18.5:64145 - "GET /api/tasks?projectId=42&limit=10&offset=0&search=kar&sort_by=updated_at&sort_desc=true HTTP/1.1" 200 OK
+INFO:     192.168.18.5:29949 - "GET /api/tasks/242/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:64145 - "GET /api/tasks/196/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:11132 - "GET /api/tasks/187/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:2474 - "GET /api/tasks/288/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:44058 - "GET /api/tasks/218/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:18163 - "GET /api/tasks/293/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:11132 - "GET /api/tasks/210/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:64145 - "GET /api/tasks/299/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:44058 - "GET /api/tasks/233/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:29949 - "GET /api/tasks/239/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.34:62605 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.250:58335 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.5:11132 - "GET /app.html?projectId=42&taskId=242 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.250:50892 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.5:11132 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.5:64145 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:29949 - "GET /api/team HTTP/1.1" 200 OK
+INFO:     192.168.18.5:18163 - "GET /api/tasks/sequence/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:44058 - "GET /api/labels?projectId=42 HTTP/1.1" 200 OK
+INFO:     192.168.18.21:54431 - "GET /app.html?projectId=42&taskId=266 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.5:2474 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:11132 - "POST /api/detect HTTP/1.1" 200 OK
+INFO:     192.168.18.5:64145 - "POST /api/detect/classify HTTP/1.1" 200 OK
+INFO:     192.168.18.5:18163 - "GET /api/tasks/242 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:11132 - "GET /api/detect/status/349c3c95-151f-4935-886e-35bc1d4643a6 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:64145 - "GET /api/detect/status/2d68a49f-496d-4074-9189-03d5587e3170 HTTP/1.1" 200 OK
+INFO:     192.168.18.21:57066 - "GET /api/team HTTP/1.1" 200 OK
+INFO:     192.168.18.21:54431 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.21:49667 - "GET /api/labels?projectId=42 HTTP/1.1" 200 OK
+INFO:     192.168.18.21:63603 - "GET /api/tasks/sequence/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.21:60594 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.21:49667 - "POST /api/detect/classify HTTP/1.1" 200 OK
+INFO:     192.168.18.21:57066 - "POST /api/detect HTTP/1.1" 200 OK
+INFO:     192.168.18.21:54431 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.21:49667 - "GET /api/detect/status/bb76c732-37fc-4437-b833-dfb7b3c31f7a HTTP/1.1" 200 OK
+INFO:     192.168.18.21:57066 - "GET /api/detect/status/a0532f0e-6b1f-4611-9d9a-d5a282455122 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:64145 - "GET /project.html?id=42&activeTaskId=242 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.5:64145 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.5:11132 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.21:63603 - "GET /api/tasks/266 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:11132 - "GET /api/team HTTP/1.1" 200 OK
+INFO:     192.168.18.5:64145 - "GET /api/tasks?projectId=42&limit=10&offset=0&search=kar&sort_by=updated_at&sort_desc=true HTTP/1.1" 200 OK
+INFO:     192.168.18.21:63603 - "POST /api/tasks/266/claim?client_id=eeda3ad1-a42c-4124-b058-c7e24ad18962 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:29949 - "GET /api/tasks/218/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:11132 - "GET /api/tasks/196/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:44058 - "GET /api/tasks/288/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:2474 - "GET /api/tasks/293/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:64145 - "GET /api/tasks/187/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:18163 - "GET /api/tasks/242/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.34:56322 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.34:62899 - "POST /api/tasks/291/heartbeat?client_id=e196d61e-c36d-4325-8171-e88d6a7ffca2 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:11132 - "GET /api/tasks/299/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:44058 - "GET /api/tasks/210/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:29949 - "GET /api/tasks/233/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:2474 - "GET /api/tasks/239/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.34:62899 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.250:51664 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.34:50232 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.15:64815 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.34:50232 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.16:56434 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.21:65100 - "GET /project.html?id=42&activeTaskId=266 HTTP/1.1" 304 Not Modified
+INFO:     192.168.18.16:56434 - "GET /api/tasks?projectId=42&limit=10&offset=0&sort_by=updated_at&sort_desc=true&status=Completed HTTP/1.1" 200 OK
+INFO:     192.168.18.21:65100 - "POST /api/tasks/266/release-beacon?client_id=eeda3ad1-a42c-4124-b058-c7e24ad18962 HTTP/1.1" 200 OK
+INFO:     192.168.18.21:63835 - "POST /api/tasks/266/release-beacon?client_id=eeda3ad1-a42c-4124-b058-c7e24ad18962 HTTP/1.1" 200 OK
+INFO:     192.168.18.21:58708 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.21:64049 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:56434 - "GET /api/tasks/266/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:61997 - "GET /api/tasks/247/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:60988 - "GET /api/tasks/181/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:60846 - "GET /api/tasks/243/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:55475 - "GET /api/tasks/274/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:51186 - "GET /api/tasks/271/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.21:64049 - "GET /api/team HTTP/1.1" 200 OK
+INFO:     192.168.18.15:64815 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.21:58708 - "GET /api/tasks?projectId=42&limit=10&offset=0&sort_by=updated_at&sort_desc=true HTTP/1.1" 200 OK
+INFO:     192.168.18.250:51758 - "GET /api/tasks?projectId=42&limit=10&offset=0&sort_by=updated_at&sort_desc=true&status=Completed HTTP/1.1" 200 OK
+INFO:     192.168.18.16:61997 - "GET /api/tasks/220/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:60988 - "GET /api/tasks/277/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:60846 - "GET /api/tasks/175/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.16:56434 - "GET /api/tasks/177/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.34:62078 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.250:51795 - "GET /api/tasks/271/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:51794 - "GET /api/tasks/274/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.34:50232 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.250:51792 - "GET /api/tasks/247/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:51791 - "GET /api/tasks/181/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:51793 - "GET /api/tasks/243/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:51758 - "GET /api/tasks/266/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.21:65100 - "GET /api/tasks/181/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.21:63835 - "GET /api/tasks/266/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.21:58708 - "GET /api/tasks/245/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.21:62268 - "GET /api/tasks/289/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.21:57616 - "GET /api/tasks/255/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.21:64049 - "GET /api/tasks/291/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:51795 - "GET /api/tasks/177/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:51792 - "GET /api/tasks/277/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:51791 - "GET /api/tasks/175/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.250:51794 - "GET /api/tasks/220/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.21:62268 - "GET /api/tasks/187/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.21:58708 - "GET /api/tasks/204/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.21:63835 - "GET /api/tasks/196/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.21:65100 - "GET /api/tasks/273/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.15:53588 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.16:60846 - "GET /app.html?projectId=42&taskId=243 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:60846 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.16:56434 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:60988 - "GET /api/team HTTP/1.1" 200 OK
+INFO:     192.168.18.16:51186 - "GET /api/tasks/sequence/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:61997 - "GET /api/labels?projectId=42 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:60988 - "GET /uploads/ede5c11667854a6f8e0b3b30599f709a.jpg HTTP/1.1" 200 OK
+INFO:     192.168.18.16:56434 - "POST /api/detect HTTP/1.1" 200 OK
+INFO:     192.168.18.16:55475 - "POST /api/detect/classify HTTP/1.1" 200 OK
+INFO:     192.168.18.16:60846 - "GET /api/projects/42 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:51186 - "GET /api/tasks/243 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:56434 - "GET /api/detect/status/4f90a826-6236-41f7-aa5c-ba165542bafe HTTP/1.1" 200 OK
+INFO:     192.168.18.16:55475 - "GET /api/detect/status/a03870ef-a23a-489d-b66f-28585b9a8a80 HTTP/1.1" 200 OK
+INFO:     192.168.18.15:64815 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.21:65100 - "GET /api/tasks?projectId=42&limit=10&offset=0&sort_by=updated_at&sort_desc=true&assignee=sisam HTTP/1.1" 200 OK
+INFO:     192.168.18.21:58708 - "GET /api/tasks/182/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.21:63835 - "GET /api/tasks/277/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.21:65100 - "GET /api/tasks/266/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.21:57616 - "GET /api/tasks/222/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.21:62268 - "GET /api/tasks/268/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.21:64049 - "GET /api/tasks/203/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.15:64815 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.16:56434 - "GET /api/detect/status/4f90a826-6236-41f7-aa5c-ba165542bafe HTTP/1.1" 200 OK
+INFO:     192.168.18.16:60988 - "GET /api/detect/status/a03870ef-a23a-489d-b66f-28585b9a8a80 HTTP/1.1" 200 OK
+INFO:     192.168.18.21:58708 - "GET /api/tasks/304/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.21:65100 - "GET /api/tasks/300/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.15:58950 - "POST /api/tasks/245/heartbeat?client_id=7155411b-c651-4b23-9f58-da69c5eeabac HTTP/1.1" 200 OK
+INFO:     192.168.18.250:50752 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.250:55661 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.16:56434 - "GET /api/detect/status/a03870ef-a23a-489d-b66f-28585b9a8a80 HTTP/1.1" 200 OK
+INFO:     192.168.18.16:60988 - "GET /api/detect/status/4f90a826-6236-41f7-aa5c-ba165542bafe HTTP/1.1" 200 OK
+INFO:     192.168.18.15:53588 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.250:50776 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.16:60988 - "GET /api/detect/status/a03870ef-a23a-489d-b66f-28585b9a8a80 HTTP/1.1" 200 OK
+INFO:     192.168.18.250:55661 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.5:10184 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.5:10184 - "GET /api/tasks?projectId=42&limit=10&offset=0&search=kar&sort_by=updated_at&sort_desc=true HTTP/1.1" 200 OK
+INFO:     192.168.18.34:56032 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.21:57265 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.34:64653 - "POST /api/tasks/291/heartbeat?client_id=e196d61e-c36d-4325-8171-e88d6a7ffca2 HTTP/1.1" 200 OK
+INFO:     192.168.18.5:19020 - "GET /api/tasks/218/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:10184 - "GET /api/tasks/196/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:49999 - "GET /api/tasks/242/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:62933 - "GET /api/tasks/293/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:27962 - "GET /api/tasks/187/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:2151 - "GET /api/tasks/288/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.15:53588 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.5:49999 - "GET /api/tasks/233/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:2151 - "GET /api/tasks/239/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:27962 - "GET /api/tasks/210/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:62933 - "GET /api/tasks/299/lock-status HTTP/1.1" 200 OK
+INFO:     192.168.18.5:49999 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.15:53588 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.5:49999 - "POST /api/team/ping HTTP/1.1" 200 OK
+INFO:     192.168.18.15:61034 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.15:61034 - "POST /api/team/time HTTP/1.1" 200 OK
+INFO:     192.168.18.15:53588 - "POST /api/tasks HTTP/1.1" 200 OK
+INFO:     192.168.18.21:50647 - "POST /api/team/ping HTTP/1.1" 200 OK

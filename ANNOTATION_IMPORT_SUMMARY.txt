@@ -1,0 +1,225 @@
+================================================================================
+ANNOTATION IMPORT SYSTEM - COMPLETE SETUP
+================================================================================
+
+Date: 2026-08-21
+Purpose: Import annotations for Task 243 (ProjectId=42) and other tasks
+
+================================================================================
+FILES CREATED
+================================================================================
+
+1. MAIN TOOL
+   └─ import_annotations_manual.py
+      • Imports annotations from JSON, CSV, COCO, YOLO formats
+      • Supports single task and multi-task imports
+      • Auto-creates labels if they don't exist
+      • Validates task existence before import
+      • Returns import summary with success/error counts
+
+2. HELPER TOOL
+   └─ convert_formats.py
+      • Converts between annotation formats
+      • COCO → JSON, YOLO → JSON, CSV ↔ JSON
+      • Useful if you have data in different format
+
+3. EXAMPLE DATA FILES
+   ├─ example_annotations.json
+   │  └─ Simple JSON format example (single task)
+   ├─ example_annotations.csv
+   │  └─ CSV format example
+   └─ example_annotations_per_task.json
+      └─ Multi-task JSON format example
+
+4. DOCUMENTATION
+   ├─ IMPORT_QUICK_START.md
+   │  └─ 3-step quick start guide
+   ├─ IMPORT_ANNOTATIONS_README.md
+   │  └─ Complete reference with all formats
+   ├─ ANNOTATION_IMPORT_GUIDE.md
+   │  └─ Comprehensive workflow guide
+   └─ ANNOTATION_IMPORT_SUMMARY.txt
+      └─ This file
+
+================================================================================
+QUICK START
+================================================================================
+
+STEP 1: Prepare your data (choose one format)
+
+  JSON Format:
+  [
+    {"type": "box", "label": "person", "x": 100, "y": 200, "width": 150, "height": 250},
+    {"type": "polygon", "label": "car", "points": [[10,20],[100,20],[100,150],[10,150]]}
+  ]
+
+  CSV Format:
+  type,label,x,y,width,height
+  box,person,100,200,150,250
+  polygon,car,"[[10,20],[100,20],[100,150],[10,150]]"
+
+STEP 2: Run import
+
+  For JSON:
+  python import_annotations_manual.py --format json --file data.json --task-id 243 --project-id 42
+
+  For CSV:
+  python import_annotations_manual.py --format csv --file data.csv --task-id 243 --project-id 42
+
+STEP 3: Verify
+
+  Open http://localhost:8000 and view task 243 in the annotation canvas
+
+================================================================================
+SUPPORTED FORMATS
+================================================================================
+
+1. JSON (Single Task)
+   Command:  --format json --file file.json --task-id 243 --project-id 42
+   Format:   Array of annotation objects
+   Example:  example_annotations.json
+
+2. JSON (Per-Task)
+   Command:  --format json-per-task --file file.json --project-id 42
+   Format:   Object with task IDs as keys
+   Example:  example_annotations_per_task.json
+
+3. CSV
+   Command:  --format csv --file file.csv --task-id 243 --project-id 42
+   Format:   Spreadsheet with columns: type, label, x, y, width, height, text, color
+   Example:  example_annotations.csv
+
+4. COCO
+   Command:  --format coco --file coco.json --project-id 42
+   Format:   COCO JSON with images, annotations, categories
+   Docs:     https://cocodataset.org/
+
+5. YOLO
+   Command:  --format yolo --dir labels/ --project-id 42
+   Format:   Directory of .txt files (one per image)
+   Content:  class_id center_x center_y width height (normalized 0-1)
+
+================================================================================
+ANNOTATION TYPES
+================================================================================
+
+Box (Bounding Box):
+  {"type": "box", "label": "person", "x": 100, "y": 200, "width": 150, "height": 250}
+
+Polygon:
+  {"type": "polygon", "label": "building", "points": [{"x": 50, "y": 50}, {"x": 400, "y": 50}, ...]}
+
+Comment:
+  {"type": "comment", "text": "Important", "x": 200, "y": 300}
+
+================================================================================
+CONVERSION EXAMPLES
+================================================================================
+
+If you have COCO data, convert to JSON first:
+  python convert_formats.py --from coco --input coco.json --output data.json
+
+If you have YOLO data, convert to JSON first:
+  python convert_formats.py --from yolo --input labels/ --output data.json --image-width 1280 --image-height 720
+
+If you want to convert JSON to CSV for editing:
+  python convert_formats.py --from json --to csv --input data.json --output data.csv
+
+================================================================================
+COMMON ISSUES & SOLUTIONS
+================================================================================
+
+Issue: "Task not found"
+  └─ Solution: Verify task exists with correct ID and project ID
+
+Issue: "Invalid JSON"
+  └─ Solution: Validate with: python -m json.tool file.json
+
+Issue: Annotations don't appear after import
+  └─ Solution: Refresh browser (Ctrl+Shift+R), check import output says "✓ Imported: X"
+
+Issue: Wrong labels or colors
+  └─ Solution: Labels are case-insensitive, colors are optional (auto-assigned if omitted)
+
+Issue: "Database connection failed"
+  └─ Solution: Verify .env has correct DATABASE_URL and PostgreSQL is running
+
+================================================================================
+VERIFICATION QUERIES
+================================================================================
+
+Check if task 243 exists:
+  SELECT id, description FROM tasks WHERE id = 243 AND project_id = 42;
+
+Check annotation count for task 243:
+  SELECT COUNT(*) FROM annotations WHERE task_id = 243;
+
+Check all annotations for task 243:
+  SELECT id, label_id, type, x, y, width, height FROM annotations WHERE task_id = 243;
+
+================================================================================
+EXAMPLES WALKTHROUGH
+================================================================================
+
+Example 1: Import simple JSON to task 243
+  1. Copy example_annotations.json to my_data.json
+  2. Edit to add/change your annotations
+  3. Run: python import_annotations_manual.py --format json --file my_data.json --task-id 243 --project-id 42
+  4. Check output for "✓ Imported: X" message
+  5. Open UI and view task 243
+
+Example 2: Import multiple tasks from JSON
+  1. Create file with structure: {"243": [...], "244": [...], ...}
+  2. Run: python import_annotations_manual.py --format json-per-task --file file.json --project-id 42
+  3. Annotations added to all specified tasks
+
+Example 3: Import from CSV
+  1. Create CSV with columns: type, label, x, y, width, height
+  2. Run: python import_annotations_manual.py --format csv --file data.csv --task-id 243 --project-id 42
+  3. Check results
+
+Example 4: Convert COCO to JSON and import
+  1. Run: python convert_formats.py --from coco --input coco.json --output data.json
+  2. Run: python import_annotations_manual.py --format json-per-task --file data.json --project-id 42
+
+================================================================================
+NEXT STEPS
+================================================================================
+
+1. Prepare your annotation data in one of the supported formats
+2. Run the appropriate import command
+3. Verify annotations appear in the UI
+4. Optional: Edit annotations using the canvas
+5. Optional: Export the project with annotations
+
+For more details, see:
+  - IMPORT_QUICK_START.md (quick reference)
+  - IMPORT_ANNOTATIONS_README.md (complete documentation)
+  - ANNOTATION_IMPORT_GUIDE.md (comprehensive workflow)
+
+================================================================================
+SUPPORT & RESOURCES
+================================================================================
+
+Example Files:
+  - example_annotations.json (JSON format)
+  - example_annotations.csv (CSV format)
+  - example_annotations_per_task.json (multi-task JSON)
+
+Documentation:
+  - IMPORT_QUICK_START.md
+  - IMPORT_ANNOTATIONS_README.md
+  - ANNOTATION_IMPORT_GUIDE.md
+
+Tools:
+  - import_annotations_manual.py (main import tool)
+  - convert_formats.py (format converter)
+
+Database:
+  - Verify .env has DATABASE_URL configured
+  - Ensure PostgreSQL is running
+  - Check task exists before importing
+
+================================================================================
+END OF SUMMARY
+================================================================================

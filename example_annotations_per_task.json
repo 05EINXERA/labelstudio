@@ -1,0 +1,35 @@
+{
+  "243": [
+    {
+      "type": "box",
+      "label": "person",
+      "x": 100,
+      "y": 200,
+      "width": 150,
+      "height": 250
+    },
+    {
+      "type": "polygon",
+      "label": "car",
+      "points": [[10, 20], [100, 20], [100, 150], [10, 150]]
+    }
+  ],
+  "244": [
+    {
+      "type": "box",
+      "label": "cat",
+      "x": 50,
+      "y": 100,
+      "width": 75,
+      "height": 100
+    }
+  ],
+  "245": [
+    {
+      "type": "comment",
+      "text": "Check this image",
+      "x": 200,
+      "y": 200
+    }
+  ]
+}

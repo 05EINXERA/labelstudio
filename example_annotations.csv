@@ -1,0 +1,6 @@
+type,label,x,y,width,height,text,color
+box,person,100,200,150,250,,#e85d75
+box,car,350,180,200,120,,#0f8b8d
+box,chair,500,400,80,100,,#f4a261
+polygon,building,"[[50,50],[400,50],[400,500],[50,500]]",,,,,#2a9d8f
+comment,note,200,300,,,"Important object",#7b2cbf
