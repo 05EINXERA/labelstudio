@@ -38,11 +38,25 @@ LOCKED_STATUSES = {"Completed", "Approved", "Verified"}
 # ---------------------------------------------------------------------------
 TASK_LOCK_TTL_SECONDS = int(os.environ.get("TASK_LOCK_TTL_SECONDS", "60"))
 
-# An empty annotation payload against a task holding at least this many
-# annotations is refused rather than applied. Set to 0 to disable the guard.
-# Low enough to protect real work, high enough that clearing a handful of
-# shapes by hand is unaffected.
+# A save that would drop a task's annotation count from at least this many
+# down toward zero is refused rather than applied. Set to 0 to disable the
+# guard. Low enough to protect real work, high enough that clearing a handful
+# of shapes by hand is unaffected.
 ANNOTATION_WIPE_GUARD_THRESHOLD = int(os.environ.get("ANNOTATION_WIPE_GUARD_THRESHOLD", "25"))
+
+# A save against a task at/above the threshold above is also refused if the
+# new payload is BOTH under this fraction of the existing count AND under
+# this absolute count — not just a fully empty payload. A tab that autosaves
+# before its canvas finishes hydrating a large task sends a short-but-nonempty
+# list, which the empty-payload check alone does not catch. Requiring both
+# conditions (rather than fraction alone) keeps a deliberate bulk delete by an
+# annotator who can see what they're doing — e.g. clearing 30 of a task's 40
+# shapes in one action — from being refused; only a payload that is small in
+# absolute terms, on a task that had far more, looks like a truncated load
+# rather than an edit. See .devnotes/deployment-hardening/08_POOL_EXHAUSTION.md
+# (task 248's second wipe, 2026-08-23).
+ANNOTATION_WIPE_GUARD_MIN_FRACTION = float(os.environ.get("ANNOTATION_WIPE_GUARD_MIN_FRACTION", "0.5"))
+ANNOTATION_WIPE_GUARD_ABS_FLOOR = int(os.environ.get("ANNOTATION_WIPE_GUARD_ABS_FLOOR", "5"))
 
 
 def _sweep_stale_locks(db: Optional[Session] = None, ttl_seconds: int = TASK_LOCK_TTL_SECONDS) -> int:
@@ -558,30 +572,37 @@ def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: 
                 anns = json.loads(task.annotations)
                 existing_map = {a.id: a for a in db_task.annotations}
 
-                # Refuse a save that would wipe a substantial task outright.
+                # Refuse a save that would wipe a substantial task outright, or
+                # drop most of it in one shot.
                 #
-                # An empty payload against a task holding thousands of shapes is
-                # not something an annotator does deliberately — it is a tab that
-                # autosaved before its canvas hydrated, or a client retrying after
-                # a failed load. Three tasks lost 4,704 / 1,980 / 770 annotations
-                # this way before this guard existed; see
+                # An empty (or near-empty) payload against a task holding
+                # thousands of shapes is not something an annotator does
+                # deliberately — it is a tab that autosaved before its canvas
+                # hydrated, or a client retrying after a failed load. Three
+                # tasks lost 4,704 / 1,980 / 770 annotations this way before
+                # this guard existed; a fourth (task 248, again) lost its
+                # restored 1,980 to a non-empty-but-truncated payload that the
+                # empty-only check didn't catch. See
                 # .devnotes/deployment-hardening/08_POOL_EXHAUSTION.md.
                 #
                 # Deleting every shape one at a time still works (each save
-                # carries the shrinking remainder), so this only ever fires on a
-                # single all-or-nothing wipe.
-                if not anns and len(existing_map) >= ANNOTATION_WIPE_GUARD_THRESHOLD:
+                # carries the shrinking remainder close to 1:1), so this only
+                # ever fires on a single save that guts most of the task at once.
+                existing_count = len(existing_map)
+                if (existing_count >= ANNOTATION_WIPE_GUARD_THRESHOLD
+                        and len(anns) < existing_count * ANNOTATION_WIPE_GUARD_MIN_FRACTION
+                        and len(anns) < ANNOTATION_WIPE_GUARD_ABS_FLOOR):
                     logger.warning(
-                        "Refused an empty annotation payload for task %s holding %d "
-                        "annotations (client_id=%s)",
-                        db_task.id, len(existing_map), task.client_id,
+                        "Refused an annotation payload for task %s that would drop "
+                        "%d annotations to %d (client_id=%s)",
+                        db_task.id, existing_count, len(anns), task.client_id,
                     )
                     raise HTTPException(
                         status_code=409,
                         detail=(
-                            "This save would delete all annotations on the task. "
-                            "It was refused to protect existing work. Reload the "
-                            "task to get the current annotations before editing."
+                            "This save would delete most of the annotations on the "
+                            "task. It was refused to protect existing work. Reload "
+                            "the task to get the current annotations before editing."
                         ),
                     )
 

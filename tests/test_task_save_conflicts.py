@@ -270,8 +270,12 @@ def test_get_task_by_id_updated_at_matches_after_save(client, alice):
 # Annotation-wipe guard (08_POOL_EXHAUSTION.md)
 #
 # Tasks 243/248/274 lost 4,704 / 1,980 / 770 annotations to saves that carried
-# an empty payload against a fully-annotated task. The guard refuses that one
-# shape of write; everything else about saving is unchanged.
+# an empty payload against a fully-annotated task. The guard refuses that
+# shape of write. Task 248 then lost its restored 1,980 a second time to a
+# non-empty-but-truncated payload, so the guard also refuses a save that
+# keeps the task both under a fraction of its old count AND under an
+# absolute floor — while still allowing a deliberate bulk delete (e.g.
+# clearing 30 of 40 shapes in one save) to go through.
 # ---------------------------------------------------------------------------
 
 def test_empty_payload_cannot_wipe_a_substantial_task(client, alice):
@@ -290,6 +294,28 @@ def test_empty_payload_cannot_wipe_a_substantial_task(client, alice):
         "updated_at": saved.json()["updated_at"], "client_id": "tab-A",
     }, headers=alice)
     assert wipe.status_code == 409, wipe.text
+
+    detail = client.get(f"/api/tasks/{task['id']}", headers=alice).json()
+    assert len(detail["annotations"]) == 40
+
+
+def test_truncated_nonempty_payload_cannot_wipe_a_substantial_task(client, alice):
+    """A short-but-nonempty payload (e.g. an autosave before hydration finishes)
+    is refused the same way a fully empty one is."""
+    project_id = _project(client, alice)
+    task = _create_task(client, alice, project_id)
+
+    saved = client.post("/api/tasks", json={
+        "id": task["id"], "annotations": _annotations(40, project_id),
+        "updated_at": task["updated_at"], "client_id": "tab-A",
+    }, headers=alice)
+    assert saved.status_code == 200
+
+    truncated = client.post("/api/tasks", json={
+        "id": task["id"], "annotations": _annotations(2, project_id),
+        "updated_at": saved.json()["updated_at"], "client_id": "tab-A",
+    }, headers=alice)
+    assert truncated.status_code == 409, truncated.text
 
     detail = client.get(f"/api/tasks/{task['id']}", headers=alice).json()
     assert len(detail["annotations"]) == 40
