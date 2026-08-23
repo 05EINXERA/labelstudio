@@ -19,6 +19,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
+from sqlalchemy.exc import TimeoutError as PoolTimeout
 
 try:
     from app.config import (
@@ -96,6 +97,23 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Annotation Workspace", lifespan=lifespan)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+
+@app.exception_handler(PoolTimeout)
+async def pool_timeout_handler(request: Request, exc: PoolTimeout):
+    """Connection-pool exhaustion is transient overload, not a server fault.
+
+    Returned as 503 + Retry-After so the client keeps its unsaved draft and
+    retries, rather than reading a 500 as a permanent failure. Logged at
+    warning with the path so a recurring pattern is visible: sustained pool
+    timeouts mean the pool is undersized for real demand.
+    """
+    logger.warning("Connection pool exhausted on %s: %s", request.url.path, exc)
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "The server is busy. Your work is safe — please retry."},
+        headers={"Retry-After": "2"},
+    )
 
 
 @app.exception_handler(Exception)

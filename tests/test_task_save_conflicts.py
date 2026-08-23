@@ -264,3 +264,91 @@ def test_get_task_by_id_updated_at_matches_after_save(client, alice):
         f"Token from GET /{task['id']} should be accepted as fresh; "
         f"save token was {token_from_save!r}, detail token was {detail['updated_at']!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Annotation-wipe guard (08_POOL_EXHAUSTION.md)
+#
+# Tasks 243/248/274 lost 4,704 / 1,980 / 770 annotations to saves that carried
+# an empty payload against a fully-annotated task. The guard refuses that one
+# shape of write; everything else about saving is unchanged.
+# ---------------------------------------------------------------------------
+
+def test_empty_payload_cannot_wipe_a_substantial_task(client, alice):
+    """An all-or-nothing wipe of a large task is refused, and nothing is lost."""
+    project_id = _project(client, alice)
+    task = _create_task(client, alice, project_id)
+
+    saved = client.post("/api/tasks", json={
+        "id": task["id"], "annotations": _annotations(40, project_id),
+        "updated_at": task["updated_at"], "client_id": "tab-A",
+    }, headers=alice)
+    assert saved.status_code == 200
+
+    wipe = client.post("/api/tasks", json={
+        "id": task["id"], "annotations": json.dumps([]),
+        "updated_at": saved.json()["updated_at"], "client_id": "tab-A",
+    }, headers=alice)
+    assert wipe.status_code == 409, wipe.text
+
+    detail = client.get(f"/api/tasks/{task['id']}", headers=alice).json()
+    assert len(detail["annotations"]) == 40
+
+
+def test_small_task_may_still_be_cleared(client, alice):
+    """Below the threshold, clearing every shape stays a legitimate edit."""
+    project_id = _project(client, alice)
+    task = _create_task(client, alice, project_id)
+
+    saved = client.post("/api/tasks", json={
+        "id": task["id"], "annotations": _annotations(3, project_id),
+        "updated_at": task["updated_at"], "client_id": "tab-A",
+    }, headers=alice)
+    assert saved.status_code == 200
+
+    cleared = client.post("/api/tasks", json={
+        "id": task["id"], "annotations": json.dumps([]),
+        "updated_at": saved.json()["updated_at"], "client_id": "tab-A",
+    }, headers=alice)
+    assert cleared.status_code == 200, cleared.text
+
+    detail = client.get(f"/api/tasks/{task['id']}", headers=alice).json()
+    assert detail["annotations"] == []
+
+
+def test_shrinking_a_large_task_one_step_at_a_time_is_allowed(client, alice):
+    """The guard must not block genuine deletion, only the wipe-in-one-write."""
+    project_id = _project(client, alice)
+    task = _create_task(client, alice, project_id)
+
+    res = client.post("/api/tasks", json={
+        "id": task["id"], "annotations": _annotations(40, project_id),
+        "updated_at": task["updated_at"], "client_id": "tab-A",
+    }, headers=alice)
+    assert res.status_code == 200
+
+    for remaining in (30, 10, 2, 0):
+        res = client.post("/api/tasks", json={
+            "id": task["id"], "annotations": _annotations(remaining, project_id),
+            "updated_at": res.json()["updated_at"], "client_id": "tab-A",
+        }, headers=alice)
+        assert res.status_code == 200, f"shrink to {remaining} was refused: {res.text}"
+
+    detail = client.get(f"/api/tasks/{task['id']}", headers=alice).json()
+    assert detail["annotations"] == []
+
+
+def test_create_with_annotations_makes_exactly_one_task(client, alice):
+    """The create branch commits once, so a retry cannot leave a duplicate row."""
+    project_id = _project(client, alice)
+
+    res = client.post(f"/api/tasks?projectId={project_id}", json={
+        "description": "solo.jpg", "status": "New",
+        "annotations": _annotations(3, project_id), "client_id": "tab-A",
+    }, headers=alice)
+    assert res.status_code == 200, res.text
+
+    listing = client.get(f"/api/tasks?projectId={project_id}", headers=alice).json()
+    tasks = listing if isinstance(listing, list) else listing.get("tasks", listing.get("items", []))
+    matching = [t for t in tasks if t.get("description") == "solo.jpg"]
+    assert len(matching) == 1, f"expected exactly one task, got {len(matching)}"

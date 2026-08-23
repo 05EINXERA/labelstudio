@@ -38,6 +38,12 @@ LOCKED_STATUSES = {"Completed", "Approved", "Verified"}
 # ---------------------------------------------------------------------------
 TASK_LOCK_TTL_SECONDS = int(os.environ.get("TASK_LOCK_TTL_SECONDS", "60"))
 
+# An empty annotation payload against a task holding at least this many
+# annotations is refused rather than applied. Set to 0 to disable the guard.
+# Low enough to protect real work, high enough that clearing a handful of
+# shapes by hand is unaffected.
+ANNOTATION_WIPE_GUARD_THRESHOLD = int(os.environ.get("ANNOTATION_WIPE_GUARD_THRESHOLD", "25"))
+
 
 def _sweep_stale_locks(db: Optional[Session] = None, ttl_seconds: int = TASK_LOCK_TTL_SECONDS) -> int:
     """Proactively evict expired task locks to prevent table growth over long uptimes."""
@@ -353,10 +359,12 @@ def heartbeat_task(task_id: int, client_id: str = Query(..., max_length=64),
             return {"status": "ok", "ttl": TASK_LOCK_TTL_SECONDS}
         except (IntegrityError, StaleDataError):
             db.rollback()
-            if attempt == 1:
-                # If it still fails, just return ok. Next heartbeat will try again.
-                pass
-    return {"status": "ok", "ttl": TASK_LOCK_TTL_SECONDS}
+    # Both attempts failed, so the claim was NOT refreshed. Reporting "ok" here
+    # told the client it held a lock it did not, and a second annotator saw the
+    # task as free. "error" is distinct from "lost": nothing is known about who
+    # holds it, and the next heartbeat should simply try again.
+    logger.warning("Heartbeat for task %s could not refresh the claim", task_id)
+    return {"status": "error", "ttl": TASK_LOCK_TTL_SECONDS}
 
 
 @router.delete("/{task_id}/claim")
@@ -426,9 +434,25 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
                     
             is_unique = isinstance(e, IntegrityError) and ("unique" in str(e).lower() or "duplicate" in str(e).lower())
             is_stale = isinstance(e, StaleDataError)
-            if attempt == 4 or not (is_unique or is_stale):
+            if not (is_unique or is_stale):
+                # A genuine fault (FK/NOT NULL violation, a real bug). Let it
+                # surface as a 500 rather than masking it as contention.
                 raise
-            
+            if attempt == 4:
+                # Contention we could not ride out. A 503 tells the client this
+                # is transient and safe to retry, so it keeps its local draft;
+                # a 500 is indistinguishable from a real fault (CLAUDE.md r11).
+                logger.warning(
+                    "Task %s save gave up after 5 attempts under contention: %s",
+                    task.id or "new", e, exc_info=True,
+                )
+                raise HTTPException(
+                    status_code=503,
+                    detail="The server is busy. Your work is safe — the save will be retried.",
+                    headers={"Retry-After": "2"},
+                )
+
+
             # Back off
             delay = 0.1 * (2 ** attempt)
             logger.info(f"Concurrent insert/update race detected on task {task.id or 'new'} (attempt {attempt+1}/5), retrying in {delay:.2f}s: {e.__class__.__name__}")
@@ -450,13 +474,17 @@ def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: 
         # same request: every autosave echoes the task's current status
         # alongside its real payload (see workspace.js syncToBackend), so a
         # 403 here would silently block ordinary annotation edits too.
+        # Held in a local rather than written back onto `task`: the retry loop
+        # re-runs this function with the same payload object, and mutating it
+        # here made attempt 2+ operate on a request the client never sent.
+        incoming_status = task.status
         if (
             db_task.status in LOCKED_STATUSES
-            and task.status is not None
-            and task.status != db_task.status
+            and incoming_status is not None
+            and incoming_status != db_task.status
             and not _is_task_editor(db_task, user, db, annotator)
         ):
-            task.status = None
+            incoming_status = None
 
         # Conflict detection guards one thing: a client overwriting a write it
         # never saw. It deliberately does *not* fire when a client overwrites
@@ -519,8 +547,8 @@ def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: 
             db_task.last_client_id = task.client_id
         if task.assignee is not None:
             db_task.assignee = task.assignee
-        if task.status is not None:
-            db_task.status = task.status
+        if incoming_status is not None:
+            db_task.status = incoming_status
         if task.description is not None:
             db_task.description = task.description
         if task.time_spent_delta is not None:
@@ -529,7 +557,34 @@ def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: 
             try:
                 anns = json.loads(task.annotations)
                 existing_map = {a.id: a for a in db_task.annotations}
-                
+
+                # Refuse a save that would wipe a substantial task outright.
+                #
+                # An empty payload against a task holding thousands of shapes is
+                # not something an annotator does deliberately — it is a tab that
+                # autosaved before its canvas hydrated, or a client retrying after
+                # a failed load. Three tasks lost 4,704 / 1,980 / 770 annotations
+                # this way before this guard existed; see
+                # .devnotes/deployment-hardening/08_POOL_EXHAUSTION.md.
+                #
+                # Deleting every shape one at a time still works (each save
+                # carries the shrinking remainder), so this only ever fires on a
+                # single all-or-nothing wipe.
+                if not anns and len(existing_map) >= ANNOTATION_WIPE_GUARD_THRESHOLD:
+                    logger.warning(
+                        "Refused an empty annotation payload for task %s holding %d "
+                        "annotations (client_id=%s)",
+                        db_task.id, len(existing_map), task.client_id,
+                    )
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            "This save would delete all annotations on the task. "
+                            "It was refused to protect existing work. Reload the "
+                            "task to get the current annotations before editing."
+                        ),
+                    )
+
                 # Find IDs in the payload that are new to this task
                 incoming_ids = {a.get('id') for a in anns if isinstance(a, dict) and a.get('id')}
                 new_to_task = incoming_ids - set(existing_map.keys())
@@ -653,8 +708,11 @@ def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: 
             except ValueError:
                 raise HTTPException(status_code=400, detail="Invalid annotations JSON")
         db.add(db_task)
-        commit_with_retry(db)
-        db.refresh(db_task)
+        # flush, not commit: the single commit at the end of this function is
+        # what makes the whole create atomic. Committing here left the task row
+        # durable while the retry loop re-ran the create from the top on a
+        # later failure, inserting a duplicate.
+        db.flush()
         task_id = db_task.id
         new_updated_at = db_task.updated_at
         

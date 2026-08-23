@@ -46,7 +46,12 @@ export async function claimTask(taskId, clientId) {
 
 /**
  * Refresh the TTL on the current claim.  Call every ~30 s while the task is open.
- * @returns {Promise<{status:'ok'|'lost'}>}
+ *
+ * 'lost'  — another client now holds the claim; warn the annotator.
+ * 'error' — the server could not refresh it and nothing is known about who
+ *           holds the lock. Not the same as 'lost': keep working and let the
+ *           next heartbeat retry. Never treat this as a lost claim.
+ * @returns {Promise<{status:'ok'|'lost'|'error'}>}
  */
 export async function heartbeatTask(taskId, clientId) {
   if (!taskId || !clientId) return { status: 'ok' };

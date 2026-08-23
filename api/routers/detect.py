@@ -6,6 +6,7 @@ import uuid
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 import models
@@ -71,130 +72,85 @@ def _create_job(db: Optional[Session] = None) -> str:
             db.close()
 
 
-def run_detect_job(job_id: str, payload: DetectPayload):
+def _record_job_result(job_id: str, *, status: str, result: Optional[str] = None,
+                       error: Optional[str] = None) -> None:
+    """Write a finished job's outcome, holding a pool connection only for the write.
+
+    Deliberately opens its own short-lived session instead of receiving one: the
+    caller runs inference first, and a session held across that wait is a
+    connection the save path cannot have.
+    """
     db = SessionLocal()
     try:
-        with get_inference_semaphore():
-            response = detect_objects(
-                payload.image,
-                selection=payload.selection,
-                prompts=payload.prompts,
-                model_size=payload.model_size,
-                confidence=payload.confidence,
-                nms_threshold=payload.nms_threshold,
-            )
         job = db.query(models.AIJob).filter(models.AIJob.id == job_id).first()
         if job:
-            job.status = "completed"
-            job.result = json.dumps(response)
+            job.status = status
+            job.result = result
+            job.error = error
             commit_with_retry(db)
-    except DetectionClientError as error:
-        job = db.query(models.AIJob).filter(models.AIJob.id == job_id).first()
-        if job:
-            job.status = "failed"
-            job.error = str(error)
-            commit_with_retry(db)
-    except Exception as e:
-        logger.error("Object detection job %s failed: %s", job_id, e, exc_info=True)
-        job = db.query(models.AIJob).filter(models.AIJob.id == job_id).first()
-        if job:
-            job.status = "failed"
-            job.error = "Object detection failed."
-            commit_with_retry(db)
+    except SQLAlchemyError:
+        # The job outcome is best-effort bookkeeping; it expires via JOB_TTL_SECONDS
+        # and the client's poll falls back to a timeout. Never let it mask the
+        # inference result or kill the worker thread.
+        logger.exception("Could not record outcome for job %s", job_id)
     finally:
         db.close()
+
+
+def _run_inference_job(job_id: str, label: str, work) -> None:
+    """Run `work()` under the inference semaphore, then record the outcome.
+
+    No database session is held while queueing for the semaphore or during
+    inference itself. MAX_INFERENCE_CONCURRENCY is 1, so a job can wait for
+    minutes behind others; holding a pooled connection across that wait
+    exhausted the pool and made concurrent task saves fail (see
+    .devnotes/deployment-hardening/08_POOL_EXHAUSTION.md).
+    """
+    try:
+        with get_inference_semaphore():
+            response = work()
+        _record_job_result(job_id, status="completed", result=json.dumps(response))
+    except DetectionClientError as error:
+        _record_job_result(job_id, status="failed", error=str(error))
+    except Exception as exc:
+        logger.error("%s job %s failed: %s", label, job_id, exc, exc_info=True)
+        _record_job_result(job_id, status="failed", error=f"{label} failed.")
+
+
+def run_detect_job(job_id: str, payload: DetectPayload):
+    _run_inference_job(job_id, "Object detection", lambda: detect_objects(
+        payload.image,
+        selection=payload.selection,
+        prompts=payload.prompts,
+        model_size=payload.model_size,
+        confidence=payload.confidence,
+        nms_threshold=payload.nms_threshold,
+    ))
 
 
 def run_classify_job(job_id: str, payload: ClassifyPayload):
-    db = SessionLocal()
-    try:
-        with get_inference_semaphore():
-            response = classify_image(payload.image, selection=payload.selection)
-        job = db.query(models.AIJob).filter(models.AIJob.id == job_id).first()
-        if job:
-            job.status = "completed"
-            job.result = json.dumps(response)
-            commit_with_retry(db)
-    except DetectionClientError as error:
-        job = db.query(models.AIJob).filter(models.AIJob.id == job_id).first()
-        if job:
-            job.status = "failed"
-            job.error = str(error)
-            commit_with_retry(db)
-    except Exception as e:
-        logger.error("Image classification job %s failed: %s", job_id, e, exc_info=True)
-        job = db.query(models.AIJob).filter(models.AIJob.id == job_id).first()
-        if job:
-            job.status = "failed"
-            job.error = "Image classification failed."
-            commit_with_retry(db)
-    finally:
-        db.close()
+    _run_inference_job(job_id, "Image classification", lambda: classify_image(
+        payload.image, selection=payload.selection,
+    ))
 
 
 def run_segment_job(job_id: str, payload: SegmentPayload):
-    db = SessionLocal()
-    try:
-        with get_inference_semaphore():
-            response = segment_point(
-                payload.image,
-                points=[{"x": p.x, "y": p.y} for p in payload.points],
-                labels=payload.labels,
-                prompt=payload.prompt,
-                precision=payload.precision,
-                bbox=payload.bbox,
-                sam_model=payload.sam_model,
-            )
-        job = db.query(models.AIJob).filter(models.AIJob.id == job_id).first()
-        if job:
-            job.status = "completed"
-            job.result = json.dumps(response)
-            commit_with_retry(db)
-    except DetectionClientError as error:
-        job = db.query(models.AIJob).filter(models.AIJob.id == job_id).first()
-        if job:
-            job.status = "failed"
-            job.error = str(error)
-            commit_with_retry(db)
-    except Exception as e:
-        logger.error("Image segmentation job %s failed: %s", job_id, e, exc_info=True)
-        job = db.query(models.AIJob).filter(models.AIJob.id == job_id).first()
-        if job:
-            job.status = "failed"
-            job.error = "Image segmentation failed."
-            commit_with_retry(db)
-    finally:
-        db.close()
+    _run_inference_job(job_id, "Image segmentation", lambda: segment_point(
+        payload.image,
+        points=[{"x": p.x, "y": p.y} for p in payload.points],
+        labels=payload.labels,
+        prompt=payload.prompt,
+        precision=payload.precision,
+        bbox=payload.bbox,
+        sam_model=payload.sam_model,
+    ))
 
 
 def run_embed_job(job_id: str, payload: EmbedPayload):
-    db = SessionLocal()
-    try:
-        with get_inference_semaphore():
-            response = embed_image(
-                payload.image,
-                sam_model=payload.sam_model,
-            )
-        job = db.query(models.AIJob).filter(models.AIJob.id == job_id).first()
-        if job:
-            job.status = "completed"
-            job.result = json.dumps(response)
-            commit_with_retry(db)
-    except DetectionClientError as error:
-        job = db.query(models.AIJob).filter(models.AIJob.id == job_id).first()
-        if job:
-            job.status = "failed"
-            job.error = str(error)
-            commit_with_retry(db)
-    except Exception as e:
-        logger.error("Image embedding job %s failed: %s", job_id, e, exc_info=True)
-        job = db.query(models.AIJob).filter(models.AIJob.id == job_id).first()
-        if job:
-            job.status = "failed"
-            job.error = "Image embedding failed."
-            commit_with_retry(db)
-    finally:
-        db.close()
+    _run_inference_job(job_id, "Image embedding", lambda: embed_image(
+        payload.image,
+        sam_model=payload.sam_model,
+    ))
 
 
 @router.get("/status/{job_id}")
