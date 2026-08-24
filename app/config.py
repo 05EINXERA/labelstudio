@@ -123,10 +123,28 @@ DB_POOL_TIMEOUT = int(os.environ.get("DB_POOL_TIMEOUT", "30"))
 DB_POOL_RECYCLE = int(os.environ.get("DB_POOL_RECYCLE", "1800"))
 
 # --- ML & Inference Concurrency ------------------------------------------
+# Kill switch for the AI job endpoints (detect/classify/segment/embed) without
+# touching code. Manual annotation, task saves, and everything else keep
+# working; POSTing a new AI job returns 503 instead of queueing it. Toggle
+# via .env, not by editing this file, so re-enabling doesn't need a deploy.
+AI_FEATURES_ENABLED = os.environ.get("AI_FEATURES_ENABLED", "1") not in ("0", "false", "False")
+
 # Bounds the number of concurrent heavy ML inference jobs running simultaneously.
 # Gating inference to 1-2 concurrent jobs prevents GPU VRAM and CPU thrashing
 # under simultaneous AI requests from multiple annotators.
 MAX_INFERENCE_CONCURRENCY = int(os.environ.get("MAX_INFERENCE_CONCURRENCY", "1"))
+
+# Hugging Face models (CLIP, SAM) are already cached under ~/.cache/huggingface
+# after first download, but `from_pretrained` still makes a round trip per file
+# to huggingface.co to check the cache is current unless told not to. On this
+# LAN deployment that is a pointless dependency on internet reachability: a
+# cold model load (first classify after a restart) paid several seconds of
+# HEAD-request latency to an external host for no benefit, and felt like the
+# whole app was slow while it happened. Read directly into os.environ, not a
+# Python constant, because huggingface_hub/transformers consult the env var
+# themselves — set 0 only to intentionally allow a first-time download of a
+# model that isn't cached yet.
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
 
 # --- Auth -----------------------------------------------------------------
 JWT_SECRET = os.environ.get("JWT_SECRET", "").strip()

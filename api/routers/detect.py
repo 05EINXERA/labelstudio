@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 import models
 from api.auth import get_current_user, require_csrf
+from config import AI_FEATURES_ENABLED
 from database import SessionLocal, commit_with_retry, get_db
 from ml import (
     DetectionClientError,
@@ -176,8 +177,17 @@ def get_job_status(job_id: str, db: Session = Depends(get_db)):
     return {"status": "pending"}
 
 
+def _require_ai_enabled() -> None:
+    if not AI_FEATURES_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail="AI features are temporarily disabled. Manual annotation is unaffected.",
+        )
+
+
 @router.post("")
 def detect(payload: DetectPayload, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    _require_ai_enabled()
     job_id = _create_job(db)
     background_tasks.add_task(run_detect_job, job_id, payload)
     return {"job_id": job_id}
@@ -185,6 +195,7 @@ def detect(payload: DetectPayload, background_tasks: BackgroundTasks, db: Sessio
 
 @router.post("/classify")
 def classify(payload: ClassifyPayload, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    _require_ai_enabled()
     job_id = _create_job(db)
     background_tasks.add_task(run_classify_job, job_id, payload)
     return {"job_id": job_id}
@@ -192,6 +203,7 @@ def classify(payload: ClassifyPayload, background_tasks: BackgroundTasks, db: Se
 
 @router.post("/segment")
 def segment(payload: SegmentPayload, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    _require_ai_enabled()
     job_id = _create_job(db)
     background_tasks.add_task(run_segment_job, job_id, payload)
     return {"job_id": job_id}
@@ -199,6 +211,7 @@ def segment(payload: SegmentPayload, background_tasks: BackgroundTasks, db: Sess
 
 @router.post("/embed")
 def embed(payload: EmbedPayload, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    _require_ai_enabled()
     job_id = _create_job(db)
     background_tasks.add_task(run_embed_job, job_id, payload)
     return {"job_id": job_id}

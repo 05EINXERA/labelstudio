@@ -25,6 +25,26 @@ function getCompositeContexts(width, height) {
   return { fillCtx: compositeFillCtx, strokeCtx: compositeStrokeCtx };
 }
 
+// Grouped annotations previously found their group-mates via
+// `state.annotations.filter(a => a.groupId === annotation.groupId)` called
+// once per grouped annotation inside the per-frame draw loop — O(n) work
+// repeated for every member of every group, so a task with many grouped
+// shapes made each frame quadratic. Building this map once per frame keeps
+// the whole draw pass O(n).
+function buildGroupMap(annotations) {
+  const map = new Map();
+  for (const annotation of annotations) {
+    if (!annotation.groupId) continue;
+    let group = map.get(annotation.groupId);
+    if (!group) {
+      group = [];
+      map.set(annotation.groupId, group);
+    }
+    group.push(annotation);
+  }
+  return map;
+}
+
 function isAnnotationVisible(annotation, canvasWidth, canvasHeight) {
   const ax = Number(annotation.x) || 0;
   const ay = Number(annotation.y) || 0;
@@ -103,7 +123,7 @@ function drawGroupUnion(groupAnns, selected, targetCtx) {
   strokeCtx.strokeStyle = label.color;
   strokeCtx.lineWidth = (selected ? 3 : 2) * 2;
   strokeCtx.lineJoin = "round";
-  
+
   groupAnns.forEach((ann) => {
     if (ann.type === "comment") return;
     const points = annotationPoints(ann);
@@ -180,6 +200,7 @@ export function drawStaticLayer() {
   const drawnGroups = new Set();
   const cw = staticCtx.canvas.width;
   const ch = staticCtx.canvas.height;
+  const groupMap = buildGroupMap(state.annotations);
 
   state.annotations.forEach((annotation) => {
     if (isAnnotationHidden(annotation)) return;
@@ -190,7 +211,7 @@ export function drawStaticLayer() {
       if (annotation.groupId) {
         if (!drawnGroups.has(annotation.groupId)) {
           drawnGroups.add(annotation.groupId);
-          const groupAnns = state.annotations.filter(a => a.groupId === annotation.groupId && !isAnnotationHidden(a) && !state.selectedIds.has(a.id) && !(view.drag?.annotationId === a.id || view.drag?.originals?.find(orig => orig.id === a.id)));
+          const groupAnns = (groupMap.get(annotation.groupId) || []).filter(a => !isAnnotationHidden(a) && !state.selectedIds.has(a.id) && !(view.drag?.annotationId === a.id || view.drag?.originals?.find(orig => orig.id === a.id)));
           drawGroupUnion(groupAnns, false, staticCtx);
           groupAnns.forEach(ann => drawAnnotation(ann, false, staticCtx, true, groupAnns));
         }
@@ -239,6 +260,7 @@ function doDrawSync() {
   const drawnGroups = new Set();
   const cw = ctx.canvas.width;
   const ch = ctx.canvas.height;
+  const groupMap = buildGroupMap(state.annotations);
 
   state.annotations.forEach((annotation) => {
     // Filtered here as well as in drawStaticLayer: without this a hidden
@@ -251,7 +273,7 @@ function doDrawSync() {
       if (annotation.groupId) {
         if (!drawnGroups.has(annotation.groupId)) {
           drawnGroups.add(annotation.groupId);
-          const groupAnns = state.annotations.filter(a => a.groupId === annotation.groupId && !isAnnotationHidden(a) && (state.selectedIds.has(a.id) || view.drag?.annotationId === a.id || view.drag?.originals?.find(orig => orig.id === a.id)));
+          const groupAnns = (groupMap.get(annotation.groupId) || []).filter(a => !isAnnotationHidden(a) && (state.selectedIds.has(a.id) || view.drag?.annotationId === a.id || view.drag?.originals?.find(orig => orig.id === a.id)));
           drawGroupUnion(groupAnns, true, ctx);
           groupAnns.forEach(ann => drawAnnotation(ann, true, ctx, true, groupAnns));
         }
