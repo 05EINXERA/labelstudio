@@ -82,6 +82,10 @@ def test_different_client_with_stale_timestamp_conflicts(client, alice):
         "updated_at": stale, "client_id": "tab-B",
     }, headers=alice)
     assert res.status_code == 409
+    # Frontend branches on this to distinguish a real conflict (offer to
+    # keep/overwrite) from the wipe guard (refuse and tell the user to
+    # reload) — both return 409, so the body must disambiguate them.
+    assert res.json()["detail"]["code"] == "conflict"
 
 
 def test_missing_updated_at_skips_the_check(client, alice):
@@ -294,6 +298,10 @@ def test_empty_payload_cannot_wipe_a_substantial_task(client, alice):
         "updated_at": saved.json()["updated_at"], "client_id": "tab-A",
     }, headers=alice)
     assert wipe.status_code == 409, wipe.text
+    # Must carry "wipe_guard", not "conflict" — the frontend uses this to
+    # avoid offering a "keep your version"/overwrite choice that would just
+    # resubmit the same bad payload and refuse again.
+    assert wipe.json()["detail"]["code"] == "wipe_guard"
 
     detail = client.get(f"/api/tasks/{task['id']}", headers=alice).json()
     assert len(detail["annotations"]) == 40
@@ -316,6 +324,7 @@ def test_truncated_nonempty_payload_cannot_wipe_a_substantial_task(client, alice
         "updated_at": saved.json()["updated_at"], "client_id": "tab-A",
     }, headers=alice)
     assert truncated.status_code == 409, truncated.text
+    assert truncated.json()["detail"]["code"] == "wipe_guard"
 
     detail = client.get(f"/api/tasks/{task['id']}", headers=alice).json()
     assert len(detail["annotations"]) == 40

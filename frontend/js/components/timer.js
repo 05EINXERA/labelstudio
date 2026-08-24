@@ -140,6 +140,30 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
     });
 
     if (res.status === 409) {
+      timerState.taskSessionSeconds += timeDelta;
+      updateTimerDisplays();
+
+      let code = null, message = null;
+      try {
+        const body = await res.json();
+        if (body && typeof body.detail === 'object') {
+          code = body.detail.code;
+          message = body.detail.message;
+        } else if (body && typeof body.detail === 'string') {
+          message = body.detail;
+        }
+      } catch { /* non-JSON error body */ }
+
+      if (code === 'wipe_guard') {
+        // The save was refused because it would have deleted most of the
+        // task's annotations — not because another client wrote it. Offering
+        // "keep your version" here would just resubmit the same truncated
+        // payload and refuse again. Surface it as an error to reload, not a
+        // conflict to resolve.
+        task.lastSaveError = message || 'Save refused to protect existing annotations. Reload the task.';
+        return false;
+      }
+
       // A real conflict: another client wrote this task since we last read it.
       //
       // This used to set `task.id = null` to "prevent further autosaves",
@@ -147,9 +171,6 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
       // later edit went to localStorage only and vanished on refresh. A
       // conflict must never cost the user their work, so instead we keep the
       // delta, hand the decision to the user, and leave saving enabled.
-      timerState.taskSessionSeconds += timeDelta;
-      updateTimerDisplays();
-
       if (onConflict) {
         onConflict(task);
       } else {
@@ -169,7 +190,8 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
       // unset, and callers already handle that case.
       try {
         const body = await res.json();
-        if (body && body.detail) task.lastSaveError = body.detail;
+        if (body && typeof body.detail === 'string') task.lastSaveError = body.detail;
+        else if (body && body.detail && body.detail.message) task.lastSaveError = body.detail.message;
       } catch { /* non-JSON error body; no detail to surface */ }
       return false;
     }

@@ -545,7 +545,10 @@ def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: 
                 if task.client_id != db_task.last_client_id and not tokens_match:
                     raise HTTPException(
                         status_code=409,
-                        detail="Task was updated by another user. Please refresh to see latest annotations.",
+                        detail={
+                            "code": "conflict",
+                            "message": "Task was updated by another user. Please refresh to see latest annotations.",
+                        },
                     )
             elif db_task.updated_at:
                 # No identity to compare — fall back to the timestamp.
@@ -555,7 +558,10 @@ def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: 
                 if (stored - client_updated).total_seconds() > CONFLICT_TOLERANCE_SECONDS:
                     raise HTTPException(
                         status_code=409,
-                        detail="Task was updated by another user. Please refresh to see latest annotations.",
+                        detail={
+                            "code": "conflict",
+                            "message": "Task was updated by another user. Please refresh to see latest annotations.",
+                        },
                     )
         if task.client_id is not None:
             db_task.last_client_id = task.client_id
@@ -599,11 +605,14 @@ def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: 
                     )
                     raise HTTPException(
                         status_code=409,
-                        detail=(
-                            "This save would delete most of the annotations on the "
-                            "task. It was refused to protect existing work. Reload "
-                            "the task to get the current annotations before editing."
-                        ),
+                        detail={
+                            "code": "wipe_guard",
+                            "message": (
+                                "This save would delete most of the annotations on the "
+                                "task. It was refused to protect existing work. Reload "
+                                "the task to get the current annotations before editing."
+                            ),
+                        },
                     )
 
                 # Find IDs in the payload that are new to this task
