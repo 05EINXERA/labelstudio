@@ -14,7 +14,7 @@ import {
 } from "../dom.js?v=1";
 import { drawAllLayers } from "../canvas/draw.js?v=2";
 import { setStatus, render, restoreDraft } from "./workspace.js?v=3";
-import { autoDetectObjects, preloadMagicWand, preloadDetectAndTag } from "../ai/detect.js?v=1";
+import { autoDetectObjects, preloadMagicWand, preloadDetectAndTag } from "../ai/detect.js?v=2";
 import { syncTaskTime, resetSessionForTask, refreshTimerDisplays } from "./timer.js?v=2";
 import { updateZoomDisplay } from "./zoom-control.js?v=1";
 import { claimTask, releaseTask } from "../task-lock.js?v=1";

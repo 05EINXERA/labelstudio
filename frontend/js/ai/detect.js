@@ -7,6 +7,7 @@ import { detectState } from "./detect-state.js?v=1";
 import { getImageSrcForAPI } from "./shared.js?v=1";
 import { autoDetectButton } from "../dom.js?v=1";
 import { smoothPolygon, autoTolerance } from "../canvas/fft-smooth.js?v=1";
+import { toolAvailability } from "../feature-flags.js?v=1";
 import {
   setStatus, ensureLabel, save, render
 } from "../components/workspace.js?v=3";
@@ -440,7 +441,10 @@ export async function performMagicWandSegmentation(point, bbox = null, isShift =
 
 export async function preloadMagicWand() {
   if (!view.imageLoaded || detectState.detectionBusy) return;
-  
+  // Nothing to warm when the server is refusing AI jobs — the request would
+  // only come back 503 and be dropped.
+  if (!toolAvailability.ai) return;
+
   try {
     const imageSrc = await getImageSrcForAPI();
     const response = await apiFetch(`${window.location.origin}/api/detect/embed`, {
@@ -464,7 +468,10 @@ export async function preloadMagicWand() {
 
 export async function preloadDetectAndTag() {
   if (!view.imageLoaded || detectState.detectionBusy) return;
-  
+  // Two requests per task open, both refused with 503 and silently discarded,
+  // when AI is switched off for the deployment.
+  if (!toolAvailability.ai) return;
+
   try {
     const imageSrc = await getImageSrcForAPI();
     

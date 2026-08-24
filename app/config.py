@@ -125,9 +125,11 @@ DB_POOL_RECYCLE = int(os.environ.get("DB_POOL_RECYCLE", "1800"))
 # --- ML & Inference Concurrency ------------------------------------------
 # Kill switch for the AI job endpoints (detect/classify/segment/embed) without
 # touching code. Manual annotation, task saves, and everything else keep
-# working; POSTing a new AI job returns 503 instead of queueing it. Toggle
-# via .env, not by editing this file, so re-enabling doesn't need a deploy.
-AI_FEATURES_ENABLED = os.environ.get("AI_FEATURES_ENABLED", "1") not in ("0", "false", "False")
+# working; POSTing a new AI job returns 503 instead of queueing it, and the
+# frontend disables its AI toolbar via GET /api/detect/availability. Set it in
+# .env rather than editing here — but note it is read at startup, so flipping
+# it still needs a restart to take effect.
+AI_FEATURES_ENABLED = os.environ.get("AI_FEATURES_ENABLED", "1").strip().lower() not in ("0", "false", "no")
 
 # Bounds the number of concurrent heavy ML inference jobs running simultaneously.
 # Gating inference to 1-2 concurrent jobs prevents GPU VRAM and CPU thrashing
@@ -136,15 +138,27 @@ MAX_INFERENCE_CONCURRENCY = int(os.environ.get("MAX_INFERENCE_CONCURRENCY", "1")
 
 # Hugging Face models (CLIP, SAM) are already cached under ~/.cache/huggingface
 # after first download, but `from_pretrained` still makes a round trip per file
-# to huggingface.co to check the cache is current unless told not to. On this
+# to huggingface.co to check the cache is current unless told not to. On the
 # LAN deployment that is a pointless dependency on internet reachability: a
-# cold model load (first classify after a restart) paid several seconds of
+# cold model load (the first classify after a restart) paid several seconds of
 # HEAD-request latency to an external host for no benefit, and felt like the
-# whole app was slow while it happened. Read directly into os.environ, not a
-# Python constant, because huggingface_hub/transformers consult the env var
-# themselves — set 0 only to intentionally allow a first-time download of a
-# model that isn't cached yet.
-os.environ.setdefault("HF_HUB_OFFLINE", "1")
+# whole app had gone slow while it happened.
+#
+# Only defaulted on in production, and never under pytest. Offline mode turns
+# a *missing* model from a slow first download into a permanent hard failure,
+# and `sam_model` is chosen per-request (ml/sam.py resolves e.g.
+# "facebook/sam2-hiera-large"), so a variant nobody has downloaded yet would
+# be unreachable with no in-app way to recover. Development keeps the online
+# behaviour so a fresh checkout can populate its cache; a production box that
+# genuinely needs to fetch a new model sets HF_HUB_OFFLINE=0 for one restart.
+#
+# Written into os.environ rather than exposed as a constant because
+# huggingface_hub/transformers read the variable themselves. They snapshot it
+# at *their* import time, so this must land before any `transformers` import —
+# app/main.py imports app.config first, and ml/clip.py imports transformers
+# lazily inside get_clip_model(), so that ordering holds today.
+if IS_PRODUCTION and "PYTEST_CURRENT_TEST" not in os.environ and "pytest" not in sys.modules:
+    os.environ.setdefault("HF_HUB_OFFLINE", "1")
 
 # --- Auth -----------------------------------------------------------------
 JWT_SECRET = os.environ.get("JWT_SECRET", "").strip()

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 import models
 from api.auth import get_current_user, require_csrf
-from config import AI_FEATURES_ENABLED
+import config
 from database import SessionLocal, commit_with_retry, get_db
 from ml import (
     DetectionClientError,
@@ -178,11 +178,23 @@ def get_job_status(job_id: str, db: Session = Depends(get_db)):
 
 
 def _require_ai_enabled() -> None:
-    if not AI_FEATURES_ENABLED:
+    if not config.AI_FEATURES_ENABLED:
         raise HTTPException(
             status_code=503,
             detail="AI features are temporarily disabled. Manual annotation is unaffected.",
         )
+
+
+@router.get("/availability")
+def get_ai_availability():
+    """Whether the AI job endpoints below will accept work.
+
+    The frontend gates its whole AI toolbar on this (toolAvailability.ai), so a
+    deployment with AI switched off shows the controls disabled rather than
+    letting every click fail with a 503 — and the per-task preload in
+    ai/detect.js can skip two requests it knows would be refused.
+    """
+    return {"enabled": config.AI_FEATURES_ENABLED}
 
 
 @router.post("")

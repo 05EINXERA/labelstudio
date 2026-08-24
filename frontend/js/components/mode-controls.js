@@ -15,7 +15,7 @@ import {
   clearButton, saveButton, stageWrap
 } from "../dom.js?v=1";
 import { setStatus, save, render, manualSaveWithUI } from "./workspace.js?v=3";
-import { autoDetectObjects, autoTagObjects, preloadMagicWand } from "../ai/detect.js?v=1";
+import { autoDetectObjects, autoTagObjects, preloadMagicWand } from "../ai/detect.js?v=2";
 import { finalizePolygon, deleteSelected, undoAction, redoAction } from "../canvas/interactions.js?v=1";
 
 /**

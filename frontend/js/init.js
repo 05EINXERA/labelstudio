@@ -16,6 +16,7 @@ import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
 import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=1";
 import { releaseTask, heartbeatTask } from "./task-lock.js?v=1";
 import { initFftControls } from "./fft-controls.js?v=1";
+import { toolAvailability } from "./feature-flags.js?v=1";
 import {
   switchImage, initGalleryNavigation, loadWorkspaceTasks, resizeCanvas
 } from "./components/gallery.js?v=2";
@@ -111,6 +112,29 @@ setConflictHandler((task) => {
     conflictModal.classList.add('is-active');
   }
 });
+
+/**
+ * Asks the server whether AI features are switched on for this deployment and
+ * mirrors the answer into toolAvailability.ai, which renderControls() already
+ * reads to enable/disable the whole AI toolbar. Without this the controls stay
+ * live against a server that refuses every AI job with a 503.
+ *
+ * Left enabled on failure: an unreachable endpoint is not evidence that AI is
+ * off, and a disabled-by-mistake toolbar is worse than a click that surfaces
+ * the server's own error.
+ */
+async function fetchAiAvailability() {
+  try {
+    const res = await apiFetch("/api/detect/availability");
+    if (res && res.ok) {
+      const data = await res.json();
+      toolAvailability.ai = data.enabled !== false;
+      render();
+    }
+  } catch (err) {
+    console.error("Could not resolve AI availability; leaving controls enabled:", err);
+  }
+}
 
 /**
  * Fetches label classes for the active project.
@@ -227,6 +251,7 @@ document.addEventListener('DOMContentLoaded', () => {
   Promise.all([
     contextReady,
     fetchLabels(),
+    fetchAiAvailability(),
     projectId ? loadTeamForWorkspace(projectId) : Promise.resolve(),
     projectId
       ? contextReady

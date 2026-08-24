@@ -31,6 +31,12 @@ function getCompositeContexts(width, height) {
 // repeated for every member of every group, so a task with many grouped
 // shapes made each frame quadratic. Building this map once per frame keeps
 // the whole draw pass O(n).
+//
+// Deliberately not memoized across frames: `groupId` is assigned in place
+// (see the group action in interactions.js), so neither the array reference
+// nor its length changes when group membership does, and any cache keyed on
+// those would silently serve a stale map after grouping/ungrouping. One
+// extra O(n) pass per frame is far cheaper than that class of bug.
 function buildGroupMap(annotations) {
   const map = new Map();
   for (const annotation of annotations) {
