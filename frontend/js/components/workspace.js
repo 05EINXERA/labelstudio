@@ -382,8 +382,70 @@ export function loadSaved() {
 const EYE_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>';
 const EYE_OFF_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>';
 
+// The keystroke that activates the class at this position, or "" past the
+// reachable range so unreachable rows do not advertise a key that does nothing.
+function hotkeyChipHTML(index) {
+  if (index >= HOTKEY_LABEL_LIMIT) return "";
+  const digit = (index + 1) % 10;
+  const shifted = index >= 10;
+  const combo = shifted ? `Shift+${digit}` : String(digit);
+  return `<kbd class="class-hotkey" title="Press ${combo} to select this class">${combo}</kbd>`;
+}
+
 function visibilityButtonHTML(isHidden, title) {
   return `<span class="eye-btn${isHidden ? " is-hidden-state" : ""}" title="${title}">${isHidden ? EYE_OFF_SVG : EYE_SVG}</span>`;
+}
+
+// Digit hotkeys address the first 20 classes: 1-9,0 for the first ten and
+// Shift+1-9,0 for the next ten. Beyond that the sidebar click is the only way in.
+export const HOTKEY_LABEL_LIMIT = 20;
+
+// The one place a class becomes active, shared by the sidebar click and the
+// digit hotkeys so the two can never drift apart.
+export function activateLabel(label) {
+  if (!label) return;
+
+  state.activeLabelId = label.id;
+  state.needsLabelSelection = false;
+  // The pending shape has been dealt with by this, so the next canvas click is
+  // an ordinary one — leaving this set would deselect spuriously.
+  state.justFinalized = false;
+
+  // Switching class part-way through a polygon retags the shape being drawn
+  // rather than abandoning it, so the annotator can correct a wrong class
+  // without losing the vertices already placed.
+  const drawingPolygon = view.drag?.type === "draw-polygon";
+  if (drawingPolygon) {
+    const inProgress = state.annotations.find((item) => item.id === view.drag.annotationId);
+    if (inProgress) inProgress.labelId = label.id;
+  }
+
+  // Picking a class with nothing selected means "start the next annotation", so
+  // drop back into draw mode instead of making the user press Draw. With a
+  // selection it means "relabel that", which must not change the mode. Neither
+  // applies mid-polygon: that drag owns the mode until it finalizes.
+  if (state.selectedIds.size === 0 && !drawingPolygon) {
+    state.mode = "draw";
+  }
+
+  // Reassign class to selected annotations
+  if (state.selectedIds.size > 0) {
+    snapshot();
+    let changed = false;
+    state.annotations.forEach(a => {
+      if (state.selectedIds.has(a.id) && a.type !== "comment" && a.labelId !== label.id) {
+        a.labelId = label.id;
+        changed = true;
+      }
+    });
+    if (changed) {
+      save();
+    } else {
+      state.history.pop();
+    }
+  }
+
+  render();
 }
 
 export function renderClasses() {
@@ -427,6 +489,7 @@ export function renderClasses() {
     item.innerHTML = `
       <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;">
         <span class="swatch" style="background:${label.color || '#65727f'}; flex-shrink: 0;"></span>
+        ${hotkeyChipHTML(index)}
         <strong class="class-name" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></strong>
         <span class="class-count" style="font-size: 0.75rem; color: var(--muted); margin-left: 4px; flex-shrink: 0;">(${count})</span>
       </div>
@@ -434,7 +497,7 @@ export function renderClasses() {
         ${visibilityButtonHTML(labelHidden, labelHidden ? "Show class annotations" : "Hide class annotations")}
       </div>
     `;
-    item.querySelector(".class-name").textContent = `${index + 1}. ${labelDisplayName(label)}`;
+    item.querySelector(".class-name").textContent = labelDisplayName(label);
 
     item.querySelector(".eye-btn").addEventListener("click", (e) => {
       // Without this the row's own handler would also fire and make a class
@@ -447,38 +510,8 @@ export function renderClasses() {
     });
 
     // Click on the item itself sets it as active
-    item.addEventListener("click", (e) => {
-      state.activeLabelId = label.id;
-      state.needsLabelSelection = false;
-      // The pending shape has been dealt with by this click, so the next canvas
-      // click is an ordinary one — leaving this set would deselect spuriously.
-      state.justFinalized = false;
-
-      // Picking a class with nothing selected means "start the next annotation",
-      // so drop back into draw mode instead of making the user press Draw. With a
-      // selection the click means "relabel that", which must not change the mode.
-      if (state.selectedIds.size === 0) {
-        state.mode = "draw";
-      }
-
-      // Reassign class to selected annotations
-      if (state.selectedIds.size > 0) {
-        snapshot();
-        let changed = false;
-        state.annotations.forEach(a => {
-          if (state.selectedIds.has(a.id) && a.type !== "comment" && a.labelId !== label.id) {
-            a.labelId = label.id;
-            changed = true;
-          }
-        });
-        if (changed) {
-          save();
-        } else {
-          state.history.pop();
-        }
-      }
-
-      render();
+    item.addEventListener("click", () => {
+      activateLabel(label);
     });
 
     classesList.appendChild(item);

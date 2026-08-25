@@ -767,6 +767,29 @@ h2 {
   clip-path: polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%);
 }
 
+/* The digit that activates this class from the keyboard. Styled as a key rather
+   than as list numbering so it reads as something you press. */
+.class-hotkey {
+  flex-shrink: 0;
+  min-width: 16px;
+  padding: 1px 4px;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--bg, #f5f6f7);
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.class-item.is-active .class-hotkey {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .chip-name,
 .annotation-item strong {
   min-width: 0;

@@ -12,7 +12,7 @@
 
 import { annotationOpacity } from "../feature-flags.js?v=1";
 import { drawAllLayers } from "../canvas/draw.js?v=2";
-import { setStatus } from "./workspace.js?v=3";
+import { setStatus } from "./workspace.js?v=4";
 
 const OPACITY_STORAGE_KEY = "annotation_opacity_percent";
 const DEFAULT_OPACITY = 50;

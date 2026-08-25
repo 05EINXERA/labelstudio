@@ -1,5 +1,5 @@
 import { generateUUID, clamp, round } from "../utils.js?v=1";
-import { state, snapshot, isAnnotationHidden } from "../state.js?v=2";
+import { state, snapshot, isAnnotationHidden, labelDisplayName } from "../state.js?v=2";
 import {
   annotationPoints,
   updateAnnotationBounds,
@@ -13,7 +13,7 @@ import { view } from "./view.js?v=1";
 import { draw, drawAllLayers } from "./draw.js?v=1";
 import { canvas, undoButton } from "../dom.js?v=1";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
-import { setStatus, save, render } from "../components/workspace.js?v=3";
+import { setStatus, save, render, activateLabel, HOTKEY_LABEL_LIMIT } from "../components/workspace.js?v=4";
 import { performMagicWandSegmentation } from "../ai/detect.js?v=2";
 import { applyAutoSmooth } from "../fft-controls.js?v=1";
 import { annotationSettings } from "../feature-flags.js?v=1";
@@ -1281,8 +1281,37 @@ canvas.addEventListener("pointercancel", () => {
 
 window.addEventListener("keydown", (event) => {
   const target = event.target;
-  const isTyping = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
+  const isTyping = target instanceof HTMLInputElement
+    || target instanceof HTMLTextAreaElement
+    || target?.isContentEditable;
   if (isTyping) return;
+
+  // Digit hotkeys pick a class by its position in the sidebar: 1-9 then 0 for
+  // the tenth, Shift for classes 11-20. Read from event.code rather than
+  // event.key because Shift+3 arrives as "#" on a US layout and as something
+  // else again on other layouts, whereas the physical key is stable.
+  if (!event.ctrlKey && !event.metaKey && !event.altKey) {
+    const digitMatch = /^(?:Digit|Numpad)(\d)$/.exec(event.code);
+    if (digitMatch) {
+      // Numpad digits carry no shifted meaning, so only the main row extends
+      // into the 11-20 range.
+      const shifted = event.shiftKey && event.code.startsWith("Digit");
+      if (!event.shiftKey || shifted) {
+        event.preventDefault();
+        const digit = Number(digitMatch[1]);
+        // 0 is the tenth slot, not the zeroth.
+        const index = (digit === 0 ? 9 : digit - 1) + (shifted ? 10 : 0);
+        if (index < HOTKEY_LABEL_LIMIT && index < state.labels.length) {
+          const label = state.labels[index];
+          activateLabel(label);
+          setStatus(`Class ${index + 1}: ${labelDisplayName(label)}`);
+        } else {
+          setStatus(`No class ${index + 1}`);
+        }
+        return;
+      }
+    }
+  }
 
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
     event.preventDefault();
