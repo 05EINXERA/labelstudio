@@ -7,6 +7,9 @@ hard-deleted, there is no trash.
     python scripts/backup.py --dest \\\\fileserver\\annotation-backups
     python scripts/backup.py --dest D:/backups --keep 14
 
+Snapshots are kept indefinitely unless --keep is passed: deleting a backup is a
+deliberate act, never a side effect of taking one.
+
 Handles both backends:
 - SQLite: uses the online backup API, which is safe to run against a live
   database. A plain file copy of a WAL-mode database can capture a torn state.
@@ -200,8 +203,37 @@ def check_disk_space(path: str, required_bytes: int) -> None:
         )
 
 
+def snapshot_report(dest_dir: str) -> tuple[int, int, int]:
+    """Count of snapshots, their total bytes, and free bytes at the destination.
+
+    Retention is off by default (see main()), so nothing bounds this directory's
+    growth. Reporting it every run is the only signal that the disk is filling
+    before Postgres and the app start failing on a full volume.
+    """
+    snapshots = [f for f in os.listdir(dest_dir)
+                 if f.startswith("workspace-") and f.endswith((".db", ".dump"))]
+    total = 0
+    for name in snapshots:
+        try:
+            total += os.path.getsize(os.path.join(dest_dir, name))
+        except OSError:
+            continue
+    try:
+        free = shutil.disk_usage(dest_dir).free
+    except OSError:
+        free = 0
+    return len(snapshots), total, free
+
+
 def prune(dest_dir: str, keep: int) -> int:
-    """Delete all but the newest `keep` database backups."""
+    """Delete all but the newest `keep` database backups.
+
+    Only ever called when --keep is passed explicitly. Backups are retained
+    indefinitely by default: the 2026-08-26 investigation into task 280 found
+    its history had already been pruned away, because count-based retention at
+    an hourly cadence bought under two days of cover. Deleting a backup is now
+    a deliberate act, not a side effect of taking one.
+    """
     snapshots = sorted(
         (f for f in os.listdir(dest_dir)
          if f.startswith("workspace-") and f.endswith((".db", ".dump"))),
@@ -229,6 +261,11 @@ _MIN_FREE_FLOOR_BYTES = 500 * 1024 * 1024
 # fills — this is a warning, not a hard abort, since it's the *source*, not
 # the backup we're about to write.
 _SOURCE_MIN_FREE_BYTES = 1 * 1024 * 1024 * 1024
+
+# Warn once the destination holds less than this many days of backups at the
+# current cadence. 30 days is enough notice to free space or move snapshots off
+# the box without anyone having to watch the disk.
+_LOW_RUNWAY_DAYS = 30
 
 
 def _current_db_size() -> int:
@@ -259,7 +296,13 @@ def check_source_disk_space() -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Back up the database and uploads.")
     parser.add_argument("--dest", required=True, help="Backup directory (ideally off this machine).")
-    parser.add_argument("--keep", type=int, default=7, help="How many database snapshots to retain.")
+    parser.add_argument(
+        "--keep",
+        type=int,
+        default=None,
+        help="Delete all but the newest N snapshots. Omitted (the default), "
+             "nothing is ever deleted and backups accumulate indefinitely.",
+    )
     parser.add_argument("--skip-uploads", action="store_true")
     args = parser.parse_args()
 
@@ -291,9 +334,28 @@ def main() -> int:
             _write_status(args.dest, ok=False, detail=f"upload mirror failed: {exc}")
             return 1
 
-    removed = prune(args.dest, args.keep)
-    if removed:
-        print(f"Pruned {removed} old snapshot(s), keeping {args.keep}")
+    if args.keep is None:
+        print("Retention: DISABLED - no snapshot is ever deleted automatically.")
+    else:
+        removed = prune(args.dest, args.keep)
+        if removed:
+            print(f"Pruned {removed} old snapshot(s), keeping {args.keep}")
+
+    # Nothing bounds this directory when retention is off, so surface the size
+    # and the runway every run rather than waiting for a full disk to show up
+    # as a Postgres write failure.
+    count, snap_bytes, free_bytes = snapshot_report(args.dest)
+    print(f"Snapshots: {count} totalling {snap_bytes / 1e9:.2f} GB; "
+          f"{free_bytes / 1e9:.2f} GB free at destination")
+    if args.keep is None and count > 1 and free_bytes:
+        avg = snap_bytes / count
+        # Two runs a day at the current average size.
+        daily = avg * 2
+        days_left = free_bytes / daily if daily else 0
+        if days_left < _LOW_RUNWAY_DAYS:
+            print(f"WARNING: about {days_left:.0f} day(s) of backup space left "
+                  f"at ~{daily / 1e9:.2f} GB/day. Retention is disabled - "
+                  f"delete old snapshots manually or move them off this disk.")
 
     # Visibility into destination growth over time — nothing prunes the
     # upload mirror today, so at minimum its size should show up somewhere
