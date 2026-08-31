@@ -1409,6 +1409,36 @@ window.addEventListener("keydown", (event) => {
     return;
   }
 
+  // H hides the selection, U reveals it. A hidden annotation can no longer be
+  // clicked on the canvas (isAnnotationHidden gates the hit-test too), so U
+  // with nothing selected reveals everything hidden — otherwise an annotator
+  // who hid a shape and then clicked elsewhere would have no way back except
+  // the sidebar eye button.
+  if (event.key.toLowerCase() === "h" && state.selectedIds.size > 0) {
+    event.preventDefault();
+    state.selectedIds.forEach((id) => state.hiddenAnnotationIds.add(id));
+    setStatus(state.selectedIds.size > 1
+      ? `${state.selectedIds.size} objects hidden (U to reveal)`
+      : "Object hidden (U to reveal)");
+    render();
+    return;
+  }
+  if (event.key.toLowerCase() === "u") {
+    event.preventDefault();
+    if (state.selectedIds.size > 0) {
+      state.selectedIds.forEach((id) => state.hiddenAnnotationIds.delete(id));
+      setStatus("Object revealed");
+    } else if (state.hiddenAnnotationIds.size > 0) {
+      const count = state.hiddenAnnotationIds.size;
+      state.hiddenAnnotationIds.clear();
+      setStatus(`${count} hidden object${count > 1 ? "s" : ""} revealed`);
+    } else {
+      setStatus("Nothing hidden");
+    }
+    render();
+    return;
+  }
+
   if (event.key.toLowerCase() === "d") {
     if (!state.activeLabelId) {
       setStatus("Pick class first");
