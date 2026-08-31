@@ -86,6 +86,371 @@ export function isPointInsideOtherGroupPolygons(point, currentAnn, groupAnns) {
   return false;
 }
 
+const UNION_EPSILON = 1e-6;
+
+/**
+ * True only for points in a polygon's interior, never on its border.
+ */
+function pointStrictlyInside(point, polygon, tolerance = UNION_EPSILON) {
+  if (pointOnPolygonBoundary(point, polygon, tolerance)) return false;
+  return pointInPolygon(point, polygon);
+}
+
+/**
+ * True when the two polygons share actual area or a stretch of border — the
+ * precondition for merging them into a single outline.
+ *
+ * Contact at a single point (corner-to-corner) does NOT count. Bridging across
+ * such a pinch would sweep the empty space on either side of it into the merged
+ * shape, so those annotations must stay separate.
+ */
+export function polygonsTouch(a, b) {
+  if (!a?.length || !b?.length) return false;
+
+  // Edges that properly cross. Endpoint-only grazing is excluded, so two shapes
+  // meeting at a single corner do not qualify.
+  for (let i = 0; i < a.length; i++) {
+    const p1 = a[i];
+    const p2 = a[(i + 1) % a.length];
+    for (let j = 0; j < b.length; j++) {
+      const p3 = b[j];
+      const p4 = b[(j + 1) % b.length];
+      const hit = getLineSegmentsIntersection(p1, p2, p3, p4);
+      if (hit &&
+          hit.t > UNION_EPSILON && hit.t < 1 - UNION_EPSILON &&
+          hit.u > UNION_EPSILON && hit.u < 1 - UNION_EPSILON) {
+        return true;
+      }
+    }
+  }
+
+  // Shared area without crossing edges: one shape sits inside the other, or the
+  // two lie along a common border. Sampling edge midpoints (rather than
+  // vertices, which are ambiguous exactly at a corner touch) tells a real
+  // overlap from two shapes that merely meet at a point.
+  for (const [first, second] of [[a, b], [b, a]]) {
+    for (let i = 0; i < first.length; i++) {
+      const p1 = first[i];
+      const p2 = first[(i + 1) % first.length];
+      const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+      if (pointStrictlyInside(mid, second)) return true;
+      if (pointOnPolygonBoundary(mid, second, UNION_EPSILON)) return true;
+    }
+  }
+
+  return false;
+}
+
+function samePoint(a, b, epsilon = 1e-3) {
+  return Math.hypot(a.x - b.x, a.y - b.y) < epsilon;
+}
+
+/**
+ * Splits every edge of `subject` at the points where it crosses any edge of the
+ * other polygons, so each resulting vertex run is entirely inside or entirely
+ * outside those polygons.
+ */
+function splitPolygonAtIntersections(subject, others) {
+  const result = [];
+
+  for (let i = 0; i < subject.length; i++) {
+    const p1 = subject[i];
+    const p2 = subject[(i + 1) % subject.length];
+    result.push(p1);
+
+    const cuts = [];
+    for (const other of others) {
+      for (let j = 0; j < other.length; j++) {
+        const p3 = other[j];
+        const p4 = other[(j + 1) % other.length];
+        const hit = getLineSegmentsIntersection(p1, p2, p3, p4);
+        if (!hit) continue;
+        if (hit.t <= UNION_EPSILON || hit.t >= 1 - UNION_EPSILON) continue;
+        if (hit.u < -UNION_EPSILON || hit.u > 1 + UNION_EPSILON) continue;
+        cuts.push({ t: hit.t, x: hit.x, y: hit.y });
+      }
+    }
+
+    cuts.sort((a, b) => a.t - b.t);
+    for (const cut of cuts) {
+      const last = result[result.length - 1];
+      if (!samePoint(last, cut)) result.push({ x: cut.x, y: cut.y });
+    }
+  }
+
+  return result;
+}
+
+/**
+ * True when every shape is reachable from every other through a chain of
+ * touching shapes (A touches B, B touches C -> connected).
+ */
+function shapesAreConnected(shapes) {
+  const seen = new Set([0]);
+  const queue = [0];
+
+  while (queue.length) {
+    const current = queue.pop();
+    for (let i = 0; i < shapes.length; i++) {
+      if (seen.has(i)) continue;
+      // polygonsTouch requires shared area or a run of border, so shapes
+      // separated by even a hairline gap are not treated as connected.
+      if (!polygonsTouch(shapes[current], shapes[i])) continue;
+      seen.add(i);
+      queue.push(i);
+    }
+  }
+  return seen.size === shapes.length;
+}
+
+/**
+ * Drops vertices that sit on the straight line between their neighbours, so the
+ * merged outline keeps only real corners instead of leftover split points.
+ */
+function dropCollinearVertices(points, tolerance = 1e-6) {
+  if (points.length < 3) return points;
+
+  const result = [];
+  for (let i = 0; i < points.length; i++) {
+    const previous = points[(i - 1 + points.length) % points.length];
+    const current = points[i];
+    const next = points[(i + 1) % points.length];
+
+    const cross = (current.x - previous.x) * (next.y - previous.y) -
+      (current.y - previous.y) * (next.x - previous.x);
+    const scale = Math.hypot(next.x - previous.x, next.y - previous.y);
+    if (scale > 0 && Math.abs(cross) / scale <= tolerance) continue;
+
+    result.push(current);
+  }
+  return result.length >= 3 ? result : points;
+}
+
+/**
+ * True when the point lies on one of the polygon's edges (within tolerance),
+ * as opposed to strictly inside or strictly outside it.
+ */
+function pointOnPolygonBoundary(point, polygon, tolerance = 1e-6) {
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const p1 = polygon[j];
+    const p2 = polygon[i];
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const lengthSquared = dx * dx + dy * dy;
+    if (lengthSquared === 0) continue;
+
+    let t = ((point.x - p1.x) * dx + (point.y - p1.y) * dy) / lengthSquared;
+    t = Math.max(0, Math.min(1, t));
+    const distance = Math.hypot(point.x - (p1.x + t * dx), point.y - (p1.y + t * dy));
+    if (distance <= tolerance) return true;
+  }
+  return false;
+}
+
+/**
+ * Shoelace area keeping its sign: positive for counter-clockwise winding
+ * in image coordinates, negative for clockwise.
+ */
+function signedArea(points) {
+  let area = 0;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    area += (points[j].x * points[i].y) - (points[i].x * points[j].y);
+  }
+  return area / 2;
+}
+
+/**
+ * At a junction where several arcs leave the same vertex, picks the one that
+ * turns furthest outward, keeping the walk on the outer boundary.
+ */
+function pickOutermostTurn(previous, vertex, candidates) {
+  const incoming = Math.atan2(vertex.y - previous.y, vertex.x - previous.x);
+  let best = candidates[0];
+  let bestTurn = -Infinity;
+
+  for (const candidate of candidates) {
+    const outgoing = Math.atan2(candidate.to.y - vertex.y, candidate.to.x - vertex.x);
+    let turn = outgoing - incoming;
+    while (turn <= -Math.PI) turn += 2 * Math.PI;
+    while (turn > Math.PI) turn -= 2 * Math.PI;
+    if (turn > bestTurn) {
+      bestTurn = turn;
+      best = candidate;
+    }
+  }
+  return best;
+}
+
+/**
+ * True when any vertex appears more than once in the ring — the signature of an
+ * outline that pinches shut at a point instead of enclosing a single region.
+ */
+function hasRepeatedVertex(points) {
+  for (let i = 0; i < points.length; i++) {
+    for (let j = i + 1; j < points.length; j++) {
+      if (samePoint(points[i], points[j])) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Sum of the input areas. Overlaps are counted twice, so this is an upper bound
+ * on a correct union — a result exceeding it has swallowed empty space.
+ */
+function sumOfAreas(shapes) {
+  return shapes.reduce((total, shape) => total + polygonArea(shape), 0);
+}
+
+/**
+ * True when the candidate outline covers every input shape, checked on each
+ * shape's vertices and edge midpoints. Guards against a walk that closed early
+ * and left part of an annotation outside the merged result.
+ */
+function containsAllShapes(outline, shapes) {
+  for (const shape of shapes) {
+    for (let i = 0; i < shape.length; i++) {
+      const current = shape[i];
+      const next = shape[(i + 1) % shape.length];
+      const mid = { x: (current.x + next.x) / 2, y: (current.y + next.y) / 2 };
+      if (!pointInOrOnPolygon(current, outline)) return false;
+      if (!pointInOrOnPolygon(mid, outline)) return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Merges a set of touching/overlapping polygons into a single outline.
+ *
+ * Walks the boundary of each polygon, keeps only the arcs that lie outside every
+ * other polygon, and stitches those arcs together. The vertices that fall in the
+ * overlap — the intersection coordinates the annotator no longer wants to see or
+ * drag — are dropped entirely, so the merged shape is one real polygon rather
+ * than several shapes painted to look like one.
+ *
+ * Returns null when the polygons do not form a single connected region, so the
+ * caller can leave them as separate shapes instead of producing a broken outline.
+ */
+export function unionPolygons(polygons) {
+  const shapes = (polygons || [])
+    .map((pts) => filterConsecutiveDuplicates(pts))
+    .filter((pts) => pts.length >= 3);
+
+  if (shapes.length === 0) return null;
+  if (shapes.length === 1) return shapes[0];
+
+  // A union is only meaningful for one connected region; disjoint shapes must
+  // stay separate rather than be stitched into a bogus outline.
+  if (!shapesAreConnected(shapes)) return null;
+
+  // Drop shapes fully swallowed by another one; they contribute no boundary.
+  // Containment is checked on edge midpoints as well as vertices: a shape
+  // spanning a concave notch can have every corner on the other's boundary
+  // while its middle crosses open space, and absorbing it would swallow that gap.
+  const kept = shapes.filter((shape, index) => !shapes.some((other, otherIndex) => (
+    otherIndex !== index &&
+    polygonArea(other) >= polygonArea(shape) &&
+    containsAllShapes(other, [shape])
+  )));
+  const active = kept.length ? kept : [shapes[0]];
+  if (active.length === 1) return active[0];
+
+  // Ensure every shape is wound the same way, so the outline walk sees a
+  // consistent traversal direction regardless of how the user drew each shape.
+  const oriented = active.map((shape) => (signedArea(shape) > 0 ? [...shape].reverse() : shape));
+
+  // Collect the boundary arcs that survive the union: an edge is on the outline
+  // only when its midpoint lies outside all the other polygons.
+  const edges = [];
+  for (let index = 0; index < oriented.length; index++) {
+    const others = oriented.filter((_, otherIndex) => otherIndex !== index);
+    const split = splitPolygonAtIntersections(oriented[index], others);
+
+    for (let i = 0; i < split.length; i++) {
+      const from = split[i];
+      const to = split[(i + 1) % split.length];
+      if (samePoint(from, to)) continue;
+
+      const mid = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
+      // Strictly-interior arcs are dropped. An arc lying *on* another shape's
+      // border is not interior — it is part of the shared outline — so the
+      // on-boundary case must be excluded from the containment test.
+      if (others.some((other) => !pointOnPolygonBoundary(mid, other) && pointInOrOnPolygon(mid, other))) continue;
+
+      // A border shared with another shape (collinear, not strictly inside) is
+      // produced once per shape; keep a single copy or the walk forks.
+      if (edges.some((edge) => samePoint(edge.from, from) && samePoint(edge.to, to))) continue;
+
+      edges.push({ from, to, used: false });
+    }
+  }
+
+  if (!edges.length) return null;
+
+  // Start from an edge that is guaranteed to be on the outer hull: the one
+  // leaving the leftmost (then lowest) vertex of the whole set.
+  let start = edges[0];
+  for (const edge of edges) {
+    if (edge.from.x < start.from.x - 1e-9 ||
+        (Math.abs(edge.from.x - start.from.x) < 1e-9 && edge.from.y < start.from.y)) {
+      start = edge;
+    }
+  }
+
+  // Stitch the arcs head-to-tail into one closed ring.
+  start.used = true;
+  const ring = [start.from, start.to];
+
+  while (true) {
+    const tail = ring[ring.length - 1];
+    const previous = ring[ring.length - 2];
+    const candidates = edges.filter((edge) => !edge.used && samePoint(edge.from, tail));
+
+    // Close only when back at the start with nothing left to walk from here;
+    // closing early would cut off arcs that are still part of the outline.
+    if (ring.length > 2 && samePoint(tail, ring[0]) && !candidates.length) {
+      ring.pop();
+      break;
+    }
+
+    if (!candidates.length) {
+      // The arcs did not close: the shapes do not form one connected outline.
+      return null;
+    }
+
+    // At a junction, take the most counter-clockwise turn to stay on the outer
+    // boundary rather than diving into an interior pocket.
+    const next = candidates.length === 1
+      ? candidates[0]
+      : pickOutermostTurn(previous, tail, candidates);
+
+    next.used = true;
+    ring.push(next.to);
+
+    if (ring.length > edges.length + 2) return null;
+  }
+
+  const merged = dropCollinearVertices(filterConsecutiveDuplicates(ring));
+  if (merged.length < 3) return null;
+
+  // A vertex visited twice means the ring pinches shut at a point: the shapes
+  // only met at a corner, and the outline doubles back rather than enclosing one
+  // region. Merging there would sweep in the empty space either side of the pinch.
+  if (hasRepeatedVertex(merged)) return null;
+
+  // The union must contain every input shape. A walk that closed early — or a
+  // region whose true union has a hole, which a single ring cannot express —
+  // would silently drop part of an annotation, so refuse instead.
+  if (!containsAllShapes(merged, active)) return null;
+
+  // It must also not invent area: bridging across a pinch point would swallow
+  // empty space that belongs to neither shape.
+  if (polygonArea(merged) > sumOfAreas(active) + 1e-3) return null;
+
+  return merged;
+}
+
 export function hexToRgba(hex, alpha) {
   const clean = hex.replace("#", "");
   const value = parseInt(clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean, 16);

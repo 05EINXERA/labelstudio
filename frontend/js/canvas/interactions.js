@@ -7,8 +7,10 @@ import {
   isPointInsideOtherGroupPolygons,
   addPolygonPointResolvingIntersections,
   resolvePolygonClosingIntersections,
-  resolveClosedPolygonIntersections
-} from "./geometry.js?v=1";
+  resolveClosedPolygonIntersections,
+  polygonsTouch,
+  unionPolygons
+} from "./geometry.js?v=2";
 import { view } from "./view.js?v=1";
 import { draw, drawAllLayers } from "./draw.js?v=1";
 import { canvas, undoButton } from "../dom.js?v=1";
@@ -557,19 +559,107 @@ export function groupSelectedAnnotations() {
     return;
   }
 
-  const baseAnnotation = selectedList[0];
-  const groupId = generateUUID();
+  // Captured up front: the base annotation may itself be absorbed by a merge.
+  const baseLabelId = selectedList[0].labelId;
 
-  state.annotations.forEach(a => {
-    if (state.selectedIds.has(a.id) && a.type !== "comment") {
-      a.groupId = groupId;
-      a.labelId = baseAnnotation.labelId;
+  // Shapes that touch each other are merged into a single polygon: the union
+  // outline replaces them and the vertices buried in the overlap are discarded,
+  // so the result is one real object rather than several overlapping ones.
+  const clusters = clusterTouchingAnnotations(selectedList);
+  const merged = [];
+  const consumed = new Set();
+  let refusedMerge = false;
+
+  for (const cluster of clusters) {
+    if (cluster.length < 2) continue;
+    const outline = unionPolygons(cluster.map(a => annotationPoints(a)));
+    if (!outline || outline.length < 3) {
+      // The shapes touch but their union is not a single simple region (they
+      // meet only at a point, or enclose a hole). Merging would distort them,
+      // so they are left as they are and only grouped.
+      refusedMerge = true;
+      continue;
     }
-  });
+
+    const survivor = cluster[0];
+    survivor.type = "polygon";
+    survivor.points = outline.map(p => ({ x: round(p.x), y: round(p.y) }));
+    survivor.labelId = baseLabelId;
+    delete survivor.groupId;
+    updateAnnotationBounds(survivor);
+
+    cluster.slice(1).forEach(a => consumed.add(a.id));
+    merged.push(survivor);
+  }
+
+  if (consumed.size) {
+    state.annotations = state.annotations.filter(a => !consumed.has(a.id));
+    consumed.forEach(id => state.selectedIds.delete(id));
+  }
+
+  // Anything left over (shapes that never touched) keeps the visual group so the
+  // existing grouped-selection behaviour is preserved.
+  const remaining = state.annotations.filter(a => state.selectedIds.has(a.id) && a.type !== "comment");
+  const stillSeparate = remaining.filter(a => !merged.includes(a));
+
+  if (remaining.length > 1 && stillSeparate.length) {
+    const groupId = generateUUID();
+    remaining.forEach(a => {
+      a.groupId = groupId;
+      a.labelId = baseLabelId;
+    });
+  } else {
+    remaining.forEach(a => { a.labelId = baseLabelId; });
+  }
+
+  if (!consumed.size && remaining.length <= 1) {
+    state.history.pop();
+    return;
+  }
 
   render();
   save();
-  setStatus("Grouped");
+  if (refusedMerge && !consumed.size) {
+    setStatus("Grouped (shapes could not be merged into one outline)");
+  } else {
+    setStatus(consumed.size ? "Merged" : "Grouped");
+  }
+}
+
+/**
+ * Partitions annotations into clusters of shapes that touch or overlap, directly
+ * or transitively (A touches B, B touches C -> one cluster).
+ */
+function clusterTouchingAnnotations(annotations) {
+  const shapes = annotations.map(a => ({ annotation: a, points: annotationPoints(a) }));
+  const parent = shapes.map((_, i) => i);
+
+  const find = (i) => {
+    while (parent[i] !== i) {
+      parent[i] = parent[parent[i]];
+      i = parent[i];
+    }
+    return i;
+  };
+
+  for (let i = 0; i < shapes.length; i++) {
+    for (let j = i + 1; j < shapes.length; j++) {
+      if (shapes[i].points.length < 3 || shapes[j].points.length < 3) continue;
+      if (!polygonsTouch(shapes[i].points, shapes[j].points)) continue;
+      const rootI = find(i);
+      const rootJ = find(j);
+      if (rootI !== rootJ) parent[rootJ] = rootI;
+    }
+  }
+
+  const groups = new Map();
+  shapes.forEach((shape, i) => {
+    const root = find(i);
+    if (!groups.has(root)) groups.set(root, []);
+    groups.get(root).push(shape.annotation);
+  });
+
+  return [...groups.values()];
 }
 
 const ungroupButton = document.querySelector("#ungroupButton");
