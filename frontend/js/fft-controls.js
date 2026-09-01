@@ -9,7 +9,7 @@
 
 import { smoothPolygon, autoTolerance } from './canvas/fft-smooth.js?v=1';
 import { state, snapshot } from './state.js?v=2';
-import { updateAnnotationBounds } from './canvas/geometry.js?v=2';
+import { updateAnnotationBounds } from './canvas/geometry.js?v=3';
 import { render } from './components/workspace.js?v=4';
 import { setStatus } from './components/workspace.js?v=4';
 

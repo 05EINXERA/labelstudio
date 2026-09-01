@@ -165,6 +165,69 @@ def drop_collinear_vertices(points, tolerance=EPSILON):
     return result if len(result) >= 3 else points
 
 
+def interior_angle_at(points, i):
+    current = points[i]
+    previous = points[(i - 1) % len(points)]
+    nxt = points[(i + 1) % len(points)]
+    to_previous = math.atan2(previous["y"] - current["y"], previous["x"] - current["x"])
+    to_next = math.atan2(nxt["y"] - current["y"], nxt["x"] - current["x"])
+    delta = abs(to_previous - to_next)
+    if delta > math.pi:
+        delta = 2 * math.pi - delta
+    return delta * 180 / math.pi
+
+
+def smooth_union_cusps(points, angle_threshold=150, max_segment_length=3, arc_steps=4):
+    """Rounds the cusps a union leaves where two shapes crossed, without
+    disturbing corners the annotator drew. Angle alone cannot separate the two —
+    a merged box's 90 degree corner is sharper than a typical blob cusp — so a
+    vertex is only smoothed when both neighbouring segments are short, which
+    marks a densely traced curve rather than a deliberate straight edge."""
+    if not points or len(points) < 3:
+        return points or []
+
+    result = []
+    for i in range(len(points)):
+        current = points[i]
+        previous = points[(i - 1) % len(points)]
+        nxt = points[(i + 1) % len(points)]
+
+        to_previous_length = math.hypot(current["x"] - previous["x"], current["y"] - previous["y"])
+        to_next_length = math.hypot(nxt["x"] - current["x"], nxt["y"] - current["y"])
+
+        is_sharp = interior_angle_at(points, i) < angle_threshold
+        on_traced_curve = (to_previous_length <= max_segment_length
+                           and to_next_length <= max_segment_length)
+
+        if not is_sharp or not on_traced_curve:
+            result.append(current)
+            continue
+
+        inset = min(to_previous_length, to_next_length) / 3
+        if inset <= 1e-6:
+            result.append(current)
+            continue
+
+        start = {
+            "x": current["x"] + (previous["x"] - current["x"]) * (inset / to_previous_length),
+            "y": current["y"] + (previous["y"] - current["y"]) * (inset / to_previous_length),
+        }
+        end = {
+            "x": current["x"] + (nxt["x"] - current["x"]) * (inset / to_next_length),
+            "y": current["y"] + (nxt["y"] - current["y"]) * (inset / to_next_length),
+        }
+
+        for step in range(arc_steps + 1):
+            t = step / arc_steps
+            inverse = 1 - t
+            result.append({
+                "x": inverse * inverse * start["x"] + 2 * inverse * t * current["x"] + t * t * end["x"],
+                "y": inverse * inverse * start["y"] + 2 * inverse * t * current["y"] + t * t * end["y"],
+            })
+
+    return result if len(result) >= 3 else points
+
+
 def has_repeated_vertex(points):
     for i in range(len(points)):
         for j in range(i + 1, len(points)):
@@ -543,6 +606,65 @@ def test_union_never_exceeds_the_sum_of_its_parts():
         merged = union_polygons(shapes)
         assert merged is not None
         assert polygon_area(merged) <= sum_of_areas(shapes) + 1e-3
+
+
+# --- Cusp smoothing ------------------------------------------------------------
+# A union leaves a sharp cusp where two shapes crossed. Those are rounded, but
+# only on traced curves: corners the annotator drew as straight edges must stay
+# exactly as they are. Angle alone cannot tell them apart, since a merged box's
+# 90-degree corner is sharper than a typical blob cusp (~99 degrees).
+
+def circle(cx, cy, r, n):
+    return [
+        {"x": cx + r * math.cos(i / n * 2 * math.pi),
+         "y": cy + r * math.sin(i / n * 2 * math.pi)}
+        for i in range(n)
+    ]
+
+
+def min_interior_angle(points):
+    return min(interior_angle_at(points, i) for i in range(len(points)))
+
+
+def test_blob_merge_cusps_are_rounded():
+    merged = union_polygons([circle(100, 100, 50, 40), circle(160, 100, 50, 40)])
+    assert merged is not None
+    assert min_interior_angle(merged) < 120        # the crossing leaves a cusp
+    smoothed = smooth_union_cusps(merged)
+    assert min_interior_angle(smoothed) > 140      # and it is rounded away
+
+
+def test_smoothing_barely_changes_blob_area():
+    """Rounding must not meaningfully alter what the annotation covers."""
+    merged = union_polygons([circle(100, 100, 50, 40), circle(160, 100, 50, 40)])
+    smoothed = smooth_union_cusps(merged)
+    before = polygon_area(merged)
+    assert abs(polygon_area(smoothed) - before) / before < 0.001
+
+
+def test_box_corners_are_never_smoothed():
+    """90-degree corners between long straight edges are deliberate, not cusps."""
+    for shapes in (
+        [box(0, 0, 100, 100), box(50, 0, 100, 100)],
+        [box(0, 0, 100, 40), box(0, 0, 40, 100)],
+        [box(0, 0, 100, 100), box(70, 70, 100, 100)],
+    ):
+        merged = union_polygons(shapes)
+        assert merged is not None
+        assert smooth_union_cusps(merged) == merged
+
+
+def test_sharp_corner_between_long_edges_is_preserved():
+    """A deliberate spike drawn with long edges keeps its point."""
+    spike = [{"x": 0, "y": 0}, {"x": 100, "y": 0}, {"x": 50, "y": 5}]
+    assert smooth_union_cusps(spike) == spike
+
+
+def test_smoothing_leaves_short_shapes_alone():
+    assert smooth_union_cusps([]) == []
+    assert smooth_union_cusps([{"x": 0, "y": 0}, {"x": 1, "y": 1}]) == [
+        {"x": 0, "y": 0}, {"x": 1, "y": 1}
+    ]
 
 
 def test_union_always_contains_every_input_shape():

@@ -9,8 +9,9 @@ import {
   resolvePolygonClosingIntersections,
   resolveClosedPolygonIntersections,
   polygonsTouch,
-  unionPolygons
-} from "./geometry.js?v=2";
+  unionPolygons,
+  smoothUnionCusps
+} from "./geometry.js?v=3";
 import { view } from "./view.js?v=1";
 import { draw, drawAllLayers } from "./draw.js?v=3";
 import { canvas, undoButton } from "../dom.js?v=1";
@@ -581,9 +582,14 @@ export function groupSelectedAnnotations() {
       continue;
     }
 
+    // Round the cusps left where the shapes crossed. Only sharp turns between
+    // short segments (a traced curve) are affected; corners drawn as straight
+    // edges — a merged box's 90° corner — are left exactly as they are.
+    const smoothed = smoothUnionCusps(outline);
+
     const survivor = cluster[0];
     survivor.type = "polygon";
-    survivor.points = outline.map(p => ({ x: round(p.x), y: round(p.y) }));
+    survivor.points = smoothed.map(p => ({ x: round(p.x), y: round(p.y) }));
     survivor.labelId = baseLabelId;
     // Rendering hint only: the union's cusps are stroked with round joins so the
     // merged shape reads as smoothly as the old grouped rendering did. The

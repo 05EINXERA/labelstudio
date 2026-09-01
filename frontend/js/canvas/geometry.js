@@ -227,6 +227,93 @@ function dropCollinearVertices(points, tolerance = 1e-6) {
 }
 
 /**
+ * Interior angle at vertex `i`, in degrees.
+ */
+function interiorAngleAt(points, i) {
+  const current = points[i];
+  const previous = points[(i - 1 + points.length) % points.length];
+  const next = points[(i + 1) % points.length];
+
+  const toPrevious = Math.atan2(previous.y - current.y, previous.x - current.x);
+  const toNext = Math.atan2(next.y - current.y, next.x - current.x);
+  let delta = Math.abs(toPrevious - toNext);
+  if (delta > Math.PI) delta = 2 * Math.PI - delta;
+  return delta * 180 / Math.PI;
+}
+
+/**
+ * Rounds the cusps a union leaves where two shapes crossed, without disturbing
+ * corners the annotator actually drew.
+ *
+ * The two cases cannot be told apart by angle — a merged box's legitimate corner
+ * (90°) is sharper than a typical blob cusp (~99°). What separates them is the
+ * neighbourhood: a traced curve (a SAM mask, a hand-drawn polygon) arrives as
+ * many sub-pixel segments, so a sharp turn between two *short* segments is an
+ * artefact of the crossing. A sharp turn between long straight edges is a real
+ * corner and is left exactly as it is.
+ *
+ * Replaces such a cusp with a small arc inset along its own two edges, so the
+ * rounding never extends beyond the original outline.
+ */
+export function smoothUnionCusps(points, {
+  angleThreshold = 150,
+  maxSegmentLength = 3,
+  arcSteps = 4
+} = {}) {
+  if (!Array.isArray(points) || points.length < 3) return points || [];
+
+  const result = [];
+
+  for (let i = 0; i < points.length; i++) {
+    const current = points[i];
+    const previous = points[(i - 1 + points.length) % points.length];
+    const next = points[(i + 1) % points.length];
+
+    const toPreviousLength = Math.hypot(current.x - previous.x, current.y - previous.y);
+    const toNextLength = Math.hypot(next.x - current.x, next.y - current.y);
+
+    const isSharp = interiorAngleAt(points, i) < angleThreshold;
+    // Both neighbours short => this sits inside a densely traced curve.
+    const onTracedCurve = toPreviousLength <= maxSegmentLength &&
+      toNextLength <= maxSegmentLength;
+
+    if (!isSharp || !onTracedCurve) {
+      result.push(current);
+      continue;
+    }
+
+    // Inset at most a third of each edge, so neighbouring vertices keep their
+    // own geometry and the arc stays inside the original corner.
+    const inset = Math.min(toPreviousLength, toNextLength) / 3;
+    if (inset <= 1e-6) {
+      result.push(current);
+      continue;
+    }
+
+    const start = {
+      x: current.x + (previous.x - current.x) * (inset / toPreviousLength),
+      y: current.y + (previous.y - current.y) * (inset / toPreviousLength)
+    };
+    const end = {
+      x: current.x + (next.x - current.x) * (inset / toNextLength),
+      y: current.y + (next.y - current.y) * (inset / toNextLength)
+    };
+
+    // Quadratic Bézier through the corner: start -> current (control) -> end.
+    for (let step = 0; step <= arcSteps; step++) {
+      const t = step / arcSteps;
+      const inverse = 1 - t;
+      result.push({
+        x: inverse * inverse * start.x + 2 * inverse * t * current.x + t * t * end.x,
+        y: inverse * inverse * start.y + 2 * inverse * t * current.y + t * t * end.y
+      });
+    }
+  }
+
+  return result.length >= 3 ? result : points;
+}
+
+/**
  * True when the point lies on one of the polygon's edges (within tolerance),
  * as opposed to strictly inside or strictly outside it.
  */
@@ -448,6 +535,8 @@ export function unionPolygons(polygons) {
   // empty space that belongs to neither shape.
   if (polygonArea(merged) > sumOfAreas(active) + 1e-3) return null;
 
+  // The exact union. Cusp smoothing is deliberately left to the caller so the
+  // guards above always validate the true geometry.
   return merged;
 }
 
