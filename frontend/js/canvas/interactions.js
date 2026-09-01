@@ -13,7 +13,7 @@ import {
   smoothUnionCusps
 } from "./geometry.js?v=4";
 import { view } from "./view.js?v=1";
-import { draw, drawAllLayers } from "./draw.js?v=3";
+import { draw, drawAllLayers } from "./draw.js?v=4";
 import { canvas, undoButton } from "../dom.js?v=1";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
 import { setStatus, save, render, activateLabel, HOTKEY_LABEL_LIMIT } from "../components/workspace.js?v=4";

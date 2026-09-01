@@ -461,47 +461,17 @@ export function drawAnnotation(annotation, selected = false, targetCtx = ctx, sk
   // No class-name tag is drawn on the canvas: the Objects panel lists every
   // annotation, and on-image text obscures the pixels being annotated.
 
-  // Draw highlighted/selected line segments on the selected annotation
-  if (selected && annotation.id === state.selectedId && screenPoints.length >= 3) {
-    // Draw hovered line highlight
-    if (view.hoveredLineIndex !== -1 && view.hoveredLineIndex !== view.selectedLineIndex) {
-      const p1 = screenPoints[view.hoveredLineIndex];
-      const p2 = screenPoints[(view.hoveredLineIndex + 1) % screenPoints.length];
-      targetCtx.save();
-      targetCtx.beginPath();
-      targetCtx.moveTo(p1.x, p1.y);
-      targetCtx.lineTo(p2.x, p2.y);
-      targetCtx.strokeStyle = "rgba(255, 107, 107, 0.6)";
-      targetCtx.lineWidth = 5;
-      targetCtx.stroke();
-      targetCtx.restore();
-    }
-    // Draw selected line highlight
-    if (view.selectedLineIndex !== -1 && view.selectedLineIndex < screenPoints.length) {
-      const p1 = screenPoints[view.selectedLineIndex];
-      const p2 = screenPoints[(view.selectedLineIndex + 1) % screenPoints.length];
-      targetCtx.save();
-      targetCtx.beginPath();
-      targetCtx.moveTo(p1.x, p1.y);
-      targetCtx.lineTo(p2.x, p2.y);
-      targetCtx.strokeStyle = "#ff4444";
-      targetCtx.lineWidth = 5;
-      targetCtx.stroke();
-      // Draw small "×" delete hint at the midpoint
-      const mx = (p1.x + p2.x) / 2;
-      const my = (p1.y + p2.y) / 2;
-      targetCtx.beginPath();
-      targetCtx.arc(mx, my, 10, 0, Math.PI * 2);
-      targetCtx.fillStyle = "rgba(255, 68, 68, 0.9)";
-      targetCtx.fill();
-      targetCtx.font = "bold 14px Inter, system-ui, sans-serif";
-      targetCtx.fillStyle = "#ffffff";
-      targetCtx.textAlign = "center";
-      targetCtx.textBaseline = "middle";
-      targetCtx.fillText("×", mx, my);
-      targetCtx.restore();
-    }
-  }
+  // Edges are drawn without any hover or selection highlight. The hover
+  // highlight used to flash a red line on every edge the cursor swept over,
+  // which read as an error state rather than a hint. Edge editing itself is
+  // unaffected and still works from the cursor position alone: left-click an
+  // edge inserts a vertex there, alt-click or right-click removes that segment
+  // (see the handlers in interactions.js).
+  //
+  // The companion "selected edge" highlight — a solid red line plus an ×
+  // badge — was already unreachable: `view.selectedLineIndex` is never assigned
+  // anything but -1 anywhere in the codebase, so that branch could not render.
+  // It was removed with the hover highlight rather than left as dead paint code.
 
   if (selected) {
     const visibleScreenPoints = screenPoints.map((sp, i) => {
