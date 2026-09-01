@@ -11,7 +11,7 @@ import {
   polygonsTouch,
   unionPolygons,
   smoothUnionCusps
-} from "./geometry.js?v=3";
+} from "./geometry.js?v=4";
 import { view } from "./view.js?v=1";
 import { draw, drawAllLayers } from "./draw.js?v=3";
 import { canvas, undoButton } from "../dom.js?v=1";
@@ -629,8 +629,15 @@ export function groupSelectedAnnotations() {
 
   render();
   save();
-  if (refusedMerge && !consumed.size) {
-    setStatus("Grouped (shapes could not be merged into one outline)");
+
+  // A refusal leaves the shapes separate and merely grouped, which looks very
+  // like a completed merge — the outline is painted as one blob either way. Say
+  // so explicitly, including when only part of the selection merged, so the
+  // annotator is never left believing shapes were combined when they were not.
+  if (refusedMerge) {
+    setStatus(consumed.size
+      ? "Partly merged — some shapes could not be combined into one outline"
+      : "Grouped only — these shapes could not be combined into one outline");
   } else {
     setStatus(consumed.size ? "Merged" : "Grouped");
   }

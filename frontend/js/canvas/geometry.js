@@ -88,6 +88,13 @@ export function isPointInsideOtherGroupPolygons(point, currentAnn, groupAnns) {
 
 const UNION_EPSILON = 1e-6;
 
+// An input vertex lies *on* the union boundary by construction, but the split /
+// intersect / round pipeline moves it by a fraction of a pixel, so an exact test
+// reads it as outside and rejects a correct merge. A 0.05px window is far below
+// anything an annotator can see or draw, and far above the accumulated error
+// (measured at ~0.005px).
+const CONTAINMENT_TOLERANCE = 0.05;
+
 /**
  * True only for points in a polygon's interior, never on its border.
  */
@@ -348,20 +355,30 @@ function signedArea(points) {
 
 /**
  * At a junction where several arcs leave the same vertex, picks the one that
- * turns furthest outward, keeping the walk on the outer boundary.
+ * continues most nearly straight ahead.
+ *
+ * Turning consistently outward is only right for a convex outline; on a concave
+ * boundary the outermost turn cuts across the concavity and drops real edge, so
+ * the walk must instead follow the smallest deviation from the incoming
+ * direction. Every candidate here already survived the interior test, so any of
+ * them lies on the union — this only decides the order they are visited in.
  */
-function pickOutermostTurn(previous, vertex, candidates) {
+function pickStraightestContinuation(previous, vertex, candidates) {
+  if (!previous) return candidates[0];
+
   const incoming = Math.atan2(vertex.y - previous.y, vertex.x - previous.x);
   let best = candidates[0];
-  let bestTurn = -Infinity;
+  let smallestDeviation = Infinity;
 
   for (const candidate of candidates) {
     const outgoing = Math.atan2(candidate.to.y - vertex.y, candidate.to.x - vertex.x);
     let turn = outgoing - incoming;
     while (turn <= -Math.PI) turn += 2 * Math.PI;
     while (turn > Math.PI) turn -= 2 * Math.PI;
-    if (turn > bestTurn) {
-      bestTurn = turn;
+
+    const deviation = Math.abs(turn);
+    if (deviation < smallestDeviation) {
+      smallestDeviation = deviation;
       best = candidate;
     }
   }
@@ -382,6 +399,35 @@ function hasRepeatedVertex(points) {
 }
 
 /**
+ * Unifies endpoints that denote the same location, in place.
+ *
+ * A crossing point is computed independently while splitting each shape, so the
+ * two copies can disagree slightly. Chaining compares endpoints with a small
+ * tolerance, and a disagreement wider than that tolerance silently breaks the
+ * ring, so every endpoint within `tolerance` of an earlier one is replaced by
+ * that first representative.
+ */
+function snapSharedEndpoints(edges, tolerance = 1e-3) {
+  const representatives = [];
+
+  const canonical = (point) => {
+    for (const candidate of representatives) {
+      if (Math.hypot(candidate.x - point.x, candidate.y - point.y) <= tolerance) {
+        return candidate;
+      }
+    }
+    const fresh = { x: point.x, y: point.y };
+    representatives.push(fresh);
+    return fresh;
+  };
+
+  for (const edge of edges) {
+    edge.from = canonical(edge.from);
+    edge.to = canonical(edge.to);
+  }
+}
+
+/**
  * Sum of the input areas. Overlaps are counted twice, so this is an upper bound
  * on a correct union — a result exceeding it has swallowed empty space.
  */
@@ -394,14 +440,18 @@ function sumOfAreas(shapes) {
  * shape's vertices and edge midpoints. Guards against a walk that closed early
  * and left part of an annotation outside the merged result.
  */
-function containsAllShapes(outline, shapes) {
+function containsAllShapes(outline, shapes, tolerance = CONTAINMENT_TOLERANCE) {
+  const covered = (point) => (
+    pointOnPolygonBoundary(point, outline, tolerance) || pointInPolygon(point, outline)
+  );
+
   for (const shape of shapes) {
     for (let i = 0; i < shape.length; i++) {
       const current = shape[i];
       const next = shape[(i + 1) % shape.length];
       const mid = { x: (current.x + next.x) / 2, y: (current.y + next.y) / 2 };
-      if (!pointInOrOnPolygon(current, outline)) return false;
-      if (!pointInOrOnPolygon(mid, outline)) return false;
+      if (!covered(current)) return false;
+      if (!covered(mid)) return false;
     }
   }
   return true;
@@ -460,20 +510,36 @@ export function unionPolygons(polygons) {
       if (samePoint(from, to)) continue;
 
       const mid = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
-      // Strictly-interior arcs are dropped. An arc lying *on* another shape's
-      // border is not interior — it is part of the shared outline — so the
-      // on-boundary case must be excluded from the containment test.
-      if (others.some((other) => !pointOnPolygonBoundary(mid, other) && pointInOrOnPolygon(mid, other))) continue;
+      // Strictly-interior arcs are dropped; an arc lying *on* another shape's
+      // border is part of the shared outline and is kept. `pointStrictlyInside`
+      // makes that one decision with a single tolerance — combining
+      // `pointInOrOnPolygon` (which carries its own 1e-3 boundary slack) with a
+      // separate boundary test let the two disagree, so a midpoint just inside
+      // another shape could be read as "on the border" and wrongly kept. That
+      // kept both shapes' long arcs and produced a ring that excluded parts of
+      // its own inputs.
+      if (others.some((other) => pointStrictlyInside(mid, other))) continue;
 
       // A border shared with another shape (collinear, not strictly inside) is
       // produced once per shape; keep a single copy or the walk forks.
       if (edges.some((edge) => samePoint(edge.from, from) && samePoint(edge.to, to))) continue;
 
-      edges.push({ from, to, used: false });
+      // `shape` records which polygon contributed this arc. At a junction the
+      // walk continues along the same polygon whenever it can, which is what
+      // keeps it on the true outline through a concave region — picking purely
+      // by turn angle cuts a shortcut across the concavity and drops boundary.
+      edges.push({ from, to, used: false, shape: index });
     }
   }
 
   if (!edges.length) return null;
+
+  // Each crossing point is computed twice — once while splitting each shape —
+  // and the two results can differ by more than the chaining tolerance. Snap
+  // every endpoint to a shared representative so arcs from different shapes
+  // meet exactly; otherwise the chain breaks at a crossing and reconnects to
+  // the wrong arc, producing a ring that omits part of its own inputs.
+  snapSharedEndpoints(edges);
 
   // Start from an edge that is guaranteed to be on the outer hull: the one
   // leaving the leftmost (then lowest) vertex of the whole set.
@@ -488,10 +554,10 @@ export function unionPolygons(polygons) {
   // Stitch the arcs head-to-tail into one closed ring.
   start.used = true;
   const ring = [start.from, start.to];
+  let currentShape = start.shape;
 
   while (true) {
     const tail = ring[ring.length - 1];
-    const previous = ring[ring.length - 2];
     const candidates = edges.filter((edge) => !edge.used && samePoint(edge.from, tail));
 
     // Close only when back at the start with nothing left to walk from here;
@@ -506,13 +572,20 @@ export function unionPolygons(polygons) {
       return null;
     }
 
-    // At a junction, take the most counter-clockwise turn to stay on the outer
-    // boundary rather than diving into an interior pocket.
-    const next = candidates.length === 1
-      ? candidates[0]
-      : pickOutermostTurn(previous, tail, candidates);
+    // Stay on the polygon currently being traced. Its next arc was already
+    // checked against every other shape when the edges were built, so if it
+    // survived it genuinely is on the union boundary. Only when this polygon's
+    // boundary is submerged here does the walk cross to another shape, which is
+    // exactly what a crossing point means.
+    const sameShape = candidates.filter((edge) => edge.shape === currentShape);
+    const next = sameShape.length === 1
+      ? sameShape[0]
+      : (sameShape.length > 1
+        ? pickStraightestContinuation(ring[ring.length - 2], tail, sameShape)
+        : pickStraightestContinuation(ring[ring.length - 2], tail, candidates));
 
     next.used = true;
+    currentShape = next.shape;
     ring.push(next.to);
 
     if (ring.length > edges.length + 2) return null;

@@ -240,15 +240,27 @@ def sum_of_areas(shapes):
     return sum(polygon_area(s) for s in shapes)
 
 
-def contains_all_shapes(outline, shapes):
+# An input vertex lies *on* the union boundary by construction, but the split /
+# intersect / round pipeline moves it by a fraction of a pixel, so an exact test
+# reads it as outside and rejects a correct merge. 0.05px is far below anything
+# an annotator can see, and far above the accumulated error (~0.005px measured).
+CONTAINMENT_TOLERANCE = 0.05
+
+
+def contains_all_shapes(outline, shapes, tolerance=CONTAINMENT_TOLERANCE):
+    def covered(point):
+        if point_on_polygon_boundary(point, outline, tolerance):
+            return True
+        return point_in_polygon(point, outline)
+
     for shape in shapes:
         for i in range(len(shape)):
             current = shape[i]
             nxt = shape[(i + 1) % len(shape)]
             mid = {"x": (current["x"] + nxt["x"]) / 2, "y": (current["y"] + nxt["y"]) / 2}
-            if not point_in_or_on_polygon(current, outline):
+            if not covered(current):
                 return False
-            if not point_in_or_on_polygon(mid, outline):
+            if not covered(mid):
                 return False
     return True
 
@@ -347,8 +359,10 @@ def union_polygons(polygons):
             if same_point(frm, to):
                 continue
             mid = {"x": (frm["x"] + to["x"]) / 2, "y": (frm["y"] + to["y"]) / 2}
-            if any(not point_on_polygon_boundary(mid, o) and point_in_or_on_polygon(mid, o)
-                   for o in others):
+            # One decision, one tolerance. Combining point_in_or_on_polygon
+            # (which carries its own boundary slack) with a separate boundary
+            # test let the two disagree near an edge.
+            if any(point_strictly_inside(mid, o) for o in others):
                 continue
             if any(same_point(e["from"], frm) and same_point(e["to"], to) for e in edges):
                 continue
@@ -665,6 +679,67 @@ def test_smoothing_leaves_short_shapes_alone():
     assert smooth_union_cusps([{"x": 0, "y": 0}, {"x": 1, "y": 1}]) == [
         {"x": 0, "y": 0}, {"x": 1, "y": 1}
     ]
+
+
+# --- Concave / real-world shape regressions ------------------------------------
+# Hand-drawn and wand-traced annotations are concave and cross each other several
+# times. These merges used to be refused outright — the containment guard tested
+# input vertices against the union with a 1e-3 window, but the split/intersect
+# pipeline shifts a vertex by up to ~0.005px, so points lying *on* the boundary
+# read as outside and a correct union was thrown away. The user saw that as
+# "merge does nothing": the shapes fell back to plain grouping, keeping all their
+# original vertices and the sharp junction between them.
+
+def wobbly_blob(cx, cy, r, n, seed, wobble):
+    """A concave closed shape, standing in for a hand-drawn region."""
+    points = []
+    for i in range(n):
+        t = i / n * 2 * math.pi
+        rr = r * (1 + wobble * math.sin(t * 3 + seed) + wobble * 0.6 * math.cos(t * 5 + seed))
+        points.append({"x": cx + rr * math.cos(t), "y": cy + rr * math.sin(t)})
+    return points
+
+
+def test_overlapping_concave_blobs_merge():
+    """The case from the bug report: two concave regions that clearly overlap."""
+    a = wobbly_blob(200, 200, 120, 26, 0.74, 0.20)
+    b = wobbly_blob(296, 180, 120, 26, 2.84, 0.20)
+    assert polygons_touch(a, b)
+    merged = union_polygons([a, b])
+    assert merged is not None, "a plainly overlapping concave pair must merge"
+    assert contains_all_shapes(merged, [a, b])
+
+
+def test_concave_merges_are_not_refused_wholesale():
+    """Guards must reject degenerate cases, not ordinary concave overlaps."""
+    refused = 0
+    total = 0
+    for trial in range(40):
+        seed = trial * 0.37
+        dx = 40 + (trial % 9) * 12
+        a = wobbly_blob(200, 200, 120, 26, seed, 0.20)
+        b = wobbly_blob(200 + dx, 200 + ((trial % 7) - 3) * 10, 120, 26, seed + 2.1, 0.20)
+        if not polygons_touch(a, b):
+            continue
+        total += 1
+        if union_polygons([a, b]) is None:
+            refused += 1
+    assert total > 20, "the fixture should produce plenty of overlapping pairs"
+    assert refused == 0, f"{refused}/{total} overlapping concave pairs were refused"
+
+
+def test_merged_concave_union_covers_both_inputs():
+    """Every point of either input must lie within the merged outline."""
+    for trial in range(12):
+        seed = trial * 0.53
+        a = wobbly_blob(200, 200, 120, 26, seed, 0.25)
+        b = wobbly_blob(290, 210, 120, 26, seed + 1.7, 0.25)
+        if not polygons_touch(a, b):
+            continue
+        merged = union_polygons([a, b])
+        assert merged is not None
+        assert contains_all_shapes(merged, [a, b])
+        assert polygon_area(merged) <= sum_of_areas([a, b]) + 1e-3
 
 
 def test_union_always_contains_every_input_shape():
