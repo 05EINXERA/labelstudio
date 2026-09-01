@@ -8,7 +8,7 @@ import { annotationPoints, updateAnnotationBounds } from "../canvas/geometry.js?
 import { view } from "../canvas/view.js?v=1";
 import { drainTaskTime } from "./timer.js?v=2";
 import { detectState } from "../ai/detect-state.js?v=1";
-import { draw, drawAllLayers } from "../canvas/draw.js?v=2";
+import { draw, drawAllLayers } from "../canvas/draw.js?v=3";
 import {
   emptyState, classesList, annotationList, annotationCount, selectedInfo,
   drawMode, selectMode, boxMode, polygonMode, commentMode, magicWandMode,

@@ -12,7 +12,7 @@ import {
   unionPolygons
 } from "./geometry.js?v=2";
 import { view } from "./view.js?v=1";
-import { draw, drawAllLayers } from "./draw.js?v=1";
+import { draw, drawAllLayers } from "./draw.js?v=3";
 import { canvas, undoButton } from "../dom.js?v=1";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
 import { setStatus, save, render, activateLabel, HOTKEY_LABEL_LIMIT } from "../components/workspace.js?v=4";
@@ -585,6 +585,10 @@ export function groupSelectedAnnotations() {
     survivor.type = "polygon";
     survivor.points = outline.map(p => ({ x: round(p.x), y: round(p.y) }));
     survivor.labelId = baseLabelId;
+    // Rendering hint only: the union's cusps are stroked with round joins so the
+    // merged shape reads as smoothly as the old grouped rendering did. The
+    // points above are the exact union and are not softened.
+    survivor.mergedFromGroup = true;
     delete survivor.groupId;
     updateAnnotationBounds(survivor);
 

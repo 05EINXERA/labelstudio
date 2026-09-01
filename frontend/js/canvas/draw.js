@@ -71,6 +71,15 @@ function isAnnotationVisible(annotation, canvasWidth, canvasHeight) {
   );
 }
 
+/**
+ * True for polygons produced by merging a group. The flag round-trips through
+ * the server's `extra` blob, so after a reload it arrives nested rather than as
+ * a top-level property.
+ */
+function isMergedAnnotation(annotation) {
+  return Boolean(annotation?.mergedFromGroup || annotation?.extra?.mergedFromGroup);
+}
+
 function drawGroupUnion(groupAnns, selected, targetCtx) {
   if (groupAnns.length === 0) return;
   const label = labelById(groupAnns[0].labelId);
@@ -408,6 +417,15 @@ export function drawAnnotation(annotation, selected = false, targetCtx = ctx, sk
   targetCtx.save();
   targetCtx.lineWidth = selected ? 3 : 2;
   targetCtx.strokeStyle = label.color;
+  // A merged polygon's outline meets at real cusps where the source shapes
+  // crossed. The default miter join turns those into spikes, so merged shapes
+  // are stroked with round joins — the same softening the old grouped rendering
+  // got from `lineJoin: "round"`. This is purely how the outline is painted;
+  // the stored coordinates remain the exact union.
+  if (isMergedAnnotation(annotation)) {
+    targetCtx.lineJoin = "round";
+    targetCtx.lineCap = "round";
+  }
   // Fill matches the outline colour but stays well below it in opacity, so the
   // class reads at a glance without obscuring the pixels being annotated.
   const isDraft = annotation.id === "draft" || view.drag?.draft === annotation;
