@@ -44,7 +44,39 @@ if (-not (Test-Path $script)) {
 }
 
 $taskName = "AnnotationHealthCheck"
-$pwshExe  = (Get-Process -Id $PID).Path  # pwsh.exe running this script
+
+# Resolve a *stable* interpreter path. (Get-Process -Id $PID).Path was used
+# here and silently broke the task: when pwsh comes from the Store its path is
+# version-stamped --
+#   C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.4.0_x64__…\pwsh.exe
+# -- so the next PowerShell update leaves the registered action pointing at a
+# directory that no longer exists. The task then fails every run with
+# 2147942402 (ERROR_FILE_NOT_FOUND) and the health check is dead without
+# anything saying so. Found 2026-09-02; see 08_BACKUP_TRUNCATION.md part 2 §7.
+#
+# Prefer the versionless Program Files install, then Windows PowerShell, which
+# ships in-box at a fixed path and is fine for this script.
+$pwshCandidates = @(
+    "$env:ProgramFiles\PowerShell\7\pwsh.exe",
+    "$env:ProgramFiles\PowerShell\pwsh.exe",
+    "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+)
+$pwshExe = $pwshCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $pwshExe) {
+    $current = (Get-Process -Id $PID).Path
+    if ($current -like "*\WindowsApps\*") {
+        Write-Error @"
+No stable PowerShell path found. The running interpreter is the Store build
+($current), whose path changes on every update, so registering it would leave
+the task broken after the next upgrade. Install PowerShell 7 to
+'$env:ProgramFiles\PowerShell\7' (winget install Microsoft.PowerShell) and
+re-run this script.
+"@
+        exit 1
+    }
+    $pwshExe = $current
+}
+Write-Host "  Interpreter        : $pwshExe"
 $args     = "-NoProfile -ExecutionPolicy Bypass -File `"$script`" -Url `"$Url`""
 $action   = New-ScheduledTaskAction -Execute $pwshExe -Argument $args -WorkingDirectory $repoRoot
 # Daily trigger whose repetition re-arms every 24h, rather than -Once with an
