@@ -86,10 +86,24 @@ if ($IntervalHours -lt 24) {
         -RepetitionInterval (New-TimeSpan -Hours $IntervalHours) `
         -RepetitionDuration (New-TimeSpan -Hours 24)).Repetition
 }
+# -DontStopIfGoingOnBatteries / -AllowStartIfOnBatteries are the fix for the
+# 2026-09-02 truncated-backup incident, and are not optional on this box.
+# Windows defaults BOTH to "stop the task on battery", and the deployment
+# machine is a laptop: every truncated dump (~1.7-2.9 GB against a normal
+# ~3.8 GB) matched a Kernel-Power 105 "power source change" to the second,
+# with the task exiting 0x8007050B. The dumps still looked valid on disk.
+#
+# The time limit is 4h, not 30m: a full dump already takes ~28 minutes and
+# grows a few hundred MB a day, so the old 30m limit sat ~2 minutes from
+# killing every single run. This bounds a genuinely hung dump without
+# clipping a healthy slow one. See backup.py's BACKUP_TRUNCATION note.
 $settings = New-ScheduledTaskSettingsSet `
-    -ExecutionTimeLimit (New-TimeSpan -Minutes 30) `
+    -ExecutionTimeLimit (New-TimeSpan -Hours 4) `
     -RestartCount 2 `
     -RestartInterval (New-TimeSpan -Minutes 5) `
+    -DontStopIfGoingOnBatteries `
+    -AllowStartIfOnBatteries `
+    -MultipleInstances IgnoreNew `
     -StartWhenAvailable   # run ASAP if the PC was off at trigger time
 
 # Run as SYSTEM so it does not require a logged-in user.
@@ -110,9 +124,19 @@ Register-ScheduledTask `
     -Description "Hourly pg_dump + uploads mirror for the annotation workspace" `
     | Out-Null
 
+# Read the settings back rather than trusting the register call. Some Windows
+# builds silently drop the battery flags depending on the power profile, and
+# that failure is invisible until a dump truncates weeks later.
+$applied = (Get-ScheduledTask -TaskName $taskName).Settings
+if ($applied.DisallowStartIfOnBatteries -or $applied.StopIfGoingOnBatteries) {
+    Write-Warning "Battery settings did not apply (DisallowStart=$($applied.DisallowStartIfOnBatteries), StopIfGoing=$($applied.StopIfGoingOnBatteries))."
+    Write-Warning "On a laptop this WILL truncate dumps mid-write. Fix in Task Scheduler > $taskName > Conditions > Power, or re-run elevated."
+}
+
 $cadence = if ($IntervalHours -eq 24) { "daily at ${Hour}:00" }
            else { "every $IntervalHours hour(s), starting ${Hour}:00" }
 Write-Host "[OK] Scheduled task '$taskName' registered - runs $cadence."
+Write-Host "  Power conditions   : runs on battery, not stopped on power-source change"
 Write-Host "  Backup destination : $Dest"
 Write-Host "  Snapshots to keep  : $Keep  (~$([math]::Round($Keep * $IntervalHours)) hours of cover)"
 Write-Host ""

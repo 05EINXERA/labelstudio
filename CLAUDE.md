@@ -24,7 +24,9 @@ soft-lock: `01_AUDIT.md` (current audit + wins/lags), `tasks.md` (phased task
 list; Phases 0–4 done — see `05_LOAD_TEST.md` for load-test results),
 `04_ANNOTATION_SAVE_LOSS.md` (the save-loss bug and its fix — the model that
 makes concurrent editing safe), `06_RESILIENCE_PLAN.md` (crash/power-loss/
-backup robustness for the single-PC deployment).
+backup robustness for the single-PC deployment), `08_BACKUP_TRUNCATION.md`
+(why hourly dumps silently truncated — the deploy box is a laptop and Task
+Scheduler stops tasks on battery — plus what makes the dumps 3.8 GB).
 
 **Teams, roles and project access live in `.devnotes/teams/`** — read it before
 touching authorization, `api/permissions.py`, grants, task assignment or the
