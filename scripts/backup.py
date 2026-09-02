@@ -36,21 +36,125 @@ drift or be re-registered by hand:
    a snapshot filename, never counts in prune(), and never reports ok=true.
    Note the verification must read the whole archive -- `pg_restore --list`
    exits 0 on these truncated files. See verify_postgres_dump.
+
+BACKUP_OVERLAP (2026-09-02, part 2)
+-----------------------------------
+A second, unrelated cause of unreadable dumps, found the same day: five
+consecutive hourly dumps were full-size (~4 GB), ran their full ~30 minutes
+and exited 0, yet died at restore with "could not read from input file: end of
+file". Not the battery bug -- no Kernel-Power event, no kill, rc=0.
+
+The cause is overlapping runs sharing one destination. A ~30-minute job on a
+60-minute trigger drifts into its own next run (Task Scheduler event 322 fired
+on *every* run), and one run's prune()/rename can delete or disturb a file the
+other is still writing. pg_dump exits 0 because its own write finished; the
+damage happens afterwards.
+
+destination_lock() below serialises the whole run -- dump, verify, rename and
+prune -- so two runs can never share the directory. See
+.devnotes/deployment-hardening/08_BACKUP_TRUNCATION.md part 2.
 """
 import argparse
+import contextlib
 import datetime
+import errno
 import json
 import os
 import shutil
 import sqlite3
 import subprocess
 import sys
+import time
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from config import DATABASE_URL, DATA_DIR, IS_SQLITE  # noqa: E402
 
 STATUS_FILENAME = "last_backup_status.json"
+LOCK_FILENAME = "backup.lock"
+
+# A run that holds the lock longer than this is presumed dead and the lock is
+# broken. Comfortably past schedule-backup.ps1's 4h ExecutionTimeLimit, so a
+# slow-but-live run is never overtaken by the next trigger.
+_LOCK_STALE_SECONDS = 6 * 60 * 60
+
+
+class BackupInProgress(Exception):
+    """Another backup run holds the destination lock."""
+
+
+def _read_lock(lock_path: str) -> dict:
+    """Best-effort read of an existing lock file. An unreadable or malformed
+    lock is reported as empty rather than raising: the caller only uses this
+    for the staleness decision and a human-readable message."""
+    try:
+        with open(lock_path, encoding="utf-8") as f:
+            payload = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+@contextlib.contextmanager
+def destination_lock(dest_dir: str):
+    """Hold an exclusive lock on `dest_dir` for the whole run.
+
+    Two backup runs writing into one directory corrupt each other: the old
+    code wrote dumps under their final name, so one run's prune() could delete
+    or disturb a file the other was still writing, producing a full-size dump
+    that fails to restore (BACKUP_OVERLAP above).
+
+    schedule-backup.ps1 already passes -MultipleInstances IgnoreNew, but that
+    setting lives on the deployed box, covers only that one task, and does
+    nothing about a manual run or a second task aimed at the same directory --
+    so, as with the .part/verify defences, the script does not trust it.
+
+    O_CREAT|O_EXCL is atomic on both Windows and POSIX, so the create either
+    wins outright or fails; there is no check-then-act window. A lock older
+    than _LOCK_STALE_SECONDS is broken, so a hard-killed run (which never
+    reaches its own cleanup) cannot block backups forever.
+
+    Raises BackupInProgress if another live run holds the lock.
+    """
+    os.makedirs(dest_dir, exist_ok=True)
+    lock_path = os.path.join(dest_dir, LOCK_FILENAME)
+
+    try:
+        fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except OSError as exc:
+        if exc.errno != errno.EEXIST:
+            raise
+        held = _read_lock(lock_path)
+        age = time.time() - os.path.getmtime(lock_path)
+        if age < _LOCK_STALE_SECONDS:
+            raise BackupInProgress(
+                f"another backup is running (pid {held.get('pid', '?')}, "
+                f"started {held.get('started', '?')}, {age / 60:.0f} min ago)"
+            ) from exc
+        print(
+            f"  breaking stale lock from pid {held.get('pid', '?')} "
+            f"({age / 3600:.1f} h old)"
+        )
+        os.unlink(lock_path)
+        fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "pid": os.getpid(),
+                    "started": datetime.datetime.now().isoformat(timespec="seconds"),
+                },
+                f,
+            )
+        yield
+    finally:
+        try:
+            os.unlink(lock_path)
+        except OSError as exc:
+            # Leaving the lock behind would block the next run until it goes
+            # stale, so this is worth a loud line in the task output.
+            print(f"  could not remove lock {lock_path}: {exc}")
 
 
 def _write_status(dest_dir: str, ok: bool, detail: str) -> None:
@@ -340,13 +444,9 @@ def check_source_disk_space() -> None:
         )
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Back up the database and uploads.")
-    parser.add_argument("--dest", required=True, help="Backup directory (ideally off this machine).")
-    parser.add_argument("--keep", type=int, default=7, help="How many database snapshots to retain.")
-    parser.add_argument("--skip-uploads", action="store_true")
-    args = parser.parse_args()
-
+def _run_backup(args) -> int:
+    """One backup run. Always called with the destination lock held, so
+    clean_partials(), the dump/rename and prune() cannot race another run."""
     check_source_disk_space()
 
     required = max(_current_db_size(args.dest) * _MIN_FREE_MULTIPLIER, _MIN_FREE_FLOOR_BYTES)
@@ -392,6 +492,24 @@ def main() -> int:
 
     _write_status(args.dest, ok=True, detail=f"{target}; {copied} upload(s) copied; {total_size / 1e9:.2f} GB total")
     return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Back up the database and uploads.")
+    parser.add_argument("--dest", required=True, help="Backup directory (ideally off this machine).")
+    parser.add_argument("--keep", type=int, default=7, help="How many database snapshots to retain.")
+    parser.add_argument("--skip-uploads", action="store_true")
+    args = parser.parse_args()
+
+    try:
+        with destination_lock(args.dest):
+            return _run_backup(args)
+    except BackupInProgress as exc:
+        # Not a failure: the scheduler fired while the previous run was still
+        # going. Exit 0 and leave the status file alone -- overwriting it with
+        # ok=false here would report a backup problem where there is none.
+        print(f"Skipping: {exc}")
+        return 0
 
 
 if __name__ == "__main__":
