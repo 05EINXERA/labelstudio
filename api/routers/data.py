@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 import models
+from logging_service import log_event
 from database import get_db, commit_with_retry
 from schemas import WorkspaceData
 from api.auth import get_current_user, require_csrf
@@ -43,4 +44,7 @@ def set_data(
         item = models.WorkspaceData(key=data.key, value=data.value, owner_id=user.id)
         db.add(item)
     commit_with_retry(db)
+    # Key only, never the value: this is a free-form per-user key/value store
+    # and the value could be anything the client chose to put there.
+    log_event("data.set", data_key=data.key)
     return {"status": "ok"}

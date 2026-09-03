@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 import models
 from api.auth import get_current_user, require_csrf
+from logging_service import log_event
 from api.permissions import ProjectRole, require_project, require_team
 from api.permissions import TeamRole
 from database import commit_with_retry, get_db
@@ -144,6 +145,8 @@ def create_grant(
         return _grant_out(existing, team)
 
     db.refresh(grant)
+    log_event("grant.create", project=project_id, team=grant.team_id,
+              role=grant.role)
     return _grant_out(grant, team)
 
 
@@ -171,6 +174,8 @@ def update_grant(
             detail="That team does not have access to this project.",
         )
 
+    log_event("grant.update", project=project_id, team=team_id,
+              role_from=grant.role, role_to=payload.role)
     grant.role = payload.role
     grant.granted_by = user.id
     commit_with_retry(db)
@@ -218,6 +223,15 @@ def revoke_grant(
             models.Task.assigned_team_id == team_id,
         )
         .update({models.Task.assigned_team_id: None}, synchronize_session=False)
+    )
+    # WARN: revoking access is how a whole team silently loses sight of work,
+    # and it returns their tasks to the pool. Both facts belong in the trail.
+    log_event(
+        "grant.revoke",
+        level="WARN",
+        project=project_id,
+        team=team_id,
+        tasks_unassigned=tasks_unassigned,
     )
     db.delete(grant)
     commit_with_retry(db)

@@ -36,6 +36,7 @@ from logging_config import configure_logging
 validate_config()
 configure_logging()
 
+from api.middleware import ServiceLogMiddleware  # noqa: E402
 from api.routers import projects, tasks, team, teams, grants, time_logs, data, detect, label_studio, labels, auth, imports, exports  # noqa: E402
 from database import engine  # noqa: E402
 
@@ -159,6 +160,20 @@ async def add_security_and_cache_headers(request, call_next):
 # documented rather than fixed by rewriting the header middleware as pure ASGI.
 # Pinned by tests/test_response_compression.py.
 app.add_middleware(GZipMiddleware, minimum_size=500)
+
+
+# The structured per-request log (.devnotes/logging/02_PLAN.md). This is what
+# replaces uvicorn's stdout access log as the thing an operator actually reads;
+# uvicorn's own lines stay on for one release as a cross-check (plan §9).
+#
+# Registered last, so Starlette runs it OUTERMOST — outside gzip and the header
+# pass. That is deliberate, and it is the trade the plan's "innermost" note got
+# wrong: outermost means the recorded duration includes a few milliseconds of
+# compression, but it also means every exception from every inner layer passes
+# through this middleware and gets logged. An inner position would time the
+# handler slightly more precisely and miss failures raised above it, which is a
+# bad exchange for a log whose whole purpose is finding what went wrong.
+app.add_middleware(ServiceLogMiddleware)
 
 
 # Exact origins only. A wildcard cannot be combined with cookie credentials, and

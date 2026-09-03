@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 
 import models
+from logging_service import log_event
 from database import get_db, commit_with_retry
 from api.uploads import read_capped
 from schemas import LabelModel, LabelBulkUpsert, LabelBulkDelete, LabelBulkResult, LabelImportResult
@@ -132,6 +133,8 @@ def create_or_update_label(label: LabelModel, db: Session = Depends(get_db), use
         db_label = models.Label(id=label.id, name=label.name, color=label.color, project_id=label.projectId)
         db.add(db_label)
     commit_with_retry(db)
+    log_event("label.upsert", project=label.projectId, label=db_label.id,
+              name=db_label.name)
     return {"status": "ok", "id": db_label.id}
 
 @router.post("/bulk", response_model=LabelBulkResult)
@@ -184,6 +187,18 @@ def bulk_delete_labels(payload: LabelBulkDelete, db: Session = Depends(get_db), 
         .delete(synchronize_session=False)
     )
     commit_with_retry(db)
+    # `annotations_deleted` is the number that matters here and the reason this
+    # is WARN: deleting a class silently removes every annotation using it, in
+    # every task, for every annotator. An annotator reporting "my boxes are
+    # gone" whose task was never saved by anyone is very often this line.
+    log_event(
+        "label.bulk_delete",
+        level="WARN",
+        project=payload.projectId,
+        deleted=deleted,
+        annotations_deleted=annotations_deleted,
+        ids=",".join(str(i) for i in sorted(existing_ids)),
+    )
     return {"status": "ok", "deleted": deleted, "annotationsDeleted": annotations_deleted}
 
 
@@ -408,6 +423,14 @@ def delete_label(label_id: str, projectId: int = Query(...), db: Session = Depen
     annotations_deleted = 0
     if db_label:
         annotations_deleted = purge_annotations_for_labels(projectId, {db_label.id}, db)
+        log_event(
+            "label.delete",
+            level="WARN",
+            project=projectId,
+            label=db_label.id,
+            name=db_label.name,
+            annotations_deleted=annotations_deleted,
+        )
         db.delete(db_label)
         commit_with_retry(db)
     return {"status": "ok", "annotationsDeleted": annotations_deleted}

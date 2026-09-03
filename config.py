@@ -193,6 +193,63 @@ LOG_MAX_BYTES = int(os.environ.get("LOG_MAX_BYTES", str(10 * 1024 * 1024)))
 LOG_BACKUP_COUNT = int(os.environ.get("LOG_BACKUP_COUNT", "5"))
 
 
+def _csv(name: str, default: str) -> list:
+    """Comma-separated env list, empties dropped, whitespace stripped."""
+    raw = os.environ.get(name, "")
+    raw = raw.strip() or default
+    return [part.strip() for part in raw.split(",") if part.strip()]
+
+
+def _flag(name: str, default: bool) -> bool:
+    raw = os.environ.get(name, "").strip().lower()
+    if not raw:
+        return default
+    return raw in ("1", "true", "yes", "on")
+
+
+# How many days of dated logs to keep: both the `service/YYYY-MM-DD/`
+# directories and the `app.log.YYYY-MM-DD` backups. Retention is by date rather
+# than by size because "the last month" is the question an operator actually
+# asks; a size budget answers "the last however-long 60 MB happened to cover",
+# which varies with error rate (01_AUDIT.md P10).
+LOG_RETENTION_DAYS = int(os.environ.get("LOG_RETENTION_DAYS", "30"))
+
+# Per-value cap in the service log. Values are user-influenced (descriptions,
+# class names), so they are truncated as well as sanitised — an unbounded value
+# would let one request write an arbitrarily long line.
+LOG_VALUE_MAX = int(os.environ.get("LOG_VALUE_MAX", "120"))
+
+# --- Service (request) log ------------------------------------------------
+# The structured per-request record, written by the app itself rather than
+# scraped from uvicorn's stdout. See .devnotes/logging/02_PLAN.md.
+SERVICE_LOG_ENABLED = _flag("SERVICE_LOG_ENABLED", True)
+
+# Methods that get their own file inside the day's directory. Anything else
+# lands in OTHER.log, so an unexpected method is still recorded.
+SERVICE_LOG_METHODS = [m.upper() for m in _csv(
+    "SERVICE_LOG_METHODS", "GET,POST,PATCH,DELETE"
+)]
+
+# Never logged at all: static assets and the liveness probe. These are pure
+# noise with no diagnostic value, and on this deployment they outnumber API
+# calls by an order of magnitude. Matched as a prefix, or as a suffix when the
+# entry starts with '*'.
+SERVICE_LOG_SKIP_PATHS = _csv(
+    "SERVICE_LOG_SKIP_PATHS",
+    "/health,/uploads,/frontend,*.js,*.css,*.png,*.jpg,*.jpeg,*.ico,*.svg,*.map",
+)
+
+# Logged, but at most once per client per window (plus every non-2xx). The task
+# soft-lock heartbeat and the timer ping fire every few seconds per open task
+# per annotator; unsampled they drown the file that is supposed to make saves
+# findable (01_AUDIT.md P4).
+SERVICE_LOG_SAMPLE_PATHS = _csv(
+    "SERVICE_LOG_SAMPLE_PATHS",
+    "/heartbeat,/lock-status,/release-beacon,/api/team/time,/api/time-logs/time",
+)
+SERVICE_LOG_SAMPLE_WINDOW = int(os.environ.get("SERVICE_LOG_SAMPLE_WINDOW", "60"))
+
+
 class ConfigError(RuntimeError):
     """A deployment-configuration problem that must stop startup."""
 

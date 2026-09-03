@@ -46,6 +46,13 @@ class TaskUpdate(BaseModel):
     # Default False so every existing caller (which never sends this field)
     # gets the safe behavior automatically.
     allow_clear: bool = False
+    # The Objects panel's own row count, sent purely so the service log can
+    # record what the annotator was looking at when they saved. Never used for
+    # any logic and never validated against `annotations` — the server counts
+    # the blob itself. Logging both is the point: when they disagree, the panel
+    # and the saved set have diverged, which is a bug worth seeing.
+    # See .devnotes/logging/02_PLAN.md §5 (D4).
+    object_count: Optional[int] = Field(None, ge=0)
 
 class ProjectSummary(BaseModel):
     """A project plus its task metrics — one row of the projects list.

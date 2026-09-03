@@ -11,6 +11,8 @@ import models
 from config import ALLOW_REGISTRATION, IS_PRODUCTION, MIN_PASSWORD_LENGTH
 from database import get_db, commit_with_retry
 from schemas import UserCreate, Token, Me, MeTeam, PasswordChange
+import logging_service
+from logging_service import log_event
 from api.auth import (
     get_password_hash,
     verify_password,
@@ -72,6 +74,7 @@ def register(user: UserCreate, response: Response, db: Session = Depends(get_db)
         data={"sub": new_user.username}, expires_delta=access_token_expires
     )
     csrf_token = issue_session_cookies(response, access_token)
+    log_event("auth.register", account=new_user.username)
     return {"access_token": access_token, "token_type": "bearer", "csrf_token": csrf_token}
 
 @router.post("/token", response_model=Token)
@@ -85,6 +88,9 @@ def login_for_access_token(
     if not user or not verify_password(form_data.password, user.hashed_password):
         # Logged so repeated failures are visible to the operator; the response
         # stays deliberately vague about which half was wrong.
+        # WARN: a run of these from one address is the shape of a brute-force
+        # attempt, and it is the one auth event worth alerting on.
+        log_event("auth.login_failed", level="WARN", account=form_data.username)
         logger.warning(
             "Failed login for username=%r from %s",
             form_data.username, request.client.host if request.client else "unknown",
@@ -99,11 +105,17 @@ def login_for_access_token(
         data={"sub": user.username}, expires_delta=access_token_expires
     )
     csrf_token = issue_session_cookies(response, access_token)
+    # `set_user` too, not just the event: this request authenticated inside the
+    # handler rather than through get_current_user, so the middleware has no
+    # other way to learn who logged in.
+    logging_service.set_user(user.username)
+    log_event("auth.login", account=user.username)
     return {"access_token": access_token, "token_type": "bearer", "csrf_token": csrf_token}
 
 @router.post("/logout")
 def logout(response: Response):
     clear_session_cookies(response)
+    log_event("auth.logout")
     return {"status": "ok"}
 
 
@@ -183,6 +195,7 @@ def change_password(
     column, which is out of scope here.
     """
     if not verify_password(payload.current_password, current_user.hashed_password):
+        log_event("auth.password_change_failed", level="WARN")
         logger.warning(
             "Failed password change for username=%r from %s",
             current_user.username,
@@ -213,5 +226,6 @@ def change_password(
         expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
     )
     csrf_token = issue_session_cookies(response, access_token)
+    log_event("auth.password_change", level="WARN")
     logger.info("Password changed for username=%r", current_user.username)
     return {"status": "ok", "csrf_token": csrf_token}

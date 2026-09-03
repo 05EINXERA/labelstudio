@@ -11,6 +11,7 @@ from sqlalchemy import func
 import models
 import schemas
 from config import DATA_DIR, MAX_UPLOAD_FILES
+from logging_service import log_event
 from database import get_db, commit_with_retry
 from schemas import ProjectModel, ProjectMetrics, ProjectSummary, TASK_STATUSES, is_approved
 from api.auth import get_current_user, require_csrf
@@ -221,6 +222,8 @@ def create_project(project: ProjectModel, db: Session = Depends(get_db), user: m
     db.add(db_project)
     commit_with_retry(db)
     db.refresh(db_project)
+    log_event("project.create", project=db_project.id, name=db_project.name,
+              project_type=db_project.type)
     return {"id": db_project.id, "status": "ok"}
 
 def _apply_project_update(db_project: models.Project, project_update: schemas.ProjectUpdate) -> None:
@@ -233,6 +236,9 @@ def _apply_project_update(db_project: models.Project, project_update: schemas.Pr
 @router.patch("/{project_id}")
 def patch_project(project_id: int, project_update: schemas.ProjectUpdate, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     db_project = require_project(project_id, user, db, minimum=ProjectRole.MANAGER)
+    log_event("project.update", project=db_project.id,
+              name=project_update.name, status_from=db_project.status,
+              status_to=project_update.status)
     _apply_project_update(db_project, project_update)
     commit_with_retry(db)
     return {"status": "ok"}
@@ -242,6 +248,19 @@ def delete_project(project_id: int, db: Session = Depends(get_db), user: models.
     # Owner only. Deleting a project destroys everyone's work on it, which is
     # not something a delegated manager should be able to do.
     db_project = require_project(project_id, user, db, minimum=ProjectRole.OWNER)
+    # The most destructive call in the app: it takes every annotator's work on
+    # the project with it. Counted before the deletes so the line records the
+    # scale of what was lost, at WARN so it sits in the destructive-action trail.
+    log_event(
+        "project.delete",
+        level="WARN",
+        project=project_id,
+        name=db_project.name,
+        tasks_deleted=db.query(models.Task).filter(
+            models.Task.project_id == project_id).count(),
+        labels_deleted=db.query(models.Label).filter(
+            models.Label.project_id == project_id).count(),
+    )
     db.query(models.Task).filter(models.Task.project_id == project_id).delete()
     db.query(models.Label).filter(models.Label.project_id == project_id).delete()
     # E-12: grants are deleted explicitly alongside tasks and labels rather than
@@ -376,6 +395,14 @@ def upload_files(project_id: int, assignee: Optional[str] = Query(None), file: L
         existing_names.add(f.filename)
 
     commit_with_retry(db)
+    log_event(
+        "project.upload",
+        project=project_id,
+        uploaded=len(uploaded),
+        failed=len(failed),
+        duplicates=len(duplicates),
+        assignee_to=assignee,
+    )
     return {
         "status": "ok",
         "uploaded": uploaded,

@@ -33,6 +33,7 @@ from config import (
     ADD_MEMBER_RATE_WINDOW_SECONDS,
     MAX_TEAMS_PER_USER,
 )
+from logging_service import log_event
 from database import commit_with_retry, get_db
 from schemas import (
     TeamCreate,
@@ -210,6 +211,7 @@ def create_team(
             added_by=user.id,
         )
     )
+    log_event("team.create", team=team.id, name=team.name)
     commit_with_retry(db)
     db.refresh(team)
 
@@ -252,6 +254,7 @@ def update_team(
     if payload.description is not None:
         team.description = payload.description
 
+    log_event("team.update", team=team_id, name=payload.name)
     commit_with_retry(db)
     db.refresh(team)
     return _summary(db, team, _my_role(db, team_id, user))
@@ -299,6 +302,8 @@ def delete_team(
         .delete(synchronize_session=False)
     )
     db.delete(team)
+    log_event("team.delete", level="WARN", team=team_id, name=team.name,
+              grants_removed=grants_removed)
     commit_with_retry(db)
 
     return TeamDeleteResult(
@@ -365,6 +370,8 @@ def add_member(
         added_by=user.id,
     )
     db.add(membership)
+    log_event("team.member_add", team=team.id, account=target.username,
+              role_to=payload.role)
     try:
         commit_with_retry(db)
     except IntegrityError:
@@ -422,6 +429,7 @@ def update_member_role(
         )
 
     membership.role = payload.role
+    log_event("team.member_role", team=team_id, account=user_id, role_to=payload.role)
     commit_with_retry(db)
 
     target = db.get(models.User, user_id)
@@ -476,6 +484,7 @@ def leave_team(
         synchronize_session=False,
     )
 
+    log_event("team.leave", level="WARN", team=team_id)
     commit_with_retry(db)
     return {"status": "ok"}
 
@@ -520,6 +529,7 @@ def remove_member(
         synchronize_session=False,
     )
 
+    log_event("team.member_remove", level="WARN", team=team_id, account=user_id)
     commit_with_retry(db)
     return {"status": "ok"}
 
@@ -575,6 +585,7 @@ def transfer_ownership(
     new_owner_membership.role = TeamRole.OWNER.value
     old_owner_membership.role = TeamRole.MANAGER.value
     team.owner_id = target.id
+    log_event("team.transfer", level="WARN", team=team.id, owner_to=target.id)
     commit_with_retry(db)
     db.refresh(team)
 

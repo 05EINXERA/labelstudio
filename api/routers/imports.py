@@ -49,6 +49,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 
 import models
+from logging_service import log_event
 from database import get_db, commit_with_retry
 from api.uploads import read_capped
 from api.auth import get_current_user, require_csrf
@@ -455,6 +456,20 @@ async def import_annotations(
         annotations_imported += len(resolved)
 
     commit_with_retry(db)
+    # WARN in replace mode, which overwrites every matched task's annotations
+    # for everyone — the same class of event as a bulk delete, and one of the
+    # few things that can remove work an annotator never touched.
+    log_event(
+        "import.annotations",
+        level="WARN" if mode == "replace" else "INFO",
+        project=projectId,
+        mode=mode,
+        source=file.filename,
+        tasks_updated=applied,
+        annotations_imported=annotations_imported,
+        unmatched=len(unmatched),
+        skipped=len(skipped),
+    )
     return {
         "status": "ok",
         "tasks_updated": applied,

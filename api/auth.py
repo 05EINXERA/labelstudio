@@ -10,6 +10,7 @@ from jose import JWTError, jwt
 import bcrypt
 from sqlalchemy.orm import Session
 
+import logging_service
 import models
 from config import (
     COOKIE_SAMESITE,
@@ -245,4 +246,8 @@ def get_current_user(token: Optional[str] = Depends(get_token), db: Session = De
     user = db.query(models.User).filter(models.User.username == username).first()
     if user is None:
         raise credentials_exception
+    # Tell the service log who this is. The middleware starts before dependency
+    # resolution, so this is the only place the username is known without
+    # repeating the decode and the lookup. A no-op outside a request.
+    logging_service.set_user(user.username)
     return user

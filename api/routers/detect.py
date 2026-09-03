@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from detector import DetectionClientError, detect_objects, classify_image
 from schemas import DetectPayload, ClassifyPayload, SegmentPayload
 from api.auth import get_current_user
+from logging_service import log_event
 
 router = APIRouter(prefix="/api/detect", tags=["detect"], dependencies=[Depends(get_current_user)])
 
@@ -119,6 +120,7 @@ def detect(payload: DetectPayload, background_tasks: BackgroundTasks):
     _sweep_expired_jobs()
     job_id = str(uuid.uuid4())
     JOBS[job_id] = {"status": "pending"}
+    log_event("ai.job", job=job_id, kind="detect")
     background_tasks.add_task(run_detect_job, job_id, payload)
     return {"job_id": job_id}
 
@@ -127,6 +129,7 @@ def classify(payload: ClassifyPayload, background_tasks: BackgroundTasks):
     _sweep_expired_jobs()
     job_id = str(uuid.uuid4())
     JOBS[job_id] = {"status": "pending"}
+    log_event("ai.job", job=job_id, kind="classify")
     background_tasks.add_task(run_classify_job, job_id, payload)
     return {"job_id": job_id}
 
@@ -135,5 +138,6 @@ def segment(payload: SegmentPayload, background_tasks: BackgroundTasks):
     _sweep_expired_jobs()
     job_id = str(uuid.uuid4())
     JOBS[job_id] = {"status": "pending"}
+    log_event("ai.job", job=job_id, kind="segment")
     background_tasks.add_task(run_segment_job, job_id, payload)
     return {"job_id": job_id}
