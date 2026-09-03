@@ -659,6 +659,70 @@ h2 {
   font-weight: 600;
 }
 
+.context-menu-divider {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--line);
+}
+
+/* "Change Class" row: anchors the flyout that lists the project's classes. */
+.context-menu-submenu-trigger {
+  position: relative;
+}
+
+.context-submenu {
+  display: none;
+  position: absolute;
+  top: -5px;
+  left: 100%;
+  z-index: 1;
+  min-width: 180px;
+  /* Long class lists scroll rather than running off the bottom of the screen. */
+  max-height: 260px;
+  overflow-y: auto;
+  background-color: #fff;
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px 0;
+}
+
+/* Kept open while the pointer is on the trigger OR inside the flyout itself,
+   so the diagonal travel from row to list does not dismiss it. */
+.context-menu-submenu-trigger:hover .context-submenu,
+.context-menu-submenu-trigger:focus-within .context-submenu {
+  display: block;
+}
+
+/* Near the right edge the flyout opens leftwards instead (see openMenuAt). */
+.context-menu.flip-submenu .context-submenu {
+  left: auto;
+  right: 100%;
+}
+
+.context-submenu .context-submenu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.context-submenu .context-submenu-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.context-submenu .swatch {
+  flex-shrink: 0;
+}
+
+.context-submenu-empty {
+  padding: 8px 16px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
 /* Move Objects dropdown menu */
 .move-objects-row {
   display: flex;

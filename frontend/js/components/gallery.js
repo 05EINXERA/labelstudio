@@ -13,7 +13,7 @@ import {
   canvas, ctx, backgroundImage, staticCanvas, staticCtx, stageWrap, emptyState
 } from "../dom.js?v=1";
 import { drawAllLayers } from "../canvas/draw.js?v=4";
-import { setStatus, render, restoreDraft } from "./workspace.js?v=5";
+import { setStatus, render, restoreDraft } from "./workspace.js?v=6";
 import { autoDetectObjects, preloadMagicWand, preloadDetectAndTag } from "../ai/detect.js?v=2";
 import { syncTaskTime, resetSessionForTask, refreshTimerDisplays } from "./timer.js?v=2";
 import { updateZoomDisplay } from "./zoom-control.js?v=1";

@@ -6,12 +6,12 @@ import { apiFetch } from "./api.js?v=3";
 import { state } from "./state.js?v=2";
 import {
   setStatus, syncToBackend, loadSaved, saveDraft, render, loadTeamForWorkspace
-} from "./components/workspace.js?v=5";
+} from "./components/workspace.js?v=6";
 import {
   syncTimeToServer, setActiveTaskResolver, setConflictHandler, handleVisibilityChange as handleTimerVisibility
 } from "./components/timer.js?v=2";
-import { setZoomChangeHandler } from "./canvas/interactions.js?v=3";
-import { initContextMenu } from "./canvas/context-menu.js?v=1";
+import { setZoomChangeHandler } from "./canvas/interactions.js?v=4";
+import { initContextMenu } from "./canvas/context-menu.js?v=2";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
 import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=1";
 import { releaseTask, heartbeatTask } from "./task-lock.js?v=1";

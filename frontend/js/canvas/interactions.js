@@ -16,7 +16,7 @@ import { view } from "./view.js?v=1";
 import { draw, drawAllLayers } from "./draw.js?v=4";
 import { canvas, undoButton } from "../dom.js?v=1";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
-import { setStatus, save, render, activateLabel, HOTKEY_LABEL_LIMIT } from "../components/workspace.js?v=5";
+import { setStatus, save, render, activateLabel, HOTKEY_LABEL_LIMIT } from "../components/workspace.js?v=6";
 import { performMagicWandSegmentation } from "../ai/detect.js?v=2";
 import { applyAutoSmooth } from "../fft-controls.js?v=1";
 import { annotationSettings } from "../feature-flags.js?v=1";
@@ -1410,7 +1410,10 @@ window.addEventListener("keydown", (event) => {
         const index = (digit === 0 ? 9 : digit - 1) + (shifted ? 10 : 0);
         if (index < HOTKEY_LABEL_LIMIT && index < state.labels.length) {
           const label = state.labels[index];
-          activateLabel(label);
+          // A digit keystroke is unambiguous intent, so it still retags the
+          // selection — unlike a sidebar click, which is easy to hit by
+          // accident (see relabelSelection in workspace.js).
+          activateLabel(label, { relabel: true });
           setStatus(`Class ${index + 1}: ${labelDisplayName(label)}`);
         } else {
           setStatus(`No class ${index + 1}`);

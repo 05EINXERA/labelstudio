@@ -419,7 +419,48 @@ export const HOTKEY_LABEL_LIMIT = 20;
 
 // The one place a class becomes active, shared by the sidebar click and the
 // digit hotkeys so the two can never drift apart.
-export function activateLabel(label) {
+/**
+ * Reassign every selected (non-comment) annotation to `label`.
+ *
+ * Split out of activateLabel so that *choosing* a class and *relabelling
+ * existing work* are separate, explicitly-invoked actions. Brushing a class in
+ * the sidebar used to silently retag whatever was selected, which is very easy
+ * to do by accident and destroys work that looks unchanged on screen apart
+ * from a colour shift. Relabelling now happens only from the right-click
+ * "Change Class" submenu (context-menu.js) or a digit hotkey — both deliberate.
+ *
+ * Returns true if anything actually changed.
+ */
+export function relabelSelection(label) {
+  if (!label || state.selectedIds.size === 0) return false;
+
+  snapshot();
+  let changed = false;
+  state.annotations.forEach((a) => {
+    if (state.selectedIds.has(a.id) && a.type !== "comment" && a.labelId !== label.id) {
+      a.labelId = label.id;
+      changed = true;
+    }
+  });
+
+  if (changed) {
+    save();
+  } else {
+    // Nothing moved, so the undo entry would be a no-op step the annotator has
+    // to press Ctrl+Z through twice.
+    state.history.pop();
+  }
+  return changed;
+}
+
+/**
+ * Make `label` the active class.
+ *
+ * `relabel` controls whether a current selection is also retagged. It is false
+ * for the sidebar click (see relabelSelection above) and true for the digit
+ * hotkeys, where the keystroke is unambiguous intent.
+ */
+export function activateLabel(label, { relabel = false } = {}) {
   if (!label) return;
 
   state.activeLabelId = label.id;
@@ -439,27 +480,18 @@ export function activateLabel(label) {
 
   // Picking a class with nothing selected means "start the next annotation", so
   // drop back into draw mode instead of making the user press Draw. With a
-  // selection it means "relabel that", which must not change the mode. Neither
+  // selection the mode is left alone: the annotator is still working on that
+  // shape, and yanking them into draw mode would make the next canvas click
+  // start a new annotation instead of adjusting the current one. Neither
   // applies mid-polygon: that drag owns the mode until it finalizes.
   if (state.selectedIds.size === 0 && !drawingPolygon) {
     state.mode = "draw";
   }
 
-  // Reassign class to selected annotations
-  if (state.selectedIds.size > 0) {
-    snapshot();
-    let changed = false;
-    state.annotations.forEach(a => {
-      if (state.selectedIds.has(a.id) && a.type !== "comment" && a.labelId !== label.id) {
-        a.labelId = label.id;
-        changed = true;
-      }
-    });
-    if (changed) {
-      save();
-    } else {
-      state.history.pop();
-    }
+  // Only when the caller asked for it — a sidebar click must not retag work
+  // that is merely selected.
+  if (relabel) {
+    relabelSelection(label);
   }
 
   render();
