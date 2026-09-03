@@ -1,0 +1,1112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hull Anomaly Annotation Manual</title>
+<style>
+:root{
+  --bg:#fbfaf8; --fg:#1c1a17; --mut:#615c54; --line:#e2ddd4; --card:#fff;
+  --accent:#8a4b1f; --warn:#fff6e5; --warnline:#e0a63c;
+  --good:#eef7ee; --goodline:#4e9a51; --bad:#fdeeec; --badline:#c8453a;
+  --rule:#eaf1f8; --ruleline:#3d6fa8;
+  --c-rust:rgb(217,83,25); --c-steel:rgb(30,90,255); --c-ac:rgb(15,255,255);
+  --c-af:rgb(255,19,166); --c-d1:rgb(100,212,19); --c-d2:rgb(255,215,0);
+  --c-mar:rgb(183,70,255); --c-snd:rgb(0,0,0);
+}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  background:var(--bg);color:var(--fg)}
+a{color:var(--accent)}
+.wrap{display:flex;align-items:flex-start;max-width:1500px;margin:0 auto}
+
+/* ---- sidebar ---- */
+#nav{position:sticky;top:0;height:100vh;overflow-y:auto;width:270px;flex:0 0 270px;
+  border-right:1px solid var(--line);padding:16px 12px;background:var(--card)}
+#nav h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--mut);margin:16px 0 6px}
+#nav a{display:block;padding:5px 8px;border-radius:5px;text-decoration:none;color:var(--fg);
+  font-size:14px;border-left:3px solid transparent}
+#nav a:hover{background:#f2ede5}
+#nav a.on{background:#f4e9dd;border-left-color:var(--accent);font-weight:600}
+#search{width:100%;padding:9px 10px;font-size:15px;border:1px solid var(--line);border-radius:6px;
+  background:var(--bg)}
+#hits{font-size:13px;color:var(--mut);margin:6px 2px}
+#hits a{display:block;padding:4px 6px;color:var(--fg);text-decoration:none;border-radius:4px}
+#hits a:hover{background:#f2ede5}
+#hits mark{background:#ffe9a8;padding:0 1px}
+
+/* ---- main ---- */
+main{flex:1;min-width:0;padding:28px 34px 120px;max-width:1050px}
+header.top{border-bottom:2px solid var(--fg);padding-bottom:14px;margin-bottom:8px}
+h1{font-size:30px;margin:0 0 4px}
+.meta{color:var(--mut);font-size:14px}
+section{margin:44px 0;scroll-margin-top:14px}
+h2.sec{font-size:24px;border-bottom:1px solid var(--line);padding-bottom:7px;margin:0 0 6px}
+h3{font-size:19px;margin:26px 0 6px}
+h4{font-size:16px;margin:16px 0 4px}
+p,li{max-width:74ch}
+.lede{color:var(--mut);margin-top:2px}
+code{background:#f0ece4;padding:1px 5px;border-radius:4px;font-size:.9em}
+kbd{background:#fff;border:1px solid #bbb2a4;border-bottom-width:2px;border-radius:4px;
+  padding:1px 6px;font-size:.85em;font-family:inherit;font-weight:600;white-space:nowrap}
+
+/* ---- blocks ---- */
+.card{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:16px 18px;margin:14px 0}
+.rule{background:var(--rule);border-left:4px solid var(--ruleline);padding:12px 15px;margin:14px 0;border-radius:0 7px 7px 0}
+.warnbox{background:var(--warn);border-left:4px solid var(--warnline);padding:12px 15px;margin:14px 0;border-radius:0 7px 7px 0}
+.rule .tag,.warnbox .tag{display:inline-block;font-size:11px;letter-spacing:.07em;text-transform:uppercase;
+  font-weight:700;color:var(--mut);margin-bottom:3px}
+.do{background:var(--good);border-left:4px solid var(--goodline);padding:11px 14px;border-radius:0 7px 7px 0;margin:10px 0}
+.dont{background:var(--bad);border-left:4px solid var(--badline);padding:11px 14px;border-radius:0 7px 7px 0;margin:10px 0}
+
+/* ---- quick start ---- */
+ol.quick{counter-reset:q;list-style:none;padding:0}
+ol.quick li{counter-increment:q;position:relative;padding:9px 0 9px 44px;border-bottom:1px solid var(--line)}
+ol.quick li::before{content:counter(q);position:absolute;left:0;top:9px;width:29px;height:29px;
+  background:var(--accent);color:#fff;border-radius:50%;text-align:center;line-height:29px;
+  font-size:14px;font-weight:700}
+.src{font-size:12px;color:var(--mut)}
+
+/* ---- images ---- */
+figure{margin:14px 0}
+figure img{max-width:100%;height:auto;border:1px solid var(--line);border-radius:7px;cursor:zoom-in;
+  background:#fff;display:block}
+figcaption{font-size:14px;color:var(--mut);margin-top:6px;max-width:74ch}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.pair figure{margin:0}
+.trio{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.trio figure{margin:0}
+.badge{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px;
+  text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px}
+.b-before{background:#fdeeec;color:#9c2f26;border:1px solid #e7b3ad}
+.b-after{background:#eef7ee;color:#2f6b32;border:1px solid #a9cfab}
+.b-orig{background:#f0ece4;color:#5a534a;border:1px solid #ddd5c8}
+
+/* ---- class blocks ---- */
+.cls{border:1px solid var(--line);border-radius:10px;margin:20px 0;overflow:hidden;background:var(--card)}
+.cls > header{display:flex;align-items:center;gap:13px;padding:13px 17px;border-bottom:1px solid var(--line)}
+.sw{width:38px;height:38px;border-radius:7px;border:1px solid #0002;flex:0 0 38px}
+.cls h3{margin:0;font-size:19px}
+.rgb{margin-left:auto;display:flex;align-items:center;gap:8px}
+.rgb code{font-size:14px}
+.copy{font-size:12px;padding:4px 9px;border:1px solid var(--line);background:var(--bg);
+  border-radius:5px;cursor:pointer;color:var(--mut)}
+.copy:hover{background:#f2ede5;color:var(--fg)}
+.cls .body{padding:15px 17px}
+
+/* ---- tables ---- */
+table{border-collapse:collapse;width:100%;margin:14px 0;font-size:15px}
+th,td{border:1px solid var(--line);padding:8px 11px;text-align:left;vertical-align:top}
+th{background:#f4f0e9;font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut)}
+td .sw{width:20px;height:20px;border-radius:4px;display:inline-block;vertical-align:-4px;margin-right:7px}
+
+/* ---- colour ref drawer ---- */
+#refbtn{position:fixed;right:20px;bottom:20px;z-index:40;background:var(--accent);color:#fff;
+  border:0;border-radius:26px;padding:12px 20px;font-size:14px;font-weight:600;cursor:pointer;
+  box-shadow:0 3px 14px #0003}
+#refpanel{position:fixed;right:20px;bottom:74px;z-index:40;width:330px;max-height:70vh;overflow:auto;
+  background:var(--card);border:1px solid var(--line);border-radius:11px;box-shadow:0 6px 26px #0003;padding:14px}
+#refpanel[hidden]{display:none}
+#refpanel h4{margin:0 0 9px}
+.refrow{display:flex;align-items:center;gap:9px;padding:5px 0;border-bottom:1px solid var(--line);font-size:14px}
+.refrow .sw{width:24px;height:24px;flex:0 0 24px;border-radius:5px}
+.refrow code{margin-left:auto;font-size:12.5px}
+
+/* ---- qa ---- */
+.qa{border:1px solid var(--line);border-radius:9px;padding:14px 17px;margin:13px 0;background:var(--card)}
+.qa .qid{font-size:11px;font-weight:700;color:var(--mut);letter-spacing:.07em;text-transform:uppercase}
+.qa .q{font-weight:600;margin:3px 0 7px}
+.qa .a{background:var(--good);border-left:4px solid var(--goodline);padding:9px 13px;border-radius:0 6px 6px 0}
+.anchor{color:var(--line);text-decoration:none;font-weight:400;margin-left:7px;font-size:.8em}
+.anchor:hover{color:var(--accent)}
+
+/* ---- lightbox ---- */
+#lb{position:fixed;inset:0;background:#000000e8;z-index:100;display:flex;align-items:center;
+  justify-content:center;flex-direction:column;padding:26px}
+#lb[hidden]{display:none}
+#lb img{max-width:96%;max-height:84%;object-fit:contain;border-radius:5px}
+#lb p{color:#eee;font-size:14.5px;max-width:76ch;text-align:center;margin:14px 0 0}
+#lbx{position:absolute;top:16px;right:22px;background:#fff2;color:#fff;border:0;font-size:26px;
+  width:44px;height:44px;border-radius:50%;cursor:pointer}
+.skip{position:absolute;left:-9999px}
+.skip:focus{left:8px;top:8px;background:#fff;padding:9px;z-index:200;border-radius:5px}
+
+/* ---- svg diagrams ---- */
+.dia{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:14px;margin:14px 0}
+.dia svg{max-width:100%;height:auto;display:block;margin:0 auto}
+
+footer.pg{border-top:1px solid var(--line);margin-top:60px;padding-top:16px;color:var(--mut);font-size:13.5px}
+
+@media(max-width:900px){
+  #nav{position:fixed;left:0;top:0;z-index:60;transform:translateX(-100%);transition:transform .2s;
+    box-shadow:0 0 30px #0003;width:290px}
+  #nav.open{transform:none}
+  #navtog{display:block}
+  main{padding:20px 18px 100px}
+  .pair,.trio{grid-template-columns:1fr}
+}
+#navtog{display:none;position:fixed;left:12px;top:12px;z-index:70;background:var(--accent);color:#fff;
+  border:0;border-radius:7px;padding:10px 14px;font-size:15px;cursor:pointer}
+@media(max-width:900px){#navtog{display:block}main{padding-top:64px}}
+
+@media print{
+  #nav,#refbtn,#refpanel,#navtog,#lb,.copy{display:none!important}
+  body{background:#fff;font-size:11pt}
+  main{max-width:none;padding:0}
+  section{page-break-inside:avoid;margin:20px 0}
+  figure img{max-width:52%;page-break-inside:avoid}
+  .pair{grid-template-columns:1fr 1fr}
+  a{color:#000;text-decoration:none}
+  .anchor{display:none}
+}
+</style>
+</head>
+<body>
+<a href="#main" class="skip">Skip to content</a>
+<button id="navtog" aria-label="Toggle navigation">☰ Menu</button>
+<div class="wrap">
+
+<nav id="nav" aria-label="Manual sections">
+  <label for="search" style="font-size:13px;color:var(--mut);font-weight:600">Search the manual</label>
+  <input id="search" type="search" placeholder="rust, AC, gap, water scale…" autocomplete="off">
+  <div id="hits"></div>
+  <div id="navlinks">
+    <h2>Start here</h2>
+    <a href="#quickstart">Quick start — 10 rules</a>
+    <a href="#mistakes">Common mistakes to avoid</a>
+    <h2>Classes</h2>
+    <a href="#classes">The 8 classes</a>
+    <a href="#rust">1 · Rust spots</a>
+    <a href="#steel">2 · Exposed steel plate</a>
+    <a href="#ac">3 · Exposed AC paint</a>
+    <a href="#af">4 · AF deterioration</a>
+    <a href="#dirt1">5 · Dirt 1</a>
+    <a href="#dirt2">6 · Dirt 2</a>
+    <a href="#marine">7 · Marine deposits</a>
+    <a href="#sound">8 · Sound areas</a>
+    <a href="#flowchart">Decision flowchart</a>
+    <h2>How to draw</h2>
+    <a href="#technique">Annotation technique</a>
+    <a href="#examples">Worked examples</a>
+    <h2>Reference</h2>
+    <a href="#rulings">Client rulings (Q&amp;A)</a>
+    <a href="#glossary">Glossary</a>
+  </div>
+</nav>
+
+<main id="main">
+<header class="top">
+  <h1>Hull Anomaly Annotation Manual</h1>
+  <div class="meta">
+    Ship hull plating · semantic segmentation · 8 classes ·
+    working resolution 2592 × 1944 —
+    <a href="/">back to the annotation app</a>
+  </div>
+</header>
+<p class="lede">
+  This page teaches annotation judgment: <strong>what to label, which class it is, and where the
+  boundaries go.</strong> Read the quick start, then the common mistakes. Keep the colour reference
+  open while you work (button, bottom right).
+</p>
+
+<!-- ===================== QUICK START ===================== -->
+<section id="quickstart">
+  <h2 class="sec">Quick start — the 10 rules that matter most<a class="anchor" href="#quickstart">#</a></h2>
+  <ol class="quick">
+    <li><strong>Corroded surface = Rust. Run-off from it = Dirt.</strong> If the surface itself is
+      corroded, it is Rust. If it is discolouration that ran <em>down from</em> corrosion, it is
+      Dirt 1 (heavy) or Dirt 2 (light). <span class="src">Manual p11 · <a href="#fp1">FP-1</a></span></li>
+    <li><strong>Sweep for rust before you finish — then check every rust mask really is corrosion.</strong>
+      Both directions cost rework. <span class="src"><a href="#fp2">FP-2</a></span></li>
+    <li><strong>Blackish or metallic exposure = Steel. Grey or white = AC.</strong> Both definitions
+      include "white", so white alone decides nothing. <span class="src">Manual p12–13 · <a href="#fp3">FP-3</a></span></li>
+    <li><strong>Peeled, but neither AC nor steel = AF deterioration.</strong> <span class="src">Manual p14</span></li>
+    <li><strong>Follow the anomaly's actual edge.</strong> No blobs, no bounding rectangles.
+      <span class="src"><a href="#fp4">FP-4</a></span></li>
+    <li><strong>Fill each class to its own extent.</strong> Do not let one mask swallow its
+      neighbours. <span class="src"><a href="#fp5">FP-5</a></span></li>
+    <li><strong>Large gap → separate regions.</strong> Do not enclose them as one blob.
+      <span class="src"><a href="#jp3">Ruling JP-3</a></span></li>
+    <li><strong>Classes may overlap — overlay them.</strong> <span class="src"><a href="#jp9">Ruling JP-9</a></span></li>
+    <li><strong>Water drips, faint whitening, faded colour and normal AF wear are NOT dirt.</strong>
+      <span class="src">Manual p17</span></li>
+    <li><strong>Misalignment tolerance is 2 px on the outside.</strong> <span class="src">Manual p5 · <a href="#tolerance">how to read this</a></span></li>
+  </ol>
+</section>
+
+<!-- ===================== MISTAKES ===================== -->
+<section id="mistakes">
+  <h2 class="sec">Common mistakes to avoid<a class="anchor" href="#mistakes">#</a></h2>
+  <p class="lede">
+    Five habits show up again and again in our work. Each one below is a habit to change, not a
+    comment on any single file. Learn to spot these five in your <em>own</em> work in progress.
+  </p>
+
+  <div class="warnbox">
+    <span class="tag">How to read the client's markup</span>
+    <strong>Red frame</strong> = the thing being pointed at. <strong>Yellow frame</strong> = an area
+    we annotated wrongly. Where you see our own masks, the fill colour is the class we assigned —
+    check it against <a href="#classes">the class list</a>.
+  </div>
+
+  <!-- FP1 -->
+  <h3 id="fp1">FP-1 · We have been labelling rust as dirt<a class="anchor" href="#fp1">#</a></h3>
+  <div class="dont"><strong>What we have been doing:</strong> filling corroded surface with Dirt 1
+    (green) because it looks like a brown stain.</div>
+  <div class="do"><strong>What we must do:</strong> ask what the surface is <em>doing</em>. Corroded
+    metal → <a href="#rust">Rust</a>. Discolouration that ran <em>down from</em> corrosion →
+    <a href="#dirt1">Dirt 1</a> (heavy) or <a href="#dirt2">Dirt 2</a> (light).</div>
+  <p><strong>Why this happens:</strong> rust and its run-off are the same colour, so colour cannot
+    settle it. The manual's own wording is the tell — Rust is rust <em>without rust leachate</em>.
+    The rust is the source; the streak is what leaked out of it.</p>
+  <div class="pair">
+    <figure><span class="badge b-orig">Original</span>
+      <img loading="lazy" src="assets/img/fp1-rust-as-dirt-before.jpg"
+        alt="Hull photo: pale pink AF paint above, a corroded weld seam running across the lower third.">
+      <figcaption>Look at the seam across the lower third. The metal there is corroded — that is
+        the surface itself, not a stain running down.</figcaption></figure>
+    <figure><span class="badge b-before">Our annotation — wrong</span>
+      <img loading="lazy" src="assets/img/fp1-rust-as-dirt-after.jpg"
+        alt="Same photo with the corroded seam filled green for Dirt 1 instead of orange for Rust.">
+      <figcaption>We filled the seam <strong>green (Dirt 1)</strong>. Corroded surface must be
+        <strong>Rust</strong>. Note the pink and cyan patches above were classed separately.</figcaption></figure>
+  </div>
+
+  <!-- FP2 -->
+  <h3 id="fp2">FP-2 · We have been missing rust — and calling things rust that are not<a class="anchor" href="#fp2">#</a></h3>
+  <div class="dont"><strong>What we have been doing:</strong> leaving real rust unlabelled, and at
+    the same time spreading rust masks over surface that is not corroded.</div>
+  <div class="do"><strong>What we must do:</strong> two passes. First sweep the whole image for rust
+    you missed. Then re-check each rust mask you drew and confirm the surface under it is actually
+    corroded.</div>
+  <p><strong>Why this happens:</strong> small or faint rust reads as background and gets skipped;
+    conversely, any orange-brown tone reads as "rust" and gets over-claimed. This is one habit with
+    two directions, and the client flagged both on the same image.</p>
+  <div class="pair">
+    <figure><span class="badge b-orig">Original</span>
+      <img loading="lazy" src="assets/img/fp2-rust-missed-original.jpg"
+        alt="Grey hull plating with a narrow band of rust along a horizontal seam.">
+      <figcaption>The corrosion is the narrow band along the seam. The grey plating around it is
+        sound.</figcaption></figure>
+    <figure><span class="badge b-before">Our annotation — wrong</span>
+      <img loading="lazy" src="assets/img/fp2-rust-over-annotated.jpg"
+        alt="Same area with a large smooth orange rust mask covering far more than the corroded band.">
+      <figcaption>The orange Rust mask spreads well past the corrosion onto plain grey surface, and
+        its edge is a smooth slab. Over-annotation and coarse granularity at once.</figcaption></figure>
+  </div>
+
+  <!-- FP3 -->
+  <h3 id="fp3">FP-3 · We have been defaulting to AC when an exposure looks pale<a class="anchor" href="#fp3">#</a></h3>
+  <div class="dont"><strong>What we have been doing:</strong> reaching for Exposed AC paint (cyan)
+    whenever paint has come off and the area underneath looks light.</div>
+  <div class="do"><strong>What we must do:</strong> check the tone.
+    <strong>Blackish or metallic → <a href="#steel">Exposed steel plate</a>.</strong>
+    <strong>Grey or white → <a href="#ac">Exposed AC paint</a>.</strong></div>
+  <div class="rule">
+    <span class="tag">Why the definitions trap us</span>
+    The manual defines exposed steel as "white or <strong>blackish</strong>" and exposed AC as
+    "white or <strong>greyish</strong>". <strong>Both include white — so white alone decides
+    nothing.</strong> The decision is made by the <em>other</em> tone: is there blackish, metallic
+    colour, or is it grey?
+  </div>
+  <div class="pair">
+    <figure><span class="badge b-orig">Original</span>
+      <img loading="lazy" src="assets/img/fp3-steel-original.jpg"
+        alt="Red hull with a painted draft numeral where paint has peeled to grey-blue metallic steel with rust in the recesses.">
+      <figcaption>Paint has peeled back to bare plate. The exposure is <strong>grey-blue and
+        metallic</strong>, with rust sitting in the recesses — that is steel.</figcaption></figure>
+    <figure><span class="badge b-before">Our annotation — wrong</span>
+      <img loading="lazy" src="assets/img/fp3-steel-as-ac.jpg"
+        alt="Same area annotated mostly cyan for AC paint with only small blue steel patches.">
+      <figcaption>Cyan (AC) covers most of the exposure; only small blue (Steel) patches were
+        marked. The metallic plate should have been <strong>blue</strong>.</figcaption></figure>
+  </div>
+
+  <!-- FP4 -->
+  <h3 id="fp4">FP-4 · We have been drawing loose blobs around anomalies<a class="anchor" href="#fp4">#</a></h3>
+  <div class="dont"><strong>What we have been doing:</strong> enclosing an anomaly in one smooth
+    shape, swallowing the sound surface between its parts.</div>
+  <div class="do"><strong>What we must do:</strong> follow the actual edge. Where sound paint shows
+    between two parts of an anomaly, leave it unfilled.</div>
+  <p><strong>Why this happens:</strong> a smooth outline is much faster to draw and feels "close
+    enough". At 2592 × 1944 with a 2 px tolerance, it is not. The three images below are the same
+    region — the client supplied the granularity they expect.</p>
+  <div class="trio">
+    <figure><span class="badge b-orig">Original</span>
+      <img loading="lazy" src="assets/img/fp4-granularity-original.jpg"
+        alt="Red AF paint with an irregular vertical strip where paint has come away.">
+      <figcaption>The peeled strip has ragged edges and islands of intact paint inside it.</figcaption></figure>
+    <figure><span class="badge b-before">Too coarse</span>
+      <img loading="lazy" src="assets/img/fp4-granularity-coarse.jpg"
+        alt="The same strip filled as one solid cyan slab with a smooth outline.">
+      <figcaption>One solid slab. The intact paint inside the strip has been swallowed.</figcaption></figure>
+    <figure><span class="badge b-after">Client's target</span>
+      <img loading="lazy" src="assets/img/fp4-granularity-target.jpg"
+        alt="The same strip annotated following every lobe, with intact paint between the lobes left unfilled.">
+      <figcaption><strong>This is the granularity to match.</strong> Every lobe followed; the sound
+        paint between them left unfilled.</figcaption></figure>
+  </div>
+
+  <!-- FP5 -->
+  <h3 id="fp5">FP-5 · We have been letting one mask swallow the area<a class="anchor" href="#fp5">#</a></h3>
+  <div class="dont"><strong>What we have been doing:</strong> covering a busy region with one large
+    mask, so rust and dirt sitting side by side end up inside a single class.</div>
+  <div class="do"><strong>What we must do:</strong> fill each class to its own extent. Where rust
+    and dirt are both present, separate them. Keep the same level of detail across the whole
+    image.</div>
+  <p><strong>Why this happens:</strong> where two classes touch, drawing one boundary is easier than
+    drawing two. But the classes mean different things to the model, so a merged mask teaches it the
+    wrong thing.</p>
+  <div class="pair">
+    <figure><span class="badge b-orig">Original</span>
+      <img loading="lazy" src="assets/img/fp5-fill-original.jpg"
+        alt="Busy hull surface with rust, dirt and scattered light patches next to each other.">
+      <figcaption>Several classes appear together here — rust, dirt and scattered pale
+        deposits.</figcaption></figure>
+    <figure><span class="badge b-before">Our mask — wrong</span>
+      <img loading="lazy" src="assets/img/fp5-fill-mask.jpg"
+        alt="Mask image on black background: a large smooth green dirt shape beside finely detailed cyan speckles.">
+      <figcaption>The mask file (black = Sound). The large <strong>green Dirt 1</strong> shape is
+        smooth and has no rust separated inside it, while the cyan nearby is finely detailed — two
+        different standards in one image.</figcaption></figure>
+  </div>
+</section>
+
+<!-- ===================== CLASSES ===================== -->
+<section id="classes">
+  <h2 class="sec">The 8 classes<a class="anchor" href="#classes">#</a></h2>
+  <p>These RGB values are exact. They are the mask pixel values — do not approximate them.</p>
+  <table>
+    <thead><tr><th>Class</th><th>RGB (R, G, B)</th><th>One-line test</th></tr></thead>
+    <tbody>
+      <tr><td><span class="sw" style="background:var(--c-rust)"></span><a href="#rust">Rust spots</a></td><td><code>(217, 83, 25)</code></td><td>The surface itself is corroded</td></tr>
+      <tr><td><span class="sw" style="background:var(--c-steel)"></span><a href="#steel">Exposed Steel Plate Area</a></td><td><code>(30, 90, 255)</code></td><td>Bare plate — white or <em>blackish</em>/metallic</td></tr>
+      <tr><td><span class="sw" style="background:var(--c-ac)"></span><a href="#ac">Exposed areas of AC paint</a></td><td><code>(15, 255, 255)</code></td><td>Under-paint showing — white or <em>greyish</em></td></tr>
+      <tr><td><span class="sw" style="background:var(--c-af)"></span><a href="#af">AF paint deterioration / peeling</a></td><td><code>(255, 19, 166)</code></td><td>Peeled, but not AC and not steel</td></tr>
+      <tr><td><span class="sw" style="background:var(--c-d1)"></span><a href="#dirt1">Dirt 1</a></td><td><code>(100, 212, 19)</code></td><td>Heavy: rubber marks, rust streaks, oil/paint drips</td></tr>
+      <tr><td><span class="sw" style="background:var(--c-d2)"></span><a href="#dirt2">Dirt 2</a></td><td><code>(255, 215, 0)</code></td><td>Light: faint rust stains, water scale</td></tr>
+      <tr><td><span class="sw" style="background:var(--c-mar)"></span><a href="#marine">Residual marine organisms and deposits</a></td><td><code>(183, 70, 255)</code></td><td>White round spots, bright white areas</td></tr>
+      <tr><td><span class="sw" style="background:var(--c-snd);border-color:#999"></span><a href="#sound">Sound areas</a></td><td><code>(0, 0, 0)</code></td><td>No abnormality — includes normal AF wear</td></tr>
+    </tbody>
+  </table>
+
+  <!-- RUST -->
+  <div class="cls" id="rust">
+    <header><span class="sw" style="background:var(--c-rust)"></span>
+      <h3>1 · Rust spots</h3>
+      <span class="rgb"><code>rgb(217, 83, 25)</code><button class="copy" data-c="217, 83, 25">Copy</button></span></header>
+    <div class="body">
+      <p><strong>Definition:</strong> areas of rust that do <strong>not</strong> contain rust
+        leachate. <span class="src">Manual p11</span></p>
+      <p><strong>Looks like:</strong> the metal surface itself has corroded — rough, orange-brown,
+        often along seams, weld lines and edges.</p>
+      <figure><img loading="lazy" src="assets/img/class-rust-examples.jpg"
+        alt="Two client rust examples, each with a red frame around the corroded band; orange streaks run down below the frames.">
+        <figcaption>Client examples. The red frames sit on the <strong>corroded band</strong>. Notice
+          the orange streaking running <em>down</em> below the left frame — that run-off is
+          <strong>Dirt</strong>, not Rust.</figcaption></figure>
+      <div class="rule">
+        <span class="tag">Commonly confused with — Dirt 1 / Dirt 2</span>
+        Ask: <strong>is the surface corroded, or is this a stain that ran down from corrosion?</strong>
+        Corroded surface → Rust. Streak below it → Dirt 1 if heavy, Dirt 2 if light.
+        See <a href="#fp1">FP-1</a>.
+      </div>
+      <div class="warnbox">
+        <span class="tag">Manual vs later correction</span>
+        The manual says rust <em>stains</em> are Dirt (p15–16). The client's later review found we
+        had used that rule to label <strong>corroded surface</strong> as dirt.
+        <strong>Do this:</strong> the streak rule applies only to the run-off. The corroded area
+        itself is always Rust.
+      </div>
+    </div>
+  </div>
+
+  <!-- STEEL -->
+  <div class="cls" id="steel">
+    <header><span class="sw" style="background:var(--c-steel)"></span>
+      <h3>2 · Exposed Steel Plate Area</h3>
+      <span class="rgb"><code>rgb(30, 90, 255)</code><button class="copy" data-c="30, 90, 255">Copy</button></span></header>
+    <div class="body">
+      <p><strong>Definition:</strong> areas where the paint has come away revealing the steel plate —
+        <strong>white or blackish</strong> areas. <span class="src">Manual p12</span></p>
+      <p><strong>Looks like:</strong> bare plate. Often dark, grey-blue or metallic; may have rust
+        in the recesses.</p>
+      <figure><img loading="lazy" src="assets/img/class-steel-examples.jpg"
+        alt="Two client examples of exposed steel plate, both showing dark blackish metallic surface under pink and grey paint.">
+        <figcaption>Client examples. Both are visibly <strong>dark and metallic</strong> — that tone
+          is the cue for steel.</figcaption></figure>
+      <div class="rule">
+        <span class="tag">Commonly confused with — Exposed AC paint</span>
+        Blackish or metallic → <strong>Steel</strong>. Grey or white → <strong>AC</strong>.
+        Both definitions include "white", so white alone decides nothing. See <a href="#fp3">FP-3</a>.
+      </div>
+    </div>
+  </div>
+
+  <!-- AC -->
+  <div class="cls" id="ac">
+    <header><span class="sw" style="background:var(--c-ac)"></span>
+      <h3>3 · Exposed areas of AC paint</h3>
+      <span class="rgb"><code>rgb(15, 255, 255)</code><button class="copy" data-c="15, 255, 255">Copy</button></span></header>
+    <div class="body">
+      <p><strong>Definition:</strong> areas where the paint has peeled away revealing
+        <strong>white or greyish</strong> surfaces. <span class="src">Manual p13</span></p>
+      <p><strong>Looks like:</strong> the anticorrosive layer under the topcoat — pale, flat grey or
+        white, not metallic.</p>
+      <figure><img loading="lazy" src="assets/img/class-ac-examples.jpg"
+        alt="Two client examples of exposed AC paint showing pale white and greyish areas under the topcoat.">
+        <figcaption>Client examples of exposed AC paint — pale and flat, without the metallic
+          look of bare plate.</figcaption></figure>
+      <div class="rule">
+        <span class="tag">Commonly confused with — Exposed steel plate</span>
+        If you can see blackish or metallic plate, it is <a href="#steel">Steel</a>. Grey/white
+        under-paint is AC. See <a href="#fp3">FP-3</a> — this was one of our two most costly
+        confusions.
+      </div>
+      <p class="src">Client ruling <a href="#jp7">JP-7</a> confirms a white-looking painted area in
+        their example is AC.</p>
+    </div>
+  </div>
+
+  <!-- AF -->
+  <div class="cls" id="af">
+    <header><span class="sw" style="background:var(--c-af)"></span>
+      <h3>4 · AF paint deterioration / peeling</h3>
+      <span class="rgb"><code>rgb(255, 19, 166)</code><button class="copy" data-c="255, 19, 166">Copy</button></span></header>
+    <div class="body">
+      <p><strong>Definition:</strong> areas where paint has peeled off but which do
+        <strong>not</strong> match the AC or steel exposure classes. <span class="src">Manual p14</span></p>
+      <p><strong>Looks like:</strong> the antifouling topcoat breaking up, flaking or "melting"
+        away, without exposing grey under-paint or bare plate.</p>
+      <figure><img loading="lazy" src="assets/img/class-af-examples.jpg"
+        alt="Client example of AF paint deterioration and peeling.">
+        <figcaption>Client example of AF deterioration and peeling.</figcaption></figure>
+      <div class="rule">
+        <span class="tag">Decide in this order</span>
+        Bare metallic plate → <a href="#steel">Steel</a>. Grey/white under-paint →
+        <a href="#ac">AC</a>. Peeled but neither of those → <strong>AF</strong>.
+      </div>
+      <p class="src">Rulings: <a href="#jp2">JP-2</a> (a "melting" appearance is AF),
+        <a href="#en6">EN-6</a> (a scattered pattern is AF).</p>
+    </div>
+  </div>
+
+  <!-- DIRT1 -->
+  <div class="cls" id="dirt1">
+    <header><span class="sw" style="background:var(--c-d1)"></span>
+      <h3>5 · Dirt 1 — heavy</h3>
+      <span class="rgb"><code>rgb(100, 212, 19)</code><button class="copy" data-c="100, 212, 19">Copy</button></span></header>
+    <div class="body">
+      <p><strong>Definition:</strong> rubber marks, heavy rust streaks, oil stains, soap/wash
+        residue. <span class="src">Manual p10, p15</span></p>
+      <ul>
+        <li>Dirt blackened by <strong>rubber marks</strong>.</li>
+        <li><strong>Rust stains</strong> (the run-off, not the corroded surface).</li>
+        <li>Stains left by <strong>oil or other substances dripping</strong>.</li>
+        <li><strong>Paint drip / run marks</strong> <span class="src">— ruling <a href="#en7">EN-7</a></span></li>
+        <li>Residue left after washing.</li>
+      </ul>
+      <figure><img loading="lazy" src="assets/img/class-dirt1-examples.jpg"
+        alt="Three red-framed client examples: dark rubber marks on blue hull, a heavy brown rust streak, and pale drip marks.">
+        <figcaption>Client examples, each red-framed: rubber marks, a heavy rust streak running
+          down, and drip marks.</figcaption></figure>
+      <div class="rule">
+        <span class="tag">Commonly confused with — Rust</span>
+        A <strong>streak running down</strong> from corrosion is Dirt 1. The
+        <strong>corroded surface</strong> that produced it is <a href="#rust">Rust</a>.
+        See <a href="#fp1">FP-1</a>.
+      </div>
+    </div>
+  </div>
+
+  <!-- DIRT2 -->
+  <div class="cls" id="dirt2">
+    <header><span class="sw" style="background:var(--c-d2)"></span>
+      <h3>6 · Dirt 2 — light</h3>
+      <span class="rgb"><code>rgb(255, 215, 0)</code><button class="copy" data-c="255, 215, 0">Copy</button></span></header>
+    <div class="body">
+      <p><strong>Definition:</strong> light rust streaks, water stains / water scale.
+        <span class="src">Manual p10, p16</span></p>
+      <ul>
+        <li>Stains with only <strong>a small amount of rust</strong>.</li>
+        <li><strong>Water scale / water spots.</strong> <span class="src">— rulings <a href="#en4">EN-4</a>, <a href="#en9">EN-9</a></span></li>
+        <li>A stain in a colour different from the hull's paint.</li>
+      </ul>
+      <figure><img loading="lazy" src="assets/img/class-dirt2-examples.jpg"
+        alt="Client examples of light stains and water spots on hull paint.">
+        <figcaption>Client examples of light staining.</figcaption></figure>
+      <div class="rule">
+        <span class="tag">Dirt 1 or Dirt 2?</span>
+        Heavy and dark → Dirt 1. Faint and light → Dirt 2. If an oily-looking mark turns out to be
+        <strong>water scale</strong>, it is Dirt 2 — the client ruled this twice.
+      </div>
+      <div class="warnbox">
+        <span class="tag">These are NOT dirt</span>
+        <ul style="margin:6px 0 0">
+          <li>Areas where <strong>water has dripped</strong>, or that merely look stained.</li>
+          <li>Areas that have become <strong>faintly whitish overall</strong>.</li>
+          <li>Areas where the <strong>colour has faded</strong>.</li>
+          <li><strong>Normal AF wear</strong>, where wear is widespread.</li>
+        </ul>
+        <div class="pair" style="margin-top:11px">
+          <figure><img loading="lazy" src="assets/img/notdirt-examples.jpg"
+            alt="Three red-framed client examples of marks that are not dirt: a water drip, faint whitening, and faded colour.">
+            <figcaption>Red-framed: not dirt.</figcaption></figure>
+          <figure><img loading="lazy" src="assets/img/notdirt-normal-af-wear.jpg"
+            alt="Client example of normal AF wear: broad even lightening across orange hull paint.">
+            <figcaption>Normal AF wear — broad and even. Leave as <a href="#sound">Sound</a>.</figcaption></figure>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MARINE -->
+  <div class="cls" id="marine">
+    <header><span class="sw" style="background:var(--c-mar)"></span>
+      <h3>7 · Residual marine organisms and other deposits</h3>
+      <span class="rgb"><code>rgb(183, 70, 255)</code><button class="copy" data-c="183, 70, 255">Copy</button></span></header>
+    <div class="body">
+      <p><strong>Definition:</strong> white round spots; bright white areas. <span class="src">Manual p18</span></p>
+      <figure><img loading="lazy" src="assets/img/class-marine-examples.jpg"
+        alt="Client examples of residual marine deposits: white round spots and bright white patches on hull paint.">
+        <figcaption>Client examples — white round spots and bright white areas.</figcaption></figure>
+      <div class="rule">
+        <span class="tag">Ruling — separate the white portion</span>
+        Where an organism has an <strong>inner white portion</strong>, that white part is the
+        adhered deposit. <strong>Separate them.</strong> <span class="src">Ruling <a href="#jp4">JP-4</a></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- SOUND -->
+  <div class="cls" id="sound">
+    <header><span class="sw" style="background:var(--c-snd);border-color:#999"></span>
+      <h3>8 · Sound areas</h3>
+      <span class="rgb"><code>rgb(0, 0, 0)</code><button class="copy" data-c="0, 0, 0">Copy</button></span></header>
+    <div class="body">
+      <p><strong>Definition:</strong> areas with no abnormality, including normal wear of AF paint.
+        <span class="src">Manual p10, p19</span></p>
+      <p>Areas that <strong>appear indented</strong>, as though the paint might have peeled, but
+        where it has <strong>not</strong> actually peeled, are sound.</p>
+      <figure><img loading="lazy" src="assets/img/class-sound-examples.jpg"
+        alt="Client examples of sound hull areas including surfaces that look indented but are not peeled.">
+        <figcaption>Client examples of sound areas.</figcaption></figure>
+      <p class="src">Ruling <a href="#en1">EN-1</a>: a sound area sitting <em>inside</em> another
+        class may be annotated as Sound on top of it — send the larger class to the back so the
+        smaller shape stays in front.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== FLOWCHART ===================== -->
+<section id="flowchart">
+  <h2 class="sec">Class decision flowchart<a class="anchor" href="#flowchart">#</a></h2>
+  <p>Walk this when you are unsure. The two branches that caused the most rework are shaded.</p>
+  <div class="dia">
+  <svg viewBox="0 0 980 660" role="img" aria-labelledby="fcT fcD">
+    <title id="fcT">Class decision flowchart</title>
+    <desc id="fcD">Start: is the surface abnormal? If not, Sound. If paint has come off, check
+      whether bare metallic plate is visible (Exposed steel plate), grey or white under-paint
+      (Exposed AC paint), or neither (AF deterioration). If the surface is corroded it is Rust; if
+      it is a stain that ran down from corrosion it is Dirt 1 when heavy or Dirt 2 when light.
+      White round spots are marine deposits.</desc>
+    <defs><marker id="a" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#615c54"/></marker></defs>
+    <g font-size="13.5" font-family="sans-serif" fill="#1c1a17">
+      <g stroke="#615c54" stroke-width="1.6" fill="none" marker-end="url(#a)">
+        <path d="M180,58 L180,92"/><path d="M180,140 L180,176"/>
+        <path d="M112,206 L60,206 L60,250"/><path d="M248,206 L440,206 L440,250"/>
+        <path d="M60,300 L60,340"/>
+        <path d="M60,388 L60,424"/>
+        <path d="M112,454 L150,454"/>
+        <path d="M60,478 L60,516"/>
+        <path d="M112,546 L150,546"/>
+        <path d="M60,570 L60,594"/>
+        <path d="M440,300 L440,336"/>
+        <path d="M492,366 L540,366"/>
+        <path d="M440,396 L440,432"/>
+        <path d="M492,462 L540,462"/>
+        <path d="M440,492 L440,528"/>
+        <path d="M760,206 L760,250"/>
+      </g>
+      <!-- start -->
+      <rect x="96" y="28" width="168" height="30" rx="15" fill="#f0ece4" stroke="#c9c0b2"/>
+      <text x="180" y="48" text-anchor="middle" font-weight="600">Start: look at the area</text>
+      <!-- abnormal? -->
+      <rect x="86" y="92" width="188" height="48" rx="7" fill="#fff" stroke="#615c54"/>
+      <text x="180" y="112" text-anchor="middle">Is there any abnormality?</text>
+      <text x="180" y="130" text-anchor="middle" font-size="12" fill="#615c54">(indented but not peeled = none)</text>
+      <!-- no -> sound -->
+      <text x="300" y="200" font-size="12" fill="#615c54">No</text>
+      <rect x="676" y="250" width="168" height="34" rx="7" fill="#e9e9e9" stroke="#333"/>
+      <text x="760" y="272" text-anchor="middle" font-weight="600">Sound (0,0,0)</text>
+      <path d="M274,116 L760,116 L760,190" stroke="#615c54" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
+      <!-- yes -->
+      <text x="192" y="168" font-size="12" fill="#615c54">Yes</text>
+      <rect x="86" y="176" width="188" height="30" rx="7" fill="#fff" stroke="#615c54"/>
+      <text x="180" y="196" text-anchor="middle">Has paint come off?</text>
+      <text x="70" y="228" font-size="12" fill="#615c54">Yes</text>
+      <text x="380" y="228" font-size="12" fill="#615c54">No — it is a colour change</text>
+
+      <!-- LEFT: paint off branch -->
+      <rect x="6" y="250" width="200" height="50" rx="7" fill="#eaf1f8" stroke="#3d6fa8"/>
+      <text x="106" y="270" text-anchor="middle" font-weight="600">Steel vs AC vs AF</text>
+      <text x="106" y="288" text-anchor="middle" font-size="12" fill="#3d6fa8">the FP-3 branch</text>
+      <rect x="6" y="340" width="200" height="48" rx="7" fill="#fff" stroke="#615c54"/>
+      <text x="106" y="360" text-anchor="middle">Blackish / metallic</text>
+      <text x="106" y="378" text-anchor="middle">bare plate visible?</text>
+      <text x="120" y="448" font-size="12" fill="#615c54">Yes</text>
+      <rect x="150" y="438" width="196" height="32" rx="7" fill="#dbe4ff" stroke="#1e5aff"/>
+      <text x="248" y="459" text-anchor="middle" font-weight="600">Exposed steel (30,90,255)</text>
+      <rect x="6" y="424" width="108" height="0" fill="none"/>
+      <rect x="6" y="516" width="200" height="0" fill="none"/>
+      <rect x="6" y="424" width="108" height="0"/>
+      <rect x="6" y="428" width="108" height="0"/>
+      <rect x="6" y="424" width="0" height="0"/>
+      <rect x="6" y="430" width="108" height="0"/>
+      <rect x="6" y="424" width="108" height="0"/>
+      <rect x="6" y="424" width="108" height="0"/>
+      <rect x="6" y="424" width="108" height="0"/>
+      <rect x="6" y="424" width="108" height="48" rx="7" fill="#fff" stroke="#615c54"/>
+      <text x="60" y="444" text-anchor="middle" font-size="12">Grey / white</text>
+      <text x="60" y="462" text-anchor="middle" font-size="12">under-paint?</text>
+      <text x="120" y="540" font-size="12" fill="#615c54">Yes</text>
+      <rect x="150" y="530" width="196" height="32" rx="7" fill="#d6feff" stroke="#0aa"/>
+      <text x="248" y="551" text-anchor="middle" font-weight="600">Exposed AC (15,255,255)</text>
+      <rect x="6" y="516" width="108" height="54" rx="7" fill="#fff" stroke="#615c54"/>
+      <text x="60" y="540" text-anchor="middle" font-size="12">Neither of</text>
+      <text x="60" y="557" text-anchor="middle" font-size="12">those?</text>
+      <rect x="6" y="600" width="200" height="32" rx="7" fill="#ffd9ef" stroke="#d0117f"/>
+      <text x="106" y="621" text-anchor="middle" font-weight="600">AF deterioration (255,19,166)</text>
+
+      <!-- RIGHT: colour change branch -->
+      <rect x="340" y="250" width="200" height="50" rx="7" fill="#eaf1f8" stroke="#3d6fa8"/>
+      <text x="440" y="270" text-anchor="middle" font-weight="600">Rust vs Dirt</text>
+      <text x="440" y="288" text-anchor="middle" font-size="12" fill="#3d6fa8">the FP-1 branch</text>
+      <rect x="340" y="336" width="200" height="60" rx="7" fill="#fff" stroke="#615c54"/>
+      <text x="440" y="358" text-anchor="middle" font-size="12.5">Is the surface itself</text>
+      <text x="440" y="376" text-anchor="middle" font-size="12.5">corroded (rough, pitted)?</text>
+      <text x="510" y="360" font-size="12" fill="#615c54">Yes</text>
+      <rect x="540" y="350" width="200" height="32" rx="7" fill="#ffdccd" stroke="#d9531e"/>
+      <text x="640" y="371" text-anchor="middle" font-weight="600">Rust (217,83,25)</text>
+      <rect x="340" y="432" width="200" height="60" rx="7" fill="#fff" stroke="#615c54"/>
+      <text x="440" y="454" text-anchor="middle" font-size="12.5">Did it run DOWN from</text>
+      <text x="440" y="472" text-anchor="middle" font-size="12.5">corrosion, or is it a stain?</text>
+      <text x="510" y="456" font-size="12" fill="#615c54">Yes</text>
+      <rect x="540" y="446" width="200" height="32" rx="7" fill="#e2f7cf" stroke="#5aa81e"/>
+      <text x="640" y="467" text-anchor="middle" font-size="12.5" font-weight="600">Heavy → Dirt 1 · Light → Dirt 2</text>
+      <rect x="340" y="528" width="200" height="52" rx="7" fill="#fff" stroke="#615c54"/>
+      <text x="440" y="549" text-anchor="middle" font-size="12.5">White round spots or</text>
+      <text x="440" y="567" text-anchor="middle" font-size="12.5">bright white areas?</text>
+      <rect x="560" y="600" width="220" height="32" rx="7" fill="#f0d9ff" stroke="#b746ff"/>
+      <text x="670" y="621" text-anchor="middle" font-weight="600">Marine deposits (183,70,255)</text>
+      <path d="M540,554 L670,554 L670,590" stroke="#615c54" stroke-width="1.6" fill="none" marker-end="url(#a)"/>
+      <text x="556" y="546" font-size="12" fill="#615c54">Yes</text>
+      <rect x="756" y="516" width="216" height="58" rx="7" fill="#fff8e6" stroke="#e0a63c"/>
+      <text x="864" y="538" text-anchor="middle" font-size="12">Water drip, faint whitening,</text>
+      <text x="864" y="555" text-anchor="middle" font-size="12">faded colour, normal AF wear</text>
+      <text x="864" y="569" text-anchor="middle" font-size="12" font-weight="700">→ NOT dirt. Sound.</text>
+    </g>
+  </svg>
+  </div>
+  <div class="rule">
+    <span class="tag">Remember</span>
+    Classes may <strong>overlap</strong> — if two apply, overlay them rather than choosing one.
+    <span class="src">Ruling <a href="#jp9">JP-9</a></span>
+  </div>
+</section>
+
+<!-- ===================== TECHNIQUE ===================== -->
+<section id="technique">
+  <h2 class="sec">Annotation technique<a class="anchor" href="#technique">#</a></h2>
+
+  <h3 id="granularity">Granularity — follow the shape<a class="anchor" href="#granularity">#</a></h3>
+  <p>Follow the actual edge of the anomaly. Do not draw a rectangle or a smooth blob that contains
+    it. Where sound paint shows between parts of an anomaly, leave that paint unfilled.</p>
+  <p>Work at the resolution the job is delivered at — <strong>2592 × 1944</strong>. That is what
+    makes "fine enough" fine enough. Zoom in; an outline that looks tight at fit-to-screen is
+    usually a slab at full size.</p>
+  <p class="src">Compare the three-image sequence in <a href="#fp4">FP-4</a> — it is the client's own
+    statement of the granularity they expect.</p>
+
+  <h3 id="tolerance">The 2 px tolerance — "on the outside"<a class="anchor" href="#tolerance">#</a></h3>
+  <p>Misalignment tolerance is <strong>2 px on the outside</strong>. <span class="src">Manual p5</span>
+    Your boundary may sit up to 2 px <em>outside</em> the true edge of the anomaly. It is a small
+    allowance for edge precision — not licence to round off a shape.</p>
+  <div class="dia">
+  <svg viewBox="0 0 720 250" role="img" aria-labelledby="tolT tolD">
+    <title id="tolT">The 2 px tolerance</title>
+    <desc id="tolD">The true edge of the anomaly is the solid line. An acceptable mask boundary may
+      sit up to 2 pixels outside it. A boundary inside the anomaly leaves part of it unlabelled; a
+      boundary far outside covers sound surface. Neither is acceptable.</desc>
+    <g font-family="sans-serif" font-size="13">
+      <!-- anomaly -->
+      <path d="M60,150 C90,80 150,70 190,110 C230,150 200,205 140,205 C95,205 62,185 60,150 Z"
+        fill="#d9531e33" stroke="#d9531e" stroke-width="2.5"/>
+      <text x="128" y="150" text-anchor="middle" font-size="12.5" fill="#8a3b12">anomaly</text>
+      <path d="M52,150 C84,66 158,56 202,102 C246,150 210,218 140,218 C88,218 54,192 52,150 Z"
+        fill="none" stroke="#2f7a33" stroke-width="2" stroke-dasharray="5 4"/>
+      <text x="128" y="240" text-anchor="middle" fill="#2f7a33" font-weight="600">OK — up to 2 px outside</text>
+      <!-- inside -->
+      <g transform="translate(230,0)">
+        <path d="M60,150 C90,80 150,70 190,110 C230,150 200,205 140,205 C95,205 62,185 60,150 Z"
+          fill="#d9531e33" stroke="#d9531e" stroke-width="2.5"/>
+        <path d="M78,148 C102,96 148,90 176,118 C206,148 186,190 140,190 C104,190 80,174 78,148 Z"
+          fill="none" stroke="#c8453a" stroke-width="2" stroke-dasharray="5 4"/>
+        <text x="128" y="240" text-anchor="middle" fill="#c8453a" font-weight="600">Not OK — inside, anomaly left out</text>
+      </g>
+      <!-- far outside -->
+      <g transform="translate(460,0)">
+        <path d="M60,150 C90,80 150,70 190,110 C230,150 200,205 140,205 C95,205 62,185 60,150 Z"
+          fill="#d9531e33" stroke="#d9531e" stroke-width="2.5"/>
+        <rect x="34" y="52" width="192" height="168" rx="10" fill="none" stroke="#c8453a"
+          stroke-width="2" stroke-dasharray="5 4"/>
+        <text x="128" y="240" text-anchor="middle" fill="#c8453a" font-weight="600">Not OK — a blob around it</text>
+      </g>
+    </g>
+  </svg>
+  </div>
+
+  <h3 id="gaps">Separate regions across a large gap<a class="anchor" href="#gaps">#</a></h3>
+  <div class="rule"><span class="tag">Client ruling <a href="#jp3">JP-3</a></span>
+    <strong>Separate the sections where there is a large gap.</strong> Do not enclose two separated
+    areas in one mask just because they are the same class.</div>
+
+  <h3 id="overlap">Overlapping classes<a class="anchor" href="#overlap">#</a></h3>
+  <div class="rule"><span class="tag">Client ruling <a href="#jp9">JP-9</a></span>
+    <strong>Overlapping is allowed — overlay them.</strong> If an area is both peeling and dirty,
+    you do not have to choose. <strong>Send the larger class to the back</strong>
+    (<kbd>Shift</kbd> + <kbd>B</kbd>) so the smaller shape stays visible in front. Ruling
+    <a href="#en1">EN-1</a> applies the same technique to a sound area sitting inside a larger
+    class.</div>
+
+  <h3 id="scattered">Scattered patterns<a class="anchor" href="#scattered">#</a></h3>
+  <p>Where an anomaly appears as many small scattered spots, follow the spots — do not sweep one
+    mask across the whole field. The client classed a scattered pattern of this kind as
+    <a href="#af">AF deterioration</a>, and asked that we <strong>cover as little sound area as
+    possible</strong>. <span class="src">Ruling <a href="#en6">EN-6</a></span></p>
+
+  <h3 id="numerals">Numerals and markings<a class="anchor" href="#numerals">#</a></h3>
+  <div class="rule"><span class="tag">Client ruling <a href="#jp6">JP-6</a></span>
+    Numerals and markings painted on the hull <strong>do require annotation</strong>. Do not skip a
+    draft mark or a painted character because it is "not part of the hull".</div>
+
+  <h3 id="cracks">Cracks<a class="anchor" href="#cracks">#</a></h3>
+  <p>Annotate cracks at the level of detail the client's example shows.
+    <span class="src">Ruling <a href="#jp1">JP-1</a></span></p>
+
+  <h3>What the finished work looks like</h3>
+  <figure><img loading="lazy" src="assets/img/manual-annotation-example.jpg"
+    alt="Client's own example pairing an original hull photograph with its completed annotation mask.">
+    <figcaption>The client's own original-and-annotated pair from the manual.</figcaption></figure>
+</section>
+
+<!-- ===================== WORKED EXAMPLES ===================== -->
+<section id="examples">
+  <h2 class="sec">Worked examples<a class="anchor" href="#examples">#</a></h2>
+  <p class="lede">How to read a busy surface where several classes appear at once.</p>
+
+  <h3 id="wx-rust">Reading a surface for rust<a class="anchor" href="#wx-rust">#</a></h3>
+  <p>On a surface like this, rust appears as small, isolated corroded spots on otherwise sound
+    paint. They are easy to walk past. Work across the image in a grid so no region goes
+    unchecked.</p>
+  <div class="pair">
+    <figure><img loading="lazy" src="assets/img/wx-p17-missed-rust-01.jpg"
+      alt="Close crop of pale pink hull paint with a small orange-brown corroded spot near the centre, not annotated.">
+      <figcaption>An unannotated crop. The small corroded spot near the centre is the surface
+        itself corroding → <a href="#rust">Rust</a>. Spots this size are the ones we walk past.</figcaption></figure>
+    <figure><img loading="lazy" src="assets/img/wx-p17-missed-rust-05.jpg"
+      alt="Small annotated crop showing an orange rust region beside a green Dirt 1 region.">
+      <figcaption>An annotated crop from the same review: <strong>orange Rust</strong> beside
+        <strong>green Dirt 1</strong>, kept as two separate regions rather than one mask.</figcaption></figure>
+  </div>
+  <p class="src">Crops from the client's review of P1000017, under their heading "Insufficient
+    annotation of rust". The client marked these regions as a group and did not caption them
+    individually; the captions above describe only what is visible in each crop.</p>
+
+  <h3 id="wx-granularity">Reading a surface for granularity<a class="anchor" href="#wx-granularity">#</a></h3>
+  <p>Under the client's heading "Annotation is coarse overall", these crops show the scale at which
+    detail is expected. The first two are the same region before and after annotation.</p>
+  <div class="trio">
+    <figure><span class="badge b-orig">Original</span>
+      <img loading="lazy" src="assets/img/wx-p17-coarse-01.jpg" alt="Small unannotated crop of mottled pale hull surface.">
+      <figcaption>The bare surface — mottled, with no single clean edge.</figcaption></figure>
+    <figure><span class="badge b-after">Annotated</span>
+      <img loading="lazy" src="assets/img/wx-p17-coarse-02.jpg" alt="The same small region annotated with a cyan AC mask following its irregular outline.">
+      <figcaption>The same region annotated. The cyan mask follows the irregular outline rather
+        than squaring it off.</figcaption></figure>
+    <figure><span class="badge b-after">Annotated</span>
+      <img loading="lazy" src="assets/img/wx-p17-other-01.jpg" alt="Annotated crop showing a cyan AC region with a green Dirt 1 region below it and a small unannotated rust spot at the left edge.">
+      <figcaption>Several classes at once: <strong>cyan AC</strong> with <strong>green Dirt 1</strong>
+        beneath it. Note the rust-coloured spot at the far left — check whether marks like that have
+        been missed.</figcaption></figure>
+  </div>
+
+  <h3 id="wx-steel">Reading an exposure: steel or AC?<a class="anchor" href="#wx-steel">#</a></h3>
+  <p>Return to the draft-mark image in <a href="#fp3">FP-3</a>. Walk it in this order:</p>
+  <ol>
+    <li>Paint has come off — so this is the Steel / AC / AF branch.</li>
+    <li>Is bare metallic plate visible? Yes — grey-blue, metallic, with rust sitting in the
+      recesses. → <a href="#steel">Exposed steel plate</a>.</li>
+    <li>Any grey/white under-paint at the margins, without metal? → <a href="#ac">Exposed AC</a>.</li>
+    <li>The corroded patches inside the exposure are <a href="#rust">Rust</a>, and may
+      <a href="#overlap">overlap</a> the exposure.</li>
+    <li>The painted numeral itself still needs annotating. <span class="src">Ruling <a href="#jp6">JP-6</a></span></li>
+  </ol>
+</section>
+
+<!-- ===================== RULINGS ===================== -->
+<section id="rulings">
+  <h2 class="sec">Client rulings (Q&amp;A)<a class="anchor" href="#rulings">#</a></h2>
+  <p class="lede">Answers the client has given to our questions. These <strong>override</strong> the
+    manual where they differ. Grouped by situation — use the search box to find one fast.</p>
+
+  <h3>Rust and dirt</h3>
+  <div class="qa" id="en7"><div class="qid">Ruling EN-7 <a class="anchor" href="#en7">#</a></div>
+    <p class="q">This appears to be dripping. Which class should it be assigned to?</p>
+    <div class="a"><strong>Dirt 1 — paint drip mark.</strong></div>
+    <figure><img loading="lazy" src="assets/img/qa-en-07-waterscale.jpg" alt="Client image for ruling EN-7: paint that has run down the hull leaving a drip mark."><figcaption>Drip marks of this kind are <a href="#dirt1">Dirt 1</a>.</figcaption></figure></div>
+  <div class="qa" id="jp5"><div class="qid">Ruling JP-5 <a class="anchor" href="#jp5">#</a></div>
+    <p class="q">Is this dirt, or is it the steel material itself?</p>
+    <div class="a"><strong>Treat it as dirt.</strong></div>
+    <figure><img loading="lazy" src="assets/img/qa-jp-05-dirt-or-steel.jpg" alt="Client image for ruling JP-5: ambiguous dark area on hull surface ruled as dirt."><figcaption>In this case the client ruled dirt, not steel.</figcaption></figure></div>
+
+  <h3>Peeling — AF, AC and steel</h3>
+  <div class="qa" id="jp2"><div class="qid">Ruling JP-2 <a class="anchor" href="#jp2">#</a></div>
+    <p class="q">How should something that appears to be melting (peeling off) be handled?</p>
+    <div class="a"><strong>Use the class "AF Paint Deterioration".</strong></div>
+    <figure><img loading="lazy" src="assets/img/qa-jp-02-melting-af.jpg" alt="Client image for ruling JP-2: hull paint with a melted, peeling appearance."><figcaption>A "melting" appearance → <a href="#af">AF deterioration</a>.</figcaption></figure></div>
+  <div class="qa" id="en4"><div class="qid">Ruling EN-4 <a class="anchor" href="#en4">#</a></div>
+    <p class="q">This appears to be an oil stain. How should it be handled?</p>
+    <div class="a"><strong>Dirt 2 — it looks like water stains.</strong></div>
+    <figure><img loading="lazy" src="assets/img/qa-en-04-scattered-af.jpg" alt="Client image for ruling EN-4: hull surface with pale staining that looks like an oil stain but is water staining."><figcaption>An oily-looking mark that is water staining → <a href="#dirt2">Dirt 2</a>.</figcaption></figure></div>
+  <div class="qa" id="en6"><div class="qid">Ruling EN-6 <a class="anchor" href="#en6">#</a></div>
+    <p class="q">How should an image that is scattered like this be annotated?</p>
+    <div class="a"><strong>The class is AF.</strong> Cover as little sound area as possible —
+      annotate at fine granularity.</div>
+    <figure><img loading="lazy" src="assets/img/qa-en-06-af-normal.jpg" alt="Client image for ruling EN-6: hull surface with a scattered pattern of small spots."><figcaption>Scattered patterns are <a href="#af">AF</a>. Follow the individual spots rather than sweeping one mask across the field — see <a href="#scattered">scattered patterns</a>.</figcaption></figure></div>
+  <div class="qa" id="jp7"><div class="qid">Ruling JP-7 <a class="anchor" href="#jp7">#</a></div>
+    <p class="q">What class is it?</p>
+    <div class="a"><strong>It is AC.</strong></div>
+    <figure><img loading="lazy" src="assets/img/qa-jp-07-ac.jpg" alt="Client image for ruling JP-7: pale area on hull ruled to be exposed AC paint."><figcaption>Pale area of this kind → <a href="#ac">Exposed AC paint</a>.</figcaption></figure></div>
+
+  <h3>Several classes in one area</h3>
+  <div class="qa" id="jp8"><div class="qid">Ruling JP-8 <a class="anchor" href="#jp8">#</a></div>
+    <p class="q">Is this an oil stain, or something that requires no action? Dirt 2?</p>
+    <div class="a"><strong>The leftmost one is Dirt 1 (oil stain). Below it is AF, and the rightmost
+      is AC.</strong></div>
+    <figure><img loading="lazy" src="assets/img/qa-jp-08-dirt1-af-ac.jpg" alt="Client image for ruling JP-8: three adjacent areas classed as Dirt 1, AF and AC."><figcaption>Three neighbouring areas, three different classes. Do not cover them with one mask — see <a href="#fp5">FP-5</a>.</figcaption></figure></div>
+  <div class="qa" id="en3"><div class="qid">Ruling EN-3 <a class="anchor" href="#en3">#</a></div>
+    <p class="q">In this image, I could not determine what should be distinguished from what.</p>
+    <div class="a"><strong>Peeling, dirt, rust.</strong></div>
+    <figure><img loading="lazy" src="assets/img/qa-en-03-multiclass.jpg" alt="Client image for ruling EN-3: white and blue hull section showing peeling paint, dirt streaks and rust along the edge."><figcaption>Peeling, dirt and rust all appear here. Each is annotated as its own class.</figcaption></figure></div>
+  <div class="qa" id="en9"><div class="qid">Ruling EN-9 <a class="anchor" href="#en9">#</a></div>
+    <p class="q">Is this an oil stain? In that case, what should the class be?</p>
+    <div class="a"><strong>Dirt 2 — it looks like water staining.</strong></div>
+    <figure><img loading="lazy" src="assets/img/qa-en-09-overlay.jpg" alt="Client image for ruling EN-9: hull surface with staining that resembles an oil stain."><figcaption>When an oily-looking mark is water staining, it is <a href="#dirt2">Dirt 2</a>. The client gave this answer more than once — see <a href="#en4">EN-4</a>.</figcaption></figure></div>
+
+  <h3>Where the boundaries go</h3>
+  <div class="qa" id="jp3"><div class="qid">Ruling JP-3 <a class="anchor" href="#jp3">#</a></div>
+    <p class="q">Should this be enclosed all together as a single unit, or separately?</p>
+    <div class="a"><strong>Separate the sections where there is a large gap.</strong></div>
+    <figure><img loading="lazy" src="assets/img/qa-jp-03-separate-gap.jpg" alt="Client image for ruling JP-3: two anomaly areas with a gap between them."><figcaption>A large gap means two regions, not one.</figcaption></figure></div>
+  <div class="qa" id="jp9"><div class="qid">Ruling JP-9 <a class="anchor" href="#jp9">#</a></div>
+    <p class="q">Is it acceptable to overlay one class on top of another?</p>
+    <div class="a"><strong>Please overlay them.</strong> (In the client's example: green = AC,
+      red = AF.) Send the <strong>larger</strong> class to the back
+      (<kbd>Shift</kbd> + <kbd>B</kbd>) so the smaller one stays visible in front.</div>
+    <figure><img loading="lazy" src="assets/img/qa-jp-09-overlay.jpg" alt="Client image for ruling JP-9 showing one class overlaid on another."><figcaption>Overlapping classes are permitted.</figcaption></figure></div>
+  <div class="qa" id="jp4"><div class="qid">Ruling JP-4 <a class="anchor" href="#jp4">#</a></div>
+    <p class="q">Is this an insect (or similar) inside? Does it need handling separately?</p>
+    <div class="a"><strong>Separate them. The white portion inside is an adhered deposit.</strong></div>
+    <figure><img loading="lazy" src="assets/img/qa-jp-04-marine-separate.jpg" alt="Client image for ruling JP-4: marine organism with a white inner portion on the hull."><figcaption>The inner white part is the deposit — annotate it separately. See <a href="#marine">Marine deposits</a>.</figcaption></figure></div>
+  <div class="qa" id="jp1"><div class="qid">Ruling JP-1 <a class="anchor" href="#jp1">#</a></div>
+    <p class="q">How should wall surfaces with cracks be handled?</p>
+    <div class="a"><strong>Provide detail at the level shown in the example.</strong></div>
+    <figure><img loading="lazy" src="assets/img/qa-jp-01-cracks.jpg" alt="Client image for ruling JP-1 showing cracks annotated at fine detail."><figcaption>Match this level of detail when annotating cracks.</figcaption></figure></div>
+  <div class="qa" id="jp6"><div class="qid">Ruling JP-6 <a class="anchor" href="#jp6">#</a></div>
+    <p class="q">Does the numeral portion also require annotation?</p>
+    <div class="a"><strong>It is required.</strong></div>
+    <figure><img loading="lazy" src="assets/img/qa-jp-06-numerals.jpg" alt="Client image for ruling JP-6: painted numeral on the hull requiring annotation."><figcaption>Painted numerals and markings are annotated like any other area.</figcaption></figure></div>
+  <div class="qa" id="en1"><div class="qid">Ruling EN-1 <a class="anchor" href="#en1">#</a></div>
+    <p class="q">Can sound areas that sit inside another class be separated out, by annotating them
+      with the Sound Area class?</p>
+    <div class="a"><strong>Yes.</strong> Bring the smaller overlapping object to the front — or send
+      the larger annotation underneath it to the back
+      (<kbd>Shift</kbd> + <kbd>B</kbd>, or <em>Send to Back</em> from the right-click menu).</div>
+    <div class="pair">
+      <figure><img loading="lazy" src="assets/img/qa-sound-overlay-1.jpg" alt="Client image: a large cyan AC region annotated over red hull paint, with no sound islands marked inside it.">
+        <figcaption>The AC region annotated as one area.</figcaption></figure>
+      <figure><img loading="lazy" src="assets/img/qa-sound-overlay-2.jpg" alt="The same cyan AC region with two small dark Sound islands annotated on top of it.">
+        <figcaption>The same region with two small <strong>Sound</strong> islands drawn on top.
+          Because the smaller shapes sit in front, they stay visible instead of being swallowed by
+          the larger mask.</figcaption></figure>
+    </div></div>
+</section>
+
+<!-- ===================== GLOSSARY ===================== -->
+<section id="glossary">
+  <h2 class="sec">Glossary<a class="anchor" href="#glossary">#</a></h2>
+  <table>
+    <tbody>
+      <tr><th style="width:190px">AF paint</th><td>Antifouling paint — the outermost coat, which stops marine growth attaching to the hull. It is the coloured surface you usually see.</td></tr>
+      <tr><th>AC paint</th><td>Anticorrosive paint — the layer beneath the AF coat, protecting the steel. Usually pale grey or white where exposed.</td></tr>
+      <tr><th>Exposed steel plate</th><td>The hull's bare steel, visible because both paint layers have gone. Blackish or metallic in tone.</td></tr>
+      <tr><th>Rust leachate</th><td>Rust that has dissolved and run out of a corroded area, staining the surface below it. The leachate is <a href="#dirt1">Dirt</a>; the corroded source is <a href="#rust">Rust</a>.</td></tr>
+      <tr><th>Rust streak / rust stain</th><td>The mark left where leachate ran down the hull. Heavy → <a href="#dirt1">Dirt 1</a>. Light → <a href="#dirt2">Dirt 2</a>.</td></tr>
+      <tr><th>Water scale</th><td>Deposit left behind when water dries on the surface — pale, often patchy. Classed as <a href="#dirt2">Dirt 2</a>.</td></tr>
+      <tr><th>Normal AF wear</th><td>Even, widespread thinning of the antifouling coat through ordinary use. <strong>Not dirt</strong> — it is <a href="#sound">Sound</a>.</td></tr>
+      <tr><th>Mask</th><td>The output image, where each pixel carries the RGB value of its class.</td></tr>
+      <tr><th>Granularity</th><td>How closely your outline follows the real shape of an anomaly. See <a href="#fp4">FP-4</a>.</td></tr>
+      <tr><th>Tolerance</th><td>The permitted misalignment between your boundary and the true edge — <strong>2 px on the outside</strong>. See <a href="#tolerance">the diagram</a>.</td></tr>
+      <tr><th>Segmentation</th><td>Labelling every pixel of the image with a class, rather than drawing boxes.</td></tr>
+    </tbody>
+  </table>
+  <figure><img loading="lazy" src="assets/img/ref-af-ac-coatings.jpg"
+    alt="Reference diagram from the client manual showing the AF and AC coating layers over the steel plate.">
+    <figcaption>The client's reference on AF and AC coatings — the layer order explains why an
+      exposure is AC (under-paint) or steel (bare plate).</figcaption></figure>
+</section>
+
+<footer class="pg">
+  <p><strong>CONFIDENTIAL</strong> — © 2026 Automagi Inc. All Rights Reserved.
+     For internal LAN use only. Do not publish externally or upload to third-party services.</p>
+  <p>Built from the client annotation manual, the answered Q&amp;A documents, and the client's
+     review corrections. Where these disagree, the review corrections are followed and the
+     difference is called out on the page.</p>
+</footer>
+</main>
+</div>
+
+<button id="refbtn" aria-expanded="false" aria-controls="refpanel">🎨 Class colours</button>
+<aside id="refpanel" hidden aria-label="Class colour reference">
+  <h4>Class colour reference</h4>
+  <div class="refrow"><span class="sw" style="background:var(--c-rust)"></span>Rust spots<code>217, 83, 25</code></div>
+  <div class="refrow"><span class="sw" style="background:var(--c-steel)"></span>Exposed steel<code>30, 90, 255</code></div>
+  <div class="refrow"><span class="sw" style="background:var(--c-ac)"></span>Exposed AC<code>15, 255, 255</code></div>
+  <div class="refrow"><span class="sw" style="background:var(--c-af)"></span>AF deterioration<code>255, 19, 166</code></div>
+  <div class="refrow"><span class="sw" style="background:var(--c-d1)"></span>Dirt 1 (heavy)<code>100, 212, 19</code></div>
+  <div class="refrow"><span class="sw" style="background:var(--c-d2)"></span>Dirt 2 (light)<code>255, 215, 0</code></div>
+  <div class="refrow"><span class="sw" style="background:var(--c-mar)"></span>Marine deposits<code>183, 70, 255</code></div>
+  <div class="refrow"><span class="sw" style="background:var(--c-snd);border-color:#999"></span>Sound<code>0, 0, 0</code></div>
+</aside>
+
+<div id="lb" hidden role="dialog" aria-modal="true" aria-label="Enlarged image">
+  <button id="lbx" aria-label="Close">×</button><img id="lbi" alt=""><p id="lbc"></p>
+</div>
+
+<script>
+(function(){
+"use strict";
+var $=function(s,c){return (c||document).querySelector(s)};
+var $$=function(s,c){return [].slice.call((c||document).querySelectorAll(s))};
+
+/* ---------- scroll-spy ---------- */
+var links=$$('#navlinks a'), secs=[];
+links.forEach(function(a){
+  var el=document.getElementById(a.getAttribute('href').slice(1));
+  if(el) secs.push({a:a,el:el});
+});
+function spy(){
+  var y=window.scrollY+120, cur=null;
+  secs.forEach(function(s){ if(s.el.offsetTop<=y) cur=s; });
+  links.forEach(function(a){a.classList.remove('on')});
+  if(cur) cur.a.classList.add('on');
+}
+window.addEventListener('scroll',spy,{passive:true});
+window.addEventListener('resize',spy); spy();
+
+/* ---------- mobile nav ---------- */
+var nav=$('#nav');
+$('#navtog').addEventListener('click',function(){nav.classList.toggle('open')});
+nav.addEventListener('click',function(e){
+  if(e.target.tagName==='A'&&window.innerWidth<=900) nav.classList.remove('open');
+});
+
+/* ---------- search index ---------- */
+var idx=[];
+$$('main section').forEach(function(sec){
+  var secTitle=(sec.querySelector('h2')||{}).textContent||'';
+  secTitle=secTitle.replace(/#$/,'').trim();
+  var blocks=$$('h3, p, li, .a, figcaption, td, .q',sec);
+  blocks.forEach(function(b){
+    var t=(b.textContent||'').replace(/\s+/g,' ').trim();
+    if(t.length<12) return;
+    var anc=b.closest('[id]');
+    idx.push({t:t,low:t.toLowerCase(),id:anc?anc.id:sec.id,sec:secTitle});
+  });
+});
+var hits=$('#hits'), sb=$('#search');
+function esc(s){return s.replace(/[&<>"]/g,function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+function run(){
+  var q=sb.value.trim().toLowerCase();
+  hits.innerHTML='';
+  if(q.length<2) return;
+  var out=[],seen={};
+  for(var i=0;i<idx.length&&out.length<14;i++){
+    var p=idx[i].low.indexOf(q);
+    if(p<0) continue;
+    var k=idx[i].id+'|'+idx[i].t.slice(0,40);
+    if(seen[k]) continue; seen[k]=1;
+    var s=Math.max(0,p-32), frag=(s>0?'…':'')+idx[i].t.slice(s,p+q.length+62);
+    out.push('<a href="#'+idx[i].id+'"><strong>'+esc(idx[i].sec)+'</strong><br>'+
+      esc(frag).replace(new RegExp('('+q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','ig'),
+      '<mark>$1</mark>')+'</a>');
+  }
+  hits.innerHTML=out.length?out.join(''):'<em>No match.</em>';
+}
+sb.addEventListener('input',run);
+sb.addEventListener('keydown',function(e){
+  if(e.key==='Escape'){sb.value='';run()}
+  if(e.key==='Enter'){var f=hits.querySelector('a'); if(f) f.click()}
+});
+
+/* ---------- lightbox ---------- */
+var lb=$('#lb'), lbi=$('#lbi'), lbc=$('#lbc'), last=null;
+function open(img){
+  last=img; lbi.src=img.src; lbi.alt=img.alt;
+  var f=img.closest('figure'), c=f?f.querySelector('figcaption'):null;
+  lbc.textContent=c?c.textContent:'';
+  lb.hidden=false; $('#lbx').focus();
+}
+function close(){lb.hidden=true; lbi.src=''; if(last) last.focus()}
+$$('figure img').forEach(function(img){
+  img.tabIndex=0;
+  img.setAttribute('role','button');
+  img.addEventListener('click',function(){open(img)});
+  img.addEventListener('keydown',function(e){
+    if(e.key==='Enter'||e.key===' '){e.preventDefault();open(img)}
+  });
+});
+$('#lbx').addEventListener('click',close);
+lb.addEventListener('click',function(e){if(e.target===lb)close()});
+document.addEventListener('keydown',function(e){
+  if(e.key==='Escape'&&!lb.hidden) close();
+});
+
+/* ---------- colour reference ---------- */
+var rb=$('#refbtn'), rp=$('#refpanel');
+rb.addEventListener('click',function(){
+  var open=rp.hidden;
+  rp.hidden=!open; rb.setAttribute('aria-expanded',String(open));
+});
+
+/* ---------- copy RGB ---------- */
+$$('.copy').forEach(function(b){
+  b.addEventListener('click',function(){
+    var v='rgb('+b.dataset.c+')', done=function(){
+      var o=b.textContent; b.textContent='Copied'; setTimeout(function(){b.textContent=o},1200);
+    };
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(v).then(done,done);
+    }else{
+      var t=document.createElement('textarea'); t.value=v; document.body.appendChild(t);
+      t.select(); try{document.execCommand('copy')}catch(e){} document.body.removeChild(t); done();
+    }
+  });
+});
+})();
+</script>
+</body>
+</html>

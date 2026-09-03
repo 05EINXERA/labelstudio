@@ -243,6 +243,20 @@ app.mount("/uploads", StaticFiles(directory=uploads_dir), name="uploads")
 def read_index():
     return FileResponse("frontend/index.html")
 
+# The annotation manual is vendored under `frontend/manual/` and served by this
+# same process rather than a second service on its own port. It is static files
+# (~4 MB, mostly immutable JPEGs), so it adds no failure mode of its own, and
+# the ETag/304 middleware above already gives it the cache behaviour a separate
+# nginx would have been stood up for. Serving it here also keeps every link to
+# it root-relative, so no hostname or port is baked into the frontend bundle.
+#
+# The `StaticFiles` mount below already serves `/manual/index.html` and the
+# assets; this route only exists so the bare directory URL resolves, since
+# `StaticFiles` does not imply an index for subdirectories.
+@app.get("/manual/", include_in_schema=False)
+def read_manual():
+    return FileResponse("frontend/manual/index.html")
+
 # Mount the rest of the frontend directory
 app.mount("/", StaticFiles(directory="frontend"), name="frontend")
 
