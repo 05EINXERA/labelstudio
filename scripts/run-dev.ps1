@@ -91,7 +91,15 @@ try {
     $devHost = $env:APP_HOST
     if ([string]::IsNullOrWhiteSpace($devHost)) { $devHost = "127.0.0.1" }
 
-    if ($devHost -notin @("127.0.0.1", "localhost","192.168.1.150", "::1")) {
+    # 192.168.110.150 is this box's own LAN address, allowed so the dev instance
+    # can be reached from another machine for cross-machine testing. It is a
+    # deliberate hole in the loopback rule: on that address the dev instance IS
+    # visible to annotators, on a different port to production. Keep it on a
+    # non-production port and do not point it at the production database - the
+    # DATABASE_URL check below is what actually stops the damaging case.
+    # (Was 192.168.1.150, an address from a different network that this machine
+    # has never had, so LAN dev runs failed to bind.)
+    if ($devHost -notin @("127.0.0.1", "localhost", "192.168.110.150", "::1")) {
         Write-Fail "APP_HOST is '$devHost' - the dev instance must bind loopback only."
         Write-Info ""
         Write-Info "Binding anything else publishes unfinished code to the LAN, where"

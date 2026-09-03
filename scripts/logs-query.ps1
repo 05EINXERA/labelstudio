@@ -59,27 +59,37 @@ if (-not (Test-Path $serviceDir)) {
 # Dated directories only, newest last so output reads forward in time. Anything
 # an operator dropped in by hand is skipped rather than searched.
 $cutoff = (Get-Date).AddDays(-$Days).Date
-$days = Get-ChildItem -Path $serviceDir -Directory |
+# $dayDirs, NOT $days: PowerShell variable names are case-insensitive, so $days
+# and the [int]$Days parameter are the SAME variable. Assigning the directory
+# list to $days overwrote the day count, and the next read of $Days handed a
+# DirectoryInfo to something expecting an int.
+$dayDirs = Get-ChildItem -Path $serviceDir -Directory |
     Where-Object {
         $parsed = [datetime]::MinValue
         [datetime]::TryParseExact($_.Name, 'yyyy-MM-dd', $null, 'None', [ref]$parsed) -and $parsed -ge $cutoff
     } |
     Sort-Object Name
 
-if (-not $days) {
+if (-not $dayDirs) {
     Write-Host "No log directories in the last $Days days under $serviceDir."
     exit 0
 }
 
 function Find-Lines {
     param([string]$Pattern, [string[]]$Files = @("*.log"))
-    foreach ($day in $days) {
+    # Collected then sorted rather than streamed. A query spanning several
+    # method files (a task's history, the destructive trail) otherwise prints
+    # every POST before every DELETE, which reads as though the delete happened
+    # last when it may not have. Every line starts with a sortable ISO
+    # timestamp, so an ordinal sort is chronological order.
+    $lines = foreach ($day in $dayDirs) {
         foreach ($file in $Files) {
             Get-ChildItem -Path $day.FullName -Filter $file -ErrorAction SilentlyContinue |
                 Select-String -Pattern $Pattern |
                 ForEach-Object { $_.Line }
         }
     }
+    $lines | Sort-Object -CaseSensitive
 }
 
 if ($Losses) {
@@ -117,5 +127,5 @@ else {
     Write-Host "Pick a mode: -Losses, -Task <id>, -User <name>, -Destructive, -Errors, or -Event <name>."
     Write-Host "Run 'Get-Help .\scripts\logs-query.ps1 -Full' for details."
     Write-Host "`nAvailable days under ${serviceDir}:"
-    $days | ForEach-Object { "  $($_.Name)" }
+    $dayDirs | ForEach-Object { "  $($_.Name)" }
 }
