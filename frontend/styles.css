@@ -2863,6 +2863,18 @@ button.switch[aria-checked="true"] .switch-knob {
   font-weight: 600;
 }
 
+/* The manual opens in a new tab, so it gets the conventional mark: a user who
+   expects in-place navigation should be able to see that this one is different
+   before clicking, not after losing their place. Drawn as a pseudo-element so
+   the label stays plain text for the accessible name. */
+.app-nav-link.is-external::after {
+  content: "↗";
+  display: inline-block;
+  margin-left: 5px;
+  font-size: .8em;
+  opacity: .65;
+}
+
 /* --- role pills ---------------------------------------------------------- */
 
 /* Deliberately distinct hues per level so a roster can be scanned without

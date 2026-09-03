@@ -209,6 +209,16 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
     // refuses it forever with no way through (the guard's own escape hatch was
     // previously unreachable — nothing in the frontend ever set this).
     if (allowClear && annotations.length === 0) payload.allow_clear = true;
+    // What the Objects panel was showing when this save left, for the service
+    // log. Sent only alongside an actual annotation set, because that is the
+    // only time the number describes this write; on a time-only save it would
+    // describe some earlier moment. The server logs it beside its own count of
+    // the blob and never acts on it — a disagreement between the two is the
+    // signal, not an error. See .devnotes/logging/02_PLAN.md §5.
+    //
+    // `annotations` is the same array the Objects panel renders its rows from
+    // (state.annotations), so this is the panel's count, not a recount.
+    payload.object_count = annotations.length;
   }
 
   // On unload a normal fetch is not guaranteed to be delivered; sendBeacon is

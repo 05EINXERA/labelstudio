@@ -11,7 +11,9 @@
       - Restarts up to 3 times on failure, 1 minute apart (Task Scheduler
         rejects a shorter interval); uvicorn crashes are actually handled
         much faster by the wrapper's own 5-second restart loop.
-      - Writes stdout/stderr to DATA_DIR\logs\service.log via a wrapper.
+      - Writes stdout/stderr to DATA_DIR\logs\stdout.log via a wrapper
+        (rotated at start). The app's own structured request log is written
+        separately to DATA_DIR\logs\service\<date>\<METHOD>.log.
 
     Run once as Administrator from the repo root:
         .\scripts\install-service.ps1
@@ -58,7 +60,7 @@ if (-not (Test-Path $uvicorn)) {
 
 # Bootstrap log: catches anything that kills this script before $log is set.
 # Without it, a failure here exits silently and Task Scheduler reports only
-# "LastTaskResult: 1" with an empty service.log - undiagnosable.
+# "LastTaskResult: 1" with an empty stdout.log - undiagnosable.
 $bootLog = Join-Path $env:TEMP "annotation-service-boot.log"
 function Write-Boot([string]$m) {
     try { Add-Content -Path $bootLog -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  $m" } catch { }
@@ -91,7 +93,30 @@ if (Test-Path $envFile) {
 
 $logDir = if ($env:DATA_DIR) { "$env:DATA_DIR\logs" } else { "$repoRoot\logs" }
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
-$log = Join-Path $logDir "service.log"
+# stdout.log, NOT service.log. The app now writes its own structured request
+# record under logs\service\<date>\<METHOD>.log (.devnotes/logging/02_PLAN.md),
+# and two different files called "service" - one the app's, one a raw stdout
+# scrape - is a guaranteed source of confusion during an incident. This file is
+# now only what it always actually was: whatever uvicorn printed, kept for
+# stack traces and startup failures.
+$log = Join-Path $logDir "stdout.log"
+
+# Rotate at start rather than on a timer. The wrapper runs again on every boot
+# and on every uvicorn crash, so this fires often enough - and the previous
+# arrangement (plain Add-Content, forever) left a 56 MB service.log and a
+# 101 MB orphan on the deploy box, which could only be truncated by stopping
+# the service (01_AUDIT.md P1).
+$maxStdoutBytes = 20MB
+if ((Test-Path $log) -and ((Get-Item $log).Length -gt $maxStdoutBytes)) {
+    $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+    Move-Item -Path $log -Destination (Join-Path $logDir "stdout.log.$stamp") -Force
+}
+# Prune archived captures beyond the retention window. Matches the app's own
+# LOG_RETENTION_DAYS so the two halves of the log directory age out together.
+$retentionDays = if ($env:LOG_RETENTION_DAYS) { [int]$env:LOG_RETENTION_DAYS } else { 30 }
+Get-ChildItem -Path $logDir -Filter "stdout.log.*" -ErrorAction SilentlyContinue |
+    Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-$retentionDays) } |
+    Remove-Item -Force -ErrorAction SilentlyContinue
 
 # Not named 'host' - that is a read-only PowerShell automatic variable.
 # Always brace-delimit these inside strings, as ${bindHost} and ${port}.
@@ -147,7 +172,7 @@ while ($true) {
     $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     Add-Content -Path $log -Value "$ts  [service] Starting uvicorn on ${bindHost}:${port}"
     & "$repoRoot\venv\Scripts\uvicorn.exe" main:app --host $bindHost --port $port 2>&1 |
-        ForEach-Object { Add-Content -Path $log -Value "$(Get-Date -Format 'HH:mm:ss')  $_" }
+        ForEach-Object { Add-Content -Path $log -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')  $_" }
     $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     Add-Content -Path $log -Value "$ts  [service] uvicorn exited - restarting in 5s"
     Start-Sleep -Seconds 5
@@ -179,7 +204,7 @@ $taskName = "AnnotationApp"
 # the scheduled task - which gets a fresh powershell.exe with no such
 # override - refuses to run it and exits 1 *before executing any line*,
 # producing the baffling combination of LastTaskResult=1 with a completely
-# empty service.log.
+# empty stdout.log.
 # -NoProfile also matters: a profile that errors under SYSTEM would take the
 # wrapper down with it, and profiles are irrelevant to a service anyway.
 $action   = New-ScheduledTaskAction `
@@ -198,7 +223,7 @@ $trigger  = New-ScheduledTaskTrigger -AtStartup
 # BATTERY: the two battery switches are required, not cosmetic. Task Scheduler
 # defaults DisallowStartIfOnBatteries and StopIfGoingOnBatteries to TRUE, so on
 # a laptop the task is KILLED the instant the charger is unplugged - wrapper and
-# uvicorn together. That is invisible in service.log: the wrapper is what writes
+# uvicorn together. That is invisible in stdout.log: the wrapper is what writes
 # both "uvicorn exited - restarting in 5s" and the restart loop, so when it dies
 # too the log simply stops mid-request with no exit marker and no traceback, and
 # nothing restarts until the next boot (AtStartup is the only trigger). Postgres
@@ -312,5 +337,7 @@ try {
 Write-Host ""
 Write-Host "Start now : Start-ScheduledTask -TaskName '$taskName'"
 Write-Host "Stop      : Stop-ScheduledTask  -TaskName '$taskName'"
-Write-Host "Logs      : `$env:DATA_DIR\logs\service.log"
+Write-Host "Logs      : `$env:DATA_DIR\logs\service\<date>\<METHOD>.log  (requests)"
+Write-Host "            `$env:DATA_DIR\logspp.log                        (application)"
+Write-Host "            `$env:DATA_DIR\logs\stdout.log                     (raw uvicorn output)"
 Write-Host "Uninstall : Unregister-ScheduledTask -TaskName '$taskName' -Confirm:`$false"

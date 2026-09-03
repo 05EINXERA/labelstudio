@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 import config as _cfg
 import models
+from logging_service import log_event
 from database import get_db, commit_with_retry
 from formats.annotation_diff import is_pure_append, total_point_count
 from schemas import (
@@ -131,6 +132,25 @@ def _blob_is_empty(blob: Optional[str]) -> bool:
     clear-guard below so the two cannot disagree about what empty means.
     """
     return not blob or blob.strip() in ("", "[]", "null")
+
+
+def _count_for_log(blob: Optional[str]) -> Optional[int]:
+    """`_count_annotations` for the service log: never raises, ever.
+
+    The counters that feed the log are read on the live save path, outside the
+    SAVEPOINT that protects the history row. A count that raised would take the
+    annotation write down with it — which would make the *logging* the cause of
+    the data loss it exists to explain, the exact failure mode
+    `_record_annotation_history` is written to avoid.
+
+    Returns None (rendered as `-`) rather than a number when counting fails, so
+    a broken count shows up as a missing field on the line instead of a 500.
+    """
+    try:
+        return _count_annotations(blob)
+    except Exception:
+        logger.warning("Could not count annotations for the log", exc_info=True)
+        return None
 
 
 def _count_annotations(blob: Optional[str]) -> int:
@@ -1135,6 +1155,14 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
     if task.id:
         db_task = require_task(task.id, user, db, minimum=ProjectRole.ANNOTATOR)
 
+        # Read before anything is mutated. These are what the service log
+        # compares against to produce `delta`, which is the whole point of the
+        # exercise: a save that reduced an annotator's object count is the
+        # signal that answers "my work vanished" without a database query.
+        # See .devnotes/logging/02_PLAN.md §5.
+        objects_prev = _count_for_log(db_task.annotations)
+        status_prev = db_task.status
+
         # --- Permission checks -------------------------------------------
         # These run *before* the conflict detection below, deliberately. A user
         # who may not write this task must get a 403 explaining why, never a
@@ -1187,6 +1215,26 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
                         tokens_match = False
 
                     if task.client_id != db_task.last_client_id and not tokens_match:
+                        log_event(
+                            "task.save.conflict",
+                            level="WARN",
+                            task=db_task.id,
+                            project=db_task.project_id,
+                            client=task.client_id,
+                            last_client=db_task.last_client_id,
+                            objects_client=task.object_count,
+                            reason="different_client",
+                        )
+                        log_event(
+                            "task.save.conflict",
+                            level="WARN",
+                            task=db_task.id,
+                            project=db_task.project_id,
+                            client=task.client_id,
+                            last_client=db_task.last_client_id,
+                            objects_client=task.object_count,
+                            reason="stale_timestamp",
+                        )
                         raise HTTPException(
                             status_code=409,
                             detail="Task was updated by another user. Please refresh to see latest annotations.",
@@ -1223,6 +1271,16 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
                     and task.client_id == db_task.last_client_id
                 )
                 if not is_same_client:
+                    log_event(
+                        "task.save.conflict",
+                        level="WARN",
+                        task=db_task.id,
+                        project=db_task.project_id,
+                        client=task.client_id,
+                        last_client=db_task.last_client_id,
+                        objects_client=task.object_count,
+                        reason="missing_updated_at",
+                    )
                     raise HTTPException(
                         status_code=409,
                         detail="Task was updated by another user. Please refresh to see latest annotations.",
@@ -1291,6 +1349,17 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
             existing_has_work = db_task.annotations and db_task.annotations.strip() not in ("", "[]", "null")
             if incoming_is_empty and existing_has_work:
                 if not task.allow_clear:
+                    log_event(
+                        "task.save.refused_clear",
+                        level="WARN",
+                        task=db_task.id,
+                        project=db_task.project_id,
+                        objects_prev=_count_for_log(db_task.annotations),
+                        objects=0,
+                        objects_client=task.object_count,
+                        client=task.client_id,
+                        reason="allow_clear_missing",
+                    )
                     logger.warning(
                         "Task %s: incoming save attempted to clear annotations from existing work without allow_clear (client_id=%s, user=%s). Refused with 422.",
                         db_task.id,
@@ -1313,6 +1382,16 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
                         ),
                     )
                 else:
+                    log_event(
+                        "task.save.explicit_clear",
+                        level="WARN",
+                        task=db_task.id,
+                        project=db_task.project_id,
+                        objects_prev=_count_for_log(db_task.annotations),
+                        objects=0,
+                        objects_client=task.object_count,
+                        client=task.client_id,
+                    )
                     logger.warning(
                         "Task %s: explicit clear of annotations executed with allow_clear=True (client_id=%s, user=%s).",
                         db_task.id,
@@ -1350,6 +1429,38 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
                 if now_utc <= db_task_updated_at_utc:
                     now_utc = db_task_updated_at_utc + datetime.timedelta(microseconds=1000)
             db_task.updated_at = now_utc
+
+        objects_now = (
+            _count_for_log(db_task.annotations)
+            if task.annotations is not None
+            else objects_prev
+        )
+        log_event(
+            "task.save",
+            task=db_task.id,
+            project=db_task.project_id,
+            objects=objects_now,
+            objects_prev=objects_prev,
+            # Client-reported, from the Objects panel's own row count. Logged
+            # beside the server's number and never used for logic: when the two
+            # disagree the panel and the saved blob have diverged, which is a
+            # bug report in one line (plan D4).
+            objects_client=task.object_count,
+            # None when a count failed (a malformed blob, say). Rendered as
+            # `-`, which reads correctly on the line: the delta is unknown,
+            # not zero. Computing it anyway would raise on the save path.
+            delta=(
+                objects_now - objects_prev
+                if objects_now is not None and objects_prev is not None
+                else None
+            ),
+            status_from=status_prev,
+            status_to=db_task.status,
+            client=task.client_id,
+            time_delta=task.time_spent_delta or 0,
+            changed=changed,
+        )
+
         task_id = db_task.id
         new_updated_at = db_task.updated_at
     else:
@@ -1369,6 +1480,15 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
         db.add(db_task)
         commit_with_retry(db)
         db.refresh(db_task)
+        log_event(
+            "task.create",
+            task=db_task.id,
+            project=projectId,
+            status_to=db_task.status,
+            objects=_count_for_log(db_task.annotations),
+            objects_client=task.object_count,
+            client=task.client_id,
+        )
         task_id = db_task.id
         new_updated_at = db_task.updated_at
         
@@ -1390,6 +1510,18 @@ def patch_task(task_id: int, task: TaskUpdate, db: Session = Depends(get_db), us
 @router.delete("/{task_id}")
 def delete_task(task_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     task = require_task(task_id, user, db, minimum=ProjectRole.MANAGER)
+    # WARN, not INFO: destructive. This is what makes a grep for WARN across
+    # the day's DELETE.log a complete destructive-action trail without anyone
+    # having to know the event names (plan §3). The object count is read before
+    # the delete, so the line records what was actually thrown away.
+    log_event(
+        "task.delete",
+        level="WARN",
+        task=task.id,
+        project=task.project_id,
+        objects=_count_for_log(task.annotations),
+        task_status=task.status,
+    )
     db.delete(task)
     commit_with_retry(db)
     return {"status": "ok"}
@@ -1430,6 +1562,30 @@ def bulk_delete_tasks(payload: BulkDelete, db: Session = Depends(get_db), user: 
         raise HTTPException(status_code=400, detail="No ids provided")
     owned, skipped = _restrict_to_owned(payload.ids, user, db)
     if owned:
+        # Counted before the delete, and the ids are recorded: a bulk delete
+        # can remove hundreds of tasks and previously left one access-log line
+        # with neither a count nor an id (01_AUDIT.md P9). `ids` is truncated
+        # by the writer, so the full list lives in the DB backup, not here —
+        # this is enough to know which batch to look for.
+        objects = sum(
+            _count_for_log(blob) or 0
+            for (blob,) in db.query(models.Task.annotations)
+            .filter(models.Task.id.in_(owned))
+        )
+        projects = sorted({
+            pid for (pid,) in db.query(models.Task.project_id)
+            .filter(models.Task.id.in_(owned)).distinct() if pid is not None
+        })
+        log_event(
+            "task.bulk_delete",
+            level="WARN",
+            project=",".join(str(p) for p in projects) or None,
+            requested=len(set(payload.ids)),
+            deleted=len(owned),
+            skipped=skipped,
+            objects=objects,
+            ids=",".join(str(i) for i in owned),
+        )
         db.query(models.Task).filter(models.Task.id.in_(owned)).delete(synchronize_session=False)
         commit_with_retry(db)
     return {"status": "ok", "deleted": len(owned), "skipped": skipped}
@@ -1481,6 +1637,18 @@ def bulk_update_tasks(payload: BulkUpdate, db: Session = Depends(get_db), user: 
                 _sync_project_status(pid, db)
         commit_with_retry(db)
 
+    log_event(
+        "task.bulk_update",
+        # A bulk status change can demote or approve a whole batch at once, so
+        # it belongs in the same WARN trail as the deletes.
+        level="WARN" if payload.status is not None else "INFO",
+        requested=len(set(payload.ids)),
+        updated=len(owned) if update_data else 0,
+        skipped=skipped,
+        status_to=payload.status,
+        assignee_to=payload.assignee,
+        ids=",".join(str(i) for i in owned),
+    )
     return {"status": "ok", "updated": len(owned) if update_data else 0, "skipped": skipped}
 
 
@@ -1545,6 +1713,18 @@ def review_task(
         previous_status=previous_status,
     )
     db.add(review)
+    log_event(
+        "task.review",
+        task=task.id,
+        project=task.project_id,
+        action=payload.action,
+        status_from=previous_status,
+        status_to=task.status,
+        # Self-approval is allowed by design (01_DESIGN.md § 4.1) precisely
+        # because it is visible in the audit trail. It should be visible here
+        # too, not only in the TaskReview table.
+        self_review=(task.assignee == user.username),
+    )
     # Approving can complete a project, so the derived project status has to be
     # refreshed here too — not only on the task-update path.
     _sync_project_status(task.project_id, db)
@@ -1670,6 +1850,16 @@ def update_task_assignment(
 
     warnings = _validate_assignment(task.project_id, new_team, new_user, db)
 
+    log_event(
+        "task.assign",
+        task=task.id,
+        project=task.project_id,
+        team_from=task.assigned_team_id,
+        team_to=new_team,
+        assignee_from=task.assignee_user_id,
+        assignee_to=new_user,
+        warnings=len(warnings) or None,
+    )
     task.assigned_team_id = new_team
     task.assignee_user_id = new_user
     commit_with_retry(db)
@@ -1736,6 +1926,15 @@ def bulk_assign_tasks(
         )
         commit_with_retry(db)
 
+    log_event(
+        "task.bulk_assign",
+        requested=len(set(payload.ids)),
+        updated=len(allowed) if update_data else 0,
+        skipped=skipped,
+        team_to=payload.assigned_team_id if "assigned_team_id" in sent else None,
+        assignee_to=payload.assignee_user_id if "assignee_user_id" in sent else None,
+        ids=",".join(str(i) for i in allowed),
+    )
     return BulkAssignResult(
         status="ok",
         updated=len(allowed) if update_data else 0,

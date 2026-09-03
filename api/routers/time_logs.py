@@ -22,6 +22,7 @@ from api.permissions import (
     can_write_task,
     effective_project_role,
 )
+from logging_service import log_event
 from database import get_db, commit_with_retry
 from schemas import TeamMemberModel, TeamTime, TimeLogOut, TimeLogUpdateResult
 
@@ -128,6 +129,7 @@ def delete_time_log(
     current_user: models.User = Depends(get_current_user),
 ):
     name = urllib.parse.unquote(name)
+    log_event("timelog.delete", level="WARN", account=name)
     db.query(models.TimeLog).filter(models.TimeLog.name == name).delete()
     commit_with_retry(db)
     return {"status": "ok"}
@@ -163,6 +165,18 @@ def update_time_logged(
                     db.query(models.TimeLog)
                     .filter(models.TimeLog.name == name)
                     .first()
+                )
+                # A dropped delta is exactly the kind of silent 200 an
+                # annotator later reports as "my hours are wrong". This path is
+                # sampled (it is the timer ping), so the WARN level is what
+                # keeps the line: the sampler never thins a request that
+                # recorded a WARN or ERROR event.
+                log_event(
+                    "timelog.ignored",
+                    level="WARN",
+                    task=payload.task_id,
+                    seconds=payload.time_logged,
+                    reason="task_not_writable",
                 )
                 return TimeLogUpdateResult(
                     status="ignored",

@@ -36,6 +36,7 @@ from logging_config import configure_logging
 validate_config()
 configure_logging()
 
+from api.middleware import ServiceLogMiddleware  # noqa: E402
 from api.routers import projects, tasks, team, teams, grants, time_logs, data, detect, label_studio, labels, auth, imports, exports  # noqa: E402
 from database import engine  # noqa: E402
 
@@ -161,6 +162,20 @@ async def add_security_and_cache_headers(request, call_next):
 app.add_middleware(GZipMiddleware, minimum_size=500)
 
 
+# The structured per-request log (.devnotes/logging/02_PLAN.md). This is what
+# replaces uvicorn's stdout access log as the thing an operator actually reads;
+# uvicorn's own lines stay on for one release as a cross-check (plan §9).
+#
+# Registered last, so Starlette runs it OUTERMOST — outside gzip and the header
+# pass. That is deliberate, and it is the trade the plan's "innermost" note got
+# wrong: outermost means the recorded duration includes a few milliseconds of
+# compression, but it also means every exception from every inner layer passes
+# through this middleware and gets logged. An inner position would time the
+# handler slightly more precisely and miss failures raised above it, which is a
+# bad exchange for a log whose whole purpose is finding what went wrong.
+app.add_middleware(ServiceLogMiddleware)
+
+
 # Exact origins only. A wildcard cannot be combined with cookie credentials, and
 # on a LAN it would let any page on the network call the API with the
 # annotator's session attached. validate_config() rejects "*" in production.
@@ -227,6 +242,20 @@ app.mount("/uploads", StaticFiles(directory=uploads_dir), name="uploads")
 @app.get("/")
 def read_index():
     return FileResponse("frontend/index.html")
+
+# The annotation manual is vendored under `frontend/manual/` and served by this
+# same process rather than a second service on its own port. It is static files
+# (~4 MB, mostly immutable JPEGs), so it adds no failure mode of its own, and
+# the ETag/304 middleware above already gives it the cache behaviour a separate
+# nginx would have been stood up for. Serving it here also keeps every link to
+# it root-relative, so no hostname or port is baked into the frontend bundle.
+#
+# The `StaticFiles` mount below already serves `/manual/index.html` and the
+# assets; this route only exists so the bare directory URL resolves, since
+# `StaticFiles` does not imply an index for subdirectories.
+@app.get("/manual/", include_in_schema=False)
+def read_manual():
+    return FileResponse("frontend/manual/index.html")
 
 # Mount the rest of the frontend directory
 app.mount("/", StaticFiles(directory="frontend"), name="frontend")

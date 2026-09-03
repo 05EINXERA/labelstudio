@@ -66,6 +66,7 @@ from schemas import (
     resolve_export_request,
 )
 from api.auth import get_current_user, require_csrf
+from logging_service import log_event
 from api.permissions import ProjectRole, require_project
 from formats import annotations_json
 from formats import coco as coco_format
@@ -365,6 +366,18 @@ def create_export(req: ExportRequest, background_tasks: BackgroundTasks, db: Ses
     job_id = str(uuid.uuid4())
     JOBS[job_id] = {"status": "pending"}
     background_tasks.add_task(_run_export_job, job_id, req, req.projectId)
+    # Not destructive, but worth a line: an export is how a dataset leaves the
+    # box, and "which batch went out on Tuesday" is a question the team asks of
+    # the approved-status batches (CLAUDE.md rule 11a).
+    log_event(
+        "export.create",
+        project=req.projectId,
+        job=job_id,
+        export_format=fmt,
+        image_output=image_output,
+        include=req.include,
+        status_filter=",".join(req.statusFilter) if req.statusFilter else None,
+    )
     return {"job_id": job_id}
 
 
