@@ -2518,6 +2518,89 @@ button.switch[aria-checked="true"] .switch-knob {
   margin: 6px 0;
 }
 
+/* --- Connection lost badge ------------------------------------------------
+   A small floating pill in the bottom-right corner, appended to <body> by
+   js/connection.js.
+
+   Deliberately NOT a top bar and deliberately out of the document flow: it is
+   `position: fixed` with no width/height contribution and no body padding, so
+   showing or hiding it never reflows the page and never resizes or moves the
+   annotation canvas. Nothing in this block may add layout-affecting rules to
+   <body>, .app-shell or any canvas ancestor. */
+.connection-banner {
+  position: fixed;
+  top: auto;
+  left: auto;
+  right: 16px;
+  bottom: 16px;
+  width: auto;
+  max-width: min(340px, calc(100vw - 32px));
+  z-index: 4000;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.35;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(23, 32, 38, 0.28);
+}
+
+.connection-banner-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #fff;
+  animation: connection-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes connection-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+.connection-banner-badge-label {
+  flex: 0 0 auto;
+  font-weight: 600;
+}
+
+.connection-banner-elapsed {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+  white-space: nowrap;
+}
+
+/* Revealed on click. Grows the pill upward/outward over the canvas — it is
+   inside the fixed element, so it still costs the page no layout. */
+.connection-banner-detail {
+  display: none;
+  flex: 1 0 100%;
+  padding-top: 2px;
+  font-size: 11px;
+  opacity: 0.95;
+}
+
+.connection-banner.show-detail {
+  border-radius: 12px;
+}
+
+.connection-banner.show-detail .connection-banner-detail {
+  display: block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .connection-banner-dot {
+    animation: none;
+  }
+}
+
 /* --- Print Styles for Tasks Table --- */
 @media print {
   /* Hide all surrounding chrome */

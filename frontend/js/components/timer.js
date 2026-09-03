@@ -1,5 +1,5 @@
 import { formatTime, clientId } from "../utils.js?v=1";
-import { apiFetch } from "../api.js?v=1";
+import { apiFetch } from "../api.js?v=3";
 import { timerState } from "../timer-state.js?v=1";
 import { canvas } from "../dom.js?v=1";
 

@@ -7,7 +7,7 @@
  * described whatever was last open in the canvas rather than the project.
  * These are server-side counts.
  */
-import { apiFetch } from "../../api.js?v=1";
+import { apiFetch } from "../../api.js?v=3";
 import { escapeHTML, formatTime } from "../../utils.js?v=1";
 
 let abortController = null;

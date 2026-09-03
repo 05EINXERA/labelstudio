@@ -5,7 +5,7 @@
  * soft-lock acquisition/release on task switch, canvas resizing, and image background rendering.
  */
 import { clientId } from "../utils.js?v=1";
-import { apiFetch } from "../api.js?v=1";
+import { apiFetch } from "../api.js?v=3";
 import { state, resetWorkspaceForNewImage } from "../state.js?v=2";
 import { view } from "../canvas/view.js?v=1";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
@@ -13,7 +13,7 @@ import {
   canvas, ctx, backgroundImage, staticCanvas, staticCtx, stageWrap, emptyState
 } from "../dom.js?v=1";
 import { drawAllLayers } from "../canvas/draw.js?v=4";
-import { setStatus, render, restoreDraft } from "./workspace.js?v=4";
+import { setStatus, render, restoreDraft } from "./workspace.js?v=5";
 import { autoDetectObjects, preloadMagicWand, preloadDetectAndTag } from "../ai/detect.js?v=2";
 import { syncTaskTime, resetSessionForTask, refreshTimerDisplays } from "./timer.js?v=2";
 import { updateZoomDisplay } from "./zoom-control.js?v=1";

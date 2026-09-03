@@ -11,7 +11,7 @@
  *  - The upload endpoint now reports per-file success/failure (P3.1), so the
  *    UI shows a summary instead of a single "Upload failed" alert.
  */
-import { apiFetch } from "../../api.js?v=1";
+import { apiFetch } from "../../api.js?v=3";
 import { escapeHTML, formatTime } from "../../utils.js?v=1";
 import { createDataTable } from "../../components/data-table.js?v=1";
 

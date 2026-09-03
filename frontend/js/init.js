@@ -2,11 +2,11 @@
  * Main workspace entry point and lifecycle orchestrator.
  */
 import { clientId } from "./utils.js?v=1";
-import { apiFetch } from "./api.js?v=1";
+import { apiFetch } from "./api.js?v=3";
 import { state } from "./state.js?v=2";
 import {
   setStatus, syncToBackend, loadSaved, saveDraft, render, loadTeamForWorkspace
-} from "./components/workspace.js?v=4";
+} from "./components/workspace.js?v=5";
 import {
   syncTimeToServer, setActiveTaskResolver, setConflictHandler, handleVisibilityChange as handleTimerVisibility
 } from "./components/timer.js?v=2";
@@ -23,6 +23,7 @@ import {
 import { initModals } from "./components/modals.js?v=1";
 import { initModeControls } from "./components/mode-controls.js?v=1";
 import { initOpacityControl } from "./components/opacity-control.js?v=1";
+import { initConnectionMonitor, onConnectionChange } from "./connection.js?v=3";
 
 if (!localStorage.getItem('logged_in')) {
   window.location.replace('/');
@@ -203,6 +204,22 @@ async function initWorkspaceContext() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  // Started first: every autosave, heartbeat and lock call below swallows its
+  // own network errors, so the banner is the only thing that will tell the
+  // annotator their work is no longer reaching the server.
+  initConnectionMonitor();
+
+  // On reconnect, push whatever the server missed. The per-task draft has kept
+  // it safe meanwhile; this is what actually gets it off the annotator's
+  // machine, without waiting for their next edit to trigger a save.
+  onConnectionChange((up) => {
+    if (!up) return;
+    setStatus("Connection restored — saving…");
+    Promise.resolve(syncToBackend())
+      .then((ok) => setStatus(ok === false ? "⚠ Still not saved — retrying" : "Saved"))
+      .catch(() => setStatus("⚠ Still not saved — retrying"));
+  });
+
   initSidebarResize();
   initContextMenu();
   setZoomChangeHandler(updateZoomDisplay);

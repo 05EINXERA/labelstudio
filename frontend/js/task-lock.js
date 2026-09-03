@@ -22,7 +22,7 @@
  *   // On switch / pagehide:
  *   releaseTask(taskId, clientId);         // fire-and-forget is fine
  */
-import { apiFetch } from './api.js?v=1';
+import { apiFetch } from './api.js?v=3';
 
 /**
  * Claim a task for editing.

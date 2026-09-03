@@ -1,3 +1,5 @@
+import { reportSuccess, reportFailure } from './connection.js?v=3';
+
 const CSRF_COOKIE = 'csrf_token';
 const CSRF_HEADER = 'X-CSRF-Token';
 const SAFE_METHODS = ['GET', 'HEAD', 'OPTIONS'];
@@ -50,6 +52,13 @@ export async function apiFetch(url, options = {}) {
   let res;
   try {
     res = await fetch(url, options);
+    // Any HTTP response — including 4xx/5xx — proves the server answered, so
+    // it counts as a reachable connection. Only transport failures below mean
+    // the link is actually down.
+    reportSuccess();
+  } catch (err) {
+    reportFailure();
+    throw err;
   } finally {
     clearTimeout(timeoutId);
   }

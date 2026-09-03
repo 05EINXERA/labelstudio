@@ -1,4 +1,4 @@
-import { apiFetch } from "../api.js?v=1";
+import { apiFetch } from "../api.js?v=3";
 
 export class NotificationManager {
     constructor(bellId, dropdownId, listId, badgeId) {

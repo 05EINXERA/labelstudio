@@ -6,7 +6,7 @@
  * their metrics embedded, so this page makes one request instead of pairing
  * /api/projects with /api/projects/metrics/batch.
  */
-import { apiFetch } from "../api.js?v=1";
+import { apiFetch } from "../api.js?v=3";
 import { escapeHTML, formatTime } from "../utils.js?v=1";
 import { createDataTable } from "../components/data-table.js?v=1";
 

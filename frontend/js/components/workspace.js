@@ -1,5 +1,6 @@
 import { generateUUID, normalizeClassName } from "../utils.js?v=1";
-import { apiFetch } from "../api.js?v=1";
+import { apiFetch } from "../api.js?v=3";
+import { isOnline } from "../connection.js?v=3";
 import {
   state, storageKey, draftKey, colorForName, labelByName, labelById,
   labelDisplayName, snapshot, selectedAnnotation
@@ -24,7 +25,10 @@ export function setStatus(text) {
   saveStatus.textContent = text;
   window.clearTimeout(setStatus.timer);
   setStatus.timer = window.setTimeout(() => {
-    saveStatus.textContent = "Saved";
+    // Never idle back to "Saved" while the server is unreachable — that is the
+    // one claim we know to be false, and it is exactly the reassurance an
+    // annotator would act on before closing the tab.
+    saveStatus.textContent = isOnline() ? "Saved" : "Not saved — offline";
   }, 3000);
 }
 
@@ -112,6 +116,16 @@ export function syncToBackend({ useBeacon = false, targetStatus = null } = {}) {
     }
     return ok;
   });
+}
+
+/**
+ * Substitute an explicit offline reason for a generic save-failure message.
+ * "Not saved—retrying" reads like a transient hiccup; when we know the server
+ * is unreachable the annotator needs to know retrying will not help until the
+ * connection is back.
+ */
+function offlineOr(message) {
+  return isOnline() ? message : "⚠ Not saved — connection lost";
 }
 
 /** The task currently open, or null. */
@@ -261,11 +275,13 @@ export function save() {
         if (ok === false && task?.lastSaveError) {
           setStatus(`⚠ ${task.lastSaveError}`);
           task.lastSaveError = null;
+        } else if (ok === false) {
+          setStatus(offlineOr("Not saved—retrying"));
         } else {
-          setStatus(ok === false ? "Not saved—retrying" : "Saved");
+          setStatus("Saved");
         }
       })
-      .catch(() => setStatus("Not saved—retrying"));
+      .catch(() => setStatus(offlineOr("Not saved—retrying")));
   }, 1000);
 }
 
@@ -293,7 +309,7 @@ export async function manualSaveWithUI(targetStatus = null) {
     // on the task (e.g. a non-owner status change on a locked task) — show
     // that instead of the generic retry message when present.
     const currentTask = state.gallery && state.galleryIndex >= 0 ? state.gallery[state.galleryIndex] : null;
-    let message = ok === false ? "Not saved—retrying" : "Saved Successfully";
+    let message = ok === false ? offlineOr("Not saved—retrying") : "Saved Successfully";
     if (ok === false && currentTask?.lastSaveError) {
       message = `⚠ ${currentTask.lastSaveError}`;
       currentTask.lastSaveError = null;
@@ -311,12 +327,13 @@ export async function manualSaveWithUI(targetStatus = null) {
       if (currentStatusLabel) currentStatusLabel.textContent = state.gallery[state.galleryIndex].status;
     }
 
-    // Keep "Saved Successfully" message for 3 seconds, then revert to "Saved"
+    // Keep the outcome message for 3 seconds, then settle on the resting label.
+    // A save that failed must not settle on "Saved".
     await new Promise(resolve => setTimeout(resolve, 3000));
-    setStatus("Saved");
+    setStatus(ok === false ? offlineOr("Not saved—retrying") : "Saved");
   } catch (err) {
     console.error('Manual save failed:', err);
-    setStatus("Not saved—retrying");
+    setStatus(offlineOr("Not saved—retrying"));
     overlay.classList.remove('is-active');
   }
 }

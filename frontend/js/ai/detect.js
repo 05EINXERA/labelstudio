@@ -1,5 +1,5 @@
 import { generateUUID, round } from "../utils.js?v=1";
-import { apiFetch, pollJob } from "../api.js?v=1";
+import { apiFetch, pollJob } from "../api.js?v=3";
 import { state, colorForName, labelByName, snapshot, selectedAnnotation } from "../state.js?v=2";
 import { updateAnnotationBounds } from "../canvas/geometry.js?v=4";
 import { view } from "../canvas/view.js?v=1";
@@ -10,7 +10,7 @@ import { smoothPolygon, autoTolerance } from "../canvas/fft-smooth.js?v=1";
 import { toolAvailability } from "../feature-flags.js?v=1";
 import {
   setStatus, ensureLabel, save, render
-} from "../components/workspace.js?v=4";
+} from "../components/workspace.js?v=5";
 
 export function setDetectionBusy(isBusy) {
   detectState.detectionBusy = isBusy;
