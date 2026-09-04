@@ -190,10 +190,33 @@ export function initHelpModal() {
   const helpBtnApp = document.getElementById("helpBtnApp");
   const helpModal = document.getElementById("helpModal");
   const helpClose = document.getElementById("helpClose");
+  const manualLink = document.getElementById("manualLink");
+
+  // The manual lives on a different host, so its address comes from the server
+  // (MANUAL_URL) rather than being baked into the page. Fetched once on the
+  // first open, and the link stays hidden if none is configured or the lookup
+  // fails — a dead link is worse than no link.
+  let manualLoaded = false;
+  async function loadManualLink() {
+    if (manualLoaded || !manualLink) return;
+    manualLoaded = true;
+    try {
+      const res = await fetch("/api/auth/config");
+      if (!res.ok) return;
+      const cfg = await res.json();
+      if (cfg && cfg.manual_url) {
+        manualLink.href = cfg.manual_url;
+        manualLink.hidden = false;
+      }
+    } catch (err) {
+      console.warn("Could not load the manual link:", err);
+    }
+  }
 
   if (helpBtnApp && helpModal) {
     helpBtnApp.addEventListener("click", () => {
       helpModal.classList.add("is-active");
+      loadManualLink();
     });
   }
 

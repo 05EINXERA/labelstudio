@@ -7,7 +7,7 @@
   <title>Image Annotation MVP</title>
   <link rel="icon" type="image/png" href="logo.png">
   <link rel="stylesheet" href="styles.css?v=27">
-  <link rel="modulepreload" href="js/init.js?v=7">
+  <link rel="modulepreload" href="js/init.js?v=8">
   <!-- sync.js (legacy global annotation-slot sync to /api/data) removed in T3.1.
        Under a shared account the 'image-annotation-mvp-v1' row was last-writer-wins
        across all 25 clients. Per-task localStorage drafts (workspace.js restoreDraft)
@@ -421,7 +421,22 @@
         <button class="modal-close" id="helpClose">&times;</button>
       </div>
       <div class="modal-body" style="padding: 24px; max-height: 70vh; overflow-y: auto;">
-        
+
+        <!-- The full manual is served by a separate box on the LAN; the href is
+             filled in from /api/auth/config (MANUAL_URL) so the address is not
+             hardcoded here. Hidden when no manual is configured. -->
+        <a id="manualLink" href="#" target="_blank" rel="noopener noreferrer" hidden
+          style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; margin-bottom: 22px;
+                 border: 1px solid var(--line); border-radius: 8px; text-decoration: none;
+                 background: var(--surface-2); color: var(--ink);">
+          <span style="font-size: 1.3rem; line-height: 1;">📖</span>
+          <span style="flex: 1;">
+            <strong style="display: block;">Open the full user manual</strong>
+            <span style="font-size: 0.82rem; color: var(--ink-light);">Step-by-step guides and workflows — opens in a new tab</span>
+          </span>
+          <span aria-hidden="true" style="color: var(--ink-light);">↗</span>
+        </a>
+
         <h3 style="margin-top: 0;">🎯 Features & Tips</h3>
         <ul style="padding-left: 20px; line-height: 1.5; color: var(--ink-light);">
           <li><strong>Magic Wand:</strong> Click to automatically detect an object using the AI model. <code>Shift+Click</code> to add to the selection, <code>Alt+Click</code> to subtract.</li>
@@ -621,7 +636,7 @@
     </div>
   </div>
 
-  <script type="module" src="js/init.js?v=7"></script>
+  <script type="module" src="js/init.js?v=8"></script>
 
 </body>
 

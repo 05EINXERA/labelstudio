@@ -9,7 +9,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
 import models
-from config import ALLOW_REGISTRATION, IS_PRODUCTION, MIN_PASSWORD_LENGTH
+from config import ALLOW_REGISTRATION, IS_PRODUCTION, MANUAL_URL, MIN_PASSWORD_LENGTH
 from database import get_db, commit_with_retry
 from schemas import UserCreate, Token, UserResponse
 from api.auth import (
@@ -32,7 +32,7 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 @router.get("/config")
 def get_auth_config():
-    return {"allow_registration": ALLOW_REGISTRATION}
+    return {"allow_registration": ALLOW_REGISTRATION, "manual_url": MANUAL_URL}
 
 @router.post("/register", response_model=Token)
 def register(user: UserCreate, response: Response, db: Session = Depends(get_db)):

@@ -168,6 +168,13 @@ JWT_SECRET = os.environ.get("JWT_SECRET", "").strip()
 ALLOW_REGISTRATION = os.environ.get("ALLOW_REGISTRATION", "1").strip().lower() not in ("0", "false", "no")
 MIN_PASSWORD_LENGTH = int(os.environ.get("MIN_PASSWORD_LENGTH", "8"))
 
+# --- Docs -----------------------------------------------------------------
+# The annotator manual, linked from the Help dialog. It is served by a separate
+# box on the LAN (not this app), so it is configurable rather than a relative
+# path: if the manual moves, set MANUAL_URL in .env instead of editing the HTML.
+# Empty string hides the link entirely.
+MANUAL_URL = os.environ.get("MANUAL_URL", "http://192.168.110.150:8000/manual/").strip()
+
 # Set Secure on the session cookie. Off by default because the current LAN
 # deployment is plain HTTP; a Secure cookie would simply never be sent and
 # would lock everyone out. Turn on together with TLS (deferred item T-1).
