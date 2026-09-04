@@ -25,6 +25,7 @@ from api.auth import (
     ALGORITHM,
     ACCESS_TOKEN_EXPIRE_MINUTES,
 )
+from api.presence import open_session, close_session
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -114,6 +115,7 @@ def login_for_access_token(
         db.add(member)
     member.last_active_at = datetime.now(timezone.utc)
     commit_with_retry(db)
+    open_session(db, user.username)
 
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
@@ -143,4 +145,7 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db)):
         if member:
             member.last_active_at = None
             commit_with_retry(db)
+        # Closed regardless of the TeamMember row: the session history is keyed
+        # on the name, and a missing member row must not silently drop a logout.
+        close_session(db, username)
     return {"status": "ok"}

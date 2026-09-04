@@ -1,6 +1,6 @@
 import { apiFetch } from "../api.js?v=3";
 import { escapeHTML } from "../utils.js?v=1";
-import { createDataTable } from "../components/data-table.js?v=1";
+import { createDataTable } from "../components/data-table.js?v=2";
 
 const els = {
   user: document.getElementById("currentUser"),
@@ -42,6 +42,15 @@ const els = {
   selectedTeamName: document.getElementById("selectedTeamName"),
   clearTeamFilterBtn: document.getElementById("clearTeamFilterBtn"),
 
+  exportSessionsBtn: document.getElementById("exportSessionsBtn"),
+  exportSessionsModal: document.getElementById("exportSessionsModal"),
+  exportSessionsModalClose: document.getElementById("exportSessionsModalClose"),
+  exportSessionsModalError: document.getElementById("exportSessionsModalError"),
+  exportSessionsForm: document.getElementById("exportSessionsForm"),
+  exportSessionsCancel: document.getElementById("exportSessionsCancel"),
+  exportStartDate: document.getElementById("exportStartDate"),
+  exportEndDate: document.getElementById("exportEndDate"),
+
   memberTasksModal: document.getElementById("memberTasksModal"),
   memberTasksModalClose: document.getElementById("memberTasksModalClose"),
   memberTasksName: document.getElementById("memberTasksName"),
@@ -63,6 +72,170 @@ let teamsCache = [];
 let membersCache = [];
 let selectedTeam = null;
 let myCreatedTeamIds = new Set();
+
+// Session history, keyed by member name: { loading, error, date, data }.
+// Fetched lazily when a row is expanded so the list view stays one request.
+const sessionHistory = new Map();
+
+/** Minutes east of UTC — the negation of the JS convention. */
+function tzOffsetMinutes() {
+  return -new Date().getTimezoneOffset();
+}
+
+function todayISO() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function formatDuration(seconds) {
+  const s = Math.max(0, Math.round(seconds || 0));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (h && m) return `${h}h ${m}m`;
+  if (h) return `${h}h`;
+  if (m) return `${m}m`;
+  return "<1m";
+}
+
+function formatClock(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function isMemberOwnedByMe(member) {
+  return (member.teams || []).some((t) => myCreatedTeamIds.has(t.id));
+}
+
+/**
+ * Download the login history as CSV.
+ *
+ * Goes through apiFetch rather than a plain <a href> so the request carries the
+ * auth/annotator headers, then saves the response as a blob.
+ *
+ * @param {object} opts  { name? } omit name to export every visible member;
+ *                       { start?, end? } local YYYY-MM-DD, default today.
+ */
+async function downloadSessionsCsv({ name, start, end } = {}) {
+  const params = new URLSearchParams({ tz_offset: String(tzOffsetMinutes()) });
+  if (name) params.set("name", name);
+  if (start) params.set("start", start);
+  if (end) params.set("end", end);
+
+  try {
+    const res = await apiFetch(`/api/team/sessions/export?${params}`);
+    if (!res) return;
+    if (!res.ok) {
+      let detail = `Export failed (${res.status}).`;
+      try {
+        const body = await res.json();
+        if (body && body.detail) detail = body.detail;
+      } catch (_) {
+        // Non-JSON error body; the status-based message above is enough.
+      }
+      showError(detail);
+      return;
+    }
+
+    // Prefer the filename the server chose, so single-member and range
+    // exports stay distinguishable on disk.
+    const disp = res.headers.get("Content-Disposition") || "";
+    const match = disp.match(/filename="?([^"';]+)"?/i);
+    const filename = match ? match[1] : "login-history.csv";
+
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // Revoke on the next tick: revoking synchronously can cancel the download
+    // in some browsers before it starts.
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+    clearError();
+  } catch (err) {
+    showError("Could not download the spreadsheet: " + err.message);
+  }
+}
+
+async function fetchSessions(name, date) {
+  const params = new URLSearchParams({ tz_offset: String(tzOffsetMinutes()) });
+  if (date) params.set("date", date);
+  sessionHistory.set(name, { loading: true, date: date || todayISO() });
+  membersTable.render();
+  try {
+    const res = await apiFetch(`/api/team/${encodeURIComponent(name)}/sessions?${params}`);
+    if (!res) return;
+    if (!res.ok) {
+      const detail = res.status === 403
+        ? "You can only view history for members of teams you created."
+        : `Could not load history (${res.status}).`;
+      sessionHistory.set(name, { error: detail, date: date || todayISO() });
+    } else {
+      const data = await res.json();
+      sessionHistory.set(name, { data, date: data.date });
+    }
+  } catch (err) {
+    sessionHistory.set(name, { error: err.message, date: date || todayISO() });
+  }
+  membersTable.render();
+}
+
+function renderSessionDetail(member) {
+  const entry = sessionHistory.get(member.name);
+  const day = entry?.date || todayISO();
+
+  const header = `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
+      <strong style="font-size:0.85rem;">Login history — ${escapeHTML(member.name)}</strong>
+      <input type="date" data-action="session-date" value="${escapeHTML(day)}" max="${escapeHTML(todayISO())}"
+        style="font-size:0.78rem;padding:2px 6px;border:1px solid var(--line);border-radius:4px;">
+      <button type="button" data-action="export-member" class="pill"
+        title="Download ${escapeHTML(member.name)}'s sessions for this day as a spreadsheet"
+        style="cursor:pointer;font-size:0.75rem;padding:2px 10px;border:1px solid var(--line);">⤓ CSV</button>
+    </div>`;
+
+  let body;
+  if (entry?.loading) {
+    body = `<div style="color:var(--muted);font-size:0.8rem;">Loading…</div>`;
+  } else if (entry?.error) {
+    body = `<div style="color:var(--danger,#b3261e);font-size:0.8rem;">${escapeHTML(entry.error)}</div>`;
+  } else if (!entry?.data || !entry.data.sessions.length) {
+    body = `<div style="color:var(--muted);font-size:0.8rem;">No logins recorded on this day.</div>`;
+  } else {
+    const rows = entry.data.sessions.map((s) => {
+      let end;
+      if (s.is_open) {
+        end = `<span style="color:#2e7d32;font-weight:600;">still logged in</span>`;
+      } else if (s.ended_reason === "inactive") {
+        // Swept: the stamp is the last heartbeat, not a click on Log out.
+        end = `${escapeHTML(formatClock(s.logout_at))} <span style="color:var(--muted);font-size:0.72rem;">(inactive)</span>`;
+      } else {
+        end = escapeHTML(formatClock(s.logout_at));
+      }
+      return `<tr>
+        <td style="padding:3px 12px 3px 0;">${escapeHTML(formatClock(s.login_at))}</td>
+        <td style="padding:3px 12px 3px 0;color:var(--muted);">→</td>
+        <td style="padding:3px 12px 3px 0;">${end}</td>
+        <td style="padding:3px 0;color:var(--muted);">${escapeHTML(formatDuration(s.duration_seconds))}</td>
+      </tr>`;
+    }).join("");
+    body = `<table style="font-size:0.8rem;border-collapse:collapse;">
+        <thead><tr style="color:var(--muted);font-size:0.72rem;text-transform:uppercase;">
+          <th style="text-align:left;padding-right:12px;font-weight:600;">In</th><th></th>
+          <th style="text-align:left;padding-right:12px;font-weight:600;">Out</th>
+          <th style="text-align:left;font-weight:600;">Duration</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div style="margin-top:8px;font-size:0.8rem;font-weight:600;">Total: ${escapeHTML(formatDuration(entry.data.total_seconds))}</div>`;
+  }
+
+  return `<div style="padding:10px 6px 12px 18px;border-left:2px solid var(--accent);background:rgba(128,128,128,0.04);">${header}${body}</div>`;
+}
 
 function showError(msg) {
   els.error.textContent = msg;
@@ -104,6 +277,20 @@ function renderMembers() {
     rows = rows.filter((r) => r.teams && r.teams.some((t) => t.id === selectedTeam.id));
   }
   membersTable.setRows(rows);
+  refreshOpenSessionPanels(rows);
+}
+
+/** Keep expanded panels current across the 15s auto-refresh. */
+function refreshOpenSessionPanels(rows) {
+  rows.forEach((r) => {
+    if (!membersTable.isExpanded(r.name)) return;
+    const entry = sessionHistory.get(r.name);
+    // Don't stack a second request on one already in flight, and leave a panel
+    // showing a past day alone — only "today" goes stale on its own.
+    if (entry?.loading) return;
+    if (entry?.date && entry.date !== todayISO()) return;
+    fetchSessions(r.name, entry?.date);
+  });
 }
 
 const ICON_DELETE = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>`;
@@ -174,6 +361,7 @@ function initTables() {
     mount: els.membersMount,
     rowId: (r) => r.name,
     emptyMessage: "No team members found.",
+    rowDetail: (r) => renderSessionDetail(r),
     matches: (row, q) => {
       const query = q.trim().toLowerCase();
       if (!query) return true;
@@ -193,6 +381,22 @@ function initTables() {
             return `<span class="pill is-completed" style="display:inline-flex;align-items:center;gap:6px;font-size:0.75rem;padding:2px 8px;font-weight:600;"><span style="width:7px;height:7px;border-radius:50%;background:#2e7d32;display:inline-block;box-shadow:0 0 0 2px rgba(46,125,50,0.2);"></span>Logged in</span>`;
           }
           return `<span class="pill" style="display:inline-flex;align-items:center;gap:6px;font-size:0.75rem;padding:2px 8px;color:var(--muted);background:rgba(128,128,128,0.08);"><span style="width:7px;height:7px;border-radius:50%;background:var(--muted);display:inline-block;"></span>Offline</span>`;
+        }
+      },
+      {
+        key: "seconds_today",
+        label: "Sessions",
+        width: "120px",
+        render: (r) => {
+          // Hours are only visible to the owner of a team the member is in,
+          // matching the Tasks column and the endpoint's own check.
+          if (!isMemberOwnedByMe(r)) return `<span style="color:var(--muted);font-size:0.8rem;">—</span>`;
+          const open = membersTable && membersTable.isExpanded(r.name);
+          const total = r.seconds_today ? formatDuration(r.seconds_today) : "—";
+          return `<button type="button" data-action="toggle-sessions" class="pill"
+            title="Show today's login and logout times for ${escapeHTML(r.name)}"
+            style="cursor:pointer;font-size:0.75rem;padding:2px 10px;border:1px solid var(--line);display:inline-flex;align-items:center;gap:5px;">
+            ${escapeHTML(total)}<span style="font-size:0.6rem;">${open ? "▲" : "▼"}</span></button>`;
         }
       },
       {
@@ -236,6 +440,27 @@ function initTables() {
     openAssignModal(row);
   });
 
+  membersTable.onAction("export-member", (row) => {
+    // Export whichever day the open panel is showing, not always today.
+    const day = sessionHistory.get(row.name)?.date || todayISO();
+    downloadSessionsCsv({ name: row.name, start: day, end: day });
+  });
+
+  membersTable.onAction("toggle-sessions", (row) => {
+    const nowOpen = membersTable.toggleExpanded(row.name);
+    // Fetch on first open only; a re-open reuses what is already cached.
+    if (nowOpen && !sessionHistory.has(row.name)) fetchSessions(row.name);
+  });
+
+  // The date picker lives inside the expanded panel, so it is delegated here
+  // rather than bound at render time (rows are replaced wholesale).
+  els.membersMount.addEventListener("change", (e) => {
+    const input = e.target.closest('[data-action="session-date"]');
+    if (!input) return;
+    const name = input.closest("tr")?.dataset.detailFor;
+    if (name) fetchSessions(name, input.value);
+  });
+
   membersTable.onAction("view-tasks", (row) => {
     openMemberTasksModal(row);
   });
@@ -274,7 +499,7 @@ async function loadData() {
   try {
     const [resTeams, resMembers] = await Promise.all([
       apiFetch("/api/teams"),
-      apiFetch("/api/team"),
+      apiFetch(`/api/team?tz_offset=${tzOffsetMinutes()}`),
     ]);
     
     if (!resTeams || !resMembers) return;
@@ -463,6 +688,42 @@ function statusBadge(status) {
   return `<span class="pill" style="font-size:0.72rem;padding:1px 7px;color:var(--muted);">${escapeHTML(status || "New")}</span>`;
 }
 
+function openExportSessionsModal() {
+  const today = todayISO();
+  // Default to the last 7 days, the common "what did the team do this week" pull.
+  const weekAgo = new Date();
+  weekAgo.setDate(weekAgo.getDate() - 6);
+  const pad = (n) => String(n).padStart(2, "0");
+  els.exportStartDate.value = `${weekAgo.getFullYear()}-${pad(weekAgo.getMonth() + 1)}-${pad(weekAgo.getDate())}`;
+  els.exportEndDate.value = today;
+  els.exportStartDate.max = today;
+  els.exportEndDate.max = today;
+  els.exportSessionsModalError.style.display = "none";
+  els.exportSessionsModal.classList.add("is-active");
+}
+
+function closeExportSessionsModal() {
+  els.exportSessionsModal.classList.remove("is-active");
+}
+
+/** Fill the date inputs from one of the quick-range buttons. */
+function applyExportPreset(preset) {
+  const pad = (n) => String(n).padStart(2, "0");
+  const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const today = new Date();
+  let start = new Date();
+  if (preset === "today") {
+    start = today;
+  } else if (preset === "month") {
+    start = new Date(today.getFullYear(), today.getMonth(), 1);
+  } else {
+    // A numeric preset counts back N days inclusive of today.
+    start.setDate(today.getDate() - (Number(preset) - 1));
+  }
+  els.exportStartDate.value = iso(start);
+  els.exportEndDate.value = iso(today);
+}
+
 async function openMemberTasksModal(member) {
   els.memberTasksName.textContent = member.name;
   els.memberTasksModalBody.innerHTML = `<p style="color:var(--muted);font-size:0.9rem;text-align:center;">Loading…</p>`;
@@ -510,6 +771,34 @@ async function openMemberTasksModal(member) {
 
 function closeMemberTasksModal() {
   els.memberTasksModal.classList.remove("is-active");
+}
+
+if (els.exportSessionsBtn) {
+  els.exportSessionsBtn.addEventListener("click", openExportSessionsModal);
+  els.exportSessionsModalClose.addEventListener("click", closeExportSessionsModal);
+  els.exportSessionsCancel.addEventListener("click", closeExportSessionsModal);
+  els.exportSessionsModal.addEventListener("click", (e) => {
+    if (e.target === els.exportSessionsModal) closeExportSessionsModal();
+  });
+
+  els.exportSessionsForm.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-range]");
+    if (btn) applyExportPreset(btn.dataset.range);
+  });
+
+  els.exportSessionsForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const start = els.exportStartDate.value;
+    const end = els.exportEndDate.value;
+    if (start && end && start > end) {
+      els.exportSessionsModalError.textContent = "The start date must not be after the end date.";
+      els.exportSessionsModalError.style.display = "block";
+      return;
+    }
+    els.exportSessionsModalError.style.display = "none";
+    closeExportSessionsModal();
+    await downloadSessionsCsv({ start, end });
+  });
 }
 
 els.memberTasksModalClose.addEventListener("click", closeMemberTasksModal);

@@ -1,17 +1,95 @@
-from datetime import datetime, timezone, timedelta
+import csv
+import io
+import re
+from datetime import datetime, timezone, timedelta, date as date_cls
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
+from fastapi.responses import PlainTextResponse
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 import models
 from database import get_db, commit_with_retry
-from schemas import TeamTime, TeamMemberResponse, TeamTimeResponse, TeamMemberAssign, TeamMemberCreate
+from schemas import (
+    TeamTime, TeamMemberResponse, TeamTimeResponse, TeamMemberAssign, TeamMemberCreate,
+    LoginSessionEntry, LoginSessionHistory,
+)
 from api.auth import get_current_user, require_csrf, get_current_annotator
+from api.presence import (
+    PRESENCE_TIMEOUT_SECONDS,
+    close_stale_sessions,
+    touch_session,
+)
 
 router = APIRouter(prefix="/api/team", tags=["team"], dependencies=[Depends(get_current_user)])
 
+# Sessions are stored in UTC, but "today" means the annotator's local day. The
+# client sends its UTC offset in minutes (the negation of Date#getTimezoneOffset)
+# so a shift that starts at 09:00 local lands in the right bucket. Bounded to
+# real-world offsets so a bogus value cannot shift the window arbitrarily.
+MAX_TZ_OFFSET_MINUTES = 14 * 60
+
+# A CSV export covers at most this many days per request, so one URL cannot ask
+# the DB to scan an unbounded span of history.
+MAX_EXPORT_DAYS = 366
+
+
+def _safe_filename_part(value: str) -> str:
+    """Reduce a member name to characters safe in a Content-Disposition filename."""
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", value or "").strip("_")
+    return cleaned[:60] or "member"
+
+
+def _utc_iso(dt) -> str:
+    if dt is None:
+        return ""
+    return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).isoformat()
+
+
+def _day_bounds(day: date_cls, tz_offset_minutes: int = 0):
+    """UTC [start, end) covering the given local calendar day."""
+    offset = timedelta(minutes=tz_offset_minutes)
+    local_midnight = datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
+    start = local_midnight - offset
+    return start, start + timedelta(days=1)
+
+
+def _caller_names(user, annotator) -> list:
+    names = [user.username]
+    if annotator:
+        names.append(annotator.name)
+    return list(set(names))
+
+
+def _readable_member_names(db: Session, caller_names: list) -> set:
+    """Members whose hours the caller may read: themselves, plus every member
+    of a team they created. Mirrors the rule on GET /{name}/tasks."""
+    created_team_ids = {
+        t[0] for t in db.query(models.Team.id).filter(models.Team.creator.in_(caller_names)).all()
+    }
+    readable = set(caller_names)
+    if created_team_ids:
+        readable |= {
+            a[0] for a in db.query(models.TeamMemberAssociation.member_name).filter(
+                models.TeamMemberAssociation.team_id.in_(created_team_ids)
+            ).all()
+        }
+    return readable
+
+
+def _session_seconds(session, now: datetime) -> int:
+    """Elapsed seconds for a session; an open one is counted up to `now`."""
+    login = session.login_at if session.login_at.tzinfo else session.login_at.replace(tzinfo=timezone.utc)
+    end = session.logout_at
+    if end is None:
+        end = now
+    elif not end.tzinfo:
+        end = end.replace(tzinfo=timezone.utc)
+    return max(0, int((end - login).total_seconds()))
+
 @router.get("", response_model=List[TeamMemberResponse])
 def get_team(
+    tz_offset: int = Query(0, ge=-MAX_TZ_OFFSET_MINUTES, le=MAX_TZ_OFFSET_MINUTES),
     db: Session = Depends(get_db),
     user: models.User = Depends(get_current_user),
     annotator = Depends(get_current_annotator),
@@ -65,7 +143,26 @@ def get_team(
         })
         
     now = datetime.now(timezone.utc)
-    PRESENCE_TIMEOUT_SECONDS = 120  # 2 minutes threshold for active presence
+    # Sweep before reporting so a member whose heartbeat died shows Offline here
+    # and has their session closed at its real end time in the history.
+    close_stale_sessions(db, now)
+
+    # Today's session totals for every visible member in one query, so the
+    # gallery does not fire a request per row just to fill in the column.
+    local_today = (now + timedelta(minutes=tz_offset)).date()
+    day_start, day_end = _day_bounds(local_today, tz_offset)
+    todays_sessions = (
+        db.query(models.LoginSession)
+        .filter(
+            models.LoginSession.member_name.in_(member_names),
+            models.LoginSession.login_at >= day_start,
+            models.LoginSession.login_at < day_end,
+        )
+        .all()
+    )
+    seconds_today = {name: 0 for name in member_names}
+    for s in todays_sessions:
+        seconds_today[s.member_name] = seconds_today.get(s.member_name, 0) + _session_seconds(s, now)
 
     results = []
     for m in members:
@@ -77,11 +174,12 @@ def get_team(
             last_active = last_active_utc
 
         results.append({
-            "name": m.name, 
+            "name": m.name,
             "time_logged": m.time_logged,
             "teams": teams_by_member[m.name],
             "is_logged_in": is_logged_in,
-            "last_active_at": last_active
+            "last_active_at": last_active,
+            "seconds_today": seconds_today.get(m.name, 0),
         })
 
     return results
@@ -99,9 +197,132 @@ def ping_presence(
         if not member:
             member = models.TeamMember(name=annotator_name, time_logged=0)
             db.add(member)
-        member.last_active_at = datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc)
+        member.last_active_at = now
         commit_with_retry(db)
+        # Advance (or open) the session row so the history tracks this beat.
+        touch_session(db, annotator_name, now)
     return {"status": "ok"}
+
+@router.get("/sessions/export")
+def export_sessions_csv(
+    name: Optional[str] = Query(None, description="Single member. Omit to export everyone readable."),
+    start: Optional[str] = Query(None, description="First local day, YYYY-MM-DD. Defaults to `end`."),
+    end: Optional[str] = Query(None, description="Last local day, YYYY-MM-DD. Defaults to today."),
+    tz_offset: int = Query(0, ge=-MAX_TZ_OFFSET_MINUTES, le=MAX_TZ_OFFSET_MINUTES),
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+    annotator = Depends(get_current_annotator),
+):
+    """Download login/logout history as CSV, for one member or the whole team.
+
+    One row per session so the detail stays auditable; `total_hours_that_day`
+    repeats the per-annotator-per-day total on each of its rows, which is what
+    makes a spreadsheet pivot roll it up without re-deriving anything.
+
+    Times are written twice: a local clock string for reading, and the raw UTC
+    ISO timestamp so the file survives being opened in another timezone.
+    """
+    caller_names = _caller_names(user, annotator)
+    readable = _readable_member_names(db, caller_names)
+
+    if name:
+        if name not in readable:
+            raise HTTPException(status_code=403, detail="You cannot view this member's history")
+        targets = [name]
+    else:
+        targets = sorted(readable)
+
+    now = datetime.now(timezone.utc)
+    close_stale_sessions(db, now)
+
+    local_today = (now + timedelta(minutes=tz_offset)).date()
+    try:
+        end_day = date_cls.fromisoformat(end) if end else local_today
+        start_day = date_cls.fromisoformat(start) if start else end_day
+    except ValueError:
+        raise HTTPException(status_code=400, detail="start and end must be YYYY-MM-DD")
+    if start_day > end_day:
+        raise HTTPException(status_code=400, detail="start must not be after end")
+    # Bounded so one request cannot scan an unbounded span of history.
+    if (end_day - start_day).days > MAX_EXPORT_DAYS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Range too large; export at most {MAX_EXPORT_DAYS} days at a time.",
+        )
+
+    range_start, _ = _day_bounds(start_day, tz_offset)
+    _, range_end = _day_bounds(end_day, tz_offset)
+
+    rows = []
+    if targets:
+        rows = (
+            db.query(models.LoginSession)
+            .filter(
+                models.LoginSession.member_name.in_(targets),
+                models.LoginSession.login_at >= range_start,
+                models.LoginSession.login_at < range_end,
+            )
+            .order_by(models.LoginSession.member_name.asc(), models.LoginSession.login_at.asc())
+            .all()
+        )
+
+    offset = timedelta(minutes=tz_offset)
+
+    def local(dt):
+        if dt is None:
+            return None
+        return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)) + offset
+
+    # Per-annotator-per-day totals, so each row can carry its day's total.
+    totals = {}
+    for r in rows:
+        key = (r.member_name, local(r.login_at).date())
+        totals[key] = totals.get(key, 0) + _session_seconds(r, now)
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "annotator", "date", "login_local", "logout_local",
+        "duration_hours", "duration_minutes", "ended",
+        "total_hours_that_day", "login_utc", "logout_utc",
+    ])
+    for r in rows:
+        seconds = _session_seconds(r, now)
+        login_local = local(r.login_at)
+        logout_local = local(r.logout_at)
+        day = login_local.date()
+        if r.logout_at is None:
+            ended = "still logged in"
+        elif r.ended_reason == "inactive":
+            ended = "inactive"
+        else:
+            ended = "logout"
+        writer.writerow([
+            r.member_name,
+            day.isoformat(),
+            login_local.strftime("%H:%M"),
+            logout_local.strftime("%H:%M") if logout_local else "",
+            f"{seconds / 3600:.2f}",
+            round(seconds / 60),
+            ended,
+            f"{totals[(r.member_name, day)] / 3600:.2f}",
+            _utc_iso(r.login_at),
+            _utc_iso(r.logout_at),
+        ])
+
+    if start_day == end_day:
+        span = start_day.isoformat()
+    else:
+        span = f"{start_day.isoformat()}_to_{end_day.isoformat()}"
+    stem = f"{_safe_filename_part(name)}-" if name else "team-"
+    filename = f"{stem}login-history-{span}.csv"
+
+    return PlainTextResponse(
+        buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 @router.get("/{name}/tasks")
 def get_member_tasks(
@@ -168,6 +389,76 @@ def get_member_tasks(
         }
         for t in tasks
     ]
+
+@router.get("/{name}/sessions", response_model=LoginSessionHistory)
+def get_member_sessions(
+    name: str,
+    date: Optional[str] = Query(None, description="Local calendar day, YYYY-MM-DD. Defaults to today."),
+    tz_offset: int = Query(0, ge=-MAX_TZ_OFFSET_MINUTES, le=MAX_TZ_OFFSET_MINUTES),
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+    annotator = Depends(get_current_annotator),
+):
+    """Return a member's login/logout sessions for one day.
+
+    Visibility matches `GET /{name}/tasks`: only the creator of a team the
+    member belongs to may read it. On a shared-login deployment this keeps one
+    annotator's hours from being readable by the other two dozen.
+    """
+    caller_names = _caller_names(user, annotator)
+
+    member = db.query(models.TeamMember).filter(models.TeamMember.name == name).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Team member not found")
+
+    # A member may always read their own history; otherwise the caller must own
+    # a team the member belongs to.
+    if name not in _readable_member_names(db, caller_names):
+        raise HTTPException(status_code=403, detail="You cannot view this member's history")
+
+    now = datetime.now(timezone.utc)
+    close_stale_sessions(db, now)
+
+    if date:
+        try:
+            day = date_cls.fromisoformat(date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
+    else:
+        day = (now + timedelta(minutes=tz_offset)).date()
+
+    day_start, day_end = _day_bounds(day, tz_offset)
+
+    rows = (
+        db.query(models.LoginSession)
+        .filter(
+            models.LoginSession.member_name == name,
+            models.LoginSession.login_at >= day_start,
+            models.LoginSession.login_at < day_end,
+        )
+        .order_by(models.LoginSession.login_at.asc())
+        .all()
+    )
+
+    sessions = []
+    total = 0
+    for r in rows:
+        seconds = _session_seconds(r, now)
+        total += seconds
+        sessions.append({
+            "login_at": r.login_at,
+            "logout_at": r.logout_at,
+            "ended_reason": r.ended_reason,
+            "duration_seconds": seconds,
+            "is_open": r.logout_at is None,
+        })
+
+    return {
+        "name": name,
+        "date": day.isoformat(),
+        "sessions": sessions,
+        "total_seconds": total,
+    }
 
 @router.post("", response_model=TeamMemberResponse, dependencies=[Depends(require_csrf)])
 def add_team_member(payload: TeamMemberCreate, request: Request, db: Session = Depends(get_db), annotator = Depends(get_current_annotator)):

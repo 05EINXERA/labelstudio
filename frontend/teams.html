@@ -7,7 +7,7 @@
   <title>Teams - Dataset Workspace</title>
   <link rel="icon" type="image/png" href="logo.png">
   <link rel="stylesheet" href="styles.css?v=7">
-  <link rel="modulepreload" href="js/pages/teams.js?v=10">
+  <link rel="modulepreload" href="js/pages/teams.js?v=11">
   <script>
     if (!localStorage.getItem('logged_in')) {
       window.location.replace('/');
@@ -75,6 +75,9 @@
               <button type="button" id="clearTeamFilterBtn" title="Show all members" style="background: none; border: none; padding: 0 2px; cursor: pointer; color: var(--accent-dark); font-weight: bold; font-size: 1rem; line-height: 1;">&times;</button>
             </span>
           </div>
+          <button type="button" id="exportSessionsBtn" class="tool-button"
+            title="Download login/logout history for your team as a spreadsheet"
+            style="font-size: 0.8rem; padding: 5px 12px; white-space: nowrap;">⤓ Export hours</button>
         </div>
         <div class="mgmt-toolbar" style="margin-bottom: 14px;">
           <input type="search" id="memberSearchInput" placeholder="Search team members…" aria-label="Search team members" style="width: 100%; min-width: 0;">
@@ -103,6 +106,47 @@
         <div style="display: flex; gap: 10px; justify-content: flex-end; padding: 16px;">
           <button type="button" class="tool-button" id="teamFormCancel">Cancel</button>
           <button type="submit" class="primary" style="padding: 9px 18px; border-radius: 6px;">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Export login history modal -->
+  <div class="modal-overlay" id="exportSessionsModal">
+    <div class="modal-content" style="max-width: 420px;">
+      <div class="modal-header">
+        <h2>Export login hours</h2>
+        <button class="modal-close" id="exportSessionsModalClose" type="button">&times;</button>
+      </div>
+      <div id="exportSessionsModalError" style="display: none; padding: 10px 16px; background: #ffebee; color: #c62828; font-size: 0.9rem; border-bottom: 1px solid #ffcdd2;"></div>
+      <form id="exportSessionsForm">
+        <div class="modal-body" style="display: grid; gap: 14px;">
+          <p style="margin: 0; font-size: 0.85rem; color: var(--muted);">
+            Downloads a CSV of login and logout times for every member of the teams
+            you created. One row per session; open it in Excel or Google Sheets.
+          </p>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <label style="display: grid; gap: 6px;">
+              <span style="font-size: .85rem; color: var(--muted);">From</span>
+              <input type="date" id="exportStartDate" required
+                style="padding: 9px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--ink);">
+            </label>
+            <label style="display: grid; gap: 6px;">
+              <span style="font-size: .85rem; color: var(--muted);">To</span>
+              <input type="date" id="exportEndDate" required
+                style="padding: 9px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--ink);">
+            </label>
+          </div>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button type="button" class="tool-button" data-range="today" style="font-size: 0.78rem; padding: 4px 10px;">Today</button>
+            <button type="button" class="tool-button" data-range="7" style="font-size: 0.78rem; padding: 4px 10px;">Last 7 days</button>
+            <button type="button" class="tool-button" data-range="30" style="font-size: 0.78rem; padding: 4px 10px;">Last 30 days</button>
+            <button type="button" class="tool-button" data-range="month" style="font-size: 0.78rem; padding: 4px 10px;">This month</button>
+          </div>
+        </div>
+        <div style="display: flex; gap: 10px; justify-content: flex-end; padding: 16px;">
+          <button type="button" class="tool-button" id="exportSessionsCancel">Cancel</button>
+          <button type="submit" class="primary" style="padding: 9px 18px; border-radius: 6px;">Download CSV</button>
         </div>
       </form>
     </div>
@@ -203,7 +247,7 @@
     </div>
   </div>
 
-  <script type="module" src="js/pages/teams.js?v=10"></script>
+  <script type="module" src="js/pages/teams.js?v=11"></script>
 </body>
 
 </html>

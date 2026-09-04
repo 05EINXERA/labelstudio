@@ -25,6 +25,9 @@ import { escapeHTML } from "../utils.js?v=1";
  * @param {(row:object)=>string} [opts.rowClass]  custom CSS class for row
  * @param {(row:object, event:MouseEvent)=>void} [opts.onRowClick] handler for clicking a row
  * @param {(ids:Set)=>void} [opts.onSelectionChange]
+ * @param {(row:object)=>string} [opts.rowDetail]  HTML for an expandable detail
+ *        row rendered beneath `row` while its id is in the expanded set. Toggle
+ *        it with `toggleExpanded(id)`; return "" to render a placeholder.
  */
 export function createDataTable(opts) {
   const {
@@ -38,6 +41,7 @@ export function createDataTable(opts) {
     onRowClick,
     onSelectionChange,
     onFetchData,
+    rowDetail,
   } = opts;
 
   const state = {
@@ -49,6 +53,7 @@ export function createDataTable(opts) {
     query: opts.initialQuery || "",
     filters: opts.initialFilters || {},
     selected: new Set(),
+    expanded: new Set(),
     priorityRowId: opts.priorityRowId || null,
     totalRows: 0,
   };
@@ -147,7 +152,10 @@ export function createDataTable(opts) {
               ? `<td style="text-align:center;"><input type="checkbox" data-role="row" data-id="${escapeHTML(id)}" ${checked}></td>`
               : "";
             const extraClass = rowClass ? ` ${rowClass(row)}` : "";
-            return `<tr data-id="${escapeHTML(id)}" class="${extraClass.trim()}">${box}${cells}</tr>`;
+            const tr = `<tr data-id="${escapeHTML(id)}" class="${extraClass.trim()}">${box}${cells}</tr>`;
+            if (!rowDetail || !state.expanded.has(id)) return tr;
+            const span = columns.length + (selectable ? 1 : 0);
+            return `${tr}<tr class="data-table-detail" data-detail-for="${escapeHTML(id)}"><td colspan="${span}">${rowDetail(row) || ""}</td></tr>`;
           })
           .join("")
       : `<tr><td colspan="${columns.length + (selectable ? 1 : 0)}" style="text-align:center;color:var(--muted);padding:24px;">${escapeHTML(emptyMessage)}</td></tr>`;
@@ -287,6 +295,15 @@ export function createDataTable(opts) {
     clearSelection() { state.selected.clear(); render(); onSelectionChange?.(state.selected); },
     getSelection() { return new Set(state.selected); },
     getRows() { return [...state.rows]; },
+    /** Expand/collapse a row's detail panel. Returns the new expanded state. */
+    toggleExpanded(id) {
+      if (state.expanded.has(id)) state.expanded.delete(id);
+      else state.expanded.add(id);
+      render();
+      return state.expanded.has(id);
+    },
+    isExpanded(id) { return state.expanded.has(id); },
+    collapseAll() { state.expanded.clear(); render(); },
     setPriorityRowId(id) { state.priorityRowId = id || null; render(); },
     getPriorityRowId() { return state.priorityRowId; },
     render,
@@ -296,7 +313,10 @@ export function createDataTable(opts) {
       mount.addEventListener("click", (e) => {
         const btn = e.target.closest(`[data-action="${name}"]`);
         if (!btn || !mount.contains(btn)) return;
-        const id = btn.closest("tr")?.dataset.id;
+        const tr = btn.closest("tr");
+        // A detail row carries `data-detail-for` instead of `data-id`, so
+        // actions rendered inside an expanded panel still resolve their row.
+        const id = tr?.dataset.id ?? tr?.dataset.detailFor;
         const row = state.rows.find((r) => String(rowId(r)) === id);
         if (row) handler(row, btn);
       });

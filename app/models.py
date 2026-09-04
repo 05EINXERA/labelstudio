@@ -80,6 +80,30 @@ class TeamMember(Base):
     time_logged = Column(Integer, default=0)
     last_active_at = Column(UTCDateTime, nullable=True)
 
+class LoginSession(Base):
+    """One login→logout span for a team member, for the Teams page history.
+
+    `last_active_at` on TeamMember is a single mutable cell: it answers "is this
+    person online right now" and nothing else. This table is the append-only
+    history behind it, so the day's logins and logouts survive the next ping.
+
+    A row is opened on login and closed either by an explicit logout or by the
+    sweeper in `api/routers/team.py`, which stamps `logout_at = last_seen_at`
+    once the heartbeat has been silent past the presence timeout. Annotators
+    close the tab far more often than they click Log out, so `ended_reason`
+    records which of the two closed the row and the UI labels it.
+    """
+    __tablename__ = "login_sessions"
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    member_name = Column(String, ForeignKey("team_members.name", ondelete="CASCADE"), index=True)
+    login_at = Column(UTCDateTime, nullable=False, index=True)
+    # Advanced by the heartbeat; becomes logout_at when a stale session is swept.
+    last_seen_at = Column(UTCDateTime, nullable=False)
+    # NULL means the session is still open.
+    logout_at = Column(UTCDateTime, nullable=True)
+    # 'logout' (explicit) or 'inactive' (swept). NULL while open.
+    ended_reason = Column(String(16), nullable=True)
+
 class TeamMemberAssociation(Base):
     __tablename__ = "team_member_associations"
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)

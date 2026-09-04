@@ -147,6 +147,23 @@ class TeamMemberResponse(BaseModel):
     teams: List[TeamResponse] = Field(default_factory=list)
     is_logged_in: Optional[bool] = None
     last_active_at: Optional[datetime] = None
+    # Seconds spent logged in during the caller's local day, from LoginSession.
+    seconds_today: Optional[int] = None
+
+class LoginSessionEntry(BaseModel):
+    login_at: datetime
+    # None while the session is still open.
+    logout_at: Optional[datetime] = None
+    # 'logout' (clicked Log out) or 'inactive' (heartbeat went silent).
+    ended_reason: Optional[str] = None
+    duration_seconds: int
+    is_open: bool
+
+class LoginSessionHistory(BaseModel):
+    name: str
+    date: str
+    sessions: List[LoginSessionEntry] = Field(default_factory=list)
+    total_seconds: int
 
 class TeamTimeResponse(BaseModel):
     status: str
