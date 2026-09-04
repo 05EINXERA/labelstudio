@@ -10,10 +10,10 @@ import { commentHitTest, commentScreenGeometry, COMMENT_FONT } from "./comment-g
 import { normalizeRect, rectIsDegenerate, marqueeHits } from "./marquee.js?v=1";
 import { shouldCanvasClickBeBlocked } from "../comment-mode.js?v=1";
 import { commentOverlayRefs, openCommentEditor, anchorCommentOverlay } from "../comment-overlay.js?v=2";
-import { setStatus, save, render, activateLabel, toggleAnnotationsHidden, unhideAllObjects, editBlockReason } from "../components/workspace.js?v=19";
+import { setStatus, save, render, activateLabel, toggleAnnotationsHidden, unhideAllObjects, editBlockReason } from "../components/workspace.js?v=21";
 import { labelIndexForCode, hideTargetIds, shouldHide } from "../shortcuts.js?v=1";
-import { performMagicWandSegmentation } from "../ai/detect.js?v=2";
-import { applyAutoSmooth } from "../fft-controls.js?v=2";
+import { performMagicWandSegmentation } from "../ai/detect.js?v=3";
+import { applyAutoSmooth } from "../fft-controls.js?v=3";
 import { annotationSettings } from "../feature-flags.js?v=1";
 
 export function canvasPoint(event) {

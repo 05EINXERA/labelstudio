@@ -1,5 +1,5 @@
 import { generateUUID, normalizeClassName } from "../utils.js?v=1";
-import { apiFetch } from "../api.js?v=3";
+import { apiFetch } from "../api.js?v=5";
 import {
   state, storageKey, draftKey, legacyDraftKey, colorForName, labelByName, labelById,
   labelDisplayName, snapshot, selectedAnnotation, hydrationOk, hydrationSaveBlock,
@@ -8,10 +8,10 @@ import {
 } from "../state.js?v=7";
 import { visibleRows, hiddenRowCount } from "../objects-filter.js?v=1";
 import { MAX_CLASS_SHORTCUTS } from "../shortcuts.js?v=1";
-import { pendingCount, retryablePendingCount, isServerUnreachable, peekWrite } from "../offline-queue.js?v=4";
+import { pendingCount, retryablePendingCount, isServerUnreachable, peekWrite } from "../offline-queue.js?v=6";
 import { annotationPoints, updateAnnotationBounds } from "../canvas/geometry.js?v=1";
 import { view } from "../canvas/view.js?v=1";
-import { drainTaskTime, DRAIN_SKIPPED, refreshTimerDisplays } from "./timer.js?v=6";
+import { drainTaskTime, DRAIN_SKIPPED, refreshTimerDisplays } from "./timer.js?v=8";
 import { timerState } from "../timer-state.js?v=3";
 import { detectState } from "../ai/detect-state.js?v=3";
 import { draw, drawAllLayers } from "../canvas/draw.js?v=6";
@@ -29,7 +29,7 @@ import { toolAvailability } from "../feature-flags.js?v=1";
 // for an annotator who simply is not assigned the open task — the sidepanel
 // needs the per-task answer, which is what taskWriteBlock() gives.
 // canvas-permissions.js does not import this module, so there is no cycle.
-import { taskWriteBlock } from "../canvas-permissions.js?v=9";
+import { taskWriteBlock } from "../canvas-permissions.js?v=10";
 import { isTerminal } from "../task-status.js?v=3";
 
 

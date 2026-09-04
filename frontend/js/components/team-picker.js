@@ -7,7 +7,7 @@
  * member of (E-16), so offering any other team would build a picker whose
  * options the API rejects.
  */
-import { apiFetch } from "../api.js?v=3";
+import { apiFetch } from "../api.js?v=5";
 import { escapeHTML } from "../utils.js?v=1";
 
 /** Fetch the caller's teams once. Returns [] on failure rather than throwing —

@@ -10,7 +10,7 @@
  * this only works while the app runs as one uvicorn worker (CLAUDE.md rule 9).
  *
  * Usage:
- *   import { claimTask, heartbeatTask, releaseTask } from './task-lock.js?v=2';
+ *   import { claimTask, heartbeatTask, releaseTask } from './task-lock.js?v=3';
  *
  *   // When a task is opened:
  *   const result = await claimTask(taskId, clientId);
@@ -22,7 +22,7 @@
  *   // On switch / pagehide:
  *   releaseTask(taskId, clientId);         // fire-and-forget is fine
  */
-import { apiFetch, withCsrfParam } from './api.js?v=3';
+import { apiFetch, withCsrfParam } from './api.js?v=5';
 
 /**
  * Claim a task for editing.

@@ -37,6 +37,7 @@ validate_config()
 configure_logging()
 
 from api.middleware import ServiceLogMiddleware  # noqa: E402
+from api.compression import RequestDecompressionMiddleware  # noqa: E402
 from api.routers import projects, tasks, team, teams, grants, time_logs, data, detect, label_studio, labels, auth, imports, exports  # noqa: E402
 from database import engine  # noqa: E402
 
@@ -192,6 +193,22 @@ else:
     # used) do not need it, and adding none is safer than adding a permissive
     # one. Development only — production requires CORS_ORIGINS.
     logger.info("CORS_ORIGINS not set; cross-origin requests are not permitted.")
+
+
+# Inflate gzipped request bodies (.devnotes/network-lag/01_AUDIT.md C1). The
+# client compresses large saves, turning a ~1.8 MB annotation blob into ~9 KB on
+# the wire; this is the half that turns it back.
+#
+# Registered LAST, so Starlette runs it OUTERMOST — outside the service log, the
+# header pass and gzip. That ordering is required rather than merely tidy: every
+# layer below reads or reasons about the body, so the body has to already be
+# plaintext by the time any of them run. In particular the router's
+# `await request.json()` must never see compressed bytes.
+#
+# CSRF is unaffected by position: require_csrf reads a header and a query
+# parameter, never the body, so the sendBeacon query-param fallback keeps
+# working exactly as before.
+app.add_middleware(RequestDecompressionMiddleware)
 
 # Include routers
 app.include_router(data.router)

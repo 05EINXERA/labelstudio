@@ -87,6 +87,22 @@ IS_SQLITE = DATABASE_URL.startswith("sqlite")
 # .devnotes/deployment-hardening/05_LOAD_TEST.md.
 THREADPOOL_CAP = int(os.environ.get("THREADPOOL_CAP", "40"))
 
+# --- Request decompression -------------------------------------------------
+# Ceiling on a gzipped request body *after* inflation, in bytes.
+#
+# The client gzips large saves (frontend/js/api.js), which turns a 1.8 MB
+# annotation blob into ~9 KB on the wire — see
+# .devnotes/network-lag/01_AUDIT.md C1. Inflating without a bound would let a
+# small request expand until the process runs out of memory, so the middleware
+# stops at this many bytes and answers 413.
+#
+# 64 MB is far above any real annotation set (the largest observed task is
+# ~1.9 MB uncompressed) while staying well inside the memory of a box that is
+# also running Postgres. Raise it only if a genuine payload ever approaches it.
+MAX_DECOMPRESSED_BODY = int(
+    os.environ.get("MAX_DECOMPRESSED_BODY", str(64 * 1024 * 1024))
+)
+
 # Connection pool sizing. Only meaningful for Postgres; SQLite ignores it.
 #
 # Sized from the T4.1 load test (05_LOAD_TEST.md), not a guess:

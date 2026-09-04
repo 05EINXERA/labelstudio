@@ -20,7 +20,7 @@
  * Uses the job-queue pattern from detect.py — polls /api/exports/{job_id}
  * until complete, then offers /api/exports/{job_id}/download (one-shot).
  */
-import { apiFetch } from "../../api.js?v=3";
+import { apiFetch } from "../../api.js?v=5";
 import { escapeHTML } from "../../utils.js?v=1";
 import { APPROVED_STATUSES, WORKING_STATUSES } from "../../task-status.js?v=3";
 
