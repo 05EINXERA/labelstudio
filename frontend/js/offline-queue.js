@@ -123,6 +123,21 @@ const UNREACHABLE_AFTER_FAILURES = 2;
 let consecutiveFailures = 0;
 let draining = false;
 
+// Save health is NOT the same signal as reachability, and conflating the two is
+// what let the indicator lie (.devnotes/network-lag/03_FALSE_SAVED_STATUS.md B1).
+//
+// The lock heartbeat is a ~200-byte request; a save carries the whole annotation
+// set (~1.8 MB on a large task). On a degraded link the heartbeat succeeds while
+// every save times out, so letting a heartbeat clear `consecutiveFailures` cleared
+// the red banner while the annotator's work was still stuck in this queue. The
+// banner then flickered instead of staying on, which reads as "it recovered".
+//
+// So reachability keeps its liveness meaning — the heartbeat may clear it, and it
+// still schedules drains (gap G4) — but only a real POST /api/tasks outcome is
+// evidence about whether saves are landing. `saveFailures` tracks that separately
+// and is what the save indicator reads.
+let saveFailures = 0;
+
 export function pendingCount() {
   return Object.keys(readQueue()).length;
 }
@@ -141,9 +156,15 @@ export function retryablePendingCount() {
 }
 
 /** True once failures have crossed the threshold at which the UI stops treating
- *  them as a transient blip and tells the user. */
+ *  them as a transient blip and tells the user.
+ *
+ *  Reads the save-health counter, not raw reachability: the question the UI is
+ *  really asking is "is the annotator's work landing?", and a healthy heartbeat
+ *  is not an answer to that (B1). A retryable pending write is itself evidence
+ *  that saves are not landing, whatever the heartbeat says.
+ */
 export function isServerUnreachable() {
-  return consecutiveFailures >= UNREACHABLE_AFTER_FAILURES;
+  return saveFailures >= UNREACHABLE_AFTER_FAILURES;
 }
 
 export function queueState() {
@@ -174,10 +195,15 @@ function notify() {
 /** Record a successful/failed exchange with the server from outside the queue
  *  (the lock heartbeat is a free liveness probe — gap G4). A success both clears
  *  the failure count and is a signal that draining is now worth attempting. */
-export function noteServerReachable() {
+export function noteServerReachable({ fromSave = false } = {}) {
   const wasUnreachable = isServerUnreachable();
   consecutiveFailures = 0;
-  if (wasUnreachable) notify();
+  // Only a real save outcome clears save health (B1). A heartbeat proves the
+  // address is live and is enough to schedule a drain, but it says nothing
+  // about whether a 1.8 MB write can get through — and treating it as if it
+  // did is precisely what cleared the banner over work that was still stuck.
+  if (fromSave) saveFailures = 0;
+  if (wasUnreachable && !isServerUnreachable()) notify();
   if (pendingCount() > 0) scheduleDrain(0);
 }
 
@@ -193,6 +219,14 @@ export function noteServerUnreachable({ confirmed = false } = {}) {
   consecutiveFailures = confirmed
     ? Math.max(consecutiveFailures + 1, UNREACHABLE_AFTER_FAILURES)
     : consecutiveFailures + 1;
+  // A failed save and a failed heartbeat are both evidence that saves are not
+  // landing, so both raise save health. The asymmetry with noteServerReachable
+  // is deliberate: it takes a save to prove saves work, but anything failing is
+  // enough to doubt it. Erring toward showing the warning is the safe direction
+  // — the dangerous error is a confident "Saved" over unsaved work.
+  saveFailures = confirmed
+    ? Math.max(saveFailures + 1, UNREACHABLE_AFTER_FAILURES)
+    : saveFailures + 1;
   if (!wasUnreachable && isServerUnreachable()) notify();
 }
 
@@ -235,11 +269,48 @@ export function enqueueWrite(payload) {
 
 /** Drop a task's pending write — used when a later save for the same task
  *  succeeds through the normal path, making the queued copy stale. */
-export function discardWrite(taskId) {
+export function discardWrite(taskId, { supersededBy = null } = {}) {
   if (taskId == null) return;
   const queue = readQueue();
-  if (!(String(taskId) in queue)) return;
-  delete queue[String(taskId)];
+  const key = String(taskId);
+  const entry = queue[key];
+  if (!entry) return;
+
+  // A queued write may only be dropped by a save that actually supersedes it.
+  //
+  // The caller passes the payload it just got the server to accept. A save that
+  // carried a complete annotation set supersedes any queued annotation work for
+  // the same task (every save sends the whole set — see the module header). A
+  // *time-only* save carries no `annotations` key at all, and dropping the entry
+  // on the strength of one silently discarded the annotator's queued
+  // annotations and emptied the queue, which made the indicator read "Saved"
+  // over work the server never received
+  // (.devnotes/network-lag/03_FALSE_SAVED_STATUS.md B3).
+  //
+  // Called with no payload the old behaviour is kept — an unconditional drop —
+  // so callers that genuinely mean "this entry is dead" (the conflict-overwrite
+  // path) are unaffected.
+  if (supersededBy) {
+    const savedAnnotations = typeof supersededBy.annotations === 'string';
+    const queuedAnnotations = typeof entry.payload?.annotations === 'string';
+    if (queuedAnnotations && !savedAnnotations) {
+      // The queued entry holds annotation work this save did not carry. Keep it
+      // queued so it still replays — but the seconds this save just banked are
+      // now on the server, so they must not be replayed a second time or the
+      // task's time would be billed twice.
+      if (supersededBy.time_spent_delta) {
+        entry.payload.time_spent_delta = Math.max(
+          0,
+          (entry.payload.time_spent_delta || 0) - supersededBy.time_spent_delta
+        );
+      }
+      writeQueue(queue);
+      notify();
+      return;
+    }
+  }
+
+  delete queue[key];
   writeQueue(queue);
   notify();
 }
@@ -326,6 +397,8 @@ export async function drainQueue() {
       delete queue[taskId];
       flushed += 1;
       consecutiveFailures = 0;
+      // A write the server accepted: saves demonstrably work again.
+      saveFailures = 0;
       continue;
     }
 
@@ -339,6 +412,11 @@ export async function drainQueue() {
       // may want to copy the work elsewhere. `forbidden` marks it so the retry
       // loop skips it, exactly as `conflicted` does.
       consecutiveFailures = 0;
+      // The server answered on the merits, so the transport is fine and this
+      // entry stops being retried. Clearing save health is correct here: the
+      // entry no longer counts as retryable, so it cannot hold the banner open,
+      // and it is surfaced through the `stranded` bucket instead.
+      saveFailures = 0;
       entry.forbidden = true;
       entry.forbiddenDetail = result.detail || '';
       // Distinguishes "refused on the merits" (422) from "you lack permission"
@@ -365,6 +443,10 @@ export async function drainQueue() {
       // retrying this task; the payload stays queued so the user's decision
       // (overwrite vs reload) still has the work to act on.
       consecutiveFailures = 0;
+      // As with `forbidden`: a live server refused on the merits. Retrying will
+      // not help and the entry leaves the retryable set, so it must not keep
+      // the offline warning up.
+      saveFailures = 0;
       entry.conflicted = true;
       entry.lastAttemptAt = Date.now();
       if (onConflict) {

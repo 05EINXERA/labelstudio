@@ -1,10 +1,10 @@
 import { formatTime, clientId } from "../utils.js?v=1";
-import { apiFetch, withCsrfParam } from "../api.js?v=3";
+import { apiFetch, withCsrfParam } from "../api.js?v=5";
 import { timerState } from "../timer-state.js?v=3";
 import { canvas } from "../dom.js?v=4";
 import {
   enqueueWrite, discardWrite, noteServerReachable, noteServerUnreachable
-} from "../offline-queue.js?v=4";
+} from "../offline-queue.js?v=6";
 
 // Called when the server reports a genuine cross-client conflict. Registered
 // by the page so timer.js does not have to know how the workspace wants to
@@ -223,6 +223,18 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
 
   // On unload a normal fetch is not guaranteed to be delivered; sendBeacon is
   // (F2). Beacons give us no response, so treat dispatch as success.
+  //
+  // This branch is deliberately UNCOMPRESSED, and must stay that way. apiFetch
+  // gzips large write bodies (.devnotes/network-lag/01_AUDIT.md C1), but
+  // `CompressionStream` is asynchronous while `sendBeacon` dispatches
+  // synchronously: awaiting compression here would let the document finish
+  // tearing down before the beacon was ever queued, turning a large-but-
+  // delivered flush into no flush at all. This is the last chance to persist
+  // unsaved work, so bytes lose to certainty. The server accepts plaintext
+  // permanently, so nothing else has to change.
+  //
+  // INVARIANT: no `await` may be introduced between here and the sendBeacon
+  // call below.
   if (useBeacon && navigator.sendBeacon) {
     // withCsrfParam is load-bearing: sendBeacon cannot set the X-CSRF-Token
     // header, so without the query fallback the server rejects this 403 and
@@ -260,8 +272,13 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
     });
 
     // A response of any status proves the server answered, so the address is
-    // live. Clearing the failure count here is what retires the offline banner.
-    noteServerReachable();
+    // live. `fromSave` marks this as evidence about *saves* specifically — the
+    // only signal allowed to retire the save warning. The lock heartbeat also
+    // calls noteServerReachable(), but without this flag, because a 200-byte
+    // heartbeat succeeding says nothing about whether a 1.8 MB save can get
+    // through; treating it as if it did is what cleared the banner over work
+    // that was still stuck (.devnotes/network-lag/03_FALSE_SAVED_STATUS.md B1).
+    noteServerReachable({ fromSave: true });
 
     if (res.status === 409) {
       // A real conflict: another client wrote this task since we last read it.
@@ -301,12 +318,18 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
     if (data && data.updated_at) {
       task.updated_at = data.updated_at;
     }
-    // This write superseded anything queued for the task: the payload we just
-    // sent carries the complete annotation set, and its time delta included
-    // whatever the queue was holding only if it came from there. Any queued
-    // copy is now stale — and crucially it must go, or replaying it later would
-    // re-add its accumulated seconds on top of the ones just banked.
-    discardWrite(taskId);
+    // Retire whatever the queue was holding for this task — but only what this
+    // write actually superseded. The old unconditional `discardWrite(taskId)`
+    // assumed the payload always carried the complete annotation set; a
+    // time-only drain carries none (see the `annotations` guard above), so it
+    // was dropping queued annotation work and emptying the queue, which left
+    // the indicator reading "Saved" over work the server never got
+    // (.devnotes/network-lag/03_FALSE_SAVED_STATUS.md B3).
+    //
+    // Passing the payload lets the queue make that call itself: it keeps an
+    // entry whose annotations this save did not carry, and nets off the seconds
+    // just banked so they cannot be replayed twice.
+    discardWrite(taskId, { supersededBy: payload });
     updateTimerDisplays();
     return true;
   } catch (e) {

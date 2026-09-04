@@ -8,13 +8,13 @@
  * `ctx` carries the shared project context so views do not each re-fetch it:
  *   { projectId, project, reloadProject(), setStatus(), navigate() }
  */
-import { apiFetch } from "../../api.js?v=3";
+import { apiFetch } from "../../api.js?v=5";
 import { escapeHTML } from "../../utils.js?v=1";
 import { statusClass } from "../../task-status.js?v=3";
 import { renderNav, setActive, visibleNavItems } from "../../components/project-nav.js?v=3";
-import { renderAppNav, wireLogout } from "../../components/app-nav.js?v=2";
-import { getCurrentUser } from "../../session.js?v=1";
-import { wireAccountSettings } from "../../components/account-settings.js?v=1";
+import { renderAppNav, wireLogout } from "../../components/app-nav.js?v=3";
+import { getCurrentUser } from "../../session.js?v=2";
+import { wireAccountSettings } from "../../components/account-settings.js?v=2";
 import { consumeReturnTicket } from "./tasks-view-restore.js?v=2";
 
 const DEFAULT_ROUTE = "home";
@@ -45,12 +45,12 @@ function _sessionStorage() {
 // View loaders. Keyed by route; the dynamic import path must be a literal so
 // it stays statically analysable.
 const VIEWS = {
-  home: () => import("./home.js?v=5"),
-  tasks: () => import("./tasks.js?v=15"),
-  classes: () => import("./classes.js?v=2"),
-  imports: () => import("./imports.js?v=1"),
-  exports: () => import("./exports.js?v=2"),
-  access: () => import("./access.js?v=1"),
+  home: () => import("./home.js?v=6"),
+  tasks: () => import("./tasks.js?v=16"),
+  classes: () => import("./classes.js?v=3"),
+  imports: () => import("./imports.js?v=2"),
+  exports: () => import("./exports.js?v=3"),
+  access: () => import("./access.js?v=2"),
 };
 
 let currentView = null;   // the loaded module, so we can call unmount()

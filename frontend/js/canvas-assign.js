@@ -33,7 +33,7 @@
  * offline queue or the conflict machinery (rules 11 and 18). Reassigning a task
  * must not disturb unsaved annotations on it.
  */
-import { apiFetch } from "./api.js?v=3";
+import { apiFetch } from "./api.js?v=5";
 import { canManage } from "./permissions.js?v=1";
 import { describeAssignment } from "./pages/project/assign-options.js?v=1";
 import { openAssignPopover, closeAssignPopover } from "./components/assign-popover.js?v=1";

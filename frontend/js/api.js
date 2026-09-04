@@ -55,6 +55,53 @@ export function withCsrfParam(url) {
  */
 const REQUEST_TIMEOUT_MS = 45_000;
 
+/**
+ * Below this many bytes a request body is sent as-is.
+ *
+ * Gzip framing costs ~20 bytes plus a little latency, so compressing the small
+ * time-only saves and lock pings that dominate by count would be a loss. The
+ * payloads this exists for — annotation sets — are two to three orders of
+ * magnitude above it.
+ */
+const COMPRESS_MIN_BYTES = 1024;
+
+/**
+ * Gzip a request body, or return it untouched.
+ *
+ * Why this exists: every save uploads the task's complete annotation set, and a
+ * large task is ~1.8 MB of JSON that gzips to about 9 KB — the same keys repeat
+ * once per object, so it is close to ideal input for a compressor. Sending it
+ * raw is what made saves take 25-30 s and let weak links drop them mid-upload
+ * (.devnotes/network-lag/01_AUDIT.md C1). Responses were already compressed;
+ * this is the other direction.
+ *
+ * Every failure path returns the original body. Compression is an optimisation,
+ * and a browser without `CompressionStream`, or a stream that errors, must cost
+ * the annotator a slower save and never a lost one. The server accepts
+ * plaintext permanently for exactly this reason — it is not a migration step.
+ *
+ * NOTE: deliberately never used for `navigator.sendBeacon`. A beacon dispatches
+ * synchronously and cannot await a stream; the unload flush is the last chance
+ * to persist unsaved work, so a beacon that might not be sent at all is far
+ * worse than a large one that is. See components/timer.js.
+ */
+async function maybeCompress(body) {
+  if (typeof body !== 'string') return null;
+  if (typeof CompressionStream === 'undefined') return null;
+
+  const bytes = new TextEncoder().encode(body);
+  if (bytes.length < COMPRESS_MIN_BYTES) return null;
+
+  try {
+    const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip'));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  } catch (e) {
+    // Fall back to the uncompressed body rather than failing the save.
+    console.warn('[api] request compression failed; sending uncompressed', e);
+    return null;
+  }
+}
+
 export async function apiFetch(url, options = {}) {
   const logged_in = localStorage.getItem('logged_in');
   if (!logged_in) {
@@ -80,6 +127,18 @@ export async function apiFetch(url, options = {}) {
     const controller = new AbortController();
     options.signal = controller.signal;
     timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  }
+
+  // Compress large write bodies. Applied here rather than at each call site so
+  // every authenticated write inherits it — including the offline queue's
+  // replay, which is the path that runs when the network is already bad and so
+  // needs it most.
+  if (!SAFE_METHODS.includes(method) && typeof options.body === 'string') {
+    const compressed = await maybeCompress(options.body);
+    if (compressed) {
+      options.body = compressed;
+      options.headers['Content-Encoding'] = 'gzip';
+    }
   }
 
   let res;

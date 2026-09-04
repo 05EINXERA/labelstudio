@@ -10,7 +10,7 @@
  * kept live if a task changes elsewhere — acceptable for a management view
  * that is not the annotation canvas itself.
  */
-import { apiFetch } from "../../api.js?v=3";
+import { apiFetch } from "../../api.js?v=5";
 import { escapeHTML, generateUUID } from "../../utils.js?v=1";
 import { createDataTable } from "../../components/data-table.js?v=4";
 

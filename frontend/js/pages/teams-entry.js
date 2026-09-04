@@ -9,8 +9,8 @@
  * `team/router.js` know nothing about each other — and neither is loaded unless
  * its pane is the one being shown.
  */
-import { renderAppNav, wireLogout } from "../components/app-nav.js?v=2";
-import { getCurrentUser } from "../session.js?v=1";
+import { renderAppNav, wireLogout } from "../components/app-nav.js?v=3";
+import { getCurrentUser } from "../session.js?v=2";
 
 const teamId = new URLSearchParams(window.location.search).get("id");
 
@@ -31,10 +31,10 @@ async function init() {
   // Loaded lazily so the list page never pulls in the team shell's four views,
   // and vice versa. Literal paths keep the imports statically analysable.
   if (showTeam) {
-    const mod = await import("./team/router.js?v=1");
+    const mod = await import("./team/router.js?v=16");
     await mod.start(Number(teamId), user);
   } else {
-    const mod = await import("./teams-list.js?v=1");
+    const mod = await import("./teams-list.js?v=2");
     await mod.start(user);
   }
 }

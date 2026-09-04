@@ -16,10 +16,10 @@
  * all at once at the end. An XHR progress event drives the progress bar and
  * the "X / N uploaded" counter. An abort button cancels mid-flight.
  */
-import { apiFetch } from "../../api.js?v=3";
+import { apiFetch } from "../../api.js?v=5";
 import { escapeHTML, formatTime, clientId } from "../../utils.js?v=1";
 import { createDataTable } from "../../components/data-table.js?v=4";
-import { fillTeamSelect } from "../../components/team-picker.js?v=1";
+import { fillTeamSelect } from "../../components/team-picker.js?v=2";
 import { canManage, canReview } from "../../permissions.js?v=1";
 import { openAssignDialog } from "./assign-modal.js?v=2";
 import { matchAssignees, isSearchFilterValue } from "./assignee-search.js?v=1";

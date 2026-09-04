@@ -9,7 +9,7 @@
  * `ctx` carries the shared team context so views do not each re-fetch it:
  *   { teamId, team, currentUser, myRole, reloadTeam(), navigate() }
  */
-import { apiFetch } from "../../api.js?v=3";
+import { apiFetch } from "../../api.js?v=5";
 import { escapeHTML } from "../../utils.js?v=1";
 import { teamRoleBadge } from "../../components/role-badge.js?v=1";
 import { canManageTeam } from "../../permissions.js?v=1";
@@ -26,9 +26,9 @@ const NAV_ITEMS = [
 const DEFAULT_ROUTE = "members";
 
 const VIEWS = {
-  members: () => import("./members.js?v=1"),
-  projects: () => import("./projects.js?v=1"),
-  settings: () => import("./settings.js?v=1"),
+  members: () => import("./members.js?v=2"),
+  projects: () => import("./projects.js?v=2"),
+  settings: () => import("./settings.js?v=2"),
 };
 
 const els = {
