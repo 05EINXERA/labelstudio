@@ -2,7 +2,8 @@
 
 `GZipMiddleware` in main.py compresses **responses**. Nothing compressed
 requests, and the request direction is the one that hurts: every save uploads
-the task's entire annotation set (~1.8 MB on a large task), which gzips to about
+the task's entire annotation set (15.6 MB on the largest task as of 2026-09-05;
+the "~1.8 MB" this once said was measured before the data grew), which gzips to about
 9 KB — a ~200x reduction on the LAN's scarcer uplink. That single number
 accounts for the 25-30 s saves and the truncated-upload 400s diagnosed in
 .devnotes/network-lag/01_AUDIT.md (C1).
