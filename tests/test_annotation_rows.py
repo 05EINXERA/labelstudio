@@ -110,6 +110,55 @@ def test_nested_extra_is_merged_not_renested():
 
 
 # ---------------------------------------------------------------------------
+# Orphaned label references
+#
+# The blob had no foreign key, so a labelId could outlive its label: 656 real
+# annotations across 9 tasks name labels that no longer exist. The new FK
+# rejects those, and dropping them silently would destroy the only remaining
+# evidence of what the shape was labelled.
+# ---------------------------------------------------------------------------
+
+def test_orphaned_label_is_nulled_but_preserved():
+    kwargs = dict_to_row_kwargs(
+        {"id": "a1", "labelId": "gone"}, 1, known_label_ids={"L1"}
+    )
+    assert kwargs["label_id"] is None
+    assert json.loads(kwargs["extra"])["_orphanedLabelId"] == "gone"
+
+
+def test_orphaned_label_still_roundtrips_to_the_wire_format():
+    """The FK cannot store it, but readers and exports must not see a change."""
+    ann = {"id": "a1", "type": "polygon", "labelId": "gone"}
+    row = FakeRow(dict_to_row_kwargs(ann, 1, known_label_ids={"L1"}))
+    assert row_to_dict(row) == ann
+
+
+def test_known_label_is_stored_in_the_column():
+    kwargs = dict_to_row_kwargs(
+        {"id": "a1", "labelId": "L1"}, 1, known_label_ids={"L1"}
+    )
+    assert kwargs["label_id"] == "L1"
+    assert kwargs["extra"] is None
+
+
+def test_without_a_label_set_no_labels_are_treated_as_orphaned():
+    """The save path has no cheap label set to hand; it must not null every
+    labelId just because none was supplied."""
+    kwargs = dict_to_row_kwargs({"id": "a1", "labelId": "L1"}, 1)
+    assert kwargs["label_id"] == "L1"
+
+
+def test_orphan_marker_does_not_leak_into_the_wire_format():
+    row = FakeRow(dict_to_row_kwargs(
+        {"id": "a1", "labelId": "gone", "label": "car"}, 1, known_label_ids=set()
+    ))
+    out = row_to_dict(row)
+    assert "_orphanedLabelId" not in out
+    assert out["labelId"] == "gone"
+    assert out["label"] == "car"
+
+
+# ---------------------------------------------------------------------------
 # Coercion and edge cases
 # ---------------------------------------------------------------------------
 

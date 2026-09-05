@@ -80,12 +80,29 @@ def _int_or_none(value: Any) -> Optional[int]:
         return None
 
 
-def dict_to_row_kwargs(ann: dict, task_id: int) -> dict:
+def dict_to_row_kwargs(ann: dict, task_id: int, known_label_ids=None) -> dict:
     """The `Annotation(**kwargs)` for one annotation dict.
 
     `id` is minted when absent — four annotations in the real data have no id,
     and the save path already mints one for id-less incoming shapes, so this
     matches existing behaviour rather than introducing a new rule.
+
+    `known_label_ids`, when given, is the set of label ids that actually exist.
+    A `labelId` outside it is stored as NULL with the original value preserved
+    in `extra["_orphanedLabelId"]`.
+
+    Why this is needed at all: the blob had no foreign key, so a `labelId`
+    could outlive the label it named. 656 real annotations (4.6% of those
+    carrying a labelId, across 9 tasks) reference 9 labels that no longer
+    exist. The new FK would reject every one of them, which would abort the
+    backfill of otherwise-perfectly-good tasks.
+
+    Dropping the value silently was rejected: `purge_annotations_for_labels`
+    deletes annotations when a class is deleted, so a shape that still names a
+    dead label is one that *survived* deletion — real work, whose provenance is
+    the only clue to what it used to be. NULL matches what the FK's
+    `ondelete="SET NULL"` would have done had it always existed, and the
+    preserved id keeps the fact recoverable.
     """
     extra = {k: v for k, v in ann.items() if k not in MODELLED_KEYS and k != "extra"}
     # An `extra` already present in the payload (a round-tripped row) is merged
@@ -95,10 +112,15 @@ def dict_to_row_kwargs(ann: dict, task_id: int) -> dict:
     if isinstance(nested, dict):
         extra.update(nested)
 
+    label_id = ann.get("labelId")
+    if known_label_ids is not None and label_id is not None and label_id not in known_label_ids:
+        extra["_orphanedLabelId"] = label_id
+        label_id = None
+
     return {
         "id": str(ann.get("id") or uuid.uuid4()),
         "task_id": task_id,
-        "label_id": ann.get("labelId"),
+        "label_id": label_id,
         "type": ann.get("type"),
         "points": _json_or_none(ann.get("points")),
         "x": _float_or_none(ann.get("x")),
@@ -149,6 +171,14 @@ def row_to_dict(row: "models.Annotation") -> dict:
         try:
             extra = json.loads(row.extra)
             if isinstance(extra, dict):
+                extra = dict(extra)
+                # A labelId whose label was deleted before the FK existed. It
+                # is restored to `labelId` so readers and exports see exactly
+                # what the blob held; the FK cannot store it, but the wire
+                # format is unchanged by that.
+                orphaned = extra.pop("_orphanedLabelId", None)
+                if orphaned is not None and "labelId" not in out:
+                    out["labelId"] = orphaned
                 # Unmodelled fields sit at the top level, which is where they
                 # were before storage — `extra` is a storage detail, not part
                 # of the wire format.
