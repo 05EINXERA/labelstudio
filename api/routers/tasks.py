@@ -125,6 +125,23 @@ ANNOTATION_HISTORY_APPEND_SKIP = _cfg.ANNOTATION_HISTORY_APPEND_SKIP
 ANNOTATION_HISTORY_HEARTBEAT_SECONDS = _cfg.ANNOTATION_HISTORY_HEARTBEAT_SECONDS
 
 
+# Memo for `_count_annotations`. One save counts the same blob several times;
+# at production blob sizes each recount is ~185 ms of GIL-held CPU. Cleared
+# per request by `_reset_count_cache()` so entries cannot outlive the strings
+# they are keyed on.
+_COUNT_CACHE: Dict[tuple, int] = {}
+
+
+def _reset_count_cache() -> None:
+    """Drop the per-request count memo.
+
+    Called at the top of the save path. `id()`-keyed entries are only valid
+    while the string they describe is alive, so nothing may carry across
+    requests.
+    """
+    _COUNT_CACHE.clear()
+
+
 def _blob_is_empty(blob: Optional[str]) -> bool:
     """True when an annotations blob holds no work.
 
@@ -160,9 +177,42 @@ def _count_annotations(blob: Optional[str]) -> int:
     must degrade to a number rather than raise: failing a save because its
     *history* row could not be counted would make this feature the cause of the
     data loss it exists to prevent.
+
+    Memoised on the blob's identity because one save counts the same string
+    several times over (the log's `objects_prev`, the history row's two
+    counters, the response). Blobs reached 15.6 MB in production and each
+    `json.loads` of one costs ~185 ms of GIL-held CPU, which stalls every other
+    request in the process — see
+    .devnotes/server-issue-diagnosis/evidence/06_ROOT_CAUSE_CONFIRMED.md.
+    Keyed by `id()` plus length: `id()` alone is unsafe because CPython reuses
+    addresses once a string is freed, and the cache is cleared per request.
     """
     if _blob_is_empty(blob):
         return 0
+
+    key = (id(blob), len(blob))
+    cached = _COUNT_CACHE.get(key)
+    if cached is not None:
+        return cached
+
+    count = _count_annotations_uncached(blob)
+    # Bound the map so a long-lived worker cannot accumulate entries; the
+    # useful lifetime of an entry is a single request.
+    if len(_COUNT_CACHE) > 64:
+        _COUNT_CACHE.clear()
+    _COUNT_CACHE[key] = count
+    return count
+
+
+def _count_annotations_uncached(blob: str) -> int:
+    """Number of top-level elements in a JSON array blob.
+
+    Falls back to `json.loads`. A hand-rolled character scan was tried and
+    measured **3.5x slower** on the real 15.6 MB blob (777 ms vs 217 ms):
+    `json.loads` is C, and any per-character Python loop loses to it outright.
+    The win against oversized blobs comes from *not counting repeatedly*
+    (`_count_annotations`'s memo), not from counting more cleverly.
+    """
     try:
         parsed = json.loads(blob)
     except (ValueError, TypeError):
@@ -216,12 +266,17 @@ def _may_skip_as_append(
     if age.total_seconds() >= ANNOTATION_HISTORY_HEARTBEAT_SECONDS:
         return False
 
-    logger.debug(
-        "Task %s: skipping history row, save is purely additive (%d -> %d points).",
-        db_task.id,
-        total_point_count(db_task.annotations),
-        total_point_count(incoming),
-    )
+    # Guarded, because the arguments are not free: `total_point_count` parses
+    # a whole blob, twice over, and production blobs reach 15.6 MB (~200 ms of
+    # GIL-held CPU each). Logging is at INFO, so without the guard that work is
+    # done on every skipped save purely to build a message that is discarded.
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "Task %s: skipping history row, save is purely additive (%d -> %d points).",
+            db_task.id,
+            total_point_count(db_task.annotations),
+            total_point_count(incoming),
+        )
     return True
 
 
@@ -1152,6 +1207,8 @@ def get_lock_status(task_id: int,
 
 @router.post("")
 def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(None), db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    # The count memo is keyed on string identity, so it must not span requests.
+    _reset_count_cache()
     if task.id:
         db_task = require_task(task.id, user, db, minimum=ProjectRole.ANNOTATOR)
 
