@@ -73,7 +73,13 @@ from formats import coco as coco_format
 from formats import images as images_format
 from formats import masks as masks_format
 from formats import yolo as yolo_format
-from formats.common import archive_name, points_of, round2, values_for_labels
+from formats.common import (
+    annotation_dicts,
+    archive_name,
+    points_of,
+    round2,
+    values_for_labels,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -213,11 +219,7 @@ def _build_csv(tasks: List[models.Task], labels_by_id: dict) -> str:
     writer = csv.writer(buf)
     writer.writerow(["image", "label", "x", "y", "width", "height", "status"])
     for task in tasks:
-        try:
-            anns = json.loads(task.annotations) if task.annotations else []
-        except (ValueError, TypeError) as exc:
-            logger.warning("Task %s has unparseable annotations, skipping in export: %s", task.id, exc)
-            anns = []
+        anns = annotation_dicts(task)
         for ann in anns:
             if not isinstance(ann, dict) or ann.get("type") == "comment":
                 continue

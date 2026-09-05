@@ -193,3 +193,74 @@ def row_to_dict(row: "models.Annotation") -> dict:
 def rows_to_dicts(rows) -> list:
     """A task's rows as the annotation list the wire format uses."""
     return [row_to_dict(r) for r in rows]
+
+
+# The columns `sync_task_annotations` compares and assigns. `id` and `task_id`
+# are excluded: they identify the row rather than describe it.
+_SYNC_COLUMNS = (
+    "label_id", "type", "points", "x", "y", "width", "height",
+    "text", "color", "order", "group_id", "extra",
+)
+
+
+def sync_task_annotations(db, task, incoming: list, known_label_ids=None) -> bool:
+    """Make `task`'s annotation rows match `incoming`. Returns True if anything changed.
+
+    **This is the change that removes the slowdown.** The blob path rewrote the
+    task's entire annotation set on every save — 15.6 MB through Postgres for a
+    one-shape edit, plus a second copy into the history table. Here, moving one
+    shape writes one row: rows absent from the payload are deleted, rows whose
+    columns are unchanged are left strictly alone (SQLAlchemy emits UPDATEs only
+    for genuinely dirty rows), and only new ids are inserted.
+
+    The caller commits. Nothing here flushes, so the whole save stays one
+    transaction and a later failure rolls the annotations back with it.
+
+    `incoming` is the already-parsed payload — parsing is the caller's job, and
+    doing it here would reintroduce the duplicate parse that
+    .devnotes/server-issue-diagnosis/evidence/07_REMAINING_COSTS.md measured at
+    121 ms per save.
+    """
+    existing = {row.id: row for row in task.annotation_rows}
+
+    seen: set = set()
+    changed = False
+
+    for ann in incoming:
+        if not isinstance(ann, dict):
+            continue
+        kwargs = dict_to_row_kwargs(ann, task.id, known_label_ids)
+        ident = kwargs["id"]
+        # A payload that repeats an id would otherwise collide on the primary
+        # key. The save path mints a fresh id for the duplicate, matching how
+        # an id-less shape is treated.
+        if ident in seen:
+            kwargs["id"] = ident = str(uuid.uuid4())
+        seen.add(ident)
+
+        row = existing.get(ident)
+        if row is None:
+            db.add(models.Annotation(**kwargs))
+            changed = True
+            continue
+
+        # Assign only what actually differs. Assigning every column would mark
+        # the row dirty even when nothing changed, and SQLAlchemy would then
+        # UPDATE all of them — which is the whole cost this function exists to
+        # avoid.
+        for column in _SYNC_COLUMNS:
+            value = kwargs[column]
+            if getattr(row, column) != value:
+                setattr(row, column, value)
+                changed = True
+
+    for ident, row in existing.items():
+        if ident not in seen:
+            # delete-orphan on the relationship would also catch this, but the
+            # explicit delete keeps the intent visible and works whether or not
+            # the collection has been loaded.
+            task.annotation_rows.remove(row)
+            db.delete(row)
+            changed = True
+
+    return changed
