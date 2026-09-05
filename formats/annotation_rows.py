@@ -264,3 +264,26 @@ def sync_task_annotations(db, task, incoming: list, known_label_ids=None) -> boo
             changed = True
 
     return changed
+
+
+def sync_task_annotations_for_project(db, task, incoming: list) -> bool:
+    """`sync_task_annotations`, having first looked up the project's label ids.
+
+    The convenience wrapper the routers use. It is here rather than in a router
+    so that both the save path and the import path share one definition and
+    neither has to import the other.
+
+    The label lookup is a few hundred short rows on one indexed column, scoped
+    to the task's own project. It is needed because `annotations.label_id` has
+    a foreign key the blob never had: annotations naming a since-deleted label
+    exist in the real data, and without this filter each would raise
+    IntegrityError and abort the write. The orphaned value is preserved in
+    `extra` rather than dropped (06_PROGRESS.md D5).
+    """
+    known_label_ids = {
+        row[0]
+        for row in db.query(models.Label.id)
+        .filter(models.Label.project_id == task.project_id)
+        .all()
+    }
+    return sync_task_annotations(db, task, incoming, known_label_ids)

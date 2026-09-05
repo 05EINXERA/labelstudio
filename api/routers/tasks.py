@@ -16,7 +16,7 @@ from formats.annotation_diff import (
     is_pure_append_parsed,
     total_point_count_parsed,
 )
-from formats.annotation_rows import sync_task_annotations
+from formats.annotation_rows import sync_task_annotations_for_project
 from schemas import (
     APPROVED_STATUSES,
     is_approved,
@@ -414,30 +414,6 @@ def _record_annotation_history(
             "Task %s: failed to record annotation history; the save itself is unaffected.",
             db_task.id,
         )
-
-
-def _sync_annotation_rows(db: Session, db_task: models.Task, incoming: list) -> None:
-    """Mirror an incoming annotation payload into the `annotations` table.
-
-    Wraps `formats.annotation_rows.sync_task_annotations` with the one piece of
-    context it cannot work out for itself: which label ids exist.
-
-    That set is fetched per save, scoped to the task's own project — a few
-    hundred short rows on one indexed column, against the several hundred
-    milliseconds of JSON and blob I/O this whole change removes. It is needed
-    because `annotations.label_id` has a foreign key the blob never had: 656
-    existing annotations name labels that no longer exist, and without this
-    filter each would raise IntegrityError and abort the save. The orphaned
-    value is preserved in `extra` rather than dropped
-    (.devnotes/performance-fixes/06_PROGRESS.md D5).
-    """
-    known_label_ids = {
-        row[0]
-        for row in db.query(models.Label.id)
-        .filter(models.Label.project_id == db_task.project_id)
-        .all()
-    }
-    sync_task_annotations(db, db_task, incoming, known_label_ids)
 
 
 def _sync_project_status(project_id: Optional[int], db: Session) -> None:
@@ -1557,7 +1533,7 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
             # would make this migration the cause of the data loss it exists to
             # prevent. Reconciliation reports any task that drifts.
             try:
-                _sync_annotation_rows(db, db_task, _parsed(task.annotations) or [])
+                sync_task_annotations_for_project(db, db_task, _parsed(task.annotations) or [])
             except Exception:
                 logger.exception(
                     "Task %s: could not mirror annotations into the annotations "
