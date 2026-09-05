@@ -2,6 +2,7 @@ from sqlalchemy import (
     Boolean,
     Column,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -11,6 +12,7 @@ from sqlalchemy import (
     false,
     func,
 )
+from sqlalchemy.orm import relationship
 from database import Base
 
 class WorkspaceData(Base):
@@ -81,7 +83,30 @@ class Task(Base):
     # actually stored different, which makes the token comparison fail for a
     # client that did nothing wrong.
     updated_at = Column(DateTime, server_default=func.now())
+    # The legacy annotation blob. Superseded by the `annotations` table
+    # (`annotation_rows` below); retained through the migration as the rollback
+    # path and as the fallback source for any task the backfill could not
+    # convert. Renamed to `annotations_legacy` in Phase F, once dead.
+    #
+    # Do NOT read this directly in new code — go through
+    # `formats.common.annotation_dicts(task)`, which knows which source is
+    # authoritative at this point in the migration.
     annotations = Column(Text)
+    # One row per shape. `lazy="selectin"` so loading N tasks costs one extra
+    # query rather than N: the gallery and every export iterate tasks, and a
+    # default lazy load would turn those into per-task round-trips.
+    #
+    # Ordered by `order` then `id` for a stable, reproducible sequence — the
+    # blob had an implicit array order that exports depend on, and without an
+    # ORDER BY the database is free to return rows in any order at all, which
+    # would make export output vary run to run.
+    annotation_rows = relationship(
+        "Annotation",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        lazy="selectin",
+        order_by="(Annotation.order, Annotation.id)",
+    )
     # Pixel dimensions of the image at image_path, captured at upload.
     # Nullable because rows predating this column have never been measured;
     # formats.common.image_size() backfills them lazily. YOLO normalization and
@@ -331,4 +356,85 @@ class TaskAnnotationHistory(Base):
         # prune, and --list-history / --from-history in
         # scripts/restore_task_annotations.py.
         Index("ix_task_annotation_history_task_id_id", "task_id", "id"),
+    )
+
+
+class Annotation(Base):
+    """One annotation shape, one row.
+
+    Replaces `Task.annotations` — a single JSON blob rewritten in full on every
+    save. Blobs reached 15.6 MB in production, and because a save parsed and
+    rewrote all of it while holding the GIL, each concurrent save added ~700 ms
+    of latency to *every other request in the process*. See
+    .devnotes/server-issue-diagnosis/evidence/06_ROOT_CAUSE_CONFIRMED.md and
+    .devnotes/performance-fixes/03_NORMALIZE_ANNOTATIONS.md.
+
+    The column set is derived from a survey of the real data, not from the
+    client's type declarations — see 06_PROGRESS.md D1 for the field counts
+    that decided each nullability below.
+    """
+
+    __tablename__ = "annotations"
+    # We delete through the relationship *and* rely on the FK's ON DELETE
+    # CASCADE. SQLAlchemy's post-delete row-count check warns when the database
+    # got there first, which is expected here rather than a fault.
+    __mapper_args__ = {"confirm_deleted_rows": False}
+
+    # Client-generated (uuid4), not autoincrement: the browser mints ids
+    # offline before any round-trip and the offline queue replays them later,
+    # so a server-assigned id would break `.devnotes/offline/`.
+    id = Column(String(64), primary_key=True)
+    # Part of the primary key, deliberately. 678 annotation ids in the dev
+    # data appear on more than one task (70 tasks across 67 projects) — real
+    # copy-paste between tasks, not test noise. A bare `id` PK cannot represent
+    # that and the backfill would fail outright on it. No id repeats *within*
+    # a task, so (id, task_id) is sound. See 06_PROGRESS.md D2.
+    task_id = Column(
+        Integer, ForeignKey("tasks.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
+    # SET NULL, never CASCADE: deleting a class must orphan the shape, not
+    # destroy it. This replaces purge_annotations_for_labels()'s project-wide
+    # blob rewrite with a foreign key.
+    label_id = Column(
+        String, ForeignKey("labels.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # Nullable, unlike trackTime's NOT NULL: 4,059 of 17,245 real annotations
+    # carry no `type` at all. `formats.common.is_annotation()` reads an absent
+    # type as a real shape (`!= "comment"`), so defaulting these to 'polygon'
+    # at backfill would be a silent data change. NULL preserves the fact.
+    type = Column(String(32), nullable=True)
+    # The vertex list, stored as the exact JSON bytes the client sent.
+    #
+    # Two shapes exist in the real data — [{"x":..,"y":..}, ...] (14,173) and
+    # [[x, y], ...] (3,001) — and `formats.common.points_of()` already copes
+    # with both. Normalising them to one form here would smuggle a behaviour
+    # change into a storage migration, so the bytes are preserved verbatim.
+    #
+    # Kept as one column rather than a vertices table on purpose: this is what
+    # keeps a 500-vertex polygon one row instead of 500, so row counts stay in
+    # the millions rather than the hundreds of millions while counting and
+    # per-label queries still become plain SQL.
+    points = Column(Text, nullable=True)
+    x = Column(Float, nullable=True)
+    y = Column(Float, nullable=True)
+    width = Column(Float, nullable=True)
+    height = Column(Float, nullable=True)
+    text = Column(Text, nullable=True)
+    color = Column(String(16), nullable=True)
+    order = Column(Integer, nullable=True)
+    group_id = Column(String(36), nullable=True, index=True)
+    # Every field the columns above do not model, as a JSON object.
+    #
+    # The real data carries `label`, `visible`, `promptPoints`, `promptLabels`,
+    # `source`, `author`, `w` and `h` — none of which were in the design, and
+    # all of which some client depends on. This column is what makes the
+    # migration lossless without the schema having to enumerate whatever the
+    # canvas adds next; the round-trip check in the backfill is what proves it.
+    extra = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        # The comment-count and per-type aggregates filter on exactly this
+        # pair; without it they degrade to a scan of every row for the task.
+        Index("ix_annotations_task_id_type", "task_id", "type"),
     )
