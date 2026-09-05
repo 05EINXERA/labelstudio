@@ -97,7 +97,8 @@ THREADPOOL_CAP = int(os.environ.get("THREADPOOL_CAP", "40"))
 # stops at this many bytes and answers 413.
 #
 # 64 MB is far above any real annotation set (the largest observed task is
-# ~1.9 MB uncompressed) while staying well inside the memory of a box that is
+# 15.6 MB uncompressed as of 2026-09-05 -- see
+# .devnotes/server-issue-diagnosis/) while staying inside the memory of a box that is
 # also running Postgres. Raise it only if a genuine payload ever approaches it.
 MAX_DECOMPRESSED_BODY = int(
     os.environ.get("MAX_DECOMPRESSED_BODY", str(64 * 1024 * 1024))
