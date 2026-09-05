@@ -25,41 +25,50 @@ router = APIRouter(prefix="/api/labels", tags=["labels"], dependencies=[Depends(
 def purge_annotations_for_labels(project_id: int, label_ids: set, db: Session) -> int:
     """Delete every annotation in `project_id` that references a deleted label.
 
-    Annotations live as a JSON array in `Task.annotations`, so there is no
-    foreign key to cascade on: without this, deleting a class leaves orphaned
-    annotations behind that the canvas renders as an unnamed "Object" in the
-    default color. Comments carry no labelId and are always kept.
+    One DELETE, scoped by a join on the label id. This used to load every task
+    in the project, parse its annotation blob, filter in Python and write the
+    whole blob back -- so deleting a single class rewrote every task in the
+    project, a multi-GB write storm on a large one. Normalisation turned it
+    into a statement the database executes from an index.
+
+    Comments carry no labelId and are therefore never matched.
 
     Returns the number of annotations removed. The caller commits.
     """
     if not label_ids:
         return 0
 
-    removed = 0
-    tasks = db.query(models.Task).filter(models.Task.project_id == project_id).all()
-    for task in tasks:
-        if not task.annotations:
-            continue
-        try:
-            anns = json.loads(task.annotations)
-        except json.JSONDecodeError:
-            logger.warning("Task %s has unparseable annotations; skipping label purge", task.id)
-            continue
-        if not isinstance(anns, list):
-            continue
+    task_ids = [
+        row[0]
+        for row in db.query(models.Task.id)
+        .filter(models.Task.project_id == project_id)
+        .all()
+    ]
+    if not task_ids:
+        return 0
 
-        kept = [
-            a for a in anns
-            if not (isinstance(a, dict) and a.get("type") != "comment" and a.get("labelId") in label_ids)
-        ]
-        if len(kept) != len(anns):
-            removed += len(anns) - len(kept)
-            task.annotations = json.dumps(kept)
-            # Set explicitly. `Task.updated_at` carries no `onupdate` (see
-            # models.py for why), so a write that does not assign it leaves the
-            # task looking untouched — and leaves every open tab holding a
-            # token that no longer describes the stored annotations.
-            task.updated_at = datetime.datetime.now(datetime.timezone.utc)
+    removed = (
+        db.query(models.Annotation)
+        .filter(
+            models.Annotation.task_id.in_(task_ids),
+            models.Annotation.label_id.in_(label_ids),
+        )
+        .delete(synchronize_session=False)
+    )
+
+    if removed:
+        # `Task.updated_at` carries no `onupdate` (models.py), so a write that
+        # does not assign it leaves the task looking untouched -- and leaves
+        # every open tab holding a token that no longer describes the stored
+        # annotations.
+        (
+            db.query(models.Task)
+            .filter(models.Task.id.in_(task_ids))
+            .update(
+                {models.Task.updated_at: datetime.datetime.now(datetime.timezone.utc)},
+                synchronize_session=False,
+            )
+        )
 
     return removed
 

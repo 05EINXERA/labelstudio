@@ -46,17 +46,6 @@ def _role_value(role) -> Optional[str]:
     return role.value if role is not None else None
 
 
-def _count_comments(annotations: Optional[str]) -> int:
-    """Number of comment annotations in a task's serialized annotation blob."""
-    if not annotations or '"comment"' not in annotations:
-        return 0
-    try:
-        annots = json.loads(annotations)
-    except (ValueError, TypeError) as exc:
-        logger.warning("Skipping unparseable annotations: %s", exc)
-        return 0
-    return sum(1 for a in annots if isinstance(a, dict) and a.get("type") == "comment")
-
 
 def _derive_status(total: int, completed: int) -> Optional[str]:
     """Project status implied by its task counts, or None if unchanged.
@@ -92,7 +81,7 @@ def _aggregate_metrics(project_ids: List[int], db: Session) -> dict:
 
     tasks = db.query(
         models.Task.project_id, models.Task.status,
-        models.Task.annotations, models.Task.time_spent,
+        models.Task.id, models.Task.time_spent,
     ).filter(models.Task.project_id.in_(project_ids)).all()
 
     for t in tasks:
@@ -115,8 +104,25 @@ def _aggregate_metrics(project_ids: List[int], db: Session) -> dict:
             entry["awaiting_review"] += 1
         elif t.status == 'In Progress':
             entry["in_progress"] += 1
-        entry["comments"] += _count_comments(t.annotations)
         entry["total_time"] += t.time_spent or 0
+
+    # Comments per project, as one aggregate rather than a parse of every
+    # task's annotations. This loop used to select `Task.annotations` for every
+    # task in every listed project and json.loads each blob just to count the
+    # entries whose type is "comment" -- megabytes of JSON parsed to produce
+    # one integer per project, on a dashboard endpoint.
+    comment_counts = (
+        db.query(models.Task.project_id, func.count(models.Annotation.id))
+        .join(models.Annotation, models.Annotation.task_id == models.Task.id)
+        .filter(
+            models.Task.project_id.in_(project_ids),
+            models.Annotation.type == "comment",
+        )
+        .group_by(models.Task.project_id)
+        .all()
+    )
+    for pid, count in comment_counts:
+        metrics[pid]["comments"] = count
 
     label_counts = db.query(
         models.Label.project_id, func.count(models.Label.id),

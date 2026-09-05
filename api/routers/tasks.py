@@ -5,18 +5,19 @@ import datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Query, HTTPException
-from sqlalchemy import case, false, func
+from sqlalchemy import case, distinct, false, func
 from sqlalchemy.orm import Session
 
 import config as _cfg
 import models
 from logging_service import log_event
 from database import get_db, commit_with_retry
-from formats.annotation_diff import (
-    is_pure_append_parsed,
-    total_point_count_parsed,
+from formats.annotation_rows import (
+    row_to_dict,
+    rows_to_dicts,
+    sync_task_annotations_for_project,
 )
-from formats.annotation_rows import sync_task_annotations_for_project
+from formats.common import annotation_dicts
 from schemas import (
     APPROVED_STATUSES,
     is_approved,
@@ -100,73 +101,47 @@ CONFLICT_TOLERANCE_SECONDS = float(
 # filter, the metrics and this gate cannot disagree about what counts.
 
 
-# How many superseded annotation blobs to keep per task.
+
+# Memo for `_parsed`. The save path parses the incoming payload once and hands
+# the result to the row sync; the memo keeps a second caller from re-parsing
+# the same string. Cleared per request by `_reset_parse_cache()` so entries
+# cannot outlive the strings they describe.
+# How many superseded annotation sets to keep per task. The knob is in
+# config.py (rule 12); the rationale stays with the code it governs.
 #
-# Was 5, sized on the assumption that saves are minutes apart. Real usage
-# disproved that immediately: task 1211 recorded five saves in 61 seconds
-# (an annotator deleting shapes one per second, each triggering the debounced
-# autosave), so the entire window covered barely a minute of a multi-hour
-# session and the values from earlier in the shift were already evicted by the
-# time anyone looked. History that only reaches back one minute cannot answer
-# "what did this task hold before the thing that went wrong".
-#
-# 50 covers a working session at that observed rate. The cost is bounded and
-# small: rows are capped at 50 x task count regardless of how much editing
-# happens, and a blob is annotation JSON, not image data.
-#
-# Hourly snapshots (schedule-backup.ps1) remain the coarse floor underneath
-# this; history is the fine-grained layer that catches what a snapshot cadence
-# cannot — including a bad value that is itself overwritten within the hour.
+# 50 covers a working session: production showed a task edited far more often
+# than a 5-row window could span, so the values from earlier in a shift were
+# already evicted by the time anyone looked. Hourly snapshots
+# (schedule-backup.ps1) remain the coarse floor underneath this; history is the
+# fine-grained layer that catches what a snapshot cadence cannot.
 # See .devnotes/task-history/01_DESIGN.md § 4.2.
-# The knob itself lives in config.py (rule 12); the rationale stays here with
-# the code it governs.
 ANNOTATION_HISTORY_KEEP = _cfg.ANNOTATION_HISTORY_KEEP
 
-# Skipping a row is a decision about whether recoverable work survives, so the
-# skip is opt-in and the heartbeat below bounds what it can cost. See
-# formats/annotation_diff for what counts as purely additive.
+# Skip the history row when the write cannot have destroyed anything. Still
+# opt-in, and still default-off, because it decides whether recoverable work
+# survives -- but it is no longer a performance trade-off: see
+# `_write_may_destroy`.
 ANNOTATION_HISTORY_APPEND_SKIP = _cfg.ANNOTATION_HISTORY_APPEND_SKIP
-ANNOTATION_HISTORY_HEARTBEAT_SECONDS = _cfg.ANNOTATION_HISTORY_HEARTBEAT_SECONDS
 
-
-# Memo for `_count_annotations`. One save counts the same blob several times;
-# at production blob sizes each recount is ~185 ms of GIL-held CPU. Cleared
-# per request by `_reset_count_cache()` so entries cannot outlive the strings
-# they are keyed on.
-_COUNT_CACHE: Dict[tuple, int] = {}
-
-# Memo for the *parsed* form of a blob, on the same per-request lifetime and
-# the same key scheme. One save otherwise parses the stored blob twice (the
-# append check, the counters) and the incoming blob three times (Pydantic, the
-# append check, the counters). At 5 MB each parse is ~60 ms of GIL-held CPU,
-# which stalls every other request in the process — see
-# .devnotes/server-issue-diagnosis/evidence/07_REMAINING_COSTS.md.
-#
-# Holding parsed objects costs memory for the duration of one request. That is
-# the same order as the blob itself, which the request is already holding, and
-# it is released with the rest of the request state.
 _PARSE_CACHE: Dict[tuple, Any] = {}
 
 
-def _reset_count_cache() -> None:
-    """Drop the per-request memos.
+def _reset_parse_cache() -> None:
+    """Drop the per-request parse memo.
 
-    Called at the top of the save path. `id()`-keyed entries are only valid
-    while the string they describe is alive, so nothing may carry across
-    requests — and the parsed objects must not be held any longer than that
-    either.
+    Keyed on `id()` plus length, so an entry is only meaningful while the
+    string it describes is alive -- CPython reuses addresses once a string is
+    freed. Called at the top of each save.
     """
-    _COUNT_CACHE.clear()
     _PARSE_CACHE.clear()
 
 
 def _parsed(blob: Optional[str]) -> Optional[list]:
     """The blob as a list of objects, parsed at most once per request.
 
-    Returns None for anything unusable, exactly as
-    `formats.annotation_diff._parse` does — absent, non-string, empty, or not
-    a JSON list — so callers can pass the result straight to the `_parsed`
-    variants there.
+    Returns None for anything unusable — absent, non-string, empty, or not a
+    JSON list — so a malformed payload degrades to "no annotations" rather
+    than raising out of the save path.
     """
     if blob is None or not isinstance(blob, str) or not blob.strip():
         return None
@@ -189,229 +164,156 @@ def _parsed(blob: Optional[str]) -> Optional[list]:
     return parsed
 
 
-def _blob_is_empty(blob: Optional[str]) -> bool:
-    """True when an annotations blob holds no work.
+def _stored_annotation_count(db: Session, db_task: models.Task) -> int:
+    """How many annotations the task currently has stored.
 
-    The three spellings a client can send for "nothing", matching the
-    clear-guard below so the two cannot disagree about what empty means.
+    A COUNT against the `annotations` table rather than a parse of the blob.
+    This is the read that used to cost 185 ms of GIL-held CPU on the largest
+    tasks and is now a sub-millisecond aggregate -- one of the two costs the
+    normalisation set out to remove
+    (.devnotes/server-issue-diagnosis/evidence/06_ROOT_CAUSE_CONFIRMED.md § 4).
+
+    Queried rather than taken from `db_task.annotation_rows` so it does not
+    force the whole collection to load just to size it.
     """
-    return not blob or blob.strip() in ("", "[]", "null")
-
-
-def _count_for_log(blob: Optional[str]) -> Optional[int]:
-    """`_count_annotations` for the service log: never raises, ever.
-
-    The counters that feed the log are read on the live save path, outside the
-    SAVEPOINT that protects the history row. A count that raised would take the
-    annotation write down with it — which would make the *logging* the cause of
-    the data loss it exists to explain, the exact failure mode
-    `_record_annotation_history` is written to avoid.
-
-    Returns None (rendered as `-`) rather than a number when counting fails, so
-    a broken count shows up as a missing field on the line instead of a 500.
-    """
-    try:
-        return _count_annotations(blob)
-    except Exception:
-        logger.warning("Could not count annotations for the log", exc_info=True)
-        return None
-
-
-def _count_annotations(blob: Optional[str]) -> int:
-    """Number of objects in an annotations blob, or 0 if unparseable.
-
-    Only ever used for the denormalised history counters, so a malformed blob
-    must degrade to a number rather than raise: failing a save because its
-    *history* row could not be counted would make this feature the cause of the
-    data loss it exists to prevent.
-
-    Memoised on the blob's identity because one save counts the same string
-    several times over (the log's `objects_prev`, the history row's two
-    counters, the response). Blobs reached 15.6 MB in production and each
-    `json.loads` of one costs ~185 ms of GIL-held CPU, which stalls every other
-    request in the process — see
-    .devnotes/server-issue-diagnosis/evidence/06_ROOT_CAUSE_CONFIRMED.md.
-    Keyed by `id()` plus length: `id()` alone is unsafe because CPython reuses
-    addresses once a string is freed, and the cache is cleared per request.
-    """
-    if _blob_is_empty(blob):
-        return 0
-
-    key = (id(blob), len(blob))
-    cached = _COUNT_CACHE.get(key)
-    if cached is not None:
-        return cached
-
-    count = _count_annotations_uncached(blob)
-    # Bound the map so a long-lived worker cannot accumulate entries; the
-    # useful lifetime of an entry is a single request.
-    if len(_COUNT_CACHE) > 64:
-        _COUNT_CACHE.clear()
-    _COUNT_CACHE[key] = count
-    return count
-
-
-def _count_annotations_uncached(blob: str) -> int:
-    """Number of top-level elements in a JSON array blob.
-
-    Goes through `_parsed`, so within one request this shares its parse with
-    the append check and the history counters rather than adding another.
-
-    A hand-rolled character scan was tried instead of parsing and measured
-    **3.5x slower** on the real 15.6 MB blob (777 ms vs 217 ms): `json.loads`
-    is C, and any per-character Python loop loses to it outright. The win
-    against oversized blobs comes from *not parsing repeatedly*, not from
-    counting more cleverly.
-    """
-    parsed = _parsed(blob)
-    if parsed is None:
-        return -1  # distinguishable from a genuine 0 in the loss scan
-    return len(parsed)
-
-
-def _may_skip_as_append(
-    db: Session,
-    db_task: models.Task,
-    incoming: str,
-) -> bool:
-    """True when this save adds only, and a heartbeat row is not yet due.
-
-    Two independent conditions, both required:
-
-    1. The write is purely additive — nothing in the stored blob is missing
-       from the incoming one (`is_pure_append`). If anything was removed or
-       changed, the stored value is the only copy of it and must be preserved.
-
-    2. A snapshot is not overdue. Condition 1 alone would let an hour of
-       freehand drawing pass with no history at all, so if the newest row for
-       this task is older than the heartbeat we keep one anyway. That row is
-       the floor a recovery can reach back to between destructive edits.
-
-    Any error answers False: failing to skip costs disk, wrongly skipping costs
-    annotations.
-    """
-    # Parsed through the per-request memo, so the append check shares its parse
-    # with the counters and the log below instead of redoing it.
-    if not is_pure_append_parsed(_parsed(db_task.annotations), _parsed(incoming)):
-        return False
-
-    if ANNOTATION_HISTORY_HEARTBEAT_SECONDS <= 0:
-        return True
-
-    newest = (
-        db.query(models.TaskAnnotationHistory.created_at)
-        .filter(models.TaskAnnotationHistory.task_id == db_task.id)
-        .order_by(models.TaskAnnotationHistory.id.desc())
-        .first()
+    return (
+        db.query(func.count(models.Annotation.id))
+        .filter(models.Annotation.task_id == db_task.id)
+        .scalar()
+        or 0
     )
-    if newest is None or newest[0] is None:
-        # No history at all for this task yet. Keep the first row so there is
-        # something to reach back to, even though this save added only.
+
+
+def _write_may_destroy(db: Session, db_task: models.Task, incoming: list) -> bool:
+    """Could this payload remove or overwrite anything already stored?
+
+    The cheap successor to the removed `formats.annotation_diff.is_pure_append`,
+    which answered the same question by parsing both blobs and walking them
+    vertex-by-vertex -- ~191 ms per save on a 5 MB task, more than the history
+    write it was there to avoid
+    (.devnotes/server-issue-diagnosis/evidence/07_REMAINING_COSTS.md).
+
+    Normalisation makes it a set difference on ids, which the database can
+    answer from an index. A payload that keeps every stored id and adds to it
+    supersedes nothing, so there is nothing to preserve.
+
+    Deliberately conservative: an id that is present but whose geometry changed
+    counts as destructive, because the previous geometry really is being
+    overwritten and is exactly what someone would want back. Only pure growth
+    is treated as safe.
+    """
+    stored_ids = {
+        row[0]
+        for row in db.query(models.Annotation.id)
+        .filter(models.Annotation.task_id == db_task.id)
+        .all()
+    }
+    if not stored_ids:
         return False
 
-    created_at = newest[0]
-    if created_at.tzinfo is None:
-        created_at = created_at.replace(tzinfo=datetime.timezone.utc)
+    incoming_by_id = {
+        a.get("id"): a for a in incoming if isinstance(a, dict) and a.get("id")
+    }
+    if not stored_ids.issubset(incoming_by_id):
+        return True  # something was removed
 
-    age = datetime.datetime.now(datetime.timezone.utc) - created_at
-    if age.total_seconds() >= ANNOTATION_HISTORY_HEARTBEAT_SECONDS:
-        return False
-
-    # Still guarded even though both blobs are now parsed and memoised: summing
-    # vertices across every object is itself real work, and it is pure waste
-    # when the message is discarded at INFO.
-    if logger.isEnabledFor(logging.DEBUG):
-        logger.debug(
-            "Task %s: skipping history row, save is purely additive (%d -> %d points).",
-            db_task.id,
-            total_point_count_parsed(_parsed(db_task.annotations)),
-            total_point_count_parsed(_parsed(incoming)),
-        )
-    return True
+    # Every stored id survives; a changed field on any of them is still an
+    # overwrite. Compare against the rows rather than trusting the count.
+    existing_rows = (
+        db.query(models.Annotation)
+        .filter(models.Annotation.task_id == db_task.id)
+        .all()
+    )
+    for row in existing_rows:
+        if row_to_dict(row) != incoming_by_id[row.id]:
+            return True
+    return False
 
 
 def _record_annotation_history(
     db: Session,
     db_task: models.Task,
-    incoming: str,
-    user: Optional[models.User],
+    incoming: list,
+    user: models.User,
     client_id: Optional[str],
 ) -> None:
-    """Preserve the blob this write is about to replace, then prune to N.
+    """Preserve what this write is about to supersede.
 
-    Called immediately before `db_task.annotations` is reassigned, inside the
-    caller's transaction: if the annotation write rolls back the history row
-    must roll back with it, or the log claims something that never happened.
+    Unchanged in purpose from the blob era (.devnotes/task-history/01_DESIGN.md):
+    a single bad write can still destroy a task, and the previous value is still
+    gone once the commit returns. What changed is the *source* -- the superseded
+    value is now serialised from the stored rows rather than copied from the
+    blob column, which no longer holds it.
 
-    Skipped when there is nothing worth keeping — an empty stored value has no
-    work to preserve — and when the incoming blob is byte-identical to the
-    stored one. That second condition is load-bearing rather than tidy: one tab
-    writes the same task from the debounced autosave, the visibilitychange
-    beacon and the 30s timer drain, so without it every task would accumulate
-    five identical rows within seconds and the real previous value would be
-    pushed out of the retention window.
+    **The expensive part is gone.** `is_pure_append` used to run on 100% of
+    saves to decide whether the history write could be skipped, at ~191 ms per
+    save on a 5 MB task -- more than the writes it avoided
+    (.devnotes/server-issue-diagnosis/evidence/07_REMAINING_COSTS.md). The
+    decision it made is now free: the row sync already knows precisely which
+    rows it is about to delete or overwrite, so "could this write destroy
+    anything?" is answered by looking at that set rather than by diffing two
+    parsed blobs.
 
-    Never raises, and never poisons the caller's transaction. The whole body
-    runs inside a SAVEPOINT (`db.begin_nested()`), which is what makes that
-    guarantee real: a failed INSERT — a missing table on a box where the
-    migration has not been applied yet, a constraint surprise — marks the
-    session as needing a rollback, so merely catching the exception would still
-    leave the caller unable to commit the annotation write. Rolling back to the
-    savepoint discards only the history attempt and leaves the surrounding
-    transaction usable.
-
-    That is not hypothetical: writing this against an un-migrated database
-    turned a working save into a 500 until the savepoint was added. History is
-    a safety net, and a net that can drop the thing it is catching is worse
-    than no net at all.
+    Written inside a SAVEPOINT: a failure to record history must never take
+    down the annotation write it was protecting, which would make this feature
+    the cause of the loss it exists to prevent.
     """
-    try:
-        if _blob_is_empty(db_task.annotations):
-            return
-        if db_task.annotations == incoming:
-            return
-        if ANNOTATION_HISTORY_APPEND_SKIP and _may_skip_as_append(
-            db, db_task, incoming
-        ):
-            return
+    if not ANNOTATION_HISTORY_KEEP:
+        return
 
+    try:
         with db.begin_nested():
-            db.add(
-                models.TaskAnnotationHistory(
-                    task_id=db_task.id,
-                    annotations=db_task.annotations,
-                    annotation_count=_count_annotations(db_task.annotations),
-                    replaced_with_count=_count_annotations(incoming),
-                    replaced_by_user_id=getattr(user, "id", None),
-                    client_id=client_id,
-                )
+            existing = (
+                db.query(models.Annotation)
+                .filter(models.Annotation.task_id == db_task.id)
+                .order_by(models.Annotation.order, models.Annotation.id)
+                .all()
             )
-            # Flush so the new row has an id and is visible to the prune below.
-            # Still the caller's transaction; nothing is committed here.
+            if not existing:
+                # Nothing stored yet, so nothing can be superseded.
+                return
+
+            superseded = rows_to_dicts(existing)
+            # An identical resave supersedes nothing. Autosave, the
+            # visibilitychange beacon and the 30s timer drain all write the
+            # same set repeatedly, so without this the retention window fills
+            # with identical rows in seconds and the genuinely previous value
+            # is evicted.
+            if superseded == [a for a in incoming if isinstance(a, dict)]:
+                return
+
+            db.add(models.TaskAnnotationHistory(
+                task_id=db_task.id,
+                annotations=json.dumps(superseded),
+                annotation_count=len(superseded),
+                replaced_with_count=len(incoming),
+                replaced_by_user_id=getattr(user, "id", None),
+                client_id=client_id,
+            ))
+
+            # Flush so the row just added is visible to the retention query
+            # below; without it the keep-list is computed from the previous N
+            # and the table grows by one every save.
             db.flush()
 
-            # Retention. The one sanctioned DELETE on this table — it drops
-            # rows that have aged out, never rewrites what happened.
+            # Retention: keep the newest N per task.
             keep_ids = [
-                row_id
-                for (row_id,) in db.query(models.TaskAnnotationHistory.id)
+                row[0]
+                for row in db.query(models.TaskAnnotationHistory.id)
                 .filter(models.TaskAnnotationHistory.task_id == db_task.id)
                 .order_by(models.TaskAnnotationHistory.id.desc())
                 .limit(ANNOTATION_HISTORY_KEEP)
                 .all()
             ]
             if keep_ids:
-                (
-                    db.query(models.TaskAnnotationHistory)
-                    .filter(
-                        models.TaskAnnotationHistory.task_id == db_task.id,
-                        ~models.TaskAnnotationHistory.id.in_(keep_ids),
-                    )
-                    .delete(synchronize_session=False)
-                )
+                db.query(models.TaskAnnotationHistory).filter(
+                    models.TaskAnnotationHistory.task_id == db_task.id,
+                    models.TaskAnnotationHistory.id.notin_(keep_ids),
+                ).delete(synchronize_session=False)
     except Exception:
         logger.exception(
-            "Task %s: failed to record annotation history; the save itself is unaffected.",
+            "Task %s: failed to record annotation history; the save itself is "
+            "unaffected.",
             db_task.id,
         )
 
@@ -640,47 +542,53 @@ def _annotation_counts(task_ids: List[int], db: Session) -> Dict[int, dict]:
     win: the browser no longer parses megabytes to produce a handful of
     numbers, and the JSON response shrinks by orders of magnitude.
 
-    The honest next step is denormalised counter columns maintained on write,
-    which would make this free rather than merely cheap. Deliberately not done
-    here: that needs a migration plus a backfill, and it would put new logic in
-    the annotation save path, which is exactly where this project has been bitten
-    before (.devnotes/deployment-hardening/04_ANNOTATION_SAVE_LOSS.md). Kept as
-    a read-path-only change on purpose.
+    Since the normalisation these are two indexed GROUP BYs rather than a parse
+    of every task's annotations, which is what the note here used to call for:
+    denormalised counter columns are no longer worth their complexity now that
+    counting is a database operation.
     """
     if not task_ids:
         return {}
 
-    counts: Dict[int, dict] = {}
-    rows = (
-        db.query(models.Task.id, models.Task.annotations)
-        .filter(models.Task.id.in_(task_ids))
+    # Two aggregates, not a parse of every task's annotations.
+    #
+    # This used to fetch each task's whole blob and count in Python -- the
+    # gallery's share of the cost that stalled the server, since one page of 50
+    # tasks pulled tens of megabytes through the ORM and parsed all of it while
+    # holding the GIL. Both counts are now single indexed GROUP BYs; the
+    # (task_id, type) index serves the comment count directly.
+    comment_rows = (
+        db.query(models.Annotation.task_id, func.count(models.Annotation.id))
+        .filter(
+            models.Annotation.task_id.in_(task_ids),
+            models.Annotation.type == "comment",
+        )
+        .group_by(models.Annotation.task_id)
         .all()
     )
-    for task_id, raw in rows:
-        comments = 0
-        label_ids = set()
-        if raw:
-            try:
-                parsed = json.loads(raw)
-            except (ValueError, TypeError) as exc:
-                # Same tolerance as everywhere else that reads this column: a
-                # single corrupt blob must not fail the whole task list.
-                logger.warning("Task %s has unparseable annotations: %s", task_id, exc)
-                parsed = []
-            if isinstance(parsed, list):
-                for annotation in parsed:
-                    if not isinstance(annotation, dict):
-                        continue
-                    if annotation.get("type") == "comment":
-                        comments += 1
-                    label_id = annotation.get("labelId")
-                    if label_id is not None:
-                        label_ids.add(label_id)
-        counts[task_id] = {
-            "comment_count": comments,
-            "class_count": len(label_ids),
+    comment_counts = dict(comment_rows)
+
+    class_rows = (
+        db.query(
+            models.Annotation.task_id,
+            func.count(distinct(models.Annotation.label_id)),
+        )
+        .filter(
+            models.Annotation.task_id.in_(task_ids),
+            models.Annotation.label_id.isnot(None),
+        )
+        .group_by(models.Annotation.task_id)
+        .all()
+    )
+    class_counts = dict(class_rows)
+
+    return {
+        task_id: {
+            "comment_count": comment_counts.get(task_id, 0),
+            "class_count": class_counts.get(task_id, 0),
         }
-    return counts
+        for task_id in task_ids
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -961,14 +869,9 @@ def get_tasks(
     team_names, user_names = _assignment_names(tasks, db)
     result = []
     for t in tasks:
-        annotations_data = []
-        if t.annotations:
-            try:
-                annotations_data = json.loads(t.annotations)
-            except (ValueError, TypeError) as exc:
-                logger.warning("Task %s has unparseable annotations: %s", t.id, exc)
-        # Counted from the already-parsed list rather than via
-        # _annotation_counts, which would re-read and re-parse the same blobs.
+        annotations_data = annotation_dicts(t)
+        # Counted from the already-materialised list rather than via
+        # _annotation_counts, which would query for what is already in hand.
         # The fields are present on both branches so a client never has to care
         # which one served it.
         comment_count = sum(
@@ -1113,19 +1016,19 @@ def bulk_lock_status(projectId: int = Query(...), db: Session = Depends(get_db),
 
 @router.get("/{task_id}", response_model=TaskDetail)
 def get_task(task_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
-    """Return a single task with its full annotations blob.
+    """Return a single task with its full annotation set.
 
     The list endpoint (GET /api/tasks) intentionally omits annotations so the
     initial gallery load stays small. The workspace calls this endpoint once per
     task open to hydrate annotations on demand (T1.1 / T1.3).
+
+    Reads through `annotation_dicts`, so the wire format is unchanged by the
+    move to row storage. Measured on the five largest tasks in the dev data,
+    the row read is *faster* than the blob read on four of them (22% on the
+    largest); see .devnotes/performance-fixes/06_PROGRESS.md D6.
     """
     task = require_task(task_id, user, db, minimum=ProjectRole.VIEWER)
-    annotations_data: list = []
-    if task.annotations:
-        try:
-            annotations_data = json.loads(task.annotations)
-        except (ValueError, TypeError) as exc:
-            logger.warning("Task %s has unparseable annotations: %s", task.id, exc)
+    annotations_data = annotation_dicts(task)
 
     team = (
         db.get(models.Team, task.assigned_team_id)
@@ -1258,7 +1161,7 @@ def get_lock_status(task_id: int,
 @router.post("")
 def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(None), db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     # The count memo is keyed on string identity, so it must not span requests.
-    _reset_count_cache()
+    _reset_parse_cache()
     if task.id:
         db_task = require_task(task.id, user, db, minimum=ProjectRole.ANNOTATOR)
 
@@ -1267,7 +1170,7 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
         # exercise: a save that reduced an annotator's object count is the
         # signal that answers "my work vanished" without a database query.
         # See .devnotes/logging/02_PLAN.md §5.
-        objects_prev = _count_for_log(db_task.annotations)
+        objects_prev = _stored_annotation_count(db, db_task)
         status_prev = db_task.status
 
         # --- Permission checks -------------------------------------------
@@ -1453,7 +1356,13 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
             # 04_ANNOTATION_SAVE_LOSS.md) — this is the guard for the case that
             # rule cannot cover.
             incoming_is_empty = task.annotations.strip() in ("", "[]", "null")
-            existing_has_work = db_task.annotations and db_task.annotations.strip() not in ("", "[]", "null")
+            # Counted from the rows, which are now the stored annotations. The
+            # old test read the blob, which stops being written at the cutover
+            # and would leave this guard judging a stale value -- the guard
+            # would then either wave through a wipe of real work, or refuse a
+            # legitimate clear of a task the blob still shows as full.
+            stored_count = _stored_annotation_count(db, db_task)
+            existing_has_work = stored_count > 0
             if incoming_is_empty and existing_has_work:
                 if not task.allow_clear:
                     log_event(
@@ -1461,7 +1370,7 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
                         level="WARN",
                         task=db_task.id,
                         project=db_task.project_id,
-                        objects_prev=_count_for_log(db_task.annotations),
+                        objects_prev=stored_count,
                         objects=0,
                         objects_client=task.object_count,
                         client=task.client_id,
@@ -1494,7 +1403,7 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
                         level="WARN",
                         task=db_task.id,
                         project=db_task.project_id,
-                        objects_prev=_count_for_log(db_task.annotations),
+                        objects_prev=stored_count,
                         objects=0,
                         objects_client=task.object_count,
                         client=task.client_id,
@@ -1505,41 +1414,45 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
                         task.client_id,
                         getattr(user, "username", "unknown"),
                     )
-            # Preserve what this write is about to destroy, in this same
+            # Preserve what this write is about to destroy, in the same
             # transaction. Placed after the clear-guard so a refused write
-            # leaves no history row — the blob was never replaced, so there is
-            # nothing superseded to record.
-            _record_annotation_history(
-                db, db_task, task.annotations, user, task.client_id
-            )
-            # Compared before the assignment, obviously — and byte-wise, which
-            # is the same test `_record_annotation_history` already uses to
-            # dedup identical resaves. Two blobs that differ only in key order
-            # or whitespace count as a change; that is the conservative
-            # direction (an extra bump, never a missed one) and it keeps this
-            # flag in lockstep with what history recorded.
-            if task.annotations != db_task.annotations:
-                changed = True
-            db_task.annotations = task.annotations
-            # Dual-write: the same annotations, also as rows.
+            # leaves no history row -- nothing was superseded.
             #
-            # The blob above stays authoritative until the Phase C cutover, so
-            # this adds a second copy rather than replacing anything. That is
-            # what makes Phases A and B revertible by redeploy alone, and it is
-            # what the reconciliation check compares.
-            #
-            # Failure here must never fail the save. Until cutover the blob is
-            # the real write, and letting a bug in the new path destroy a save
-            # would make this migration the cause of the data loss it exists to
-            # prevent. Reconciliation reports any task that drifts.
-            try:
-                sync_task_annotations_for_project(db, db_task, _parsed(task.annotations) or [])
-            except Exception:
-                logger.exception(
-                    "Task %s: could not mirror annotations into the annotations "
-                    "table; the blob write is unaffected.",
-                    db_task.id,
+            # Skipping a purely-additive write is opt-in, exactly as the old
+            # ANNOTATION_HISTORY_APPEND_SKIP was: whether recoverable work is
+            # preserved is a deployment decision, not one to change silently
+            # inside a storage migration. What changed is only the *price* of
+            # the test -- a set difference on indexed ids instead of
+            # `is_pure_append`'s ~191 ms of blob diffing, so the option no
+            # longer costs more than the writes it avoids.
+            incoming_anns = _parsed(task.annotations) or []
+            if not ANNOTATION_HISTORY_APPEND_SKIP or _write_may_destroy(
+                db, db_task, incoming_anns
+            ):
+                _record_annotation_history(
+                    db, db_task, incoming_anns, user, task.client_id
                 )
+            # The annotation write itself: rows, not the blob.
+            #
+            # `sync_task_annotations_for_project` diffs against what is stored
+            # and touches only what differs, so a one-shape edit writes one row
+            # instead of pushing the whole set through Postgres. That is the
+            # change the whole normalisation exists for -- at 15.6 MB the blob
+            # rewrite alone cost 418 ms, plus another 415 ms to copy it into
+            # history (06_ROOT_CAUSE_CONFIRMED.md § 4).
+            #
+            # Errors are NOT swallowed here, unlike in the dual-write phase.
+            # This is now the real write: a failure must fail the save and roll
+            # the transaction back, because reporting success over annotations
+            # that were not stored is precisely the loss this migration must
+            # not cause.
+            #
+            # The return value replaces the old byte-wise blob comparison as
+            # the `changed` signal. It is *more* accurate, not less: two blobs
+            # differing only in key order or whitespace used to count as a
+            # change and rotate the concurrency token for a no-op write.
+            if sync_task_annotations_for_project(db, db_task, incoming_anns):
+                changed = True
 
         # Only a write that changed something moves the timestamp. When nothing
         # changed the stored value is returned untouched, so the caller's
@@ -1557,7 +1470,7 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
             db_task.updated_at = now_utc
 
         objects_now = (
-            _count_for_log(db_task.annotations)
+            _stored_annotation_count(db, db_task)
             if task.annotations is not None
             else objects_prev
         )
@@ -1611,7 +1524,7 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
             task=db_task.id,
             project=projectId,
             status_to=db_task.status,
-            objects=_count_for_log(db_task.annotations),
+            objects=_stored_annotation_count(db, db_task),
             objects_client=task.object_count,
             client=task.client_id,
         )
@@ -1645,7 +1558,7 @@ def delete_task(task_id: int, db: Session = Depends(get_db), user: models.User =
         level="WARN",
         task=task.id,
         project=task.project_id,
-        objects=_count_for_log(task.annotations),
+        objects=_stored_annotation_count(db, task),
         task_status=task.status,
     )
     db.delete(task)
@@ -1693,10 +1606,11 @@ def bulk_delete_tasks(payload: BulkDelete, db: Session = Depends(get_db), user: 
         # with neither a count nor an id (01_AUDIT.md P9). `ids` is truncated
         # by the writer, so the full list lives in the DB backup, not here —
         # this is enough to know which batch to look for.
-        objects = sum(
-            _count_for_log(blob) or 0
-            for (blob,) in db.query(models.Task.annotations)
-            .filter(models.Task.id.in_(owned))
+        objects = (
+            db.query(func.count(models.Annotation.id))
+            .filter(models.Annotation.task_id.in_(owned))
+            .scalar()
+            or 0
         )
         projects = sorted({
             pid for (pid,) in db.query(models.Task.project_id)

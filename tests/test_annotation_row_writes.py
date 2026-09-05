@@ -1,12 +1,10 @@
-"""The save path mirrors annotations into the `annotations` table (Phase A).
+"""The save path stores annotations as rows.
 
-Through Phases A and B the blob in `tasks.annotations` stays authoritative and
-the table is a second copy. These tests are what prove the two agree, which is
-the precondition for the Phase C cutover: reconciliation in production compares
-exactly what is compared here.
-
-They also pin the property the whole normalisation exists for — that an edit
-writes only the rows it touched, not the entire annotation set.
+Since the Phase C cutover the `annotations` table is authoritative and the
+legacy blob column is no longer written. These tests pin what the save path
+must do with a payload, and above all the property the whole normalisation
+exists for -- that an edit writes only the rows it touched, not the entire
+annotation set.
 """
 import json
 
@@ -70,7 +68,7 @@ def _rows(db, task_id):
     )
 
 
-def test_save_writes_rows_alongside_the_blob(client, alice, db):
+def test_save_writes_rows(client, alice, db):
     pid = _project(client, alice)
     tid = _create_task(client, alice, pid)
 
@@ -83,13 +81,14 @@ def test_save_writes_rows_alongside_the_blob(client, alice, db):
     rows = _rows(db, tid)
     assert [r.id for r in rows] == ["a1", "a2"]
 
-    # The blob is still written and still authoritative in this phase.
-    task = db.query(models.Task).filter(models.Task.id == tid).one()
-    assert json.loads(task.annotations) == anns
+    # And they read back as exactly what was sent: the wire format is unchanged
+    # by the move to row storage.
+    from formats.annotation_rows import rows_to_dicts
+    assert rows_to_dicts(rows) == anns
 
 
-def test_rows_and_blob_agree_after_edits(client, alice, db):
-    """The reconciliation invariant: the two representations never diverge."""
+def test_successive_edits_leave_exactly_what_was_sent(client, alice, db):
+    """Add, edit and delete in sequence; the stored set tracks the payload."""
     from formats.annotation_rows import rows_to_dicts
 
     pid = _project(client, alice)
@@ -104,10 +103,8 @@ def test_rows_and_blob_agree_after_edits(client, alice, db):
         assert _save(client, alice, tid, anns).status_code == 200
         db.expire_all()
 
-        task = db.query(models.Task).filter(models.Task.id == tid).one()
-        from_blob = {a["id"]: a for a in json.loads(task.annotations)}
-        from_rows = {a["id"]: a for a in rows_to_dicts(_rows(db, tid))}
-        assert from_blob == from_rows
+        stored = {a["id"]: a for a in rows_to_dicts(_rows(db, tid))}
+        assert stored == {a["id"]: a for a in anns}
 
 
 def test_deleting_an_annotation_removes_its_row(client, alice, db):
