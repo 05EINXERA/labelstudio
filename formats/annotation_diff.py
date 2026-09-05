@@ -282,10 +282,25 @@ def is_pure_append(old_blob: Optional[str], new_blob: Optional[str]) -> bool:
     That conservatism is the contract: callers use this to decide whether to
     *skip* preserving history, so a False costs a little disk and a wrong True
     costs somebody's annotations.
-    """
-    old_objects = _parse(old_blob)
-    new_objects = _parse(new_blob)
 
+    Parses both blobs and delegates. A caller that has already parsed them —
+    the save path has, twice over — should call `is_pure_append_parsed`
+    instead and skip the re-parse; on a 5 MB blob each parse is ~60 ms of
+    GIL-held CPU. See
+    .devnotes/server-issue-diagnosis/evidence/07_REMAINING_COSTS.md.
+    """
+    return is_pure_append_parsed(_parse(old_blob), _parse(new_blob))
+
+
+def is_pure_append_parsed(
+    old_objects: Optional[List[Any]], new_objects: Optional[List[Any]]
+) -> bool:
+    """`is_pure_append` on already-parsed object lists.
+
+    `None` means "unusable" — exactly what `_parse` returns for a blob that is
+    absent, non-string, empty or not a JSON list — and is answered False, so
+    this is behaviourally identical to parsing inside.
+    """
     if old_objects is None or new_objects is None:
         return False
 
@@ -320,8 +335,18 @@ def total_point_count(blob: Optional[str]) -> int:
     from 1233 points to 3 leaves the object count identical. Recording this
     alongside the object count is what makes that visible in the history table
     and in the diagnosis queries (.devnotes/query/manual.md).
+
+    See `total_point_count_parsed` for the variant that takes already-parsed
+    objects.
     """
-    objects = _parse(blob)
+    return total_point_count_parsed(_parse(blob))
+
+
+def total_point_count_parsed(objects: Optional[List[Any]]) -> int:
+    """`total_point_count` on an already-parsed object list.
+
+    `None` (an unusable blob) yields -1, matching the blob-taking form.
+    """
     if objects is None:
         return -1
 

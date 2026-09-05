@@ -103,3 +103,54 @@ def test_distinct_blobs_of_equal_length_do_not_collide():
     assert _count_annotations(b) == 1
     # And the first answer is still intact after the second was cached.
     assert _count_annotations(a) == 2
+
+
+def test_parse_memo_shares_one_parse_across_consumers(monkeypatch):
+    """The save path's several consumers must parse a blob once between them.
+
+    `_count_annotations`, the append check and the history counters all go
+    through `_parsed`. Before this was shared, one save parsed the stored blob
+    twice and the incoming blob three times — ~60 ms of GIL-held CPU each on a
+    5 MB blob, which is what stalled unrelated requests.
+    """
+    from api.routers.tasks import _parsed
+
+    _reset_count_cache()
+    blob = _blob(80)
+
+    calls = []
+    real_loads = json.loads
+
+    def counting_loads(s, *a, **kw):
+        calls.append(len(s))
+        return real_loads(s, *a, **kw)
+
+    monkeypatch.setattr("api.routers.tasks.json.loads", counting_loads)
+
+    # Every consumer of the blob in one request.
+    first = _parsed(blob)
+    again = _parsed(blob)
+    count = _count_annotations(blob)
+
+    assert count == 80
+    assert first is again, "the parsed list must be shared, not re-created"
+    assert len(calls) == 1, f"expected one parse, got {len(calls)}"
+
+
+def test_parse_memo_is_cleared_with_the_count_memo():
+    from api.routers.tasks import _PARSE_CACHE, _parsed
+
+    _reset_count_cache()
+    _parsed(_blob(3))
+    assert _PARSE_CACHE
+    _reset_count_cache()
+    assert not _PARSE_CACHE
+
+
+def test_parsed_returns_none_for_unusable_blobs():
+    """None is the "unusable" signal the `_parsed` diff variants expect."""
+    from api.routers.tasks import _parsed
+
+    for bad in (None, "", "   ", '{"not": "a list"}', "42", "[1,2", "nope"):
+        _reset_count_cache()
+        assert _parsed(bad) is None, f"expected None for {bad!r}"
