@@ -217,17 +217,51 @@ def _write_may_destroy(db: Session, db_task: models.Task, incoming: list) -> boo
     if not stored_ids.issubset(incoming_by_id):
         return True  # something was removed
 
-    # Every stored id survives; a changed field on any of them is still an
-    # overwrite. Compare against the rows rather than trusting the count.
+    # Every stored id survives. A changed field on any of them is still an
+    # overwrite -- except growing a polygon's vertex list, which is the case
+    # this whole option exists for: a freehand shape is drawn vertex by vertex
+    # while autosave fires every few seconds, so the same row is rewritten
+    # hundreds of times while destroying nothing. Treating those as
+    # destructive drove task_annotation_history to 8 GB in production and
+    # pushed genuinely destructive values out of the retention window.
     existing_rows = (
         db.query(models.Annotation)
         .filter(models.Annotation.task_id == db_task.id)
         .all()
     )
     for row in existing_rows:
-        if row_to_dict(row) != incoming_by_id[row.id]:
+        stored = row_to_dict(row)
+        incoming_ann = incoming_by_id[row.id]
+        if stored == incoming_ann:
+            continue
+        if not _only_gained_points(stored, incoming_ann):
             return True
     return False
+
+
+def _only_gained_points(stored: dict, incoming: dict) -> bool:
+    """True when `incoming` is `stored` plus extra vertices and nothing else.
+
+    Every existing vertex must still be present, in order, with the new ones
+    anywhere among them -- a point inserted mid-polygon is the production
+    shape, not an append at the tail. Every other field must be untouched;
+    a moved vertex, a dropped one or an edited label is an overwrite.
+    """
+    if {k: v for k, v in stored.items() if k != "points"} != {
+        k: v for k, v in incoming.items() if k != "points"
+    }:
+        return False
+
+    before = stored.get("points")
+    after = incoming.get("points")
+    if not isinstance(before, list) or not isinstance(after, list):
+        return False
+    if len(after) <= len(before):
+        return False
+
+    # `before` must be a subsequence of `after`.
+    it = iter(after)
+    return all(any(point == candidate for candidate in it) for point in before)
 
 
 def _record_annotation_history(
@@ -1469,8 +1503,12 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
                     now_utc = db_task_updated_at_utc + datetime.timedelta(microseconds=1000)
             db_task.updated_at = now_utc
 
+        # Counted from the payload, not re-queried. The row deletes this save
+        # issued are still pending in the session, so a COUNT here would report
+        # the pre-save total; and the payload is by definition what the task now
+        # holds, since the sync above made the rows match it.
         objects_now = (
-            _stored_annotation_count(db, db_task)
+            len([a for a in (_parsed(task.annotations) or []) if isinstance(a, dict)])
             if task.annotations is not None
             else objects_prev
         )
@@ -1512,11 +1550,18 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
             project_id=projectId, 
             status=task.status or "New", 
             time_spent=task.time_spent_delta or 0, 
-            annotations=task.annotations,
             updated_at=datetime.datetime.now(datetime.timezone.utc),
             last_client_id=task.client_id,
         )
         db.add(db_task)
+        # Flushed, not committed: the row needs an id before its annotations
+        # can reference it, but the create must stay one transaction so a
+        # failure below cannot leave a task with no annotations.
+        db.flush()
+        if task.annotations is not None:
+            sync_task_annotations_for_project(
+                db, db_task, _parsed(task.annotations) or []
+            )
         commit_with_retry(db)
         db.refresh(db_task)
         log_event(
