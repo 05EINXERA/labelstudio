@@ -224,3 +224,40 @@ def test_same_id_on_two_tasks_is_allowed(client, alice, db):
 
     assert len(_rows(db, t1)) == 1
     assert len(_rows(db, t2)) == 1
+
+
+def test_payload_order_is_preserved(client, alice, db):
+    """The blob was an array; rows are not ordered by nature.
+
+    Array position decides which shape paints over which
+    (formats.common.ordered_annotations) and what an export emits, so it has to
+    survive storage. It cannot be recovered from `id` -- ids are uuids, or
+    client text like "obj-2999" that sorts lexically after "obj-999".
+    """
+    from formats.annotation_rows import rows_to_dicts
+
+    pid = _project(client, alice)
+    tid = _create_task(client, alice, pid)
+
+    anns = [{"id": f"obj-{i}", "type": "box"} for i in range(3000)]
+    assert _save(client, alice, tid, anns).status_code == 200
+    db.expire_all()
+
+    task = db.query(models.Task).filter(models.Task.id == tid).one()
+    stored = rows_to_dicts(task.annotation_rows)
+    assert [a["id"] for a in stored] == [a["id"] for a in anns]
+
+
+def test_reordering_a_payload_reorders_the_rows(client, alice, db):
+    from formats.annotation_rows import rows_to_dicts
+
+    pid = _project(client, alice)
+    tid = _create_task(client, alice, pid)
+
+    anns = [{"id": "a"}, {"id": "b"}, {"id": "c"}]
+    assert _save(client, alice, tid, anns).status_code == 200
+    assert _save(client, alice, tid, list(reversed(anns))).status_code == 200
+    db.expire_all()
+
+    task = db.query(models.Task).filter(models.Task.id == tid).one()
+    assert [a["id"] for a in rows_to_dicts(task.annotation_rows)] == ["c", "b", "a"]

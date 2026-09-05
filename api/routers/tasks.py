@@ -300,7 +300,7 @@ def _record_annotation_history(
             existing = (
                 db.query(models.Annotation)
                 .filter(models.Annotation.task_id == db_task.id)
-                .order_by(models.Annotation.order, models.Annotation.id)
+                .order_by(models.Annotation.seq, models.Annotation.id)
                 .all()
             )
             if not existing:

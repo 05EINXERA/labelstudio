@@ -172,14 +172,16 @@ def backfill(db, task_ids=None, commit=False, force=False, limit=None):
 
             minted = 0
             orphaned = 0
-            for ann in usable:
+            for position, ann in enumerate(usable):
                 if not ann.get("id"):
                     minted += 1
                 label_id = ann.get("labelId")
                 if label_id is not None and label_id not in known_label_ids:
                     orphaned += 1
                 db.add(models.Annotation(
-                    **dict_to_row_kwargs(ann, task_id, known_label_ids)
+                    # The blob's array position becomes `seq`, which is what
+                    # preserves the implicit ordering the array carried.
+                    **dict_to_row_kwargs(ann, task_id, known_label_ids, seq=position)
                 ))
             db.flush()
 
@@ -240,7 +242,7 @@ def reverse(db, task_ids=None, commit=False):
         rows = (
             db.query(models.Annotation)
             .filter(models.Annotation.task_id == task.id)
-            .order_by(models.Annotation.order, models.Annotation.id)
+            .order_by(models.Annotation.seq, models.Annotation.id)
             .all()
         )
         if not rows:

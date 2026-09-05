@@ -80,7 +80,7 @@ def _int_or_none(value: Any) -> Optional[int]:
         return None
 
 
-def dict_to_row_kwargs(ann: dict, task_id: int, known_label_ids=None) -> dict:
+def dict_to_row_kwargs(ann: dict, task_id: int, known_label_ids=None, seq=None) -> dict:
     """The `Annotation(**kwargs)` for one annotation dict.
 
     `id` is minted when absent — four annotations in the real data have no id,
@@ -130,6 +130,7 @@ def dict_to_row_kwargs(ann: dict, task_id: int, known_label_ids=None) -> dict:
         "text": ann.get("text"),
         "color": ann.get("color"),
         "order": _int_or_none(ann.get("order")),
+        "seq": seq,
         "group_id": ann.get("groupId"),
         "extra": _json_or_none(extra) if extra else None,
     }
@@ -199,7 +200,7 @@ def rows_to_dicts(rows) -> list:
 # are excluded: they identify the row rather than describe it.
 _SYNC_COLUMNS = (
     "label_id", "type", "points", "x", "y", "width", "height",
-    "text", "color", "order", "group_id", "extra",
+    "text", "color", "order", "seq", "group_id", "extra",
 )
 
 
@@ -226,10 +227,13 @@ def sync_task_annotations(db, task, incoming: list, known_label_ids=None) -> boo
     seen: set = set()
     changed = False
 
-    for ann in incoming:
+    for position, ann in enumerate(incoming):
         if not isinstance(ann, dict):
             continue
-        kwargs = dict_to_row_kwargs(ann, task.id, known_label_ids)
+        # `seq` is the payload position, which is what reproduces the JSON
+        # array's implicit order. Reassigned on every save so a reordered
+        # payload reorders the rows.
+        kwargs = dict_to_row_kwargs(ann, task.id, known_label_ids, seq=position)
         ident = kwargs["id"]
         # A payload that repeats an id would otherwise collide on the primary
         # key. The save path mints a fresh id for the duplicate, matching how

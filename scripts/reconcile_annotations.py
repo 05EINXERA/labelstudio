@@ -115,7 +115,7 @@ def reconcile(db, task_ids=None, verbose=False):
         rows = rows_to_dicts(
             db.query(models.Annotation)
             .filter(models.Annotation.task_id == task_id)
-            .order_by(models.Annotation.order, models.Annotation.id)
+            .order_by(models.Annotation.seq, models.Annotation.id)
             .all()
         )
         blob = _blob_dicts(raw)

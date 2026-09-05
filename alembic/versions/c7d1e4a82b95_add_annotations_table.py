@@ -66,6 +66,12 @@ def upgrade() -> None:
         sa.Column("text", sa.Text(), nullable=True),
         sa.Column("color", sa.String(length=16), nullable=True),
         sa.Column("order", sa.Integer(), nullable=True),
+        # Position in the payload the annotation arrived in. Distinct from
+        # `order`, a client-supplied paint index present on only 2 of 17,245
+        # real annotations. The blob was a JSON array whose implicit order
+        # decides which shape paints over which and what an export emits; rows
+        # have no inherent order, so `seq` is what carries it across.
+        sa.Column("seq", sa.Integer(), nullable=True),
         sa.Column("group_id", sa.String(length=36), nullable=True),
         # Every field the columns above do not model, as a JSON object. The
         # real data carries eight such fields (label, visible, promptPoints,

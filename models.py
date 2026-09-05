@@ -96,16 +96,23 @@ class Task(Base):
     # query rather than N: the gallery and every export iterate tasks, and a
     # default lazy load would turn those into per-task round-trips.
     #
-    # Ordered by `order` then `id` for a stable, reproducible sequence — the
-    # blob had an implicit array order that exports depend on, and without an
-    # ORDER BY the database is free to return rows in any order at all, which
-    # would make export output vary run to run.
+    # Ordered by `seq` — the position the annotation held in the payload.
+    #
+    # The blob was a JSON array, so it carried an implicit order that decides
+    # which shape paints over which (formats.common.ordered_annotations) and
+    # what an export emits. Rows have no inherent order, and the database is
+    # free to return them in any order at all without an ORDER BY, which would
+    # make export output vary run to run.
+    #
+    # `id` is not a substitute: it is a uuid, or client text like "obj-2999"
+    # that sorts lexically ("obj-999" > "obj-2999"), so ordering by it
+    # reshuffles the set.
     annotation_rows = relationship(
         "Annotation",
         cascade="all, delete-orphan",
         passive_deletes=True,
         lazy="selectin",
-        order_by="(Annotation.order, Annotation.id)",
+        order_by="(Annotation.seq, Annotation.id)",
     )
     # Pixel dimensions of the image at image_path, captured at upload.
     # Nullable because rows predating this column have never been measured;
@@ -422,6 +429,14 @@ class Annotation(Base):
     text = Column(Text, nullable=True)
     color = Column(String(16), nullable=True)
     order = Column(Integer, nullable=True)
+    # Position in the payload the annotation arrived in.
+    #
+    # Distinct from `order`, which is a client-supplied paint index present on
+    # only 2 of 17,245 real annotations. `seq` is always set, and it is what
+    # reproduces the JSON array's implicit ordering now that the array is gone.
+    # Without it a task's shapes come back in whatever order the heap scan
+    # yields, which changes what an overlap renders and makes exports unstable.
+    seq = Column(Integer, nullable=True)
     group_id = Column(String(36), nullable=True, index=True)
     # Every field the columns above do not model, as a JSON object.
     #
