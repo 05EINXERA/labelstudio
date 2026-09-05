@@ -2,7 +2,7 @@ import json
 import logging
 import os
 import datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy import case, false, func
@@ -12,7 +12,10 @@ import config as _cfg
 import models
 from logging_service import log_event
 from database import get_db, commit_with_retry
-from formats.annotation_diff import is_pure_append, total_point_count
+from formats.annotation_diff import (
+    is_pure_append_parsed,
+    total_point_count_parsed,
+)
 from schemas import (
     APPROVED_STATUSES,
     is_approved,
@@ -131,15 +134,58 @@ ANNOTATION_HISTORY_HEARTBEAT_SECONDS = _cfg.ANNOTATION_HISTORY_HEARTBEAT_SECONDS
 # they are keyed on.
 _COUNT_CACHE: Dict[tuple, int] = {}
 
+# Memo for the *parsed* form of a blob, on the same per-request lifetime and
+# the same key scheme. One save otherwise parses the stored blob twice (the
+# append check, the counters) and the incoming blob three times (Pydantic, the
+# append check, the counters). At 5 MB each parse is ~60 ms of GIL-held CPU,
+# which stalls every other request in the process — see
+# .devnotes/server-issue-diagnosis/evidence/07_REMAINING_COSTS.md.
+#
+# Holding parsed objects costs memory for the duration of one request. That is
+# the same order as the blob itself, which the request is already holding, and
+# it is released with the rest of the request state.
+_PARSE_CACHE: Dict[tuple, Any] = {}
+
 
 def _reset_count_cache() -> None:
-    """Drop the per-request count memo.
+    """Drop the per-request memos.
 
     Called at the top of the save path. `id()`-keyed entries are only valid
     while the string they describe is alive, so nothing may carry across
-    requests.
+    requests — and the parsed objects must not be held any longer than that
+    either.
     """
     _COUNT_CACHE.clear()
+    _PARSE_CACHE.clear()
+
+
+def _parsed(blob: Optional[str]) -> Optional[list]:
+    """The blob as a list of objects, parsed at most once per request.
+
+    Returns None for anything unusable, exactly as
+    `formats.annotation_diff._parse` does — absent, non-string, empty, or not
+    a JSON list — so callers can pass the result straight to the `_parsed`
+    variants there.
+    """
+    if blob is None or not isinstance(blob, str) or not blob.strip():
+        return None
+
+    key = (id(blob), len(blob))
+    if key in _PARSE_CACHE:
+        return _PARSE_CACHE[key]
+
+    try:
+        parsed = json.loads(blob)
+    except (ValueError, TypeError):
+        parsed = None
+    if not isinstance(parsed, list):
+        parsed = None
+
+    # Bounded like the count memo: an entry is only useful within one request.
+    if len(_PARSE_CACHE) > 8:
+        _PARSE_CACHE.clear()
+    _PARSE_CACHE[key] = parsed
+    return parsed
 
 
 def _blob_is_empty(blob: Optional[str]) -> bool:
@@ -207,17 +253,19 @@ def _count_annotations(blob: Optional[str]) -> int:
 def _count_annotations_uncached(blob: str) -> int:
     """Number of top-level elements in a JSON array blob.
 
-    Falls back to `json.loads`. A hand-rolled character scan was tried and
-    measured **3.5x slower** on the real 15.6 MB blob (777 ms vs 217 ms):
-    `json.loads` is C, and any per-character Python loop loses to it outright.
-    The win against oversized blobs comes from *not counting repeatedly*
-    (`_count_annotations`'s memo), not from counting more cleverly.
+    Goes through `_parsed`, so within one request this shares its parse with
+    the append check and the history counters rather than adding another.
+
+    A hand-rolled character scan was tried instead of parsing and measured
+    **3.5x slower** on the real 15.6 MB blob (777 ms vs 217 ms): `json.loads`
+    is C, and any per-character Python loop loses to it outright. The win
+    against oversized blobs comes from *not parsing repeatedly*, not from
+    counting more cleverly.
     """
-    try:
-        parsed = json.loads(blob)
-    except (ValueError, TypeError):
+    parsed = _parsed(blob)
+    if parsed is None:
         return -1  # distinguishable from a genuine 0 in the loss scan
-    return len(parsed) if isinstance(parsed, list) else -1
+    return len(parsed)
 
 
 def _may_skip_as_append(
@@ -241,7 +289,9 @@ def _may_skip_as_append(
     Any error answers False: failing to skip costs disk, wrongly skipping costs
     annotations.
     """
-    if not is_pure_append(db_task.annotations, incoming):
+    # Parsed through the per-request memo, so the append check shares its parse
+    # with the counters and the log below instead of redoing it.
+    if not is_pure_append_parsed(_parsed(db_task.annotations), _parsed(incoming)):
         return False
 
     if ANNOTATION_HISTORY_HEARTBEAT_SECONDS <= 0:
@@ -266,16 +316,15 @@ def _may_skip_as_append(
     if age.total_seconds() >= ANNOTATION_HISTORY_HEARTBEAT_SECONDS:
         return False
 
-    # Guarded, because the arguments are not free: `total_point_count` parses
-    # a whole blob, twice over, and production blobs reach 15.6 MB (~200 ms of
-    # GIL-held CPU each). Logging is at INFO, so without the guard that work is
-    # done on every skipped save purely to build a message that is discarded.
+    # Still guarded even though both blobs are now parsed and memoised: summing
+    # vertices across every object is itself real work, and it is pure waste
+    # when the message is discarded at INFO.
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug(
             "Task %s: skipping history row, save is purely additive (%d -> %d points).",
             db_task.id,
-            total_point_count(db_task.annotations),
-            total_point_count(incoming),
+            total_point_count_parsed(_parsed(db_task.annotations)),
+            total_point_count_parsed(_parsed(incoming)),
         )
     return True
 
