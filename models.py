@@ -12,7 +12,7 @@ from sqlalchemy import (
     false,
     func,
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import deferred, relationship
 from database import Base
 
 class WorkspaceData(Base):
@@ -91,7 +91,18 @@ class Task(Base):
     # Do NOT read this directly in new code — go through
     # `formats.common.annotation_dicts(task)`, which knows which source is
     # authoritative at this point in the migration.
-    annotations = Column(Text)
+    #
+    # `deferred`, and that is not an optimisation detail — it is what stops the
+    # dead column from being paid for. Left eager, SQLAlchemy selects it with
+    # every Task load, so opening one task dragged its whole legacy blob
+    # through the driver for nothing: measured on production at 103 ms for
+    # task 1626 (11.68 MB) and 154 ms for task 713 (18.85 MB), on *every*
+    # query that touched those rows.
+    #
+    # A reader that genuinely wants it (the reconciliation script, the
+    # `--reverse` rollback) still just accesses `task.annotations` and pays for
+    # one extra SELECT. Removed entirely in Phase F.
+    annotations = deferred(Column(Text))
     # One row per shape. `lazy="selectin"` so loading N tasks costs one extra
     # query rather than N: the gallery and every export iterate tasks, and a
     # default lazy load would turn those into per-task round-trips.
