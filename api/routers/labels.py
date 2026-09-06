@@ -7,6 +7,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, Query, UploadFile, File, HTTPException
 from fastapi.responses import PlainTextResponse
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
@@ -25,41 +26,50 @@ router = APIRouter(prefix="/api/labels", tags=["labels"], dependencies=[Depends(
 def purge_annotations_for_labels(project_id: int, label_ids: set, db: Session) -> int:
     """Delete every annotation in `project_id` that references a deleted label.
 
-    Annotations live as a JSON array in `Task.annotations`, so there is no
-    foreign key to cascade on: without this, deleting a class leaves orphaned
-    annotations behind that the canvas renders as an unnamed "Object" in the
-    default color. Comments carry no labelId and are always kept.
+    One DELETE, scoped by a join on the label id. This used to load every task
+    in the project, parse its annotation blob, filter in Python and write the
+    whole blob back -- so deleting a single class rewrote every task in the
+    project, a multi-GB write storm on a large one. Normalisation turned it
+    into a statement the database executes from an index.
+
+    Comments carry no labelId and are therefore never matched.
 
     Returns the number of annotations removed. The caller commits.
     """
     if not label_ids:
         return 0
 
-    removed = 0
-    tasks = db.query(models.Task).filter(models.Task.project_id == project_id).all()
-    for task in tasks:
-        if not task.annotations:
-            continue
-        try:
-            anns = json.loads(task.annotations)
-        except json.JSONDecodeError:
-            logger.warning("Task %s has unparseable annotations; skipping label purge", task.id)
-            continue
-        if not isinstance(anns, list):
-            continue
+    task_ids = [
+        row[0]
+        for row in db.query(models.Task.id)
+        .filter(models.Task.project_id == project_id)
+        .all()
+    ]
+    if not task_ids:
+        return 0
 
-        kept = [
-            a for a in anns
-            if not (isinstance(a, dict) and a.get("type") != "comment" and a.get("labelId") in label_ids)
-        ]
-        if len(kept) != len(anns):
-            removed += len(anns) - len(kept)
-            task.annotations = json.dumps(kept)
-            # Set explicitly. `Task.updated_at` carries no `onupdate` (see
-            # models.py for why), so a write that does not assign it leaves the
-            # task looking untouched — and leaves every open tab holding a
-            # token that no longer describes the stored annotations.
-            task.updated_at = datetime.datetime.now(datetime.timezone.utc)
+    removed = (
+        db.query(models.Annotation)
+        .filter(
+            models.Annotation.task_id.in_(task_ids),
+            models.Annotation.label_id.in_(label_ids),
+        )
+        .delete(synchronize_session=False)
+    )
+
+    if removed:
+        # `Task.updated_at` carries no `onupdate` (models.py), so a write that
+        # does not assign it leaves the task looking untouched -- and leaves
+        # every open tab holding a token that no longer describes the stored
+        # annotations.
+        (
+            db.query(models.Task)
+            .filter(models.Task.id.in_(task_ids))
+            .update(
+                {models.Task.updated_at: datetime.datetime.now(datetime.timezone.utc)},
+                synchronize_session=False,
+            )
+        )
 
     return removed
 
@@ -81,44 +91,31 @@ def get_label_usage(projectId: int = Query(...), db: Session = Depends(get_db),
     browser — the same payload problem as the Tasks view, for one column
     (.devnotes/server-optimization/03_TASKS_PAGE.md).
 
-    Counting here means the blobs stop at the application and only a small
-    `{label_id: count}` map crosses the wire. Annotations are opaque `Text`, so
-    the parse cannot be pushed into Postgres (finding F16); the win is in what
-    is *sent*, not in avoiding the read.
+    Since the normalisation this is one GROUP BY on an indexed column. The
+    docstring here used to record finding F16 -- "annotations are opaque
+    `Text`, so the parse cannot be pushed into Postgres" -- and the whole
+    endpoint existed to keep megabytes of blob from crossing the wire while
+    still paying to parse them server-side. Storing annotations as rows
+    retires F16: neither the transfer nor the parse happens now.
 
-    Declared before `DELETE /{label_id}` — a literal path must be registered
+    Declared before `DELETE /{label_id}` -- a literal path must be registered
     ahead of a parameterised sibling or FastAPI matches it as `label_id`.
-    Returns every label id that has at least one annotation; the client treats a
-    missing id as zero.
+    Returns every label id that has at least one annotation; the client treats
+    a missing id as zero.
     """
     require_project(projectId, user, db, minimum=ProjectRole.VIEWER)
 
-    usage: dict = {}
     rows = (
-        db.query(models.Task.id, models.Task.annotations)
-        .filter(models.Task.project_id == projectId)
+        db.query(models.Annotation.label_id, func.count(models.Annotation.id))
+        .join(models.Task, models.Task.id == models.Annotation.task_id)
+        .filter(
+            models.Task.project_id == projectId,
+            models.Annotation.label_id.isnot(None),
+        )
+        .group_by(models.Annotation.label_id)
         .all()
     )
-    for task_id, raw in rows:
-        if not raw:
-            continue
-        try:
-            anns = json.loads(raw)
-        except (ValueError, TypeError) as exc:
-            # Consistent with every other reader of this column: one bad blob
-            # must not fail the whole view.
-            logger.warning("Task %s has unparseable annotations: %s", task_id, exc)
-            continue
-        if not isinstance(anns, list):
-            continue
-        for annotation in anns:
-            if not isinstance(annotation, dict):
-                continue
-            label_id = annotation.get("labelId")
-            if label_id is not None:
-                usage[label_id] = usage.get(label_id, 0) + 1
-
-    return usage
+    return {label_id: count for label_id, count in rows}
 
 @router.post("")
 def create_or_update_label(label: LabelModel, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):

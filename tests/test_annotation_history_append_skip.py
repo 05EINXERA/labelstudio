@@ -21,9 +21,15 @@ from database import SessionLocal
 
 @pytest.fixture
 def append_skip(monkeypatch):
-    """Force the skip on, with the heartbeat far enough away to not interfere."""
+    """Force the skip on.
+
+    There is no heartbeat to hold off any more. It existed to bound how long
+    the skip could run without a snapshot, because deciding to skip cost
+    ~191 ms of `is_pure_append` blob diffing and so had to be worth amortising.
+    `_write_may_destroy` answers the same question from an index, so there is
+    no cost to bound.
+    """
     monkeypatch.setattr(tasks_module, "ANNOTATION_HISTORY_APPEND_SKIP", True)
-    monkeypatch.setattr(tasks_module, "ANNOTATION_HISTORY_HEARTBEAT_SECONDS", 900)
 
 
 def _project(client, auth):
@@ -176,39 +182,19 @@ def test_adding_a_new_object_is_additive(client, alice, append_skip):
     assert len(_rows(task_id)) == before
 
 
-def test_heartbeat_forces_a_row_when_history_is_stale(client, alice, append_skip, monkeypatch):
-    """An additive save still records once the newest row ages past the bound.
+def test_first_additive_save_records_nothing_either(client, alice, append_skip):
+    """An additive save supersedes nothing, first or hundredth.
 
-    Without this, an hour of freehand drawing leaves no recoverable
-    intermediate state at all.
+    This used to assert the opposite: with no prior row the first supersede was
+    kept regardless. That rule came from the heartbeat, which existed because
+    deciding to skip cost ~191 ms of `is_pure_append` blob diffing and so had
+    to buy something. `_write_may_destroy` answers from an index, so the
+    special case has no reason to exist and additive now means additive
+    consistently.
+
+    Nothing is lost by it: the save destroyed nothing, so there is nothing the
+    dropped row could have restored.
     """
-    task_id, updated = _seed(client, alice)
-    before = len(_rows(task_id))
-
-    # Everything already written is now "old".
-    monkeypatch.setattr(tasks_module, "ANNOTATION_HISTORY_HEARTBEAT_SECONDS", 1)
-    import time
-    time.sleep(1.1)
-
-    res = _save(client, alice, task_id, _poly(_pts(30)), updated)
-    assert res.status_code == 200, res.text
-
-    assert len(_rows(task_id)) == before + 1, "heartbeat must force a snapshot"
-
-
-def test_heartbeat_zero_disables_the_floor(client, alice, append_skip, monkeypatch):
-    task_id, updated = _seed(client, alice)
-    before = len(_rows(task_id))
-
-    monkeypatch.setattr(tasks_module, "ANNOTATION_HISTORY_HEARTBEAT_SECONDS", 0)
-    res = _save(client, alice, task_id, _poly(_pts(30)), updated)
-    assert res.status_code == 200, res.text
-
-    assert len(_rows(task_id)) == before
-
-
-def test_first_save_always_records_even_when_additive(client, alice, append_skip):
-    """With no prior row there is no floor, so the first supersede is kept."""
     pid = _project(client, alice)
     task = _create_task(client, alice, pid)
 
@@ -217,7 +203,7 @@ def test_first_save_always_records_even_when_additive(client, alice, append_skip
     res = _save(client, alice, task["id"], _poly(_pts(6)), res.json()["updated_at"])
     assert res.status_code == 200, res.text
 
-    assert len(_rows(task["id"])) == 1
+    assert _rows(task["id"]) == []
 
 
 def test_flag_off_records_additive_saves(client, alice, monkeypatch):

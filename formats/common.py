@@ -20,6 +20,7 @@ from PIL import Image, UnidentifiedImageError
 
 import models
 from config import DATA_DIR
+from formats.annotation_rows import rows_to_dicts
 from schemas import APPROVED_STATUSES
 
 logger = logging.getLogger(__name__)
@@ -320,6 +321,36 @@ def hex_to_rgb(value: Optional[str]) -> Tuple[int, int, int]:
         return (128, 128, 128)
 
 
+def annotation_dicts(task: models.Task) -> List[dict]:
+    """A task's annotations as the plain dicts every reader expects.
+
+    **The single place that knows which storage is authoritative.** Annotations
+    moved from one JSON blob per task (`Task.annotations`) to one row per shape
+    (`Task.annotation_rows`); routing every reader through here is what let that
+    happen without touching nine call sites twice, and what makes the cutover a
+    one-line change rather than a nine-file one.
+
+    Reads the rows when the task has any, and falls back to the blob otherwise.
+    The fallback is not dead code during the migration: through Phases A and B
+    the blob is still authoritative, and after the backfill it still covers any
+    task the conversion could not handle.
+
+    A task with genuinely no annotations reads identically either way -- an
+    empty list -- so the ambiguity between "no rows yet" and "no annotations"
+    costs nothing.
+    """
+    rows = task.annotation_rows
+    if rows:
+        return rows_to_dicts(rows)
+
+    try:
+        anns = json.loads(task.annotations) if task.annotations else []
+    except (ValueError, TypeError) as exc:
+        logger.warning("Task %s has unparseable annotations, skipping: %s", task.id, exc)
+        return []
+    return anns if isinstance(anns, list) else []
+
+
 def ordered_annotations(task: models.Task) -> List[dict]:
     """A task's real annotations in paint order.
 
@@ -327,13 +358,7 @@ def ordered_annotations(task: models.Task) -> List[dict]:
     an overlap reports. Explicit `order` wins where present; otherwise the
     stored sequence is the order the user drew them in.
     """
-    try:
-        anns = json.loads(task.annotations) if task.annotations else []
-    except (ValueError, TypeError) as exc:
-        logger.warning("Task %s has unparseable annotations, skipping: %s", task.id, exc)
-        return []
-    if not isinstance(anns, list):
-        return []
+    anns = annotation_dicts(task)
     real = [a for a in anns if is_annotation(a)]
     ordered = sorted(enumerate(real), key=lambda pair: (pair[1].get("order", pair[0]), pair[0]))
     return [ann for _, ann in ordered]
