@@ -25,9 +25,8 @@ clear-guard, the history recorder) sits several frames below the route and
 never receives the request object.
 
 Nothing here may raise into a request. A logging failure degrades to a warning
-on the app logger — the same discipline `_record_annotation_history` follows,
-for the same reason: a safety net that can drop what it is catching is worse
-than no net.
+on the app logger, for the same reason any safety net does: a net that can drop
+what it is catching is worse than no net.
 """
 import contextvars
 import datetime
