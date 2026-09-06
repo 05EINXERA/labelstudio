@@ -21,6 +21,9 @@ import logging
 import uuid
 from typing import Any, Optional
 
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+
 import models
 
 logger = logging.getLogger(__name__)
@@ -226,6 +229,9 @@ def sync_task_annotations(db, task, incoming: list, known_label_ids=None) -> boo
 
     seen: set = set()
     changed = False
+    # Rows that are new to this session, applied as an upsert after the loop so
+    # a concurrent save that inserted the same id first cannot 500 this one.
+    pending_upserts: list = []
 
     for position, ann in enumerate(incoming):
         if not isinstance(ann, dict):
@@ -236,15 +242,37 @@ def sync_task_annotations(db, task, incoming: list, known_label_ids=None) -> boo
         kwargs = dict_to_row_kwargs(ann, task.id, known_label_ids, seq=position)
         ident = kwargs["id"]
         # A payload that repeats an id would otherwise collide on the primary
-        # key. The save path mints a fresh id for the duplicate, matching how
-        # an id-less shape is treated.
+        # key. Dropping the later copy is deliberate, and differs from minting
+        # a fresh id for it: a minted id is not in the *next* payload either,
+        # so every autosave would mint another one and the task would grow an
+        # orphan row per save forever. The blob path kept both copies, but the
+        # canvas cannot address two shapes by one id anyway, so the second was
+        # already unreachable.
         if ident in seen:
-            kwargs["id"] = ident = str(uuid.uuid4())
+            continue
         seen.add(ident)
 
         row = existing.get(ident)
         if row is None:
-            db.add(models.Annotation(**kwargs))
+            # UPSERT, not INSERT.
+            #
+            # Two saves of the same task can overlap -- one browser tab writes
+            # from the debounced autosave, the visibilitychange beacon and the
+            # 30s timer drain, and on a large task a save takes long enough
+            # that the next one starts before it finishes (task 713 measured
+            # 36s and 39s saves overlapping in production). Both sessions load
+            # the same rows, both see the new shape as absent, and both INSERT
+            # it -- the second violating annotations_pkey and 500ing the save.
+            #
+            # The blob path could not hit this: a whole-column overwrite has no
+            # per-row constraint to violate. Per-row storage introduced it, so
+            # per-row storage has to answer for it.
+            #
+            # ON CONFLICT DO UPDATE is the fix rather than a pre-SELECT: the
+            # check-then-insert race is exactly what fails here, and only the
+            # database can settle it atomically. Last writer wins, which is the
+            # same resolution the blob path had.
+            pending_upserts.append(kwargs)
             changed = True
             continue
 
@@ -266,6 +294,31 @@ def sync_task_annotations(db, task, incoming: list, known_label_ids=None) -> boo
             task.annotation_rows.remove(row)
             db.delete(row)
             changed = True
+
+    if pending_upserts:
+        # Flush the deletes and updates first: an id can legitimately be
+        # removed and re-added in one payload, and the upsert must land after
+        # the delete, not race it.
+        db.flush()
+        # Both dialects spell ON CONFLICT the same way; the constructor differs.
+        # Postgres is production, SQLite is dev and the test suite.
+        maker = sqlite_insert if db.bind.dialect.name == "sqlite" else pg_insert
+        # Chunked: one row binds 15 parameters, and SQLite caps a statement at
+        # 999 (older builds) -- a first-save of a few thousand shapes blew
+        # straight past it. 500 rows x 15 = 7,500 params is fine on Postgres
+        # (limit 65,535) and is split further below for SQLite.
+        chunk = 60 if db.bind.dialect.name == "sqlite" else 500
+        for start in range(0, len(pending_upserts), chunk):
+            batch = pending_upserts[start:start + chunk]
+            stmt = maker(models.Annotation.__table__).values(batch)
+            db.execute(stmt.on_conflict_do_update(
+                index_elements=["id", "task_id"],
+                set_={c: stmt.excluded[c] for c in _SYNC_COLUMNS},
+            ))
+        # The rows were written behind the ORM's back, so the collection it
+        # holds is stale. Expire it rather than leaving the caller with a task
+        # whose annotation_rows disagree with the database.
+        db.expire(task, ["annotation_rows"])
 
     return changed
 
