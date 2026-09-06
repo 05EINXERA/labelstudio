@@ -266,6 +266,10 @@ def test_a_broken_history_write_never_fails_the_save(client, alice, monkeypatch)
 
     This is not hypothetical: it is exactly what happened while developing this
     against an un-migrated database.
+
+    Targets `rows_to_dicts`, which serialises the superseded rows -- the step
+    that replaced the blob copy when annotations became rows. The property
+    under test is unchanged; only the name of the thing that can fail is.
     """
     import api.routers.tasks as tasks_module
 
@@ -277,7 +281,7 @@ def test_a_broken_history_write_never_fails_the_save(client, alice, monkeypatch)
     def exploding_history(*args, **kwargs):
         raise RuntimeError("simulated history failure")
 
-    monkeypatch.setattr(tasks_module, "_count_annotations", exploding_history)
+    monkeypatch.setattr(tasks_module, "rows_to_dicts", exploding_history)
 
     res = _save(client, alice, task["id"], 11, updated)
     assert res.status_code == 200, "the save must survive a broken history write"

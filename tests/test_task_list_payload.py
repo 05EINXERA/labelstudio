@@ -26,6 +26,29 @@ def _project(client, headers, name="counts"):
     return res.json()["id"]
 
 
+def _labels(client, headers, project_id, *ids):
+    """Create real labels.
+
+    Needed since annotations became rows: `annotations.label_id` has a foreign
+    key the blob column never had, so an annotation naming a label that does
+    not exist is stored with a NULL label_id (its original is preserved in
+    `extra`) and no longer contributes to a per-label count. Inventing label
+    ids in a fixture used to work by accident.
+    """
+    # Ids are namespaced per project so two tests in the same session cannot
+    # collide on `labels.id`, which is globally unique.
+    res = client.post("/api/labels/bulk", json={
+        "projectId": project_id,
+        "labels": [
+            {"id": f"{project_id}-{i}", "name": i, "color": "#fff",
+             "projectId": project_id}
+            for i in ids
+        ],
+    }, headers=headers)
+    assert res.status_code == 200, res.text
+    return {i: f"{project_id}-{i}" for i in ids}
+
+
 def _task(client, headers, project_id, annotations=None):
     payload = {"description": "img.png", "status": "New"}
     if annotations is not None:
@@ -47,20 +70,27 @@ def _rows(client, headers, project_id, include_annotations):
 
 # A blob with a bit of everything: two comments, three labelled shapes across
 # two distinct labels, and one shape with no label at all.
-_MIXED = [
-    {"type": "comment", "text": "look here"},
-    {"type": "comment", "text": "and here"},
-    {"type": "box", "labelId": "cat"},
-    {"type": "box", "labelId": "cat"},
-    {"type": "polygon", "labelId": "dog"},
-    {"type": "box"},
-]
+def _mixed(lid):
+    """Two comments; two distinct labels across three labelled shapes.
+
+    Takes the real label ids because `annotations.label_id` has a foreign key:
+    a shape naming a label that does not exist is stored with a NULL label_id
+    and cannot contribute to a distinct-class count.
+    """
+    return [
+        {"type": "comment", "text": "look here"},
+        {"type": "comment", "text": "and here"},
+        {"type": "box", "labelId": lid["cat"]},
+        {"type": "box", "labelId": lid["cat"]},
+        {"type": "polygon", "labelId": lid["dog"]},
+        {"type": "box"},
+    ]
 
 
 def test_lean_list_omits_annotation_blobs(client, alice):
     """The point of the flag: contents must not be shipped."""
     pid = _project(client, alice)
-    _task(client, alice, pid, _MIXED)
+    _task(client, alice, pid, _mixed(_labels(client, alice, pid, "cat", "dog")))
 
     (row,) = _rows(client, alice, pid, include_annotations=False)
     assert row["annotations"] == []
@@ -69,7 +99,8 @@ def test_lean_list_omits_annotation_blobs(client, alice):
 def test_lean_list_reports_counts(client, alice):
     """Two comments; two distinct labels across three labelled shapes."""
     pid = _project(client, alice)
-    _task(client, alice, pid, _MIXED)
+    lid = _labels(client, alice, pid, "cat", "dog")
+    _task(client, alice, pid, _mixed(lid))
 
     (row,) = _rows(client, alice, pid, include_annotations=False)
     assert row["comment_count"] == 2
@@ -84,7 +115,8 @@ def test_counts_match_between_lean_and_full_responses(client, alice):
     easy place for the two to drift.
     """
     pid = _project(client, alice)
-    _task(client, alice, pid, _MIXED)
+    lid = _labels(client, alice, pid, "cat", "dog")
+    _task(client, alice, pid, _mixed(lid))
     _task(client, alice, pid, [{"type": "comment"}])
     _task(client, alice, pid, [])
 
@@ -103,7 +135,7 @@ def test_counts_match_naive_client_side_tally(client, alice):
     changed number in the UI.
     """
     pid = _project(client, alice)
-    _task(client, alice, pid, _MIXED)
+    _task(client, alice, pid, _mixed(_labels(client, alice, pid, "cat", "dog")))
 
     (full,) = _rows(client, alice, pid, include_annotations=True)
     anns = full["annotations"]
@@ -128,6 +160,14 @@ def test_counts_match_naive_client_side_tally(client, alice):
 )
 def test_count_edge_cases(client, alice, annotations, comments, classes):
     pid = _project(client, alice)
+    # The label must exist: annotations.label_id has a foreign key, and a
+    # shape naming a label that does not exist is stored with a NULL label_id,
+    # so it cannot contribute to a distinct-class count.
+    lid = _labels(client, alice, pid, "a")
+    annotations = [
+        {**a, "labelId": lid["a"]} if a.get("labelId") == "a" else a
+        for a in annotations
+    ]
     _task(client, alice, pid, annotations)
 
     (row,) = _rows(client, alice, pid, include_annotations=False)
@@ -144,10 +184,14 @@ def test_task_with_no_annotations_reports_zero(client, alice):
     assert row["class_count"] == 0
 
 
-def test_unparseable_annotations_do_not_break_the_list(client, alice):
-    """One corrupt blob must not fail the whole view.
+def test_corrupt_stored_points_do_not_break_the_list(client, alice):
+    """One corrupt row must not fail the whole view.
 
-    Matches the tolerance every other reader of this column already has.
+    Rewritten for row storage. It used to corrupt `Task.annotations`, which the
+    list no longer reads -- the counts are aggregates over the `annotations`
+    table, so a bad blob cannot reach this view at all. The equivalent damage
+    now is an unparseable `points` value on a row, which `row_to_dict` logs and
+    skips.
     """
     pid = _project(client, alice)
     task_id = _task(client, alice, pid, [{"type": "comment"}])
@@ -157,23 +201,28 @@ def test_unparseable_annotations_do_not_break_the_list(client, alice):
 
     db = SessionLocal()
     try:
-        db.query(models.Task).filter(models.Task.id == task_id).update(
-            {models.Task.annotations: "{not json at all"}
-        )
+        db.query(models.Annotation).filter(
+            models.Annotation.task_id == task_id
+        ).update({models.Annotation.points: "{not json at all"})
         db.commit()
     finally:
         db.close()
 
     (row,) = _rows(client, alice, pid, include_annotations=False)
-    assert row["comment_count"] == 0
+    assert row["comment_count"] == 1
     assert row["class_count"] == 0
+
+    # And the full response still renders the task rather than 500ing.
+    (full,) = _rows(client, alice, pid, include_annotations=True)
+    assert full["id"] == task_id
 
 
 def test_counts_are_isolated_per_task(client, alice):
     """Counts must be keyed correctly; a shared tally would be invisible above."""
     pid = _project(client, alice)
+    lid = _labels(client, alice, pid, "x")
     a = _task(client, alice, pid, [{"type": "comment"}, {"type": "comment"}])
-    b = _task(client, alice, pid, [{"type": "box", "labelId": "x"}])
+    b = _task(client, alice, pid, [{"type": "box", "labelId": lid["x"]}])
 
     rows = {r["id"]: r for r in _rows(client, alice, pid, include_annotations=False)}
     assert (rows[a]["comment_count"], rows[a]["class_count"]) == (2, 0)
@@ -185,25 +234,27 @@ def test_counts_are_isolated_per_task(client, alice):
 
 def test_label_usage_counts_annotations_per_label(client, alice):
     pid = _project(client, alice)
+    lid = _labels(client, alice, pid, "cat", "dog")
     _task(client, alice, pid, [
-        {"type": "box", "labelId": "cat"},
-        {"type": "box", "labelId": "cat"},
-        {"type": "polygon", "labelId": "dog"},
+        {"type": "box", "labelId": lid["cat"]},
+        {"type": "box", "labelId": lid["cat"]},
+        {"type": "polygon", "labelId": lid["dog"]},
         {"type": "comment"},
     ])
 
     res = client.get(f"/api/labels/usage?projectId={pid}", headers=alice)
     assert res.status_code == 200, res.text
-    assert res.json() == {"cat": 2, "dog": 1}
+    assert res.json() == {lid["cat"]: 2, lid["dog"]: 1}
 
 
 def test_label_usage_spans_tasks(client, alice):
     pid = _project(client, alice)
-    _task(client, alice, pid, [{"type": "box", "labelId": "cat"}])
-    _task(client, alice, pid, [{"type": "box", "labelId": "cat"}])
+    lid = _labels(client, alice, pid, "cat")
+    _task(client, alice, pid, [{"type": "box", "labelId": lid["cat"]}])
+    _task(client, alice, pid, [{"type": "box", "labelId": lid["cat"]}])
 
     res = client.get(f"/api/labels/usage?projectId={pid}", headers=alice)
-    assert res.json()["cat"] == 2
+    assert res.json()[lid["cat"]] == 2
 
 
 def test_label_usage_is_empty_for_unannotated_project(client, alice):
@@ -240,7 +291,7 @@ def test_label_usage_requires_project_access(client, alice, bob):
 def test_lean_list_still_requires_project_access(client, alice, bob):
     """The payload change must not have widened who can read the list."""
     pid = _project(client, alice)
-    _task(client, alice, pid, _MIXED)
+    _task(client, alice, pid, _mixed(_labels(client, alice, pid, "cat", "dog")))
 
     res = client.get(
         f"/api/tasks?projectId={pid}&include_annotations=false", headers=bob

@@ -57,7 +57,8 @@ from api.permissions import ProjectRole, require_project
 from formats import annotations_json
 from formats import coco as coco_format
 from formats import yolo as yolo_format
-from formats.common import image_size, value_from_name
+from formats.annotation_rows import sync_task_annotations_for_project
+from formats.common import annotation_dicts, image_size, value_from_name
 
 # Folder names that mark a mask archive. Masks are export-only — tracing a
 # raster back to polygons is not a faithful inverse — so an archive of them is
@@ -439,15 +440,25 @@ async def import_annotations(
         if mode == "replace":
             existing_kept = []
         else:
-            try:
-                existing_kept = json.loads(task.annotations) if task.annotations else []
-                if not isinstance(existing_kept, list):
-                    existing_kept = []
-            except (ValueError, TypeError) as exc:
-                logger.warning("Task %s had unparseable annotations, replacing: %s", task.id, exc)
-                existing_kept = []
+            existing_kept = annotation_dicts(task)
 
-        task.annotations = json.dumps(existing_kept + resolved)
+        merged = existing_kept + resolved
+        task.annotations = json.dumps(merged)
+        # Keep the rows in step with the blob. An import is the largest single
+        # change a task can undergo, so a stale row set here would be the most
+        # visible way the two representations could diverge -- exactly what
+        # reconciliation is watching for before the Phase C cutover.
+        #
+        # Swallowed like the save path's mirror: until cutover the blob is the
+        # real write, and an import must not fail because the copy did.
+        try:
+            sync_task_annotations_for_project(db, task, merged)
+        except Exception:
+            logger.exception(
+                "Task %s: could not mirror imported annotations into the "
+                "annotations table; the blob write is unaffected.",
+                task.id,
+            )
         # Set explicitly — `Task.updated_at` has no `onupdate` (models.py). An
         # import rewrites annotations wholesale, so a stale timestamp here
         # would hide the biggest change a task can undergo.

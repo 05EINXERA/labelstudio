@@ -22,6 +22,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import models
 from formats.common import (
+    annotation_dicts,
     annotation_type_of,
     bbox_of,
     flatten_points,
@@ -39,11 +40,9 @@ logger = logging.getLogger(__name__)
 
 
 def _annotations_of(task: models.Task) -> List[dict]:
-    try:
-        anns = json.loads(task.annotations) if task.annotations else []
-    except (ValueError, TypeError) as exc:
-        logger.warning("Task %s has unparseable annotations, skipping in export: %s", task.id, exc)
-        return []
+    # annotation_dicts knows which storage is authoritative (rows vs the
+    # legacy blob) and logs an unreadable task rather than failing the export.
+    anns = annotation_dicts(task)
     if not isinstance(anns, list):
         return []
     return [a for a in anns if is_annotation(a)]
