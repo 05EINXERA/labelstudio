@@ -257,20 +257,43 @@ def verify_postgres_dump(path: str) -> None:
         )
 
 
+# Tables excluded from the hourly dump.
+#
+# `task_annotation_history` is dead weight: the feature that wrote it was
+# removed (.devnotes/remove-annotation-history/), so nothing reads or writes it,
+# but 7.9 GB of it was still being dumped every hour. That cost backup time and
+# — the part that matters — *restore* time, on the path that is now the only
+# wipe recovery there is.
+#
+# The table itself is deliberately still in the database: it holds the last
+# per-task recovery data, kept until the Phase B drop. Excluding it here is what
+# lets those two decisions be independent — the hourly dump gets cheap now,
+# while the data stays available for a one-off copy.
+#
+# `--exclude-table` on a table that does not exist is not an error, so this line
+# needs no cleanup when the drop finally happens.
+EXCLUDED_TABLES = ("task_annotation_history",)
+
+
 def backup_postgres(dest_dir: str) -> str:
     """pg_dump in custom format, restorable with pg_restore.
 
     Written to a .part file and renamed only after verify_postgres_dump
     confirms the archive is complete, so an interrupted run can never leave a
     file that looks like a valid snapshot. See BACKUP_TRUNCATION above.
+
+    Excludes EXCLUDED_TABLES. A restore from this dump therefore recreates the
+    database *without* those tables, which is correct: they are not part of the
+    running schema.
     """
     target = os.path.join(dest_dir, f"workspace-{_timestamp()}.dump")
     partial = target + ".part"
     # psycopg-style URLs need the SQLAlchemy driver suffix stripped for pg_dump.
     url = DATABASE_URL.replace("postgresql+psycopg://", "postgresql://")
+    excludes = [f"--exclude-table={name}" for name in EXCLUDED_TABLES]
     try:
         subprocess.run(
-            ["pg_dump", "--format=custom", "--file", partial, url],
+            ["pg_dump", "--format=custom", *excludes, "--file", partial, url],
             check=True,
         )
         verify_postgres_dump(partial)
