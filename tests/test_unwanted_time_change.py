@@ -49,24 +49,6 @@ def _create_task(client, auth, project_id, annotations=None, status="In Progress
     return res.json()
 
 
-def _history_count(task_id):
-    """History rows for a task, read straight from the DB.
-
-    There is no read endpoint for these by design — restoring is a human
-    decision driven by scripts/ (.devnotes/task-history/01_DESIGN.md § 3) — so
-    the existing suite queries the table directly and so does this.
-    """
-    db = SessionLocal()
-    try:
-        return (
-            db.query(models.TaskAnnotationHistory)
-            .filter(models.TaskAnnotationHistory.task_id == task_id)
-            .count()
-        )
-    finally:
-        db.close()
-
-
 def _detail(client, auth, task_id):
     res = client.get(f"/api/tasks/{task_id}", headers=auth)
     assert res.status_code == 200, res.text
@@ -132,25 +114,25 @@ def test_value_identical_save_is_inert(client, alice):
     assert _detail(client, alice, tid)["annotations"] == json.loads(blob)
 
 
-def test_inert_save_writes_no_history_row(client, alice):
-    """A no-op must not consume one of the 50 history slots.
+def test_inert_save_leaves_the_stored_annotations_alone(client, alice):
+    """A no-op save must not disturb what is stored.
 
-    ANNOTATION_HISTORY_KEEP is sized for real saves; letting look-only visits
-    evict entries would shrink the recoverable window for no reason.
+    Was `test_inert_save_writes_no_history_row`, which probed the same gate by
+    counting `task_annotation_history` rows. That table is gone
+    (.devnotes/remove-annotation-history/), so the assertion now reads the
+    annotations themselves — which is what the gate was protecting anyway.
     """
     pid = _project(client, alice, "noedit-history")
     blob = _annotations(2)
     task = _create_task(client, alice, pid, annotations=blob)
     tid, before = task["id"], task["updated_at"]
 
-    baseline = _history_count(tid)
-
     client.post("/api/tasks", json={
         "id": tid, "annotations": blob, "status": "In Progress",
         "time_spent_delta": 0, "updated_at": before, "client_id": "tab-1",
     }, headers=alice)
 
-    assert _history_count(tid) == baseline, "an inert save recorded a history row"
+    assert _detail(client, alice, tid)["annotations"] == json.loads(blob)
 
 
 def test_inert_save_leaves_the_conflict_token_usable(client, alice):
@@ -238,20 +220,23 @@ def test_annotation_change_still_bumps_updated_at(client, alice):
     assert len(_detail(client, alice, tid)["annotations"]) == 5
 
 
-def test_annotation_change_still_records_history(client, alice):
-    """Rule 11 guard: the history layer must not be starved by the new gate."""
+def test_annotation_change_is_stored(client, alice):
+    """Rule 11 guard: a real edit must not be starved by the inert-save gate.
+
+    Was `test_annotation_change_still_records_history`, which asserted a history
+    row appeared. With that table removed the same guard is expressed against
+    the stored annotations.
+    """
     pid = _project(client, alice, "edit-history")
     task = _create_task(client, alice, pid, annotations=_annotations(2))
     tid, before = task["id"], task["updated_at"]
-
-    baseline = _history_count(tid)
 
     client.post("/api/tasks", json={
         "id": tid, "annotations": _annotations(7), "status": "In Progress",
         "updated_at": before, "client_id": "tab-1",
     }, headers=alice)
 
-    assert _history_count(tid) > baseline, "a real edit failed to record history"
+    assert len(_detail(client, alice, tid)["annotations"]) == 7
 
 
 def test_status_change_still_bumps_updated_at(client, alice):
