@@ -9,6 +9,7 @@ import {
 import { visibleRows, hiddenRowCount } from "../objects-filter.js?v=1";
 import { MAX_CLASS_SHORTCUTS } from "../shortcuts.js?v=1";
 import { pendingCount, retryablePendingCount, isServerUnreachable, peekWrite } from "../offline-queue.js?v=6";
+import { coalesce } from "../save-coalesce.js?v=1";
 import { annotationPoints, updateAnnotationBounds } from "../canvas/geometry.js?v=1";
 import { view } from "../canvas/view.js?v=1";
 import { drainTaskTime, DRAIN_SKIPPED, refreshTimerDisplays } from "./timer.js?v=8";
@@ -302,29 +303,73 @@ export function syncToBackend({ useBeacon = false, keepStatus = false, allowClea
     return Promise.resolve(DRAIN_SKIPPED);
   }
 
+  // At most one save per task on the wire at a time.
+  //
+  // The 1s debounce above spaces out *scheduling*; nothing spaced out
+  // *execution*. On a large task a save takes 12s, so the next debounce, the
+  // visibilitychange flush and the 30s drain all fired while the first request
+  // was still going — production measured 84 pairs less than a second apart for
+  // one task from one tab. Each overlapping save costs the server ~200 MB of
+  // live objects (17x amplification), and CPython's stop-the-world GC then
+  // stalled every other request. See .devnotes/fix-save-coalesce/01_PLAN.md.
+  //
+  // Folding is safe because the payload is absolute: every save carries the
+  // complete annotation set, so the follow-up is a strict superset of whatever
+  // a suppressed call would have written. The one incremental field,
+  // `time_spent_delta`, is untouched — a suppressed call never reaches
+  // `drainTaskTime`, the only place that reads and zeroes the accumulator, so
+  // the seconds stay banked and ride the follow-up save.
+  //
+  // The three bypasses are the same exemptions `nothingToSave` above makes, for
+  // the same reasons: a beacon is the last chance to persist before the tab
+  // dies and has no "later" to fold into; a user-initiated save is being
+  // watched for an answer; and an explicit status carries an intent the
+  // follow-up would not know to resend.
+  const neverFold = useBeacon || userInitiated || forceStatus !== null;
+
   // Time accounting (drain, retry-on-failure, task binding) lives in timer.js
   // so there is exactly one drain point for taskSessionSeconds. See
   // docs/TIMER_AUDIT.md F3/F4.
-  return Promise.resolve(drainTaskTime(currentTask, {
-    status: taskStatus,
-    annotations: currentTask.annotations,
-    useBeacon,
-    allowClear
-  })).then((ok) => {
-    // The draft exists to cover work the server does not have. Once it has
-    // taken the write, the draft is stale and must go, or the next load would
-    // "recover" it over fresher server data.
-    if (ok !== false && currentTask.id) {
-      clearDraft(currentTask.id);
-      // The server now holds exactly what was sent, so that becomes the new
-      // baseline for "has this been edited?". Without this the fingerprint
-      // stays pinned to the original hydration and every later save still
-      // counts as an edit — which would demote a just-completed task on the
-      // very next time drain.
-      noteHydratedAnnotations(currentTask.annotations);
-    }
-    return ok;
-  });
+  // The post-save bookkeeping runs INSIDE the sender, not on the returned
+  // promise, and that placement is load-bearing.
+  //
+  // A folded caller's promise settles when the *in-flight* save finishes — a
+  // save that carried an older annotation set. Clearing the draft and
+  // re-fingerprinting there would mark edits the server has not seen as saved,
+  // dropping exactly the unsaved work the draft exists to protect. Running it
+  // inside the sender means it only ever describes the payload that was
+  // actually sent, and the follow-up save does its own bookkeeping when it
+  // lands.
+  const sendOnce = () => {
+    // The snapshot this save puts on the wire, captured BEFORE the await.
+    // `currentTask.annotations` is reassigned by every later edit, so reading
+    // it in the `.then()` would fingerprint whatever the canvas holds when the
+    // response lands rather than what the server was actually given — marking
+    // unsent edits as saved.
+    const sentAnnotations = currentTask.annotations;
+    return Promise.resolve(drainTaskTime(currentTask, {
+      status: taskStatus,
+      annotations: sentAnnotations,
+      useBeacon,
+      allowClear
+    })).then((ok) => {
+      // The draft exists to cover work the server does not have. Once it has
+      // taken the write, the draft is stale and must go, or the next load would
+      // "recover" it over fresher server data.
+      if (ok !== false && currentTask.id) {
+        clearDraft(currentTask.id);
+        // The server now holds exactly what was sent, so that becomes the new
+        // baseline for "has this been edited?". Without this the fingerprint
+        // stays pinned to the original hydration and every later save still
+        // counts as an edit — which would demote a just-completed task on the
+        // very next time drain.
+        noteHydratedAnnotations(sentAnnotations);
+      }
+      return ok;
+    });
+  };
+
+  return coalesce(currentTask.id, sendOnce, { bypass: neverFold });
 }
 
 /** The task currently open, or null. */
