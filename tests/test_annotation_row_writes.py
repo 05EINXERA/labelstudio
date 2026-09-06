@@ -200,8 +200,15 @@ def test_deleting_a_task_deletes_its_annotation_rows(client, alice, db):
     assert _rows(db, tid) == []
 
 
-def test_duplicate_ids_in_one_payload_do_not_collide(client, alice, db):
-    """(id, task_id) is the primary key, so a repeated id would violate it."""
+def test_duplicate_ids_in_one_payload_keep_the_first(client, alice, db):
+    """(id, task_id) is the primary key, so a repeated id would violate it.
+
+    The later copy is dropped rather than given a fresh id. Minting one looks
+    kinder but leaks: the minted id is not in the *next* payload either, so
+    every autosave would mint another and the task would grow one orphan row
+    per save, forever. The canvas cannot address two shapes by one id anyway,
+    so the second copy was already unreachable.
+    """
     pid = _project(client, alice)
     tid = _create_task(client, alice, pid)
 
@@ -209,7 +216,58 @@ def test_duplicate_ids_in_one_payload_do_not_collide(client, alice, db):
                 [{"id": "same", "type": "box"}, {"id": "same", "type": "polygon"}])
     assert res.status_code == 200
     db.expire_all()
-    assert len(_rows(db, tid)) == 2
+    rows = _rows(db, tid)
+    assert len(rows) == 1
+    assert rows[0].type == "box", "the first copy wins"
+
+
+def test_repeated_saves_of_a_duplicated_id_do_not_accumulate_rows(client, alice, db):
+    """The leak this guards against: one orphan row per autosave."""
+    pid = _project(client, alice)
+    tid = _create_task(client, alice, pid)
+
+    anns = [{"id": "same", "type": "box"}, {"id": "same", "type": "polygon"}]
+    for _ in range(4):
+        assert _save(client, alice, tid, anns).status_code == 200
+    db.expire_all()
+    assert len(_rows(db, tid)) == 1
+
+
+def test_overlapping_saves_of_one_task_do_not_500(client, alice, db):
+    """Two saves of the same task can be in flight at once.
+
+    One tab writes from the debounced autosave, the visibilitychange beacon and
+    the 30s timer drain, and on a large task a save runs long enough that the
+    next starts first -- production showed 36s and 39s saves on task 713
+    overlapping. Both sessions saw a new shape as absent and both INSERTed it;
+    the second violated annotations_pkey and 500ed a real annotator's save.
+
+    The blob path could not hit this: a whole-column overwrite has no per-row
+    constraint. Per-row storage introduced it, so the write is an upsert.
+    """
+    import threading
+
+    pid = _project(client, alice)
+    tid = _create_task(client, alice, pid)
+    assert _save(client, alice, tid, [{"id": "A", "type": "box"}]).status_code == 200
+
+    payload = [{"id": "A", "type": "box"}, {"id": "NEW", "type": "polygon"}]
+    results = []
+    barrier = threading.Barrier(2)
+
+    def writer():
+        barrier.wait()
+        results.append(_save(client, alice, tid, payload).status_code)
+
+    threads = [threading.Thread(target=writer) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=30)
+
+    assert all(code in (200, 409) for code in results), results
+    db.expire_all()
+    assert sorted(r.id for r in _rows(db, tid)) == ["A", "NEW"]
 
 
 def test_same_id_on_two_tasks_is_allowed(client, alice, db):
