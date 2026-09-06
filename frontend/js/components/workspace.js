@@ -341,11 +341,25 @@ export function syncToBackend({ useBeacon = false, keepStatus = false, allowClea
   // actually sent, and the follow-up save does its own bookkeeping when it
   // lands.
   const sendOnce = () => {
+    // Re-read the canvas at SEND time, not at schedule time.
+    //
+    // This function is called again for the follow-up save after a folded
+    // request, and that call must carry whatever the canvas holds *then* — the
+    // whole point of folding is that the later send supersedes the suppressed
+    // one. Reusing the array captured when this closure was built would send a
+    // stale snapshot and silently drop everything drawn in between.
+    //
+    // In practice every edit calls save(), which reassigns
+    // `currentTask.annotations` before scheduling, so the two agree. This does
+    // not rely on that: the guarantee lives here rather than in a caller's
+    // timing. Pinned by tests/js/save_coalesce_integration_spec.mjs case 7,
+    // which was verified to fail without this line.
+    currentTask.annotations = [...state.annotations];
     // The snapshot this save puts on the wire, captured BEFORE the await.
-    // `currentTask.annotations` is reassigned by every later edit, so reading
-    // it in the `.then()` would fingerprint whatever the canvas holds when the
-    // response lands rather than what the server was actually given — marking
-    // unsent edits as saved.
+    // Reading it in the `.then()` instead would fingerprint whatever the canvas
+    // holds when the response lands rather than what the server was actually
+    // given — marking unsent edits as saved, which suppresses the next autosave
+    // as "nothing to save" and loses the work.
     const sentAnnotations = currentTask.annotations;
     return Promise.resolve(drainTaskTime(currentTask, {
       status: taskStatus,
