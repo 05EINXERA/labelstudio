@@ -160,7 +160,23 @@ async def add_security_and_cache_headers(request, call_next):
 # far smaller than what this middleware saves — so it is left as-is and
 # documented rather than fixed by rewriting the header middleware as pure ASGI.
 # Pinned by tests/test_response_compression.py.
-app.add_middleware(GZipMiddleware, minimum_size=500)
+#
+# compresslevel=6, not Starlette's default of 9. Level 9 spends a great deal of
+# CPU for almost nothing on this payload, and that CPU is GIL-held, so it
+# stalls every other request in the process exactly as the annotation JSON
+# parsing used to. Measured on a 14.39 MB task-detail body:
+#
+#     level 9 : 1387 ms -> 1.36 MB
+#     level 6 :  247 ms -> 1.32 MB      <- 5.6x faster, 3% larger
+#     level 1 :   59 ms -> 2.20 MB
+#
+# Level 6 is zlib's own default for good reason. Opening a large task measured
+# 2,965 ms gzipped against 582 ms uncompressed over loopback, so on a fast LAN
+# the compression was costing more than the bytes it saved.
+#
+# Do NOT raise this back to 9 without re-measuring: on the largest tasks it is
+# worth well over a second of stalled event loop per request.
+app.add_middleware(GZipMiddleware, minimum_size=500, compresslevel=6)
 
 
 # The structured per-request log (.devnotes/logging/02_PLAN.md). This is what
