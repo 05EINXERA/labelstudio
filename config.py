@@ -141,35 +141,13 @@ COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "0").strip().lower() in ("1", "t
 COOKIE_SAMESITE = os.environ.get("COOKIE_SAMESITE", "strict").strip().lower()
 
 # --- Annotation history ---------------------------------------------------
-# How many superseded annotation sets to keep per task. Rationale for the
-# value (and why it is not 5) lives with the retention code in
-# api/routers/tasks.py; the knob lives here so every entry point reads it the
-# same way (rule 12). 0 disables history entirely.
-#
-# The count is not a storage bound: a stored set scales with the task, so 50
-# versions of a 1200-vertex polygon cost far more than 50 of ten boxes.
-#
-ANNOTATION_HISTORY_KEEP = int(os.environ.get("ANNOTATION_HISTORY_KEEP", "50"))
-
-# Skip writing a history row when the save cannot have destroyed anything --
-# every stored annotation still present, unchanged, in the incoming payload.
-#
-# Why this exists: a freehand polygon is drawn vertex by vertex while autosave
-# fires every few seconds. Those saves are real edits but supersede nothing,
-# and in production they drove task_annotation_history to 8 GB while pushing
-# genuinely destructive values out of the retention window.
-#
-# Default off: it decides whether recoverable work is preserved, so it stays
-# opt-in per deployment and revertible without a redeploy.
-#
-# The ANNOTATION_HISTORY_HEARTBEAT_SECONDS knob that used to accompany this is
-# gone. It bounded how long the append-skip could run without a snapshot,
-# because deciding to skip cost ~191 ms of `is_pure_append` blob diffing and so
-# had to be worth it. The decision is now a set difference on indexed ids, so
-# there is no longer a cost to amortise.
-ANNOTATION_HISTORY_APPEND_SKIP = os.environ.get(
-    "ANNOTATION_HISTORY_APPEND_SKIP", "0"
-).strip().lower() in ("1", "true", "yes")
+# Removed. `task_annotation_history` kept the superseded annotation set on
+# every save; after the normalisation it was the last place still serialising
+# a task's entire annotation set, at ~1,325 ms of GIL-held CPU and a 22 MB row
+# write per save on the largest task. The ANNOTATION_HISTORY_KEEP and
+# ANNOTATION_HISTORY_APPEND_SKIP knobs went with it; both are ignored if still
+# present in a .env. Wipe recovery is now the hourly backup.
+# See .devnotes/remove-annotation-history/02_PLAN.md.
 
 # --- CORS -----------------------------------------------------------------
 # Comma-separated exact origins, e.g. "http://192.168.1.81:8000".

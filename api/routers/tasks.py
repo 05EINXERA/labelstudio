@@ -12,11 +12,7 @@ import config as _cfg
 import models
 from logging_service import log_event
 from database import get_db, commit_with_retry
-from formats.annotation_rows import (
-    row_to_dict,
-    rows_to_dicts,
-    sync_task_annotations_for_project,
-)
+from formats.annotation_rows import sync_task_annotations_for_project
 from formats.common import annotation_dicts
 from schemas import (
     APPROVED_STATUSES,
@@ -106,23 +102,6 @@ CONFLICT_TOLERANCE_SECONDS = float(
 # the result to the row sync; the memo keeps a second caller from re-parsing
 # the same string. Cleared per request by `_reset_parse_cache()` so entries
 # cannot outlive the strings they describe.
-# How many superseded annotation sets to keep per task. The knob is in
-# config.py (rule 12); the rationale stays with the code it governs.
-#
-# 50 covers a working session: production showed a task edited far more often
-# than a 5-row window could span, so the values from earlier in a shift were
-# already evicted by the time anyone looked. Hourly snapshots
-# (schedule-backup.ps1) remain the coarse floor underneath this; history is the
-# fine-grained layer that catches what a snapshot cadence cannot.
-# See .devnotes/task-history/01_DESIGN.md § 4.2.
-ANNOTATION_HISTORY_KEEP = _cfg.ANNOTATION_HISTORY_KEEP
-
-# Skip the history row when the write cannot have destroyed anything. Still
-# opt-in, and still default-off, because it decides whether recoverable work
-# survives -- but it is no longer a performance trade-off: see
-# `_write_may_destroy`.
-ANNOTATION_HISTORY_APPEND_SKIP = _cfg.ANNOTATION_HISTORY_APPEND_SKIP
-
 _PARSE_CACHE: Dict[tuple, Any] = {}
 
 
@@ -182,174 +161,6 @@ def _stored_annotation_count(db: Session, db_task: models.Task) -> int:
         .scalar()
         or 0
     )
-
-
-def _write_may_destroy(db: Session, db_task: models.Task, incoming: list) -> bool:
-    """Could this payload remove or overwrite anything already stored?
-
-    The cheap successor to the removed `formats.annotation_diff.is_pure_append`,
-    which answered the same question by parsing both blobs and walking them
-    vertex-by-vertex -- ~191 ms per save on a 5 MB task, more than the history
-    write it was there to avoid
-    (.devnotes/server-issue-diagnosis/evidence/07_REMAINING_COSTS.md).
-
-    Normalisation makes it a set difference on ids, which the database can
-    answer from an index. A payload that keeps every stored id and adds to it
-    supersedes nothing, so there is nothing to preserve.
-
-    Deliberately conservative: an id that is present but whose geometry changed
-    counts as destructive, because the previous geometry really is being
-    overwritten and is exactly what someone would want back. Only pure growth
-    is treated as safe.
-    """
-    stored_ids = {
-        row[0]
-        for row in db.query(models.Annotation.id)
-        .filter(models.Annotation.task_id == db_task.id)
-        .all()
-    }
-    if not stored_ids:
-        return False
-
-    incoming_by_id = {
-        a.get("id"): a for a in incoming if isinstance(a, dict) and a.get("id")
-    }
-    if not stored_ids.issubset(incoming_by_id):
-        return True  # something was removed
-
-    # Every stored id survives. A changed field on any of them is still an
-    # overwrite -- except growing a polygon's vertex list, which is the case
-    # this whole option exists for: a freehand shape is drawn vertex by vertex
-    # while autosave fires every few seconds, so the same row is rewritten
-    # hundreds of times while destroying nothing. Treating those as
-    # destructive drove task_annotation_history to 8 GB in production and
-    # pushed genuinely destructive values out of the retention window.
-    existing_rows = (
-        db.query(models.Annotation)
-        .filter(models.Annotation.task_id == db_task.id)
-        .all()
-    )
-    for row in existing_rows:
-        stored = row_to_dict(row)
-        incoming_ann = incoming_by_id[row.id]
-        if stored == incoming_ann:
-            continue
-        if not _only_gained_points(stored, incoming_ann):
-            return True
-    return False
-
-
-def _only_gained_points(stored: dict, incoming: dict) -> bool:
-    """True when `incoming` is `stored` plus extra vertices and nothing else.
-
-    Every existing vertex must still be present, in order, with the new ones
-    anywhere among them -- a point inserted mid-polygon is the production
-    shape, not an append at the tail. Every other field must be untouched;
-    a moved vertex, a dropped one or an edited label is an overwrite.
-    """
-    if {k: v for k, v in stored.items() if k != "points"} != {
-        k: v for k, v in incoming.items() if k != "points"
-    }:
-        return False
-
-    before = stored.get("points")
-    after = incoming.get("points")
-    if not isinstance(before, list) or not isinstance(after, list):
-        return False
-    if len(after) <= len(before):
-        return False
-
-    # `before` must be a subsequence of `after`.
-    it = iter(after)
-    return all(any(point == candidate for candidate in it) for point in before)
-
-
-def _record_annotation_history(
-    db: Session,
-    db_task: models.Task,
-    incoming: list,
-    user: models.User,
-    client_id: Optional[str],
-) -> None:
-    """Preserve what this write is about to supersede.
-
-    Unchanged in purpose from the blob era (.devnotes/task-history/01_DESIGN.md):
-    a single bad write can still destroy a task, and the previous value is still
-    gone once the commit returns. What changed is the *source* -- the superseded
-    value is now serialised from the stored rows rather than copied from the
-    blob column, which no longer holds it.
-
-    **The expensive part is gone.** `is_pure_append` used to run on 100% of
-    saves to decide whether the history write could be skipped, at ~191 ms per
-    save on a 5 MB task -- more than the writes it avoided
-    (.devnotes/server-issue-diagnosis/evidence/07_REMAINING_COSTS.md). The
-    decision it made is now free: the row sync already knows precisely which
-    rows it is about to delete or overwrite, so "could this write destroy
-    anything?" is answered by looking at that set rather than by diffing two
-    parsed blobs.
-
-    Written inside a SAVEPOINT: a failure to record history must never take
-    down the annotation write it was protecting, which would make this feature
-    the cause of the loss it exists to prevent.
-    """
-    if not ANNOTATION_HISTORY_KEEP:
-        return
-
-    try:
-        with db.begin_nested():
-            existing = (
-                db.query(models.Annotation)
-                .filter(models.Annotation.task_id == db_task.id)
-                .order_by(models.Annotation.seq, models.Annotation.id)
-                .all()
-            )
-            if not existing:
-                # Nothing stored yet, so nothing can be superseded.
-                return
-
-            superseded = rows_to_dicts(existing)
-            # An identical resave supersedes nothing. Autosave, the
-            # visibilitychange beacon and the 30s timer drain all write the
-            # same set repeatedly, so without this the retention window fills
-            # with identical rows in seconds and the genuinely previous value
-            # is evicted.
-            if superseded == [a for a in incoming if isinstance(a, dict)]:
-                return
-
-            db.add(models.TaskAnnotationHistory(
-                task_id=db_task.id,
-                annotations=json.dumps(superseded),
-                annotation_count=len(superseded),
-                replaced_with_count=len(incoming),
-                replaced_by_user_id=getattr(user, "id", None),
-                client_id=client_id,
-            ))
-
-            # Flush so the row just added is visible to the retention query
-            # below; without it the keep-list is computed from the previous N
-            # and the table grows by one every save.
-            db.flush()
-
-            # Retention: keep the newest N per task.
-            keep_ids = [
-                row[0]
-                for row in db.query(models.TaskAnnotationHistory.id)
-                .filter(models.TaskAnnotationHistory.task_id == db_task.id)
-                .order_by(models.TaskAnnotationHistory.id.desc())
-                .limit(ANNOTATION_HISTORY_KEEP)
-                .all()
-            ]
-            if keep_ids:
-                db.query(models.TaskAnnotationHistory).filter(
-                    models.TaskAnnotationHistory.task_id == db_task.id,
-                    models.TaskAnnotationHistory.id.notin_(keep_ids),
-                ).delete(synchronize_session=False)
-    except Exception:
-        logger.exception(
-            "Task %s: failed to record annotation history; the save itself is "
-            "unaffected.",
-            db_task.id,
-        )
 
 
 def _sync_project_status(project_id: Optional[int], db: Session) -> None:
@@ -1448,24 +1259,24 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
                         task.client_id,
                         getattr(user, "username", "unknown"),
                     )
-            # Preserve what this write is about to destroy, in the same
-            # transaction. Placed after the clear-guard so a refused write
-            # leaves no history row -- nothing was superseded.
-            #
-            # Skipping a purely-additive write is opt-in, exactly as the old
-            # ANNOTATION_HISTORY_APPEND_SKIP was: whether recoverable work is
-            # preserved is a deployment decision, not one to change silently
-            # inside a storage migration. What changed is only the *price* of
-            # the test -- a set difference on indexed ids instead of
-            # `is_pure_append`'s ~191 ms of blob diffing, so the option no
-            # longer costs more than the writes it avoids.
             incoming_anns = _parsed(task.annotations) or []
-            if not ANNOTATION_HISTORY_APPEND_SKIP or _write_may_destroy(
-                db, db_task, incoming_anns
-            ):
-                _record_annotation_history(
-                    db, db_task, incoming_anns, user, task.client_id
-                )
+            # No history row is written here any more. `task_annotation_history`
+            # kept the superseded annotation set on every save, and after the
+            # normalisation it was the last place still serialising a task's
+            # whole annotation set: 858 ms of GIL-held CPU and a 22 MB row
+            # write, in 95% of cases to preserve a single changed shape, plus
+            # 467 ms for the append-skip guard that decided whether to do it.
+            # Removed rather than optimised -- the wipes it guarded against
+            # became rare, the table reached 7.9 GB, and its retention prune
+            # was the source of every DeadlockDetected in the log.
+            #
+            # Recovery for a wipe is now the hourly backup in
+            # E:/annotation-backups, restored with
+            # scripts/restore_task_annotations.py --file. That is coarser --
+            # up to an hour, and whole-database rather than per-task -- and the
+            # trade is recorded in
+            # .devnotes/remove-annotation-history/02_PLAN.md § 1.1.
+            #
             # The annotation write itself: rows, not the blob.
             #
             # `sync_task_annotations_for_project` diffs against what is stored

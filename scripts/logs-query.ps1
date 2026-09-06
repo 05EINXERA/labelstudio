@@ -96,7 +96,7 @@ if ($Losses) {
     Write-Host "`n=== Saves that reduced an object count (last $Days days) ===" -ForegroundColor Yellow
     Write-Host "Read: objects_prev -> objects. A large negative delta on a task"
     Write-Host "the annotator says lost work is the answer, and the previous blob"
-    Write-Host "is recoverable from task_annotation_history for that task id.`n"
+    Write-Host "is recoverable from the hourly backup in E:/annotation-backups.`n"
     # errors.log duplicates lines from the method files, so it is excluded here
     # and everywhere below to avoid reporting the same event twice.
     Find-Lines -Pattern 'event=task\.save .*delta=-' -Files @("POST.log", "PATCH.log")
