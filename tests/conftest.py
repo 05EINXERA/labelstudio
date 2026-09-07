@@ -18,6 +18,26 @@ _TMP_DATA_DIR = tempfile.mkdtemp(prefix="labelstudio-tests-")
 os.environ["DATA_DIR"] = _TMP_DATA_DIR
 os.environ.setdefault("JWT_SECRET", "test-secret-not-used-in-production")
 
+# Refuse to run against anything but a throwaway SQLite file.
+#
+# DATA_DIR above only redirects the *default* SQLite path; an inherited
+# DATABASE_URL overrides it completely and points the suite at the deployment
+# Postgres — where the autouse `clear_db` fixture below would DELETE every
+# task, annotation, project and label. This nearly happened on 2026-09-07 and
+# was averted only by an unrelated deadlock rolling the DELETE back.
+_inherited_db_url = os.environ.get("DATABASE_URL", "").strip()
+if _inherited_db_url and not _inherited_db_url.startswith("sqlite"):
+    raise RuntimeError(
+        "Refusing to run the test suite against a non-SQLite DATABASE_URL "
+        f"({_inherited_db_url.split('://')[0]}://...). The clear_db fixture "
+        "deletes all rows after every test. Unset DATABASE_URL to use the "
+        "temporary SQLite database."
+    )
+# Pin it explicitly so nothing downstream can re-resolve to the deployment DB.
+os.environ["DATABASE_URL"] = (
+    "sqlite:///" + os.path.join(_TMP_DATA_DIR, "workspace.db").replace(os.sep, "/")
+)
+
 from fastapi.testclient import TestClient  # noqa: E402
 
 import main  # noqa: E402

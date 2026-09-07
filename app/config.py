@@ -89,13 +89,15 @@ IS_SQLITE = DATABASE_URL.startswith("sqlite")
 # Request threadpool cap. Sync route handlers run in Starlette's anyio
 # threadpool (default 40). main.py sets the live cap from this at startup.
 #
-# It is pinned equal to the DB pool ceiling below so that under a burst a
+# It is held slightly BELOW the DB pool ceiling below so that under a burst a
 # request waits for a *thread* (which frees in tens of ms once a DB call
 # returns) rather than acquiring a thread and then blocking up to
-# pool_timeout (30s) for a connection. Matching the two removes that second,
-# far slower queue. See the load-test results in
-# .devnotes/deployment-hardening/05_LOAD_TEST.md.
-THREADPOOL_CAP = int(os.environ.get("THREADPOOL_CAP", "40"))
+# pool_timeout for a connection. The margin is what guarantees the thread
+# queue is reached first; setting the two equal lets a burst occupy every
+# connection and starve cheap endpoints, which is what happened on 2026-09-07
+# (see .devnotes/deployment-hardening/08_POOL_EXHAUSTION.md). See also the
+# load-test results in .devnotes/deployment-hardening/05_LOAD_TEST.md.
+THREADPOOL_CAP = int(os.environ.get("THREADPOOL_CAP", "34"))
 
 # Connection pool sizing. Only meaningful for Postgres; SQLite ignores it.
 #

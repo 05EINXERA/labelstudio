@@ -155,6 +155,13 @@ def get_current_annotator(request: Request, db: Session = Depends(get_db)):
             if (now - last_utc).total_seconds() >= 20:
                 member.last_active_at = now
                 commit_with_retry(db)
+            else:
+                # Read-only path: end the transaction so the pooled connection
+                # goes back now rather than being pinned for the whole request.
+                # See _release_idle_connection in get_current_user below.
+                db.rollback()
+    else:
+        db.rollback()
     return member
 
 def get_token(request: Request) -> Optional[str]:
@@ -216,4 +223,13 @@ def get_current_user(token: Optional[str] = Depends(get_token), db: Session = De
     user = db.query(models.User).filter(models.User.username == username).first()
     if user is None:
         raise credentials_exception
+    # This dependency runs on every /api/* request and only reads. Without an
+    # explicit rollback the session's transaction stays open, so the pooled
+    # connection is pinned from here until the response — across JSON parsing,
+    # the annotation loop's Python work, and the save-retry backoff sleeps. At
+    # ~25 concurrent annotators that idle holding is what exhausts the pool.
+    # The rollback returns the connection immediately; `user` stays attached to
+    # the session and transparently re-acquires one on next use.
+    # See .devnotes/deployment-hardening/08_POOL_EXHAUSTION.md.
+    db.rollback()
     return user

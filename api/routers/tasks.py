@@ -9,10 +9,11 @@ from fastapi import APIRouter, Depends, Query, HTTPException, Header
 from sqlalchemy import case, func, or_, distinct
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.orm.exc import StaleDataError
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 import time
 
 import models
+from config import IS_SQLITE
 from database import get_db, commit_with_retry, SessionLocal
 from schemas import TaskUpdate, BulkDelete, BulkUpdate, TaskDetail, PaginatedTasks, TaskSequenceItem
 from api.auth import get_current_user, require_csrf, get_current_annotator
@@ -195,14 +196,32 @@ def _is_task_editor(task: models.Task, user: models.User, db: Session, annotator
     return bool(project and is_project_creator(project, user, annotator))
 
 
-def _get_owned_task(task_id: int, user: models.User, db: Session, annotator: Optional[models.TeamMember] = None, require_edit: bool = True) -> models.Task:
-    """Return the task if it belongs to a project `user` can access, else 404."""
+def _get_owned_task(task_id: int, user: models.User, db: Session, annotator: Optional[models.TeamMember] = None, require_edit: bool = True, for_update: bool = False) -> models.Task:
+    """Return the task if it belongs to a project `user` can access, else 404.
+
+    `for_update` takes a row lock on the task, serialising concurrent writes to
+    it. Callers that mutate the task or its annotations should pass it; pure
+    readers must not, so a slow read never blocks a save.
+
+    Why this exists: every autosave rewrites a task's whole annotation set, so
+    two overlapping saves on the same task raced, lost, and retried — 600
+    retries an hour on 2026-09-07, concentrated on the largest tasks, plus
+    deadlocks from the two transactions touching annotation rows in opposite
+    orders. Acquiring this one lock before any annotation write gives every
+    writer the same lock order, which removes both. Contending saves now queue
+    briefly instead of doing the whole expensive rewrite and throwing it away.
+    See .devnotes/deployment-hardening/08_POOL_EXHAUSTION.md.
+
+    No-op on SQLite (single writer already, and `with_for_update` is ignored),
+    so development and the test suite behave unchanged.
+    """
     proj_ids = _accessible_project_ids(user, db, annotator)
-    task = (
-        db.query(models.Task)
-        .filter(models.Task.id == task_id, models.Task.project_id.in_(proj_ids))
-        .first()
+    query = db.query(models.Task).filter(
+        models.Task.id == task_id, models.Task.project_id.in_(proj_ids)
     )
+    if for_update and not IS_SQLITE:
+        query = query.with_for_update(of=models.Task)
+    task = query.first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
@@ -469,18 +488,24 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
     for attempt in range(5):
         try:
             return _update_or_create_task_impl(task, projectId, db, user, annotator)
-        except (IntegrityError, StaleDataError) as e:
+        except (IntegrityError, StaleDataError, OperationalError) as e:
             db.rollback()
-            
-            # Expunge Annotation objects from the identity map to prevent SAWarnings 
+
+            # Expunge Annotation objects from the identity map to prevent SAWarnings
             # and poisoned state on subsequent attempts during prolonged race conditions.
             for obj in list(db.identity_map.values()):
                 if isinstance(obj, models.Annotation):
                     db.expunge(obj)
-                    
+
             is_unique = isinstance(e, IntegrityError) and ("unique" in str(e).lower() or "duplicate" in str(e).lower())
             is_stale = isinstance(e, StaleDataError)
-            if not (is_unique or is_stale):
+            # A deadlock raised *mid*-transaction (during the annotation
+            # rewrite) reaches here rather than commit_with_retry, which only
+            # wraps the commit. Before this it escaped as an unhandled 500 —
+            # four of them on 2026-09-07. The FOR UPDATE lock above should stop
+            # deadlocks arising at all; this is the belt-and-braces path.
+            is_deadlock = isinstance(e, OperationalError) and "deadlock detected" in str(e).lower()
+            if not (is_unique or is_stale or is_deadlock):
                 # A genuine fault (FK/NOT NULL violation, a real bug). Let it
                 # surface as a 500 rather than masking it as contention.
                 raise
@@ -506,7 +531,10 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
 
 def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: Session, user: models.User, annotator: Optional[models.TeamMember]):
     if task.id:
-        db_task = _get_owned_task(task.id, user, db, annotator)
+        # for_update: serialise concurrent saves of this task. Taken here,
+        # before the annotation rewrite below, so every writer acquires the
+        # same lock first and the overlapping-save race cannot start.
+        db_task = _get_owned_task(task.id, user, db, annotator, for_update=True)
 
         # Status lock: once a task reaches a terminal status, only the people
         # responsible for it — its assignee and the project owner — may move it
@@ -842,7 +870,9 @@ def patch_task(task_id: int, task: TaskUpdate, db: Session = Depends(get_db), us
 
 @router.delete("/{task_id}")
 def delete_task(task_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
-    task = _get_owned_task(task_id, user, db, annotator)
+    # for_update: a delete racing an in-flight save of the same task would
+    # otherwise interleave with that save's annotation rewrite.
+    task = _get_owned_task(task_id, user, db, annotator, for_update=True)
     project = db.query(models.Project).filter(models.Project.id == task.project_id).first()
     if not project or not is_project_creator(project, user, annotator):
         raise HTTPException(status_code=403, detail="Only the project creator can delete tasks.")
