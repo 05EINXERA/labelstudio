@@ -16,7 +16,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy import text
 
 from config import (
@@ -81,6 +81,13 @@ async def add_security_and_cache_headers(request, call_next):
         path.endswith(".html") or
         path.endswith(".css") or
         path == "/" or
+        # The manual's bare directory URL. It is what the nav links to and is
+        # served by its own FileResponse route, so it matches neither the
+        # ".html" test above nor the StaticFiles mount — without this it went
+        # out with no Cache-Control at all and browsers cached it heuristically,
+        # which for a document that gets edited is the one behaviour we cannot
+        # have.
+        path == "/manual/" or
         path.startswith("/frontend")
     ):
         # `no-cache`, NOT `no-store`. The two sound alike and are very
@@ -286,9 +293,16 @@ def read_index():
 # The `StaticFiles` mount below already serves `/manual/index.html` and the
 # assets; this route only exists so the bare directory URL resolves, since
 # `StaticFiles` does not imply an index for subdirectories.
+#
+# It redirects rather than serving the file directly. Serving it here with a
+# `FileResponse` sets an ETag but never reads `If-None-Match` — this app has no
+# conditional-request handling of its own, it comes from `StaticFiles` — so
+# every visit re-downloaded the whole ~86 KB page instead of revalidating.
+# Handing the request to the mount gets the 304 behaviour for free, rather than
+# reimplementing it here and owning a second copy of it.
 @app.get("/manual/", include_in_schema=False)
 def read_manual():
-    return FileResponse("frontend/manual/index.html")
+    return RedirectResponse("/manual/index.html", status_code=307)
 
 # Mount the rest of the frontend directory
 app.mount("/", StaticFiles(directory="frontend"), name="frontend")

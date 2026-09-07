@@ -32,8 +32,13 @@ SPEC = Path(__file__).parent / "js" / "app_nav_spec.mjs"
 # --- routing ----------------------------------------------------------------
 
 def test_bare_manual_url_serves_the_page(client):
-    """`/manual/` is what the nav links to, so it is the path that must work."""
-    res = client.get("/manual/")
+    """`/manual/` is what the nav links to, so it is the path that must work.
+
+    It redirects to `/manual/index.html` rather than serving the file itself, so
+    the page is delivered by `StaticFiles` and gets its conditional-request
+    handling; `follow_redirects` covers the hop the way a browser would.
+    """
+    res = client.get("/manual/", follow_redirects=True)
     assert res.status_code == 200, res.text
     assert "text/html" in res.headers["content-type"]
     assert "Annotation Manual" in res.text
@@ -69,6 +74,40 @@ def test_manual_assets_revalidate_with_304(client):
     first = client.get(f"/manual/assets/img/{name}")
     again = client.get(
         f"/manual/assets/img/{name}",
+        headers={"If-None-Match": first.headers["etag"]},
+    )
+    assert again.status_code == 304
+    assert not again.content
+
+
+def test_manual_page_revalidates(client):
+    """The bare `/manual/` URL must carry `no-cache`.
+
+    It is served by its own FileResponse route, so it matches neither the
+    ".html" suffix test in the cache middleware nor the StaticFiles mount. It
+    originally went out with no Cache-Control header at all, which lets a
+    browser cache it heuristically for an unpredictable period — on a document
+    that gets edited, that means an annotator reading last week's guidance with
+    no indication anything is stale, and no reliable way to clear it short of a
+    hard reload. The manual is the one page where being quietly out of date is
+    the whole failure.
+    """
+    res = client.get("/manual/", follow_redirects=True)
+    assert res.headers.get("cache-control") == "no-cache", (
+        "the manual page must revalidate; got "
+        f"{res.headers.get('cache-control')!r}"
+    )
+
+
+def test_manual_page_revalidates_with_304(client):
+    """An unchanged manual costs a 304, not another ~86 KB.
+
+    This is what the redirect buys: `StaticFiles` answers `If-None-Match`,
+    whereas a `FileResponse` route sets an ETag and ignores it.
+    """
+    first = client.get("/manual/", follow_redirects=True)
+    again = client.get(
+        "/manual/index.html",
         headers={"If-None-Match": first.headers["etag"]},
     )
     assert again.status_code == 304
