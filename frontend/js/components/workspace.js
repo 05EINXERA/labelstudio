@@ -1,4 +1,4 @@
-import { generateUUID, normalizeClassName } from "../utils.js?v=1";
+import { generateUUID, normalizeClassName } from "../utils.js?v=2";
 import { apiFetch } from "../api.js?v=3";
 import { isOnline } from "../connection.js?v=3";
 import {

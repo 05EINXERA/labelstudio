@@ -65,6 +65,18 @@ export function formatClassName(className) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+// Pill modifier class for a task/project status, derived from the status name
+// itself ("In Progress" -> "is-progress", "Passed" -> "is-passed") so a new
+// entry in schemas.TASK_STATUSES only needs a matching rule in styles.css —
+// there is no per-status mapping here to keep in sync. Returns "" for an
+// unknown or empty status, which renders as the plain default pill.
+export function statusPillClass(status) {
+  const s = String(status || "").trim();
+  if (!s) return "";
+  if (s === "In Progress") return "is-progress";
+  return "is-" + s.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+}
+
 // HH:MM:SS. Hours are not capped at two digits — a long-running task renders
 // as e.g. 145:02:00 rather than silently wrapping (docs/TIMER_AUDIT.md F11).
 export function formatTime(secondsToFormat) {

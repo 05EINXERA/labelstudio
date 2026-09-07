@@ -26,7 +26,13 @@ router = APIRouter(
 
 logger = logging.getLogger(__name__)
 
-LOCKED_STATUSES = {"Completed", "Approved", "Verified"}
+# Terminal statuses: reaching one restricts further status changes to the
+# task's assignee and the project owner (see the status-lock block in
+# save_task). Kept in sync with LOCKED_STATUSES in
+# frontend/js/pages/project/tasks.js.
+LOCKED_STATUSES = {
+    "Completed", "Approved", "Verified", "Passed", "Reviewed", "Monitored",
+}
 
 # ---------------------------------------------------------------------------
 # Soft task lock (T2.1 / D3)

@@ -1,4 +1,4 @@
-import { normalizeClassName, formatClassName } from "./utils.js?v=1";
+import { normalizeClassName, formatClassName } from "./utils.js?v=2";
 import { view } from "./canvas/view.js?v=1";
 
 export const storageKey = "image-annotation-mvp-v1";

@@ -29,6 +29,7 @@ from formats.common import (
     value_from_name,
     values_for_labels,
 )
+from schemas import TASK_STATUSES
 
 
 def _label(name, id_="l1"):
@@ -193,10 +194,20 @@ def test_values_for_labels_handles_three_way_collision():
 # Status vocabulary (gap G4)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("ours", ["New", "In Progress", "Completed", "Approved"])
+# Driven off the vocabulary itself rather than a hand-written list, so a status
+# added to TASK_STATUSES without matching TO_/FROM_EXTERNAL_STATUS entries fails
+# here instead of silently importing back as "New".
+@pytest.mark.parametrize("ours", TASK_STATUSES)
 def test_status_round_trips_for_every_known_status(ours):
     status, external = to_external_status(ours)
     assert from_external_status(status, external) == ours
+
+
+@pytest.mark.parametrize("ours", ["Passed", "Reviewed", "Monitored"])
+def test_owner_review_statuses_are_completed_plus_external_status(ours):
+    """The owner-only review outcomes follow the "Approved" shape."""
+    assert to_external_status(ours) == ("completed", ours.lower())
+    assert from_external_status("completed", ours.lower()) == ours
 
 
 def test_approved_is_completed_plus_external_status():

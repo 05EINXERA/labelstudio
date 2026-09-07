@@ -4,7 +4,7 @@
  * Manages task list loading, navigation (next/prev), annotation hydration on demand,
  * soft-lock acquisition/release on task switch, canvas resizing, and image background rendering.
  */
-import { clientId } from "../utils.js?v=1";
+import { clientId } from "../utils.js?v=2";
 import { apiFetch } from "../api.js?v=3";
 import { state, resetWorkspaceForNewImage } from "../state.js?v=2";
 import { view } from "../canvas/view.js?v=1";

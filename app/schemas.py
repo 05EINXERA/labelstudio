@@ -240,7 +240,11 @@ class LabelImportResult(BaseModel):
 # Fixed task-status vocabulary shared by the export filter and the Tasks view.
 # 'Approved' added in Phase 3 (tracker P3.2): owner-only, enforced by
 # _get_owned_task rather than a separate check (single-owner projects).
-TASK_STATUSES = ["New", "In Progress", "Completed", "Approved", "Declined", "Verified", "Checked"]
+# 'Passed', 'Reviewed' and 'Monitored' are further owner-only review outcomes.
+TASK_STATUSES = [
+    "New", "In Progress", "Completed", "Approved", "Declined",
+    "Verified", "Checked", "Passed", "Reviewed", "Monitored",
+]
 
 # Export "include" options actually implemented. Mask rendering and image
 # bundling are explicit TODOs (see REFACTOR_MANAGEMENT.md §3 Phase 4) — the

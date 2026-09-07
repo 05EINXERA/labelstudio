@@ -9,7 +9,7 @@
  * rendering, and re-binds row listeners on every render (rows are replaced
  * wholesale, so listeners cannot be bound once up front).
  */
-import { escapeHTML } from "../utils.js?v=1";
+import { escapeHTML } from "../utils.js?v=2";
 
 /**
  * @param {object} opts

@@ -6,7 +6,7 @@
  * so they can be middle-clicked, copied and deep-linked; the router listens for
  * `hashchange`.
  */
-import { escapeHTML } from "../utils.js?v=1";
+import { escapeHTML } from "../utils.js?v=2";
 
 export const NAV_ITEMS = [
   { route: "home", label: "Home", icon: "📊", title: "Project metrics" },

@@ -2191,6 +2191,9 @@ table.data-table tbody tr:last-child td { border-bottom: none; }
 .pill.is-declined  { background: rgba(224,82,96,.14);  color: #c13b48; border-color: transparent; }
 .pill.is-verified  { background: rgba(16,185,129,.14); color: #047857; border-color: transparent; }
 .pill.is-checked   { background: rgba(107,114,128,.14); color: #374151; border-color: transparent; }
+.pill.is-passed    { background: rgba(34,197,94,.14);  color: #15803d; border-color: transparent; }
+.pill.is-reviewed  { background: rgba(139,92,246,.14); color: #6d28d9; border-color: transparent; }
+.pill.is-monitored { background: rgba(249,115,22,.14); color: #c2410c; border-color: transparent; }
 
 .row-actions { display: flex; gap: 6px; justify-content: center; }
 .row-actions button {

@@ -9,7 +9,7 @@
  *   { projectId, project, reloadProject(), setStatus(), navigate() }
  */
 import { apiFetch } from "../../api.js?v=3";
-import { escapeHTML } from "../../utils.js?v=1";
+import { escapeHTML, statusPillClass } from "../../utils.js?v=2";
 import { renderNav, setActive, NAV_ITEMS } from "../../components/project-nav.js?v=1";
 
 const VALID_ROUTES = new Set(NAV_ITEMS.map((i) => i.route));
@@ -82,14 +82,7 @@ function renderHeader() {
 
   const status = p?.status || "New";
   els.status.textContent = status;
-  els.status.className = "pill " + (
-    status === "Completed" ? "is-completed"
-      : status === "In Progress" ? "is-progress"
-      : status === "Approved" ? "is-approved"
-      : status === "Declined" ? "is-declined"
-      : status === "Verified" ? "is-verified"
-      : status === "Checked" ? "is-checked" : ""
-  );
+  els.status.className = "pill " + statusPillClass(status);
 }
 
 function renderFatal(message) {

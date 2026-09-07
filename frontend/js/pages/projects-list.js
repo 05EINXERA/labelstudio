@@ -7,7 +7,7 @@
  * /api/projects with /api/projects/metrics/batch.
  */
 import { apiFetch } from "../api.js?v=3";
-import { escapeHTML, formatTime } from "../utils.js?v=1";
+import { escapeHTML, formatTime, statusPillClass } from "../utils.js?v=2";
 import { createDataTable } from "../components/data-table.js?v=2";
 
 const els = {
@@ -46,13 +46,7 @@ const ICON_TRANSFER = `<svg width="16" height="16" viewBox="0 0 24 24" fill="non
 
 function statusPill(status) {
   const s = status || "New";
-  const cls = s === "Completed" ? "is-completed"
-    : s === "In Progress" ? "is-progress"
-    : s === "Approved" ? "is-approved"
-    : s === "Declined" ? "is-declined"
-    : s === "Verified" ? "is-verified"
-    : s === "Checked" ? "is-checked" : "";
-  return `<span class="pill ${cls}">${escapeHTML(s)}</span>`;
+  return `<span class="pill ${statusPillClass(s)}">${escapeHTML(s)}</span>`;
 }
 
 function showError(message) {

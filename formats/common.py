@@ -283,6 +283,9 @@ TO_EXTERNAL_STATUS: Dict[str, Tuple[str, str]] = {
     "Declined": ("completed", "declined"),
     "Verified": ("completed", "verified"),
     "Checked": ("completed", "checked"),
+    "Passed": ("completed", "passed"),
+    "Reviewed": ("completed", "reviewed"),
+    "Monitored": ("completed", "monitored"),
 }
 
 # The inverse. externalStatus wins when it is set, because that is the
@@ -295,6 +298,9 @@ FROM_EXTERNAL_STATUS: Dict[str, str] = {
     "declined": "Declined",
     "verified": "Verified",
     "checked": "Checked",
+    "passed": "Passed",
+    "reviewed": "Reviewed",
+    "monitored": "Monitored",
 }
 
 

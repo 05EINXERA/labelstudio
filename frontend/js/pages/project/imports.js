@@ -12,7 +12,7 @@
  * Both tabs reuse the apiFetch wrapper (rule 13) and modal CSS (rule 12).
  */
 import { apiFetch } from "../../api.js?v=3";
-import { escapeHTML } from "../../utils.js?v=1";
+import { escapeHTML } from "../../utils.js?v=2";
 
 let root = null;
 let ctx = null;

@@ -3,7 +3,7 @@
  *
  * Builder UI for creating an annotation export job on two independent axes,
  * bundled into one project-named ZIP:
- *   - Status filter: all | New | In Progress | Completed | Approved
+ *   - Status filter: any subset of schemas.TASK_STATUSES (none checked = all)
  *   - Format (pick one): COCO | Task JSON (single / per-task) | YOLO
  *   - Image output (pick one): none | original | annotated | mask (direct /
  *                              index / binary)
@@ -18,7 +18,7 @@
  * until complete, then offers /api/exports/{job_id}/download (one-shot).
  */
 import { apiFetch } from "../../api.js?v=3";
-import { escapeHTML } from "../../utils.js?v=1";
+import { escapeHTML } from "../../utils.js?v=2";
 
 let root = null;
 let ctx = null;
@@ -82,6 +82,18 @@ function template() {
           <label style="display:flex; align-items:center; gap:8px; font-size:.9rem;">
             <input type="checkbox" name="statusFilter" value="Checked">
             Checked
+          </label>
+          <label style="display:flex; align-items:center; gap:8px; font-size:.9rem;">
+            <input type="checkbox" name="statusFilter" value="Passed">
+            Passed
+          </label>
+          <label style="display:flex; align-items:center; gap:8px; font-size:.9rem;">
+            <input type="checkbox" name="statusFilter" value="Reviewed">
+            Reviewed
+          </label>
+          <label style="display:flex; align-items:center; gap:8px; font-size:.9rem;">
+            <input type="checkbox" name="statusFilter" value="Monitored">
+            Monitored
           </label>
         </div>
       </div>

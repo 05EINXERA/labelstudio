@@ -139,6 +139,17 @@ def test_approved_status_settable_by_owner(client, alice):
     assert client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=alice).json()["items"][0]["status"] == "Approved"
 
 
+@pytest.mark.parametrize("status", ["Passed", "Reviewed", "Monitored"])
+def test_owner_review_statuses_settable_and_persisted(client, alice, status):
+    """The owner-only review outcomes save and come back on the task list."""
+    pid = _new_project(client, alice)
+    tid = client.post("/api/tasks", json={"description": "t"}, params={"projectId": pid}, headers=alice).json()["id"]
+    res = client.patch(f"/api/tasks/{tid}", json={"status": status}, headers=alice)
+    assert res.status_code == 200
+    listed = client.get(f"/api/tasks?projectId={pid}&include_annotations=true", headers=alice).json()["items"]
+    assert listed[0]["status"] == status
+
+
 def test_task_creation_requires_owned_project(client, alice, bob):
     pid = _new_project(client, alice)
     res = client.post("/api/tasks", json={"description": "x"}, params={"projectId": pid}, headers=bob)
