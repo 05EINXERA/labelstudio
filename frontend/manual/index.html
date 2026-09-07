@@ -381,15 +381,34 @@ footer.pg{border-top:1px solid var(--line);margin-top:60px;padding-top:16px;colo
     paint breaking up, so it reads as a grey-pink jumble. Filling it as AC needs one boundary;
     reading it correctly needs many. The shortcut is invisible at a glance, which is why it survived
     three whole tasks.</p>
+  <div class="trio">
+    <figure><span class="badge b-orig">Original</span>
+      <img loading="lazy" src="assets/img/fp6-af-ac-original.jpg"
+        alt="Crop of hull surface where dull red paint has broken up into flakes, with grey showing through the gaps between them.">
+      <figcaption>Red paint broken up into flakes, with grey showing through the gaps. There is no
+        single edge to find here — that is the point.</figcaption></figure>
+    <figure><span class="badge b-before">Our mask — wrong</span>
+      <img loading="lazy" src="assets/img/fp6-af-ac-ours.jpg"
+        alt="Mask image: the entire crop filled with one flat cyan AC region, apart from a small unannotated patch at the top.">
+      <figcaption>One flat <strong>cyan AC</strong> fill over the whole crop. Fast to draw, and
+        wrong twice: the class is wrong, and the detail is gone.</figcaption></figure>
+    <figure><span class="badge b-after">Expected</span>
+      <img loading="lazy" src="assets/img/fp6-af-ac-expected.jpg"
+        alt="Mask image: a magenta AF background with many small separate cyan AC islands scattered through it.">
+      <figcaption><strong>Magenta AF</strong> as the background, with <strong>cyan AC</strong> traced
+        as separate islands where the grey actually shows through.</figcaption></figure>
+  </div>
   <div class="rule">
     <span class="tag">The check that catches it</span>
-    Before you fill a mottled region, ask: <strong>am I labelling what is exposed, or what is
-    deteriorating?</strong> If the surface is breaking up, the region is <a href="#af">AF</a> and the
-    grey showing through it is <a href="#ac">AC</a>. A single unbroken AC mask over a mottled area is
-    almost always wrong.
+    The client's own legend for this example: <strong>AF exposure — the dark red areas</strong>;
+    <strong>AC exposure — the blackish areas</strong>. The flaking red paint <em>is</em> the AF
+    deterioration; only the darker gaps between the flakes are AC. So before filling a mottled
+    region, ask: <strong>am I labelling what is exposed, or what is deteriorating?</strong> A single
+    unbroken <a href="#ac">AC</a> mask over a mottled area is almost always wrong.
   </div>
-  <p class="src">— review of tasks P1000015, P1000052 and P1000053. This was the most repeated
-    correction across all three.</p>
+  <p class="src">— client review of task P1000052, under their heading "Separating AF exposure and
+    AC exposure". The client notes only a portion is shown as an example. This was the most repeated
+    correction across all three reviewed tasks.</p>
 </section>
 
 <!-- ===================== CLASSES ===================== -->
