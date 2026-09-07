@@ -34,6 +34,32 @@ LOCKED_STATUSES = {
     "Completed", "Approved", "Verified", "Passed", "Reviewed", "Monitored",
 }
 
+
+def _known_label_ids(anns, db) -> set:
+    """The subset of labelIds in `anns` that actually exist in `labels`.
+
+    A tab that had a class selected when someone else deleted it keeps sending
+    that labelId on every autosave. annotations.label_id is a FK with ON DELETE
+    SET NULL, so the delete itself is handled — but writing the stale id back
+    raises ForeignKeyViolation, which surfaced as a 500 that failed *every*
+    subsequent save for that annotator until they reloaded (their real
+    annotation edits were lost with it). Resolving the ids up front lets an
+    unknown one degrade to NULL — exactly the state the cascade would have left
+    it in — so the shapes and their geometry still save. The frontend already
+    recovers label-less shapes into a synthetic class on load (see the
+    "replace" branch in api/routers/labels.py).
+
+    One query per save, not one per annotation: tasks here carry ~700 shapes.
+    """
+    ids = {
+        a.get('labelId') for a in anns
+        if isinstance(a, dict) and a.get('labelId')
+    }
+    if not ids:
+        return set()
+    rows = db.query(models.Label.id).filter(models.Label.id.in_(ids)).all()
+    return {row[0] for row in rows}
+
 # ---------------------------------------------------------------------------
 # Soft task lock (T2.1 / D3)
 #
@@ -631,6 +657,8 @@ def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: 
                     conflicts = db.query(models.Annotation.id).filter(models.Annotation.id.in_(new_to_task)).all()
                     conflicting_ids = {row[0] for row in conflicts}
                 
+                valid_label_ids = _known_label_ids(anns, db)
+
                 # Remove annotations that are no longer in the payload
                 to_remove = [a for a in db_task.annotations if a.id not in incoming_ids]
                 for a in to_remove:
@@ -640,7 +668,7 @@ def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: 
                 db.flush()
                 
                 seen_ids = set()
-                for a in anns:
+                for position, a in enumerate(anns):
                     if not isinstance(a, dict): continue
                     ann_id = a.get('id')
                     
@@ -658,7 +686,9 @@ def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: 
                     
                     if ann_id in existing_map:
                         existing = existing_map[ann_id]
-                        existing.label_id = a.get('labelId')
+                        # Unknown label (deleted by someone else mid-session) ->
+                        # NULL rather than a FK violation. See _known_label_ids.
+                        existing.label_id = a.get('labelId') if a.get('labelId') in valid_label_ids else None
                         existing.type = a.get('type', 'polygon')
                         existing.points = points
                         existing.x = a.get('x')
@@ -667,17 +697,29 @@ def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: 
                         existing.height = a.get('height')
                         existing.text = a.get('text')
                         existing.color = a.get('color')
-                        existing.order = a.get('order')
+                        # Canvas z-order is the payload's array position, not a
+                        # field the client sends: the reorder actions rewrite the
+                        # array itself. Persist the index so the order survives a
+                        # reload (models.Task.annotations sorts on it).
+                        #
+                        # Only assign when it actually moved. Tasks here reach
+                        # 7,000+ shapes, and the ORM emits one UPDATE per dirtied
+                        # row: assigning unconditionally turned every autosave
+                        # into thousands of single-row UPDATEs in one
+                        # transaction, holding a pool connection long enough to
+                        # exhaust the pool under ~25 concurrent annotators.
+                        if existing.order != position:
+                            existing.order = position
                         existing.group_id = a.get('groupId')
                         existing.extra = extra
                     else:
                         db_task.annotations.append(models.Annotation(
                             id=ann_id,
-                            label_id=a.get('labelId'),
+                            label_id=a.get('labelId') if a.get('labelId') in valid_label_ids else None,
                             type=a.get('type', 'polygon'),
                             points=points,
                             x=a.get('x'), y=a.get('y'), width=a.get('width'), height=a.get('height'),
-                            text=a.get('text'), color=a.get('color'), order=a.get('order'), group_id=a.get('groupId'),
+                            text=a.get('text'), color=a.get('color'), order=position, group_id=a.get('groupId'),
                             extra=extra
                         ))
             except ValueError:
@@ -713,9 +755,11 @@ def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: 
                     conflicts = db.query(models.Annotation.id).filter(models.Annotation.id.in_(incoming_ids)).all()
                     conflicting_ids = {row[0] for row in conflicts}
                 
+                valid_label_ids = _known_label_ids(anns, db)
+
                 new_annotations = []
                 seen_ids = set()
-                for a in anns:
+                for position, a in enumerate(anns):
                     if not isinstance(a, dict): continue
                     ann_id = a.get('id')
                     
@@ -733,11 +777,11 @@ def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: 
                     
                     new_annotations.append(models.Annotation(
                         id=ann_id,
-                        label_id=a.get('labelId'),
+                        label_id=a.get('labelId') if a.get('labelId') in valid_label_ids else None,
                         type=a.get('type', 'polygon'),
                         points=points,
                         x=a.get('x'), y=a.get('y'), width=a.get('width'), height=a.get('height'),
-                        text=a.get('text'), color=a.get('color'), order=a.get('order'), group_id=a.get('groupId'),
+                        text=a.get('text'), color=a.get('color'), order=position, group_id=a.get('groupId'),
                         extra=extra
                     ))
                 db_task.annotations = new_annotations

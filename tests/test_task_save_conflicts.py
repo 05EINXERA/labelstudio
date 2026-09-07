@@ -387,3 +387,154 @@ def test_create_with_annotations_makes_exactly_one_task(client, alice):
     tasks = listing if isinstance(listing, list) else listing.get("tasks", listing.get("items", []))
     matching = [t for t in tasks if t.get("description") == "solo.jpg"]
     assert len(matching) == 1, f"expected exactly one task, got {len(matching)}"
+
+
+# --- Canvas z-order (stacking) -------------------------------------------
+#
+# Annotations paint in array order (later = on top). "Send to Back" / "Bring to
+# Front" reorder that array and save it, so the array position IS the z-order —
+# the client never sends an explicit order field. These cover the reported bug:
+# the reorder saved fine, but a reload put the shape back where it started,
+# because rows came back unordered and the position was never persisted.
+
+def _ordered(ids, pid):
+    return json.dumps([
+        {"id": i, "type": "box", "labelId": f"l1-{pid}"} for i in ids
+    ])
+
+
+def _read_order(client, auth, task_id):
+    detail = client.get(f"/api/tasks/{task_id}", headers=auth).json()
+    return [a["id"] for a in detail["annotations"]]
+
+
+def test_reordering_annotations_survives_reload(client, alice):
+    """Send-to-back must still be in effect after the task is re-fetched."""
+    pid = _project(client, alice)
+    task = _create_task(client, alice, pid)
+
+    client.post("/api/tasks", json={
+        "id": task["id"], "annotations": _ordered(["a", "b", "c"], pid),
+        "client_id": "tab-A",
+    }, headers=alice)
+    assert _read_order(client, alice, task["id"]) == ["a", "b", "c"]
+
+    # "c" sent to back: it moves to index 0 of the array.
+    client.post("/api/tasks", json={
+        "id": task["id"], "annotations": _ordered(["c", "a", "b"], pid),
+        "client_id": "tab-A",
+    }, headers=alice)
+    assert _read_order(client, alice, task["id"]) == ["c", "a", "b"]
+
+
+def test_reordering_is_stable_across_repeated_reads(client, alice):
+    """Two reads of an unchanged task agree — order is not left to the DB."""
+    pid = _project(client, alice)
+    task = _create_task(client, alice, pid)
+    client.post("/api/tasks", json={
+        "id": task["id"], "annotations": _ordered(["z", "y", "x", "w"], pid),
+        "client_id": "tab-A",
+    }, headers=alice)
+
+    first = _read_order(client, alice, task["id"])
+    assert first == ["z", "y", "x", "w"]
+    assert _read_order(client, alice, task["id"]) == first
+
+
+def test_order_persists_on_the_create_path(client, alice):
+    """A task created with annotations keeps the payload's order too."""
+    pid = _project(client, alice)
+    res = client.post(f"/api/tasks?projectId={pid}", json={
+        "description": "zorder.jpg", "status": "New",
+        "annotations": _ordered(["q", "p", "r"], pid), "client_id": "tab-A",
+    }, headers=alice)
+    assert res.status_code == 200, res.text
+    assert _read_order(client, alice, res.json()["id"]) == ["q", "p", "r"]
+
+
+def test_reorder_then_edit_keeps_the_new_order(client, alice):
+    """A later ordinary save must not resurrect the pre-reorder stacking."""
+    pid = _project(client, alice)
+    task = _create_task(client, alice, pid)
+    client.post("/api/tasks", json={
+        "id": task["id"], "annotations": _ordered(["a", "b", "c"], pid),
+        "client_id": "tab-A",
+    }, headers=alice)
+    client.post("/api/tasks", json={
+        "id": task["id"], "annotations": _ordered(["c", "a", "b"], pid),
+        "client_id": "tab-A",
+    }, headers=alice)
+    # Add a shape on top, keeping the reordered prefix.
+    client.post("/api/tasks", json={
+        "id": task["id"], "annotations": _ordered(["c", "a", "b", "d"], pid),
+        "client_id": "tab-A",
+    }, headers=alice)
+    assert _read_order(client, alice, task["id"]) == ["c", "a", "b", "d"]
+
+
+# --- Deleted labels ------------------------------------------------------
+#
+# annotations.label_id is a FK with ON DELETE SET NULL, so deleting a class
+# clears it on existing rows. But a tab that had that class selected keeps
+# sending the stale labelId on every autosave. Writing it back raised
+# ForeignKeyViolation -> 500, and that annotator's saves then failed for good
+# (losing real annotation edits) until they reloaded. Observed in production on
+# task 522: a 730-shape task saving against a label deleted from the project.
+
+def test_save_with_deleted_label_does_not_500(client, alice):
+    """The reported crash: saving a shape whose class was deleted mid-session."""
+    pid = _project(client, alice)
+    task = _create_task(client, alice, pid)
+
+    res = client.post("/api/tasks", json={
+        "id": task["id"],
+        "annotations": json.dumps([
+            {"id": "a0", "type": "box", "labelId": f"l1-{pid}"},
+            {"id": "a1", "type": "box", "labelId": "ghost-label-that-never-existed"},
+        ]),
+        "client_id": "tab-A",
+    }, headers=alice)
+    assert res.status_code == 200, res.text
+
+    detail = client.get(f"/api/tasks/{task['id']}", headers=alice).json()
+    by_id = {a["id"]: a for a in detail["annotations"]}
+    # Both shapes survive; only the dangling class reference is dropped.
+    assert set(by_id) == {"a0", "a1"}
+    assert by_id["a0"]["labelId"] == f"l1-{pid}"
+    assert by_id["a1"]["labelId"] is None
+
+
+def test_save_after_label_is_deleted_keeps_the_geometry(client, alice):
+    """A stale tab must still persist its shapes after the class is deleted."""
+    pid = _project(client, alice)
+    task = _create_task(client, alice, pid)
+    client.post("/api/tasks", json={
+        "id": task["id"], "annotations": _annotations(2, pid), "client_id": "tab-A",
+    }, headers=alice)
+
+    res = client.post("/api/labels/bulk-delete",
+                      json={"projectId": pid, "ids": [f"l1-{pid}"]}, headers=alice)
+    assert res.status_code == 200, res.text
+
+    # The stale tab autosaves, still referencing the now-deleted class.
+    res = client.post("/api/tasks", json={
+        "id": task["id"], "annotations": _annotations(3, pid), "client_id": "tab-A",
+    }, headers=alice)
+    assert res.status_code == 200, res.text
+
+    detail = client.get(f"/api/tasks/{task['id']}", headers=alice).json()
+    assert len(detail["annotations"]) == 3
+    assert all(a["labelId"] is None for a in detail["annotations"])
+
+
+def test_create_with_deleted_label_does_not_500(client, alice):
+    """Same protection on the create path."""
+    pid = _project(client, alice)
+    res = client.post(f"/api/tasks?projectId={pid}", json={
+        "description": "ghost.jpg", "status": "New",
+        "annotations": json.dumps([{"id": "g0", "type": "box", "labelId": "no-such-label"}]),
+        "client_id": "tab-A",
+    }, headers=alice)
+    assert res.status_code == 200, res.text
+    detail = client.get(f"/api/tasks/{res.json()['id']}", headers=alice).json()
+    assert [a["labelId"] for a in detail["annotations"]] == [None]

@@ -52,7 +52,21 @@ class Task(Base):
     created_at = Column(UTCDateTime, server_default=func.now())
     updated_at = Column(UTCDateTime, server_default=func.now(), onupdate=func.now())
     annotations_legacy = Column("annotations_legacy", Text, nullable=True)
-    annotations = relationship("Annotation", cascade="all, delete-orphan", passive_deletes=True)
+    # order_by is what makes canvas z-order survive a reload. Annotations paint
+    # in list order (later = on top), and the client sends the whole array in
+    # paint order, but rows come back in whatever order the database chooses
+    # unless asked otherwise — so "Send to Back" appeared to work until the next
+    # refresh put the shape back on top. Annotation.order is written from the
+    # payload's array index on save (see api/routers/tasks.py). Rows predating
+    # that have order NULL and sort first, which keeps them in a stable — if
+    # arbitrary — order rather than shuffling between requests; the next save
+    # of such a task numbers them.
+    annotations = relationship(
+        "Annotation",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="(Annotation.order, Annotation.id)",
+    )
     # Pixel dimensions of the image at image_path, captured at upload.
     # Nullable because rows predating this column have never been measured;
     # formats.common.image_size() backfills them lazily. YOLO normalization and

@@ -453,7 +453,12 @@ async def import_annotations(
             conflicting_ids = {row[0] for row in conflicts}
 
         seen_ids = set()
-        for a in resolved:
+        # Imported shapes stack on top of whatever the task already holds, in
+        # file order. Annotation.order carries canvas z-order (see
+        # models.Task.annotations), so appending must continue past the existing
+        # rows rather than restart at 0 and interleave with them.
+        order_base = len(task.annotations)
+        for position, a in enumerate(resolved, start=order_base):
             known_keys = {'id', 'type', 'labelId', 'points', 'x', 'y', 'width', 'height', 'text', 'color', 'order', 'groupId'}
             extra_dict = {k: v for k, v in a.items() if k not in known_keys}
             extra = json.dumps(extra_dict) if extra_dict else None
@@ -470,7 +475,7 @@ async def import_annotations(
                 type=a.get('type', 'polygon'),
                 points=points,
                 x=a.get('x'), y=a.get('y'), width=a.get('width'), height=a.get('height'),
-                text=a.get('text'), color=a.get('color'), order=a.get('order'), group_id=a.get('groupId'),
+                text=a.get('text'), color=a.get('color'), order=position, group_id=a.get('groupId'),
                 extra=extra
             ))
 
