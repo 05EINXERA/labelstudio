@@ -370,6 +370,26 @@ footer.pg{border-top:1px solid var(--line);margin-top:60px;padding-top:16px;colo
         smooth and has no rust separated inside it, while the cyan nearby is finely detailed — two
         different standards in one image.</figcaption></figure>
   </div>
+
+  <h3 id="fp6">FP-6 · We have been filling deteriorated AF with one AC mask<a class="anchor" href="#fp6">#</a></h3>
+  <div class="dont"><strong>What we have been doing:</strong> when a stretch of hull is mottled and
+    pale, covering the whole region with <strong>AC</strong> and moving on.</div>
+  <div class="do"><strong>What we must do:</strong> read that region as <strong>AF deterioration</strong>
+    with <strong>AC showing through in patches</strong>. AF is the background; AC is the islands
+    inside it. Trace the islands individually.</div>
+  <p><strong>Why this happens:</strong> a deteriorated AF surface is not one flat colour — it is
+    paint breaking up, so it reads as a grey-pink jumble. Filling it as AC needs one boundary;
+    reading it correctly needs many. The shortcut is invisible at a glance, which is why it survived
+    three whole tasks.</p>
+  <div class="rule">
+    <span class="tag">The check that catches it</span>
+    Before you fill a mottled region, ask: <strong>am I labelling what is exposed, or what is
+    deteriorating?</strong> If the surface is breaking up, the region is <a href="#af">AF</a> and the
+    grey showing through it is <a href="#ac">AC</a>. A single unbroken AC mask over a mottled area is
+    almost always wrong.
+  </div>
+  <p class="src">— review of tasks P1000015, P1000052 and P1000053. This was the most repeated
+    correction across all three.</p>
 </section>
 
 <!-- ===================== CLASSES ===================== -->
@@ -853,6 +873,35 @@ footer.pg{border-top:1px solid var(--line);margin-top:60px;padding-top:16px;colo
       <a href="#overlap">overlap</a> the exposure.</li>
     <li>The painted numeral itself still needs annotating. <span class="src">Ruling <a href="#jp6">JP-6</a></span></li>
   </ol>
+
+  <h3 id="wx-whole">Reading a whole frame end to end<a class="anchor" href="#wx-whole">#</a></h3>
+  <p>The two images below are a full frame and the annotation the client expected for it — the
+    complete answer for one image, not a crop. Compare them before starting a weathered frame of
+    your own: the expected version is the standard of coverage and detail being asked for.</p>
+  <div class="pair">
+    <figure><span class="badge b-orig">Original</span>
+      <img loading="lazy" src="assets/img/rev-p15-original.jpg"
+        alt="Full frame of a weathered pink hull plate with grey mottling, orange rust streaks and patches of exposed under-paint.">
+      <figcaption>Weathered pink AF with grey mottling, rust streaks running from the seams, and
+        pale patches throughout. Almost nothing here has a clean edge.</figcaption></figure>
+    <figure><span class="badge b-after">Expected</span>
+      <img loading="lazy" src="assets/img/rev-p15-expected.jpg"
+        alt="The same frame annotated: many small cyan AC regions, green Dirt 1 patches, magenta AF marks and yellow Dirt 2 streaks, each traced individually.">
+      <figcaption><strong>Cyan AC</strong>, <strong>green Dirt 1</strong>, <strong>magenta AF</strong>
+        and <strong>yellow Dirt 2</strong>. Note what this is <em>not</em>: no region is a smooth
+        blob, and the sound pink paint between the marks is left bare.</figcaption></figure>
+  </div>
+  <p>Three things to take from it:</p>
+  <ol>
+    <li><strong>Many small regions, not a few big ones.</strong> The cyan AC appears as dozens of
+      separate marks following the mottling, not as one mask over the mottled band.</li>
+    <li><strong>Sound paint stays bare.</strong> Large areas are left unannotated because nothing is
+      wrong with them — coverage is not the goal, accuracy is.</li>
+    <li><strong>The same detail everywhere.</strong> The marks at the edges are traced as finely as
+      the ones in the middle. <a href="#fp4">FP-4</a> is what happens when attention drops off across
+      a frame.</li>
+  </ol>
+  <p class="src">— client review of task P1000015.</p>
 </section>
 
 <!-- ===================== RULINGS ===================== -->
@@ -870,6 +919,23 @@ footer.pg{border-top:1px solid var(--line);margin-top:60px;padding-top:16px;colo
     <p class="q">Is this dirt, or is it the steel material itself?</p>
     <div class="a"><strong>Treat it as dirt.</strong></div>
     <figure><img loading="lazy" src="assets/img/qa-jp-05-dirt-or-steel.jpg" alt="Client image for ruling JP-5: ambiguous dark area on hull surface ruled as dirt."><figcaption>In this case the client ruled dirt, not steel.</figcaption></figure></div>
+
+  <div class="qa" id="v2-1"><div class="qid">Ruling V2-1 <a class="anchor" href="#v2-1">#</a></div>
+    <p class="q">Are these white/grey areas washing residue, or are they AC coating?</p>
+    <div class="a"><strong>Dirt 1 — washing residue.</strong></div>
+    <figure><img loading="lazy" src="assets/img/qa-v2-01-washing-residue.jpg" alt="Client image for ruling V2-1: sound olive hull paint with pale white-grey streaks circled in red.">
+      <figcaption>Pale streaks left on <em>sound</em> paint after washing are
+        <a href="#dirt1">Dirt 1</a>, not an exposure. The paint underneath is intact — nothing has
+        come off, so no AC is showing.</figcaption></figure></div>
+
+  <div class="qa" id="v2-7"><div class="qid">Ruling V2-7 <a class="anchor" href="#v2-7">#</a></div>
+    <p class="q">Which class does this area fall under?</p>
+    <div class="a"><strong>Dirt 1 — water scale.</strong></div>
+    <figure><img loading="lazy" src="assets/img/qa-v2-07-topside-streaks.jpg" alt="Client image for ruling V2-7: pale vertical streaks running down a black topside, circled in red.">
+      <figcaption>Pale streaks running down the dark topside are water scale →
+        <a href="#dirt1">Dirt 1</a>. Note this is Dirt <strong>1</strong>, though water scale is
+        listed under <a href="#dirt2">Dirt 2</a> as well: heavy, obvious deposits are Dirt 1, faint
+        ones Dirt 2. Judge by how pronounced the deposit is, not by the word.</figcaption></figure></div>
 
   <h3>Peeling — AF, AC and steel</h3>
   <div class="qa" id="jp2"><div class="qid">Ruling JP-2 <a class="anchor" href="#jp2">#</a></div>
@@ -890,6 +956,33 @@ footer.pg{border-top:1px solid var(--line);margin-top:60px;padding-top:16px;colo
     <div class="a"><strong>It is AC.</strong></div>
     <figure><img loading="lazy" src="assets/img/qa-jp-07-ac.jpg" alt="Client image for ruling JP-7: pale area on hull ruled to be exposed AC paint."><figcaption>Pale area of this kind → <a href="#ac">Exposed AC paint</a>.</figcaption></figure></div>
 
+  <div class="qa" id="v2-5"><div class="qid">Ruling V2-5 <a class="anchor" href="#v2-5">#</a></div>
+    <p class="q">The areas highlighted in red correspond to none of AC / AF / steel; they may be
+      stains on top of a sound area or a peeled area. Which class should this area be annotated as?</p>
+    <div class="a"><strong>AF — because it is slightly depressed.</strong></div>
+    <figure><img loading="lazy" src="assets/img/qa-v2-05-depressed-af.jpg" alt="Client image for ruling V2-5: red hull with a dull darker patch outlined in red, plus existing blue and purple annotations.">
+      <figcaption>The patch has no distinguishing colour — the client decided it on
+        <strong>relief</strong>: the surface is slightly sunken, so paint has been lost →
+        <a href="#af">AF</a>. A stain sitting on top of sound paint would be flush with it.</figcaption></figure></div>
+
+  <div class="rule">
+    <span class="tag">When colour decides nothing, look at depth</span>
+    This is the first ruling to settle a class by <strong>texture rather than colour</strong>. If a
+    patch is dull and you cannot place it, ask whether it sits <em>below</em> the surrounding
+    surface. Depressed → paint has gone → <a href="#af">AF</a>. Flush → it is a deposit on top →
+    <a href="#dirt1">Dirt</a>.
+  </div>
+
+  <div class="qa" id="v2-2"><div class="qid">Ruling V2-2 <a class="anchor" href="#v2-2">#</a></div>
+    <p class="q">Should dirt of this fineness be treated as a target for annotation? If so, which
+      class would it fall under?</p>
+    <div class="a"><strong>The left side is proper deterioration and does not need to be filled in.
+      The small dots on the right side are AF.</strong></div>
+    <figure><img loading="lazy" src="assets/img/qa-v2-02-fine-dots.jpg" alt="Client image for ruling V2-2: pale pink hull band with two red-circled regions of fine grey speckling.">
+      <figcaption>Two verdicts in one frame. Broad deterioration on the left is left <em>unfilled</em>;
+        the fine dots on the right are <a href="#af">AF</a>. Fineness alone does not put something
+        below the threshold — see <a href="#v2-8">V2-8</a>.</figcaption></figure></div>
+
   <h3>Several classes in one area</h3>
   <div class="qa" id="jp8"><div class="qid">Ruling JP-8 <a class="anchor" href="#jp8">#</a></div>
     <p class="q">Is this an oil stain, or something that requires no action? Dirt 2?</p>
@@ -904,6 +997,55 @@ footer.pg{border-top:1px solid var(--line);margin-top:60px;padding-top:16px;colo
     <p class="q">Is this an oil stain? In that case, what should the class be?</p>
     <div class="a"><strong>Dirt 2 — it looks like water staining.</strong></div>
     <figure><img loading="lazy" src="assets/img/qa-en-09-overlay.jpg" alt="Client image for ruling EN-9: hull surface with staining that resembles an oil stain."><figcaption>When an oily-looking mark is water staining, it is <a href="#dirt2">Dirt 2</a>. The client gave this answer more than once — see <a href="#en4">EN-4</a>.</figcaption></figure></div>
+
+  <div class="qa" id="v2-4"><div class="qid">Ruling V2-4 <a class="anchor" href="#v2-4">#</a></div>
+    <p class="q">Yellow circles: should the round marks (stains) left behind after marine organisms
+      have fallen off also be labelled? If so, which class? Red/purple circles: I cannot tell whether
+      this is AF peeling, or the marks of marine organisms that have fallen off.</p>
+    <div class="a"><strong>Yellow circles → Dirt 2 (water scale). Purple circles → Dirt 2 (water
+      scale). Red circles → AF peeling.</strong></div>
+    <figure><img loading="lazy" src="assets/img/qa-v2-04-fallen-marks.jpg" alt="Client image for ruling V2-4: dark red hull covered in small pale round marks, with yellow, purple and red circles marking three different regions.">
+      <figcaption>The round marks left where organisms detached are <a href="#dirt2">Dirt 2</a> —
+        they are deposits, not damage. The darker patches in the red circle are
+        <a href="#af">AF peeling</a>: paint actually lost. Same frame, same speckled look, two
+        different answers.</figcaption></figure></div>
+
+  <div class="qa" id="v2-6"><div class="qid">Ruling V2-6 <a class="anchor" href="#v2-6">#</a></div>
+    <p class="q">Do these areas, which look like dust or residue adhering on top of a sound area,
+      need to be labelled as the dirt class? (Dirt 2?)</p>
+    <div class="a"><strong>The deep whitish areas are Dirt 1 (unwashed residue). The white on the
+      upper right is normal. The part with a hole in it is AF peeling.</strong></div>
+    <figure><img loading="lazy" src="assets/img/qa-v2-06-mixed-verdicts.jpg" alt="Client image for ruling V2-6: red-pink hull with pale streaky deposits, four regions circled in red.">
+      <figcaption>Three verdicts in one frame, including a <strong>do-not-label</strong>: the white
+        at the upper right is <a href="#sound">normal</a>. Similar-looking pale areas in one image
+        can be Dirt 1, nothing at all, and AF — you have to judge each one.</figcaption></figure></div>
+
+  <div class="rule">
+    <span class="tag">"Normal" is a real answer</span>
+    <a href="#v2-6">V2-6</a> and <a href="#v2-2">V2-2</a> both tell us part of a marked-up region
+    needed <strong>no annotation</strong>. Being asked about an area is not evidence that something
+    is wrong with it. Labelling sound paint to be safe is <a href="#fp2">over-annotation</a>, and it
+    costs as much as a miss.
+  </div>
+
+  <div class="qa" id="v2-3"><div class="qid">Ruling V2-3 <a class="anchor" href="#v2-3">#</a></div>
+    <p class="q">Should only the round white objects be labelled as marine organisms? Or should the
+      dark portions also be labelled, regarding them as damaged or corroded shells?</p>
+    <div class="a"><strong>Label only the round white objects as marine organisms; the deep blackish
+      holes are AC.</strong></div>
+    <figure><img loading="lazy" src="assets/img/qa-v2-03-barnacle-holes.jpg" alt="Client image for ruling V2-3: dense barnacle growth on red hull, a large region circled in red, with existing cyan annotations nearby.">
+      <figcaption>In dense growth, annotate the <strong>shells</strong> as
+        <a href="#marine">Marine organisms</a> and the dark gaps between them as
+        <a href="#ac">AC</a> — the growth has taken the paint down to the AC coat. Do not enclose
+        the colony as one shape: that is <a href="#fp5">FP-5</a>.</figcaption></figure></div>
+
+  <div class="qa" id="v2-8"><div class="qid">Ruling V2-8 <a class="anchor" href="#v2-8">#</a></div>
+    <p class="q">Is it appropriate to annotate areas like this at this level of granularity?</p>
+    <div class="a"><strong>Yes. Please use this level of granularity.</strong></div>
+    <figure><img loading="lazy" src="assets/img/qa-v2-08-granularity-ok.jpg" alt="Client image for ruling V2-8: red hull densely annotated with many small separate cyan AC regions following fine speckled detail.">
+      <figcaption>The standard, confirmed on our own work: <strong>many small separate regions</strong>
+        following the speckle, not one mask over the band. Keep this image in mind when a region
+        looks too fiddly to trace — this is the expected effort.</figcaption></figure></div>
 
   <h3>Where the boundaries go</h3>
   <div class="qa" id="jp3"><div class="qid">Ruling JP-3 <a class="anchor" href="#jp3">#</a></div>
