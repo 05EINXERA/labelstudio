@@ -853,7 +853,9 @@ export function renderControls() {
     } else if (!state.activeLabelId) {
       shapeHint.textContent = "Pick a class from the list to start drawing a polygon.";
     } else {
-      shapeHint.textContent = "Click to add points. Click the first point to close the polygon.";
+      shapeHint.textContent = state.stickyClass
+        ? "Click to add points; click the first point to close. The class stays selected for the next polygon."
+        : "Click to add points. Click the first point to close the polygon.";
     }
   } else if (state.shape === "comment") {
     shapeHint.textContent = "Click anywhere on the image to leave a comment.";

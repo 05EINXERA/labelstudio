@@ -220,11 +220,14 @@ export function finalizePolygon() {
   // Called before updateAnnotationBounds so the bounds reflect the smoothed points.
   applyAutoSmooth(annotation);
   updateAnnotationBounds(annotation);
-  state.needsLabelSelection = true;
+  // Sticky class: the finished polygon keeps its label and the same class stays
+  // armed, so the next polygon can start on the very next click without a trip
+  // to the class panel. Without it, re-arm the gate as before.
+  state.needsLabelSelection = !state.stickyClass;
   state.justFinalized = true;
   render();
   save();
-  setStatus("Select class for next");
+  setStatus(state.stickyClass ? "Polygon saved — keep drawing" : "Select class for next");
 }
 
 // Point-level undo/redo for an in-progress (not yet finalized) polygon.
@@ -733,7 +736,13 @@ canvas.addEventListener("pointerdown", (event) => {
   // click can label it; this click releases that selection, so picking a class for
   // the next shape cannot re-label the finished one. Consumed immediately — every
   // later click must fall through to the normal editing blocks below.
-  if (state.justFinalized) {
+  // With sticky class there is no pending class pick to protect, so this click
+  // must not be swallowed — it is the first vertex/corner of the next shape.
+  // Just drop the finished shape's selection and fall through.
+  if (state.justFinalized && state.stickyClass && state.mode === "draw") {
+    state.justFinalized = false;
+    clearSelectionAfterFinalize();
+  } else if (state.justFinalized) {
     state.justFinalized = false;
     const hitId = hitTest(point);
     // Clicking the finished shape itself keeps it selected; anything else releases

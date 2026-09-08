@@ -301,6 +301,27 @@
           </div>
         </div>
 
+        <div class="tool-group" role="group" aria-label="Class stickiness">
+          <span class="tool-group-label">Class</span>
+          <div class="tool-group-buttons">
+            <div class="dropdown" id="stickyClassDropdownContainer">
+              <button class="icon-button" type="button" id="stickyClassMenuButton"
+                title="Sticky Class — keep the same class armed after each shape so you can keep drawing"
+                aria-haspopup="true" aria-expanded="false">
+                <span class="btn-icon">📌</span><span class="btn-label">Sticky</span> ▾
+              </button>
+              <div class="dropdown-content move-objects-menu" style="left: 0; right: auto; min-width: 0; padding: 10px 12px;">
+                <div class="move-objects-row">
+                  <span class="move-objects-title">Sticky Class</span>
+                  <button type="button" id="stickyClassToggle" class="switch" role="switch" aria-checked="true" aria-label="Sticky Class">
+                    <span class="switch-knob"></span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- FFT Smooth tool group -->
         <div class="tool-group fft-tool-group" role="group" aria-label="FFT noise filter">
           <span class="tool-group-label">Smooth</span>

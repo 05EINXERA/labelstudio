@@ -14,6 +14,27 @@ export function draftKey(taskId) {
   return `annotation-draft-v1:${taskId}`;
 }
 export const labelStudioStorageKey = "image-annotation-label-studio-settings";
+// UI preference only (see state.stickyClass) — never security- or data-relevant,
+// so a missing/blocked localStorage just falls back to the default.
+export const stickyClassStorageKey = "annotation-sticky-class-v1";
+
+export function loadStickyClassPref() {
+  try {
+    const stored = localStorage.getItem(stickyClassStorageKey);
+    return stored === null ? true : stored === "1";
+  } catch (err) {
+    console.warn("Could not read sticky-class preference:", err);
+    return true;
+  }
+}
+
+export function saveStickyClassPref(on) {
+  try {
+    localStorage.setItem(stickyClassStorageKey, on ? "1" : "0");
+  } catch (err) {
+    console.warn("Could not persist sticky-class preference:", err);
+  }
+}
 // Vertex handle size moved to feature-flags.js (annotationSettings) so the
 // drawn radius and the click-target radius are configured in one place.
 export const closeThreshold = 1;
@@ -48,6 +69,13 @@ export const state = {
   history: [],
   redoHistory: [],
   needsLabelSelection: false,
+  // When true, finalizing a shape keeps the active class armed so the next
+  // shape can be drawn immediately — annotating a dozen objects of the same
+  // class no longer costs a trip to the class panel between each one. When
+  // false, the legacy behaviour applies: every finished shape re-arms
+  // needsLabelSelection and the annotator must pick a class again.
+  // Persisted per browser in stickyClassStorageKey.
+  stickyClass: true,
   // True only between finalizing a shape and the next canvas click. It exists so
   // that first click can release the finished shape's selection (otherwise picking
   // a class for the *next* shape would re-label the finished one). It must be
@@ -151,8 +179,15 @@ export function resetWorkspaceForNewImage() {
   state.redoHistory = [];
   // Re-arm the label gate for each new task: the annotator must pick a class
   // before drawing, rather than inheriting the previous task's armed state.
-  state.mode = "select";
-  state.activeLabelId = null;
+  // Sticky class deliberately survives the task change too: an annotator
+  // working one class across a batch of images should not have to re-pick it
+  // — or re-press Draw — on every image either.
+  if (state.stickyClass && state.activeLabelId) {
+    state.mode = "draw";
+  } else {
+    state.mode = "select";
+    state.activeLabelId = null;
+  }
   state.needsLabelSelection = false;
   state.justFinalized = false;
   state.isTaskAssignee = false;

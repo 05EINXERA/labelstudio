@@ -6,7 +6,7 @@
  * move objects lock/unlock toggle, and comment overlay keyboard handling.
  */
 import { generateUUID, round } from "../utils.js?v=2";
-import { state, snapshot } from "../state.js?v=2";
+import { state, snapshot, loadStickyClassPref, saveStickyClassPref } from "../state.js?v=2";
 import { view } from "../canvas/view.js?v=1";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
 import {
@@ -130,6 +130,65 @@ export function initCommentInput() {
       render();
     }
   });
+}
+
+/**
+ * Initializes the Sticky Class toggle button and dropdown menu.
+ *
+ * Sticky Class keeps the active class armed after a shape is finalized, so an
+ * annotator drawing many objects of the same class draws them back-to-back
+ * instead of re-clicking the class in the left panel between each one.
+ */
+export function initStickyClassToggle() {
+  const container = document.querySelector("#stickyClassDropdownContainer");
+  const menuButton = document.querySelector("#stickyClassMenuButton");
+  const toggle = document.querySelector("#stickyClassToggle");
+
+  state.stickyClass = loadStickyClassPref();
+
+  function renderStickyClassUI() {
+    const on = state.stickyClass;
+    if (toggle) {
+      toggle.classList.toggle("is-on", on);
+      toggle.setAttribute("aria-checked", on ? "true" : "false");
+    }
+    if (menuButton) {
+      const label = menuButton.querySelector(".btn-label");
+      if (label) label.textContent = on ? "Sticky" : "Per shape";
+      menuButton.classList.toggle("is-active", on);
+    }
+  }
+
+  if (menuButton) {
+    menuButton.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const open = container.classList.toggle("show");
+      menuButton.setAttribute("aria-expanded", open ? "true" : "false");
+    });
+  }
+
+  if (toggle) {
+    toggle.addEventListener("click", (e) => {
+      e.stopPropagation();
+      state.stickyClass = !state.stickyClass;
+      saveStickyClassPref(state.stickyClass);
+      // Turning it off mid-session must not strand a shape-less "pick a class"
+      // gate, and turning it on must clear one that is already pending.
+      if (state.stickyClass) state.needsLabelSelection = false;
+      renderStickyClassUI();
+      setStatus(state.stickyClass ? "Sticky Class: On" : "Sticky Class: Off");
+      render();
+    });
+  }
+
+  document.addEventListener("click", (e) => {
+    if (container && !container.contains(e.target)) {
+      container.classList.remove("show");
+      if (menuButton) menuButton.setAttribute("aria-expanded", "false");
+    }
+  });
+
+  renderStickyClassUI();
 }
 
 /**
@@ -288,5 +347,6 @@ export function initModeControls() {
   }
 
   initMoveObjectsToggle();
+  initStickyClassToggle();
   initCommentInput();
 }
