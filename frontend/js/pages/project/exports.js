@@ -28,6 +28,13 @@ let pollInterval = null;
 // Job state: null | { job_id, status, format, imageOutput, task_count }
 let currentJob = null;
 
+// The task the workspace's Export button was pressed from, taken from the
+// ?currentTaskId= query param. Null when the Exports page was reached from the
+// project nav instead, in which case the "Current" filter is not offered at all
+// — there is no current task to mean.
+let currentTaskId = null;
+let currentTaskName = "";
+
 // ---------------------------------------------------------------------------
 // Template
 // ---------------------------------------------------------------------------
@@ -55,6 +62,12 @@ function template() {
           Choose which tasks to include based on their status. Leave all unchecked to export everything.
         </p>
         <div style="display:flex; flex-wrap:wrap; gap:12px;">
+          ${currentTaskId ? `
+          <label style="display:flex; align-items:center; gap:8px; font-size:.9rem; font-weight:600;"
+                 title="Export only the task you were just working on, in whichever format you pick below">
+            <input type="checkbox" id="currentTaskFilter">
+            Current${currentTaskName ? ` (${escapeHTML(currentTaskName)})` : ""}
+          </label>` : ""}
           <label style="display:flex; align-items:center; gap:8px; font-size:.9rem;">
             <input type="checkbox" name="statusFilter" value="New">
             New
@@ -265,7 +278,16 @@ function getFormData() {
     // an include variant.
     include: "annotations_only",
     statusFilter: statusChecked.length > 0 ? statusChecked : null,
+    // "Current" narrows to the one open task. It is a separate axis from the
+    // status boxes and the backend ANDs the two, so ticking Current plus a
+    // status the task does not have exports nothing — which is why the UI
+    // clears the status boxes when Current is ticked (see bindExportBuilder).
+    taskIds: currentTaskOnly() ? [currentTaskId] : null,
   };
+}
+
+function currentTaskOnly() {
+  return currentTaskId !== null && !!root.querySelector("#currentTaskFilter")?.checked;
 }
 
 async function createExport() {
@@ -313,6 +335,26 @@ function bindExportBuilder() {
     radio.addEventListener("change", updateMaskNote);
   });
   updateMaskNote();
+
+  // "Current" and the status boxes are ANDed by the backend, so leaving both
+  // set is a live trap: tick Current on an "In Progress" task with "Completed"
+  // checked and the export comes back empty. Make them mutually exclusive in
+  // the UI rather than explaining the interaction.
+  const currentBox = root.querySelector("#currentTaskFilter");
+  const statusBoxes = [...root.querySelectorAll('input[name="statusFilter"]')];
+  if (currentBox) {
+    currentBox.addEventListener("change", () => {
+      if (currentBox.checked) {
+        statusBoxes.forEach((cb) => { cb.checked = false; });
+      }
+      statusBoxes.forEach((cb) => { cb.disabled = currentBox.checked; });
+    });
+    statusBoxes.forEach((cb) => {
+      cb.addEventListener("change", () => {
+        if (cb.checked) currentBox.checked = false;
+      });
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -488,9 +530,41 @@ export async function mount(hostRoot, hostCtx) {
   ctx = hostCtx;
   abortController = new AbortController();
 
+  const rawTaskId = new URLSearchParams(window.location.search).get("currentTaskId");
+  currentTaskId = /^\d+$/.test(rawTaskId || "") ? Number(rawTaskId) : null;
+  currentTaskName = "";
+
   root.innerHTML = template();
   bindExportBuilder();
   bindJobSection();
+
+  // The label is cosmetic, so it is filled in after the first paint rather than
+  // holding the whole view on a network round trip. A failure just leaves the
+  // checkbox reading "Current", which still works.
+  if (currentTaskId !== null) hydrateCurrentTaskName();
+}
+
+async function hydrateCurrentTaskName() {
+  const wantedId = currentTaskId;
+  try {
+    const res = await apiFetch(`/api/tasks/${encodeURIComponent(wantedId)}`, {
+      signal: abortController?.signal,
+    });
+    if (!res || !res.ok) return;
+    const task = await res.json();
+    // The view may have been unmounted, or navigated to a different task, while
+    // this was in flight.
+    if (!root || currentTaskId !== wantedId) return;
+    const name = (task?.image_path || "").split(/[\\/]/).pop();
+    if (!name) return;
+    currentTaskName = name;
+    const label = root.querySelector("#currentTaskFilter")?.parentElement;
+    if (label) label.lastChild.textContent = ` Current (${name})`;
+  } catch (err) {
+    if (err?.name !== "AbortError") {
+      console.warn("Could not load current task name for export filter:", err);
+    }
+  }
 }
 
 export function unmount() {
@@ -498,6 +572,8 @@ export function unmount() {
   abortController?.abort();
   abortController = null;
   currentJob = null;
+  currentTaskId = null;
+  currentTaskName = "";
   root = null;
   ctx = null;
 }

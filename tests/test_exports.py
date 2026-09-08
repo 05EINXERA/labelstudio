@@ -339,3 +339,69 @@ def test_parse_round_trips_an_export(client, alice):
     labels = client.get(f"/api/labels?projectId={target}", headers=alice).json()
     assert labels[0]["name"] == "Rust Area"
     assert labels[0]["color"] == "#D95319"
+
+
+# ---------------------------------------------------------------------------
+# taskIds filter — backs the Exports page "Current" option, which the workspace
+# Export button arms with the task the annotator had open.
+# ---------------------------------------------------------------------------
+
+def _export_filtered(client, auth, pid, fmt, **filters):
+    payload = {"projectId": pid, "format": fmt}
+    payload.update(filters)
+    res = client.post("/api/exports", json=payload, headers=auth)
+    return res
+
+
+def test_task_ids_restricts_the_export_to_those_tasks(client, alice):
+    pid = _new_project(client, alice, "tid-one")
+    lid = _new_label(client, alice, pid, "l1", "Rust Area")
+    keep = _new_task(client, alice, pid, "keep.png",
+                     [{"labelId": lid, "type": "polygon",
+                       "points": [{"x": 1, "y": 2}, {"x": 3, "y": 4}, {"x": 5, "y": 6}]}])
+    _new_task(client, alice, pid, "other.png")
+
+    res = _export_filtered(client, alice, pid, "annotations_json", taskIds=[keep])
+    assert res.status_code == 200, res.text
+    job_id = res.json()["job_id"]
+    assert client.get(f"/api/exports/{job_id}", headers=alice).json()["status"] == "completed"
+    data = json.loads(client.get(f"/api/exports/{job_id}/download", headers=alice).content)
+
+    assert len(data) == 1
+    # The one exported task is the requested one, and the excluded task is
+    # nowhere in the payload.
+    assert "keep.png" in json.dumps(data[0])
+    assert "other.png" not in json.dumps(data)
+
+
+def test_task_ids_is_anded_with_status_filter(client, alice):
+    """Both axes must match — this is why the UI makes them mutually exclusive."""
+    pid = _new_project(client, alice, "tid-and")
+    tid = _new_task(client, alice, pid, "np.png", status="New")
+
+    res = _export_filtered(client, alice, pid, "annotations_json",
+                           taskIds=[tid], statusFilter=["Completed"])
+    assert res.status_code == 200, res.text
+    job_id = res.json()["job_id"]
+    data = json.loads(client.get(f"/api/exports/{job_id}/download", headers=alice).content)
+    assert data == []
+
+
+def test_task_id_from_another_project_is_rejected(client, alice):
+    """A foreign id can never leak data (project_id is ANDed), but a silently
+    empty export is harder to diagnose than a 404."""
+    pid_a = _new_project(client, alice, "tid-a")
+    pid_b = _new_project(client, alice, "tid-b")
+    foreign = _new_task(client, alice, pid_b, "b.png")
+
+    res = _export_filtered(client, alice, pid_a, "annotations_json", taskIds=[foreign])
+    assert res.status_code == 404, res.text
+
+
+def test_omitting_task_ids_still_exports_everything(client, alice):
+    pid = _new_project(client, alice, "tid-none")
+    _new_task(client, alice, pid, "a.png")
+    _new_task(client, alice, pid, "b.png")
+
+    res = _export(client, alice, pid, "annotations_json")
+    assert len(json.loads(res.content)) == 2

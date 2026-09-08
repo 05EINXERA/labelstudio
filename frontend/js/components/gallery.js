@@ -149,6 +149,14 @@ export async function switchImage(index) {
       if (backToProject) {
         backToProject.href = `project.html?id=${encodeURIComponent(curProjId)}&activeTaskId=${encodeURIComponent(item.id)}#/tasks`;
       }
+      // Carry the open task to the Exports page so it can offer a "Current
+      // task" filter. Re-pointed on every task open, because the link is built
+      // once at init and the open task changes as the gallery is navigated.
+      const exportLink = document.querySelector("#exportLink");
+      if (exportLink) {
+        exportLink.href =
+          `project.html?id=${encodeURIComponent(curProjId)}&currentTaskId=${encodeURIComponent(item.id)}#/exports`;
+      }
     }
   }
 

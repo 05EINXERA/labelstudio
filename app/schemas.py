@@ -317,6 +317,14 @@ class ExportRequest(BaseModel):
     imageOutput: str = "none"
     # None/omitted means "all statuses".
     statusFilter: Optional[List[str]] = None
+    # Restrict the export to specific tasks. None/omitted means "no task
+    # restriction". This is what backs the Exports page's "Current task"
+    # option, which the workspace Export button arms with the open task — it is
+    # deliberately a task filter and not a pseudo-status, because "current" is a
+    # property of the caller's session, not of the row.
+    #
+    # Combined with statusFilter as AND: a task must match both to be exported.
+    taskIds: Optional[List[int]] = None
     include: str = "annotations_only"
 
 

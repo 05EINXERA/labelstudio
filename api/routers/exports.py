@@ -284,6 +284,8 @@ def _run_export_job(job_id: str, req: ExportRequest, project_id: int):
         query = db.query(models.Task).filter(models.Task.project_id == project_id)
         if req.statusFilter:
             query = query.filter(models.Task.status.in_(req.statusFilter))
+        if req.taskIds:
+            query = query.filter(models.Task.id.in_(req.taskIds))
         tasks = query.options(selectinload(models.Task.annotations)).all()
         labels = db.query(models.Label).filter(models.Label.project_id == project_id).all()
         labels_by_id = {l.id: l for l in labels}
@@ -387,6 +389,24 @@ def create_export(req: ExportRequest, background_tasks: BackgroundTasks, db: Ses
         if bad:
             raise HTTPException(status_code=422, detail=f"Unknown status filter values: {bad}. Valid: {TASK_STATUSES}.")
 
+    if req.taskIds:
+        # The export query ANDs task_id with project_id, so a foreign id can
+        # never leak another project's data — it just matches nothing. Reject it
+        # anyway: an export that silently comes back empty is harder to diagnose
+        # than one that says which ids were wrong.
+        found = {
+            row[0]
+            for row in db.query(models.Task.id)
+            .filter(models.Task.project_id == req.projectId, models.Task.id.in_(req.taskIds))
+            .all()
+        }
+        missing = [t for t in req.taskIds if t not in found]
+        if missing:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Tasks not found in this project: {missing}.",
+            )
+
     # Any raster image output is the slow path that holds the single worker
     # (rule 9): colour masks emit two full-size PNGs per task, and annotated/
     # binary one each. Cap on the resolved image output, not the format code.
@@ -396,6 +416,8 @@ def create_export(req: ExportRequest, background_tasks: BackgroundTasks, db: Ses
         count_query = db.query(models.Task).filter(models.Task.project_id == req.projectId)
         if req.statusFilter:
             count_query = count_query.filter(models.Task.status.in_(req.statusFilter))
+        if req.taskIds:
+            count_query = count_query.filter(models.Task.id.in_(req.taskIds))
         task_count = count_query.count()
         if task_count > masks_format.MAX_MASK_TASKS:
             raise HTTPException(

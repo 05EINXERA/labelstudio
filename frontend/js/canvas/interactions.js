@@ -1528,17 +1528,27 @@ window.addEventListener("keydown", (event) => {
     return;
   }
 
-  // H hides the selection, U reveals it. A hidden annotation can no longer be
-  // clicked on the canvas (isAnnotationHidden gates the hit-test too), so U
-  // with nothing selected reveals everything hidden — otherwise an annotator
-  // who hid a shape and then clicked elsewhere would have no way back except
+  // H toggles the selection's visibility; U reveals. A hidden annotation can no
+  // longer be clicked on the canvas (isAnnotationHidden gates the hit-test too),
+  // but it stays *selected*, so a second H press finds it again and brings it
+  // back. U remains because a click elsewhere drops that selection, and then the
+  // only ways back are U (with nothing selected it reveals everything hidden) or
   // the sidebar eye button.
   if (event.key.toLowerCase() === "h" && state.selectedIds.size > 0) {
     event.preventDefault();
-    state.selectedIds.forEach((id) => state.hiddenAnnotationIds.add(id));
-    setStatus(state.selectedIds.size > 1
-      ? `${state.selectedIds.size} objects hidden (U to reveal)`
-      : "Object hidden (U to reveal)");
+    // Mixed selections resolve to "hide": pressing H again then reveals all of
+    // them, so the pair of presses is a predictable round trip.
+    const anyVisible = [...state.selectedIds].some((id) => !state.hiddenAnnotationIds.has(id));
+    const count = state.selectedIds.size;
+    if (anyVisible) {
+      state.selectedIds.forEach((id) => state.hiddenAnnotationIds.add(id));
+      setStatus(count > 1
+        ? `${count} objects hidden (H or U to reveal)`
+        : "Object hidden (H or U to reveal)");
+    } else {
+      state.selectedIds.forEach((id) => state.hiddenAnnotationIds.delete(id));
+      setStatus(count > 1 ? `${count} objects revealed` : "Object revealed");
+    }
     render();
     return;
   }
