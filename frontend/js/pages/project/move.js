@@ -19,7 +19,7 @@
  */
 import { apiFetch } from "../../api.js?v=5";
 import { escapeHTML } from "../../utils.js?v=1";
-import { createDataTable } from "../../components/data-table.js?v=5";
+import { createDataTable } from "../../components/data-table.js?v=6";
 import { buildColumns, STATUSES } from "./task-columns.js?v=10";
 
 const PAGE_SIZE = 10;
@@ -413,6 +413,10 @@ export async function mount(container, context) {
     pageSize: PAGE_SIZE,
     emptyMessage: "No tasks match your search.",
     onSelectionChange,
+    // The bar's "(N not shown by the current search)" counts selected ids
+    // against the rows on screen, so it has to be recomputed whenever those
+    // rows change — clearing a search brings hidden ones back into view.
+    onRender: updateBar,
     server: { fetchPage: fetchTaskPage },
     columns: buildColumns({
       role: ctx.myRole,

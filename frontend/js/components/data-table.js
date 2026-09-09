@@ -38,6 +38,9 @@ import { escapeHTML } from "../utils.js?v=1";
  * @param {(q:object)=>Promise<{items:Array,total:number,total_pages:number}>}
  *        opts.server.fetchPage           receives {page,pageSize,sortKey,sortDesc,query,filters}
  * @param {(state:object)=>void} [opts.onStateChange]  fired when page/sort/filter changes
+ * @param {()=>void} [opts.onRender]  fired after every render, once the rows on
+ *        screen are final. Use it (not onStateChange, which fires before a
+ *        server fetch resolves) for UI derived from the *visible* rows.
  * @param {boolean} [opts.retainSelection]  keep selected ids that are not on
  *        the current page. Default false, which is what every bulk action on a
  *        single page wants: an id the user can no longer see must not be
@@ -63,6 +66,7 @@ export function createDataTable(opts) {
     onSelectionChange,
     server = null,
     onStateChange,
+    onRender,
     retainSelection = false,
   } = opts;
 
@@ -412,6 +416,13 @@ export function createDataTable(opts) {
         });
       });
     }
+
+    // Every path that changes which rows are on screen ends here — a search,
+    // a filter, a page step, a fetch landing. A caller whose own UI describes
+    // the selection *relative to the visible rows* has no other reliable
+    // moment to recompute: onStateChange fires before the fetch resolves, so
+    // getRows() is still the previous page there.
+    onRender?.();
   }
 
   // --- public api ---------------------------------------------------------

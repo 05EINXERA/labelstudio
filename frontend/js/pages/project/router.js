@@ -51,7 +51,7 @@ const VIEWS = {
   imports: () => import("./imports.js?v=2"),
   exports: () => import("./exports.js?v=3"),
   access: () => import("./access.js?v=2"),
-  move: () => import("./move.js?v=1"),
+  move: () => import("./move.js?v=2"),
 };
 
 let currentView = null;   // the loaded module, so we can call unmount()
