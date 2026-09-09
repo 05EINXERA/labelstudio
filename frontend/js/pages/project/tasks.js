@@ -37,7 +37,7 @@ import {
   showsSelection,
   showsUpload,
   statusPill,
-} from "./task-columns.js?v=9";
+} from "./task-columns.js?v=10";
 
 let root = null;
 let ctx = null;

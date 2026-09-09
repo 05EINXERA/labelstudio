@@ -3056,6 +3056,38 @@ button.switch[aria-checked="true"] .switch-knob {
 .access-grant-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .access-owner-note { margin-top: 24px; font-size: .85rem; }
 
+/* --- move tasks view ------------------------------------------------------ */
+
+.move-intro { max-width: 62ch; margin: -8px 0 22px; font-size: .88rem; }
+.move-destination, .move-classes, .move-tasks { margin-bottom: 26px; }
+.move-destination h4, .move-classes h4, .move-tasks h4 {
+  margin: 0 0 10px;
+  font-size: .95rem;
+}
+.move-classes p { margin: 0 0 10px; font-size: .85rem; max-width: 62ch; }
+.move-radio {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-bottom: 8px;
+  font-size: .88rem;
+  cursor: pointer;
+}
+.move-radio input { margin-top: 3px; }
+.move-radio em { font-style: normal; }
+.move-preview { margin: 8px 0; padding-left: 20px; font-size: .88rem; }
+/* Warnings are the reason a move needs a result panel at all: assignment that
+   survived but does not yet resolve in the destination. Amber, not red — the
+   move succeeded, and the fix is one grant away. */
+.move-warnings {
+  margin: 10px 0;
+  padding: 10px 10px 10px 28px;
+  border-left: 3px solid rgba(234,179,8,.6);
+  background: rgba(234,179,8,.08);
+  font-size: .85rem;
+}
+.move-warnings li { margin: 4px 0; }
+
 /* --- canvas permission surface ------------------------------------------- */
 
 .permission-banner {
