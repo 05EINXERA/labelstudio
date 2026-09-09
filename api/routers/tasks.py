@@ -14,6 +14,7 @@ from logging_service import log_event
 from database import get_db, commit_with_retry
 from formats.annotation_rows import sync_task_annotations_for_project
 from formats.common import annotation_dicts
+from formats.label_reconcile import apply_label_map, build_label_map
 from schemas import (
     APPROVED_STATUSES,
     is_approved,
@@ -23,6 +24,9 @@ from schemas import (
     BulkAssignResult,
     BulkDelete,
     BulkUpdate,
+    MoveBlocked,
+    MoveTasks,
+    MoveTasksResult,
     ReviewCreate,
     ReviewOut,
     ReviewResult,
@@ -64,6 +68,13 @@ TASK_LOCK_TTL_SECONDS = int(os.environ.get("TASK_LOCK_TTL_SECONDS", "60"))
 
 # {task_id: {"client_id": str, "claimed_at": datetime}}
 _TASK_LOCKS: Dict[int, dict] = {}
+
+# Recorded as the last writer of a task that has just been moved between
+# projects. Never a real client id — browser tabs use a uuid4 — so any tab that
+# saved before the move now compares as a *different* client and is asked to
+# reload rather than being allowed to write the old project's label ids back.
+# See bulk_move_tasks and .devnotes/move-task-feature/02_DESIGN.md § 2.
+MOVE_CLIENT_SENTINEL = "server:moved"
 
 
 def _lock_status(task_id: int) -> Optional[dict]:
@@ -1836,5 +1847,299 @@ def bulk_assign_tasks(
         updated=len(allowed) if update_data else 0,
         skipped=skipped,
         # Deduplicated: the same warning from three projects is one fact.
+        warnings=sorted(set(warnings)),
+    )
+
+
+def _move_assignment_warnings(
+    task_ids: List[int], target_project_id: int, db: Session
+) -> List[str]:
+    """Assignment that survives the move but does not yet resolve in the target.
+
+    Deliberately warnings, where `_validate_assignment` raises 422 for the same
+    situation (E-09, "invisible work"). A move is not an assignment: nothing is
+    being handed to anyone new, and clearing the field would destroy information
+    the owner intends to make valid one grant later. The whole workflow this
+    feature exists for is *move the tasks, then give the team access to the new
+    project* — so the move reports what is not yet reachable and links to the
+    page that fixes it. See .devnotes/move-task-feature/02_DESIGN.md § 4.
+    """
+    warnings: List[str] = []
+
+    team_counts: Dict[int, int] = {}
+    for team_id, count in (
+        db.query(models.Task.assigned_team_id, func.count(models.Task.id))
+        .filter(
+            models.Task.id.in_(task_ids),
+            models.Task.assigned_team_id.isnot(None),
+        )
+        .group_by(models.Task.assigned_team_id)
+        .all()
+    ):
+        team_counts[team_id] = count
+
+    if team_counts:
+        granted = {
+            team_id
+            for (team_id,) in db.query(models.ProjectGrant.team_id).filter(
+                models.ProjectGrant.project_id == target_project_id,
+                models.ProjectGrant.team_id.in_(list(team_counts)),
+            )
+        }
+        for team_id, count in sorted(team_counts.items()):
+            if team_id in granted:
+                continue
+            team = db.get(models.Team, team_id)
+            name = team.name if team else f"#{team_id}"
+            warnings.append(
+                f'Team "{name}" has no access to the destination project. '
+                f"{count} moved task(s) stay assigned to it and will be "
+                "invisible to its members until you grant access."
+            )
+
+    user_ids = [
+        uid
+        for (uid,) in db.query(models.Task.assignee_user_id)
+        .filter(
+            models.Task.id.in_(task_ids),
+            models.Task.assignee_user_id.isnot(None),
+        )
+        .distinct()
+    ]
+    for user_id in sorted(user_ids):
+        assignee = db.get(models.User, user_id)
+        if assignee is None:
+            continue
+        if effective_project_role(assignee, target_project_id, db) is None:
+            warnings.append(
+                f"{assignee.username} is assigned moved task(s) but has no role "
+                "on the destination project yet."
+            )
+
+    return warnings
+
+
+def _duplicate_name_warnings(
+    task_ids: List[int], target_project_id: int, db: Session
+) -> List[str]:
+    """Filenames that already exist in the destination (M-12).
+
+    Not blocking: nothing is keyed on `description`, so two tasks named
+    `P1000123.jpg` in one project is confusing rather than corrupt — and the
+    upload path only rejects the same name because a re-upload is almost always
+    a mistake, which a deliberate move is not.
+    """
+    names = [
+        name
+        for (name,) in db.query(models.Task.description)
+        .filter(models.Task.id.in_(task_ids))
+        .distinct()
+        if name
+    ]
+    if not names:
+        return []
+
+    clashes = sorted(
+        name
+        for (name,) in db.query(models.Task.description).filter(
+            models.Task.project_id == target_project_id,
+            models.Task.description.in_(names),
+        )
+        if name
+    )
+    if not clashes:
+        return []
+
+    shown = ", ".join(clashes[:5])
+    if len(clashes) > 5:
+        shown += f" and {len(clashes) - 5} more"
+    return [
+        f"The destination project already has a task named {shown}. "
+        "Both copies will be listed; nothing was overwritten."
+    ]
+
+
+@router.post("/bulk-move", response_model=MoveTasksResult)
+def bulk_move_tasks(
+    payload: MoveTasks,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """Move tasks to another project the caller owns, classes and all.
+
+    **Owner on both ends**, not manager: the move takes work out of one project
+    and injects it into another, which is delete-shaped in blast radius on the
+    source and import-shaped on the destination — and `delete_project` is
+    owner-only for exactly that reason. It also makes the destination picker
+    honest, since an owner can only offer projects they own.
+
+    **The task row is the only thing that moves.** Annotations, review history
+    and the assignment columns hang off `task_id`, which does not change, so
+    they travel by doing nothing — no rows are created or deleted anywhere.
+    The one thing that genuinely breaks is classes, and
+    `formats/label_reconcile.py` owns that.
+
+    **All-or-nothing.** One commit at the end. A half-applied move — some shapes
+    remapped, some not, and no way to tell which — is the worst reachable state,
+    so blocked tasks are collected *before* any mutation and the request returns
+    409 having changed nothing.
+
+    See .devnotes/move-task-feature/02_DESIGN.md § 2 for the ordering, which is
+    load-bearing.
+    """
+    if not payload.ids:
+        raise HTTPException(status_code=400, detail="No ids provided")
+
+    # Owner on the destination, resolved first: a caller who cannot write here
+    # gets one clear answer rather than a partial report about the sources.
+    target = require_project(
+        payload.target_project_id, user, db, minimum=ProjectRole.OWNER
+    )
+
+    # Owner on the sources too. Ids the caller cannot move are counted, not
+    # fatal — the filter-don't-fail shape every bulk endpoint here uses.
+    allowed, skipped = _restrict_to_owned(
+        payload.ids, user, db, minimum=ProjectRole.OWNER
+    )
+
+    # Tasks already in the destination are dropped rather than rejected, which
+    # is what makes re-posting a batch idempotent (M-01, M-27): a retry after a
+    # dropped response must not be an error.
+    already_there = {
+        task_id
+        for (task_id,) in db.query(models.Task.id).filter(
+            models.Task.id.in_(allowed),
+            models.Task.project_id == payload.target_project_id,
+        )
+    } if allowed else set()
+    if already_there:
+        allowed = [t for t in allowed if t not in already_there]
+        skipped += len(already_there)
+
+    if not allowed:
+        return MoveTasksResult(
+            status="ok", moved=0, skipped=skipped,
+            target_project_id=payload.target_project_id,
+        )
+
+    # Lock pre-flight, before anything is written. A task under a live claim is
+    # open in somebody's canvas right now; remapping its classes underneath them
+    # is precisely what the 409-and-reload guard below exists to survive, and
+    # refusing is cheaper than relying on it.
+    blocked: List[MoveBlocked] = []
+    if not payload.force:
+        for task_id in allowed:
+            if _lock_status(task_id) is not None:
+                blocked.append(MoveBlocked(
+                    task_id=task_id,
+                    reason="locked",
+                    detail="Someone has this task open right now.",
+                ))
+    if blocked:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": (
+                    f"{len(blocked)} of the selected tasks are being edited. "
+                    "Nothing was moved."
+                ),
+                "blocked": [b.model_dump() for b in blocked],
+            },
+        )
+
+    source_project_ids = sorted({
+        pid
+        for (pid,) in db.query(models.Task.project_id)
+        .filter(models.Task.id.in_(allowed))
+        .distinct()
+        if pid is not None
+    })
+
+    # Warnings are computed *before* the move, while the tasks still sit in
+    # their source projects — the duplicate-name check in particular has to look
+    # at the destination without the moving tasks already in it.
+    warnings = _move_assignment_warnings(allowed, payload.target_project_id, db)
+    warnings.extend(_duplicate_name_warnings(allowed, payload.target_project_id, db))
+
+    try:
+        plan = build_label_map(
+            db, allowed, payload.target_project_id, payload.class_strategy
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    relabelled = apply_label_map(db, allowed, plan)
+
+    if plan.unmatched_names:
+        warnings.append(
+            "These classes do not exist in the destination and were left "
+            "unlabelled: " + ", ".join(sorted(set(plan.unmatched_names))) + "."
+        )
+    if plan.merged_names:
+        warnings.append(
+            "Classes differing only in capitalisation were merged into one in "
+            "the destination: " + ", ".join(sorted(set(plan.merged_names))) + "."
+        )
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    db.query(models.Task).filter(models.Task.id.in_(allowed)).update(
+        {
+            models.Task.project_id: payload.target_project_id,
+            models.Task.updated_at: now,
+            # A sentinel writer, deliberately, and *not* NULL.
+            #
+            # A tab holding this task open still has the *source* project's
+            # label ids in memory. Without intervention its next save sails
+            # through conflict detection — it is the same client that wrote
+            # last, which rule 11 exempts by design — and writes those ids
+            # straight back over the remap, re-orphaning every shape.
+            #
+            # NULL was the obvious move and is wrong: with no stored identity
+            # the check falls through to the timestamp-only branch, which
+            # tolerates CONFLICT_TOLERANCE_SECONDS of drift and so *accepts* a
+            # save issued moments after the move. The sentinel keeps the
+            # identity branch live and can never equal a real client id, so the
+            # stale tab takes a 409 and reloads. Its draft is kept (rule 18a).
+            models.Task.last_client_id: MOVE_CLIENT_SENTINEL,
+        },
+        synchronize_session=False,
+    )
+
+    # Both ends: the source may have just lost its last approved task, and the
+    # destination may have just gained enough to be complete. Skipping either
+    # leaves a project badge lying until some unrelated save refreshes it.
+    for project_id in source_project_ids:
+        _sync_project_status(project_id, db)
+    _sync_project_status(payload.target_project_id, db)
+
+    # WARN: this relocates other people's work between projects, so it belongs
+    # in the same destructive-action trail as bulk delete. The ids are recorded
+    # because a move is the one operation whose reversal needs to know exactly
+    # which tasks went where.
+    log_event(
+        "task.bulk_move",
+        level="WARN",
+        project=",".join(str(p) for p in source_project_ids) or None,
+        target_project=payload.target_project_id,
+        requested=len(set(payload.ids)),
+        moved=len(allowed),
+        skipped=skipped,
+        class_strategy=payload.class_strategy,
+        labels_created=plan.created,
+        labels_matched=plan.matched,
+        annotations_relabelled=relabelled,
+        ids=",".join(str(i) for i in allowed),
+    )
+
+    commit_with_retry(db)
+
+    return MoveTasksResult(
+        status="ok",
+        moved=len(allowed),
+        skipped=skipped,
+        target_project_id=target.id,
+        labels_created=plan.created,
+        labels_matched=plan.matched,
+        annotations_relabelled=relabelled,
+        # Deduplicated, order kept stable for the UI.
         warnings=sorted(set(warnings)),
     )

@@ -18,7 +18,7 @@
  */
 import { apiFetch } from "../../api.js?v=5";
 import { escapeHTML, formatTime, clientId } from "../../utils.js?v=1";
-import { createDataTable } from "../../components/data-table.js?v=4";
+import { createDataTable } from "../../components/data-table.js?v=6";
 import { fillTeamSelect } from "../../components/team-picker.js?v=2";
 import { canManage, canReview } from "../../permissions.js?v=1";
 import { openAssignDialog } from "./assign-modal.js?v=2";
@@ -37,7 +37,7 @@ import {
   showsSelection,
   showsUpload,
   statusPill,
-} from "./task-columns.js?v=9";
+} from "./task-columns.js?v=10";
 
 let root = null;
 let ctx = null;

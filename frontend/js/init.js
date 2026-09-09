@@ -5,7 +5,7 @@ import {
   beginHydration, completeHydration, failHydration, hydrationOk, hydrationFailed,
   hydrationSaveBlock, currentHydrationGeneration, noteHydratedAnnotationCount,
   noteHydratedAnnotations, annotationsChangedSinceHydration
-} from "./state.js?v=7";
+} from "./state.js?v=8";
 import { view } from "./canvas/view.js?v=1";
 import { commentOverlayRefs, clearCommentOverlayAnchor } from "./comment-overlay.js?v=2";
 import { backspaceAction, modeAfterCommentCommit } from "./comment-mode.js?v=1";
@@ -19,7 +19,7 @@ import { drawAllLayers } from "./canvas/draw.js?v=6";
 import {
   setStatus, syncToBackend, save, loadSaved, saveDraft, restoreDraft,
   render, manualSaveWithUI, refreshSaveStatus, pruneStaleDrafts, unhideAllObjects
-} from "./components/workspace.js?v=22";
+} from "./components/workspace.js?v=23";
 import {
   configureQueue, startQueue, subscribe as subscribeQueue, drainQueue,
   enqueueWrite, retryablePendingCount, noteServerReachable, noteServerUnreachable,
@@ -935,6 +935,17 @@ subscribeQueue(({ pending, unreachable }) => {
 startQueue();
 // Housekeeping: drop drafts that are long past useful and have no pending
 // write, so the localStorage quota stays available to the ones that matter.
+// The project the canvas was opened for. Read here, above every top-level call
+// below, because `state.projectId` gates the draft layer and must be set before
+// anything can read or write a draft.
+//
+// Label ids are per project, so a draft written under one project must not be
+// restored under another — see restoreDraft() in components/workspace.js and
+// .devnotes/move-task-feature/07_DRAFT_STALENESS.md.
+const urlParams = new URLSearchParams(window.location.search);
+const projectId = urlParams.get('projectId');
+state.projectId = projectId;
+
 pruneStaleDrafts();
 
 loadSaved();
@@ -1115,9 +1126,8 @@ async function fetchLabels() {
   }
 }
 
-// Workspace Project Support
-const urlParams = new URLSearchParams(window.location.search);
-const projectId = urlParams.get('projectId');
+// Workspace Project Support — `projectId` and `urlParams` are resolved above,
+// before the first top-level call that can touch a draft.
 
 // The signed-in user, resolved once at boot. Used for comment authorship and
 // the assignment banner. Null until `initIdentityAndPermissions` resolves, so

@@ -418,3 +418,49 @@ def upload_files(project_id: int, assignee: Optional[str] = Query(None), file: L
         # shape until that page is deleted (tracker P5.1).
         "files": [u["path"] for u in uploaded],
     }
+
+
+@router.get("/{project_id}/move-targets", response_model=List[schemas.MoveTargetOut])
+def get_move_targets(
+    project_id: int,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """Projects the caller may move this project's tasks into.
+
+    A dedicated endpoint rather than a client-side filter over
+    `GET /api/projects`, because that list is *reachable* — owned ∪ granted ∪
+    org-visible — and a project the caller merely has a grant on must never be
+    offered as a destination. Moving requires owner on both ends
+    (.devnotes/move-task-feature/02_DESIGN.md § 5), so the picker is built from
+    ownership directly and cannot drift from the endpoint's own check.
+
+    Requires owner on the *source* too: who else's projects you own is not
+    something a manager of one project gets to enumerate.
+    """
+    require_project(project_id, user, db, minimum=ProjectRole.OWNER)
+
+    projects = (
+        db.query(models.Project)
+        .filter(models.Project.owner_id == user.id, models.Project.id != project_id)
+        .all()
+    )
+    if not projects:
+        return []
+
+    # One grouped count rather than a per-project query: the picker shows how
+    # big each destination already is, and an owner can have many projects.
+    counts = dict(
+        db.query(models.Task.project_id, func.count(models.Task.id))
+        .filter(models.Task.project_id.in_([p.id for p in projects]))
+        .group_by(models.Task.project_id)
+        .all()
+    )
+
+    return [
+        schemas.MoveTargetOut(
+            id=p.id, name=p.name, status=p.status, task_count=counts.get(p.id, 0)
+        )
+        # Name order, so the dropdown is predictable rather than id-ordered.
+        for p in sorted(projects, key=lambda p: (p.name or "").lower())
+    ]

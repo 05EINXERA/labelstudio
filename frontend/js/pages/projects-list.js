@@ -9,7 +9,7 @@
 import { apiFetch } from "../api.js?v=5";
 import { escapeHTML, formatTime } from "../utils.js?v=1";
 import { statusClass } from "../task-status.js?v=3";
-import { createDataTable } from "../components/data-table.js?v=4";
+import { createDataTable } from "../components/data-table.js?v=6";
 import { renderAppNav, wireLogout } from "../components/app-nav.js?v=3";
 import { getCurrentUser } from "../session.js?v=2";
 import { roleBadge } from "../components/role-badge.js?v=1";

@@ -12,7 +12,7 @@
  */
 import { apiFetch } from "../../api.js?v=5";
 import { escapeHTML, generateUUID } from "../../utils.js?v=1";
-import { createDataTable } from "../../components/data-table.js?v=4";
+import { createDataTable } from "../../components/data-table.js?v=6";
 
 let root = null;
 let ctx = null;

@@ -1,11 +1,12 @@
 import { generateUUID, normalizeClassName } from "../utils.js?v=1";
 import { apiFetch } from "../api.js?v=5";
 import {
-  state, storageKey, draftKey, legacyDraftKey, colorForName, labelByName, labelById,
+  state, storageKey, draftKey, legacyDraftKey, draftMatchesProject,
+  colorForName, labelByName, labelById,
   labelDisplayName, snapshot, selectedAnnotation, hydrationOk, hydrationSaveBlock,
   clearIsUserIntent, annotationsChangedSinceHydration, noteHydratedAnnotations,
   isAnnotationHidden
-} from "../state.js?v=7";
+} from "../state.js?v=8";
 import { visibleRows, hiddenRowCount } from "../objects-filter.js?v=1";
 import { MAX_CLASS_SHORTCUTS } from "../shortcuts.js?v=1";
 import { pendingCount, retryablePendingCount, isServerUnreachable, peekWrite } from "../offline-queue.js?v=6";
@@ -422,6 +423,12 @@ export function saveDraft({ task = null, annotations = null } = {}) {
     localStorage.setItem(draftKey(target.id), JSON.stringify({
       annotations: set,
       labels: state.labels,
+      // The project these annotations' label ids belong to. Label rows are
+      // per project, so a draft is only meaningful under the project it was
+      // written for; restoreDraft refuses one written elsewhere. Absent on
+      // drafts predating this field, which restoreDraft treats as "unknown"
+      // rather than "mismatched" — see there.
+      projectId: state.projectId ?? null,
       savedAt: Date.now()
     }));
   } catch (e) {
@@ -517,6 +524,41 @@ export function restoreDraft(task) {
     const draft = JSON.parse(raw);
     if (!Array.isArray(draft.annotations)) {
       clearDraft(task.id);
+      return false;
+    }
+
+    // A draft written under a different project is not recoverable work.
+    //
+    // Label rows are per project: project A and project AA each hold their own
+    // row for "Rust Area", with different ids. A task can be moved between
+    // projects (.devnotes/move-task-feature/), and the server remaps every
+    // stored annotation's label_id as it goes — but a draft sitting in this
+    // browser still carries the *source* project's ids.
+    //
+    // Restoring it throws away the correctly-remapped set that was just
+    // fetched, and the next autosave sends the stale ids back. The server
+    // cannot resolve them against the new project, so it does what it does for
+    // any unknown label: NULLs label_id and preserves the original in
+    // `extra._orphanedLabelId`. Every shape then renders as an unnamed
+    // "Object". That is exactly what happened to task 1229
+    // (.devnotes/move-task-feature/07_DRAFT_STALENESS.md).
+    //
+    // The draft is *kept*, not cleared. It may hold real unsaved work, and the
+    // annotator can still reach it by moving the task back — clearing here
+    // would destroy on a move what rule 18a forbids destroying on a 403. It
+    // simply does not win over the server's copy, which under a different
+    // project is the only correct answer available.
+    //
+    // `undefined` is not a mismatch: drafts written before this field existed
+    // carry no projectId, and treating "unknown" as "wrong" would refuse to
+    // recover legitimate pending work on every task until each is saved once.
+    // Those drafts keep the pre-existing behaviour; new ones are protected.
+    if (!draftMatchesProject(draft.projectId, state.projectId)) {
+      const draftProject = draft.projectId;
+      console.warn(
+        `Ignoring draft for task ${task.id}: written under project ${draftProject}, ` +
+        `this task is now in project ${state.projectId}.`
+      );
       return false;
     }
     // Same content as the server's copy: nothing to recover.

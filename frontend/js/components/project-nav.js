@@ -2,7 +2,7 @@
  * Side navigation for the project workspace (tracker P2.2).
  *
  * The sections come from the user story: Home / Tasks / Classes / Imports /
- * Exports, plus Access for the project owner. Links are real `#/...` anchors
+ * Exports, plus Access and Move Tasks for the project owner. Links are real `#/...` anchors
  * rather than click handlers so they can be middle-clicked, copied and
  * deep-linked; the router listens for `hashchange`.
  *
@@ -29,6 +29,11 @@ export const NAV_ITEMS = [
   { route: "exports", label: "Exports", icon: "📦", title: "Export annotations", minRole: "reviewer" },
   // Owner-only. Granting is not delegable to a manager (03_API.md § 3).
   { route: "access", label: "Access", icon: "🔐", title: "Teams with access to this project", minRole: "owner" },
+  // Owner-only, like Access and for the same reason: moving tasks out of a
+  // project is delete-shaped in blast radius, and the destination picker offers
+  // only projects the caller owns. The server checks Owner on both ends
+  // regardless of what this list hides.
+  { route: "move", label: "Move Tasks", icon: "🔀", title: "Move tasks to another project you own", minRole: "owner" },
 ];
 
 /** The nav items a caller holding `role` may open. */
