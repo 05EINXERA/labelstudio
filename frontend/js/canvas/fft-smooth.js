@@ -40,11 +40,34 @@ function rdp(points, epsilon) {
   }
 }
 
-function getFurthestFromFirst(points) {
-  let maxDist = 0;
+/** Index of the vertex furthest from the polygon's centroid.
+ *
+ * This picks the split point for simplifyPolygon. RDP always keeps the two
+ * endpoints of the path it is given, so whichever vertices the split lands on
+ * are pinned at their exact input positions while every other vertex is free
+ * to be dropped or averaged. That pinning has to land somewhere, so it should
+ * land where a corner genuinely belongs.
+ *
+ * Measuring from the centroid — rather than from points[0], as this used to —
+ * is what makes the choice independent of where the annotator happened to
+ * start drawing. The furthest-from-centre vertex is a real extremity of the
+ * shape (a tip, a corner), so preserving it exactly is correct; preserving
+ * "wherever the first click landed" was not.
+ */
+function getFurthestFromCentroid(points) {
+  let cx = 0;
+  let cy = 0;
+  for (const p of points) {
+    cx += p.x;
+    cy += p.y;
+  }
+  cx /= points.length;
+  cy /= points.length;
+
+  let maxDist = -1;
   let maxI = 0;
-  for (let i = 1; i < points.length; i++) {
-    const dist = Math.hypot(points[i].x - points[0].x, points[i].y - points[0].y);
+  for (let i = 0; i < points.length; i++) {
+    const dist = Math.hypot(points[i].x - cx, points[i].y - cy);
     if (dist > maxDist) {
       maxDist = dist;
       maxI = i;
@@ -53,24 +76,66 @@ function getFurthestFromFirst(points) {
   return maxI;
 }
 
+/** RDP-simplify a closed ring without privileging the vertex it starts on.
+ *
+ * A polygon's point array has an arbitrary starting index — it is a loop, and
+ * points[0] is just wherever the annotator's first click landed. Running RDP
+ * over the array as-is pins that vertex (see rdp's base case, which always
+ * returns [first, last]), leaving it as the one un-simplified, un-averaged
+ * point on the outline. Against neighbours that Chaikin has rounded off, it
+ * reads as a sharp corner at the exact spot where the trace closed.
+ *
+ * So rotate the ring to start at a real extremity, simplify the two halves
+ * around that, then rotate back so the caller's winding and starting vertex
+ * are preserved.
+ */
 function simplifyPolygon(points, epsilon) {
   if (points.length < 3) return points;
-  const splitIdx = getFurthestFromFirst(points);
-  
-  if (splitIdx === 0 || splitIdx === points.length - 1) {
-    return rdp(points, epsilon);
+
+  const rotateBy = getFurthestFromCentroid(points);
+  const ring = rotateBy === 0
+    ? points.slice()
+    : points.slice(rotateBy).concat(points.slice(0, rotateBy));
+
+  // Split the rotated ring at its furthest-across vertex, so each half is an
+  // open path RDP can handle, and both pinned endpoints are true extremities.
+  const splitIdx = getFurthestFromCentroid(ring.slice(1)) + 1;
+
+  let simplified;
+  if (splitIdx <= 0 || splitIdx >= ring.length - 1) {
+    simplified = rdp(ring, epsilon);
+  } else {
+    const path1 = ring.slice(0, splitIdx + 1);
+    const path2 = ring.slice(splitIdx);
+    path2.push(ring[0]); // close the second half
+
+    const simp1 = rdp(path1, epsilon);
+    const simp2 = rdp(path2, epsilon);
+
+    simp2.pop(); // remove duplicate closing point
+    simp1.pop(); // remove duplicate split point
+    simplified = simp1.concat(simp2);
   }
 
-  const path1 = points.slice(0, splitIdx + 1);
-  const path2 = points.slice(splitIdx);
-  path2.push(points[0]); // close the second half
+  if (rotateBy === 0 || simplified.length < 3) return simplified;
 
-  const simp1 = rdp(path1, epsilon);
-  const simp2 = rdp(path2, epsilon);
-
-  simp2.pop(); // remove duplicate closing point
-  simp1.pop(); // remove duplicate split point
-  return simp1.concat(simp2);
+  // Rotate back: find where the original starting vertex ended up (it may have
+  // been simplified away, in which case the nearest survivor takes its place)
+  // and re-anchor the ring there, so a caller that relies on the first point
+  // sees the shape it drew rather than one silently re-indexed.
+  const origin = points[0];
+  let bestI = 0;
+  let bestDist = Infinity;
+  for (let i = 0; i < simplified.length; i++) {
+    const d = Math.hypot(simplified[i].x - origin.x, simplified[i].y - origin.y);
+    if (d < bestDist) {
+      bestDist = d;
+      bestI = i;
+    }
+  }
+  return bestI === 0
+    ? simplified
+    : simplified.slice(bestI).concat(simplified.slice(0, bestI));
 }
 
 function chaikin(points, iterations = 1) {
