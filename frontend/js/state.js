@@ -19,6 +19,31 @@ export function draftKey(taskId) {
   return `annotation-draft-v1:${window.location.origin}:${taskId}`;
 }
 
+/**
+ * Whether a draft written under `draftProjectId` may be restored while the
+ * canvas is open on `openProjectId`.
+ *
+ * Label ids are per project: project A and project AA each hold their own row
+ * for "Rust Area", with different ids. A task can be moved between projects
+ * (.devnotes/move-task-feature/), and the server remaps every stored
+ * annotation's label_id as it goes — but a draft sitting in this browser still
+ * carries the source project's ids. Restoring it discards the correctly
+ * remapped set and the next autosave writes the stale ids back, where the
+ * server can only orphan them.
+ *
+ * `undefined`/`null` on either side is NOT a mismatch. Drafts written before
+ * this field existed carry no project, and treating "unknown" as "wrong" would
+ * refuse to recover legitimate pending work on every task until each is saved
+ * once — a real regression in the save-loss net for the sake of a rarer bug.
+ *
+ * Pure, and here rather than in workspace.js, so it is testable: workspace.js
+ * imports dom.js, which needs a real canvas element at module load.
+ */
+export function draftMatchesProject(draftProjectId, openProjectId) {
+  if (draftProjectId == null || openProjectId == null) return true;
+  return String(draftProjectId) === String(openProjectId);
+}
+
 // Drafts written before the origin was part of the key. Read-only: used to
 // migrate a pre-existing draft on first open so the change does not itself
 // orphan work that was pending during an upgrade.
@@ -37,6 +62,15 @@ export const labelPalette = [
 ];
 
 export const state = {
+  // The project the canvas was opened for, from `?projectId=` in the URL.
+  // Set once at boot and never changed, because the canvas page is per-project.
+  //
+  // It exists for the draft: label ids are per project, so a draft written
+  // under one project cannot be restored under another. A task can now move
+  // between projects (.devnotes/move-task-feature/), and a draft carrying the
+  // old project's label ids is what silently orphaned every shape on the moved
+  // task — see 07_DRAFT_STALENESS.md.
+  projectId: null,
   labels: [],
   annotations: [],
   image: null,
