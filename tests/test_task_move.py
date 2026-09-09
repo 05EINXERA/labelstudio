@@ -129,12 +129,15 @@ def test_move_preserves_the_whole_task(client, alice, db):
 
     task_id = _task(client, alice, source, "P1000123.jpg")
     _save(client, alice, task_id, [_shape(car, "obj-1"), _shape(car, "obj-2")])
-    # A little elapsed time, so the move has something to lose.
-    client.post(
+    # A little elapsed time, so the move has something to lose. The field is
+    # `time_spent_delta`; `time_delta` is silently ignored by Pydantic, which
+    # would leave time_spent at 0 and make the assertion below vacuous.
+    res = client.post(
         "/api/tasks",
-        json={"id": task_id, "time_delta": 90, "client_id": "tab-move"},
+        json={"id": task_id, "time_spent_delta": 90, "client_id": "tab-move"},
         headers=alice,
     )
+    assert res.status_code == 200, res.text
 
     before = db.get(models.Task, task_id)
     db.refresh(before)
@@ -160,6 +163,7 @@ def test_move_preserves_the_whole_task(client, alice, db):
     db.expire_all()
     after = db.get(models.Task, task_id)
     assert after.project_id == target
+    assert kept["time_spent"] == 90, "the fixture must actually log time"
     for field, value in kept.items():
         assert getattr(after, field) == value, field
 
