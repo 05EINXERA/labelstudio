@@ -1,4 +1,4 @@
-"""Normalise label names and forbid duplicates within a project
+"""Add labels.name_key, the case-folded class-name matching key
 
 Project 410 collected six classes named "object" on 2026-09-08, created by
 nobody: the canvas mints a fresh uuid for any class it has not seen
@@ -14,27 +14,30 @@ old JS, for a direct API caller, and for any future code path written by someone
 who never reads that note. A rule enforced only in the endpoint that happens to
 be fixed today is not a rule.
 
-Three steps, in this order:
+This revision adds and backfills the column **only**. The unique index that
+actually forbids duplicates is the *next* revision, b2d5f8c13a67, and the split
+is deliberate:
 
-1. **Add `labels.name_key`** — the case-folded matching form of `name`.
-2. **Backfill it** from the existing names, and tidy `name` itself (underscores
-   to spaces, trimmed). `name` keeps its casing: it is the *display* name, and
-   `formats/coco.py` writes it into `categories[].name` while the FastLabel
-   export puts it in `title`, both of which round-trip through import.
-   Lowercasing it would turn "AF Paint" into "af paint" permanently — a real
-   loss, and not what the duplicate fix requires.
-3. **Create the unique index** on (project_id, name_key).
+`scripts/dedupe_labels.py` is what merges the existing duplicates, and it reads
+`labels` through the ORM — which now maps `name_key`. So the column has to exist
+before the script can run, and the duplicates have to be gone before the index
+can be created. One combined revision deadlocks: it aborts on the duplicate
+check and rolls its own `add_column` back, leaving the script unable to run and
+the operator with no way forward. Deploy order is therefore:
+
+    alembic upgrade a1c4e7b09f52          # this revision: column + backfill
+    python scripts/dedupe_labels.py --all         # review
+    python scripts/dedupe_labels.py --all --commit
+    alembic upgrade head                  # b2d5f8c13a67: the unique index
+
+`name` keeps its casing: it is the *display* name, and `formats/coco.py` writes
+it into `categories[].name` while the FastLabel export puts it in `title`, both
+of which round-trip through import. Lowercasing it would turn "AF Paint" into
+"af paint" permanently — a real loss, and not what the duplicate fix requires.
 
 A stored key column rather than a `lower(name)` expression index: expression
 indexes behave differently on SQLite and Postgres, and this deployment runs
 both (dev/prod per CLAUDE.md).
-
-**Duplicates must already be gone.** `scripts/dedupe_labels.py --commit` merges
-them, moving annotations rather than deleting any, and must be run before this
-migration. Folding case in step 2 can *create* collisions between rows that
-previously differed only by case, so the check below runs after the backfill and
-fails with the offending rows named rather than letting the index creation
-produce an unreadable error.
 
 Rule 8: builds on an empty database. On a fresh Postgres deploy the UPDATE
 touches nothing and the index is created on an empty table.
@@ -53,9 +56,6 @@ revision: str = "a1c4e7b09f52"
 down_revision: Union[str, Sequence[str], None] = "d4b8f3c07e19"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
-
-INDEX_NAME = "ix_labels_project_name_unique"
-
 
 def upgrade() -> None:
     conn = op.get_bind()
@@ -77,37 +77,14 @@ def upgrade() -> None:
     conn.execute(sa.text("UPDATE labels SET name_key = LOWER(name)"))
     op.create_index("ix_labels_name_key", "labels", ["name_key"])
 
-    # 3. Refuse to proceed on a database that still has duplicates, naming them.
-    #
-    #    The index would fail anyway; this fails *legibly*, which matters
-    #    because the operator's next step is to run the dedupe script against
-    #    exactly the projects listed here.
-    duplicates = conn.execute(sa.text(
-        "SELECT project_id, name_key, COUNT(*) AS n FROM labels"
-        " WHERE project_id IS NOT NULL"
-        " GROUP BY project_id, name_key HAVING COUNT(*) > 1"
-        " ORDER BY project_id, name_key"
-    )).fetchall()
-    if duplicates:
-        listing = ", ".join(f"project {r[0]} name {r[1]!r} x{r[2]}" for r in duplicates)
-        raise RuntimeError(
-            "Cannot create the unique index: duplicate class names remain "
-            f"({listing}). Run `python scripts/dedupe_labels.py --project <id>` "
-            "to review and `--commit` to merge them, then re-run this migration. "
-            "See .devnotes/fix-class-creation/02_PLAN.md phase 2."
-        )
-
-    op.create_index(INDEX_NAME, "labels", ["project_id", "name_key"], unique=True)
-
 
 def downgrade() -> None:
-    """Drop the index and the key column.
+    """Drop the key column.
 
     The `name` tidying is not reversed: the original underscores and stray
     whitespace are not recorded anywhere, and the tidied form is correct
     regardless of whether the constraint is in force. Casing was never changed,
     so nothing about the display name is lost either way.
     """
-    op.drop_index(INDEX_NAME, table_name="labels")
     op.drop_index("ix_labels_name_key", table_name="labels")
     op.drop_column("labels", "name_key")
