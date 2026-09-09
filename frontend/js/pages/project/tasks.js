@@ -18,7 +18,7 @@
  */
 import { apiFetch } from "../../api.js?v=5";
 import { escapeHTML, formatTime, clientId } from "../../utils.js?v=1";
-import { createDataTable } from "../../components/data-table.js?v=4";
+import { createDataTable } from "../../components/data-table.js?v=5";
 import { fillTeamSelect } from "../../components/team-picker.js?v=2";
 import { canManage, canReview } from "../../permissions.js?v=1";
 import { openAssignDialog } from "./assign-modal.js?v=2";

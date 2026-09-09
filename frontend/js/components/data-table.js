@@ -38,6 +38,19 @@ import { escapeHTML } from "../utils.js?v=1";
  * @param {(q:object)=>Promise<{items:Array,total:number,total_pages:number}>}
  *        opts.server.fetchPage           receives {page,pageSize,sortKey,sortDesc,query,filters}
  * @param {(state:object)=>void} [opts.onStateChange]  fired when page/sort/filter changes
+ * @param {boolean} [opts.retainSelection]  keep selected ids that are not on
+ *        the current page. Default false, which is what every bulk action on a
+ *        single page wants: an id the user can no longer see must not be
+ *        submitted by a later Delete. The Move Tasks view opts in, because a
+ *        selection there is deliberately assembled across searches and pages,
+ *        and losing it on every keystroke would make the view unusable.
+ *
+ *        Two consequences for a caller that sets it, and the reason it is
+ *        opt-in rather than the default: `onSelectionChange` then reports ids
+ *        whose rows are absent from `getRows()`, so an action bar must render
+ *        from a side map rather than by looking rows up in the table; and the
+ *        header checkbox still means "all on this page", which is the only
+ *        meaning a user can verify by looking.
  */
 export function createDataTable(opts) {
   const {
@@ -50,6 +63,7 @@ export function createDataTable(opts) {
     onSelectionChange,
     server = null,
     onStateChange,
+    retainSelection = false,
   } = opts;
 
   const state = {
@@ -185,9 +199,12 @@ export function createDataTable(opts) {
       return loadPage({ clamped: true });
     }
 
-    // Drop selections for rows no longer present, matching client mode.
-    const live = new Set(state.rows.map(rowId));
-    state.selected.forEach((id) => { if (!live.has(id)) state.selected.delete(id); });
+    // Drop selections for rows no longer present, matching client mode —
+    // unless the caller opted out. See `retainSelection` on setRows().
+    if (!retainSelection) {
+      const live = new Set(state.rows.map(rowId));
+      state.selected.forEach((id) => { if (!live.has(id)) state.selected.delete(id); });
+    }
 
     render();
   }
@@ -404,8 +421,10 @@ export function createDataTable(opts) {
       state.rows = Array.isArray(rows) ? rows : [];
       // Drop selections for rows that no longer exist, so a stale id cannot be
       // submitted by a later bulk action.
-      const live = new Set(state.rows.map(rowId));
-      state.selected.forEach((id) => { if (!live.has(id)) state.selected.delete(id); });
+      if (!retainSelection) {
+        const live = new Set(state.rows.map(rowId));
+        state.selected.forEach((id) => { if (!live.has(id)) state.selected.delete(id); });
+      }
       render();
     },
     setQuery(q) {
