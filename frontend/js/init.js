@@ -5,7 +5,7 @@ import {
   beginHydration, completeHydration, failHydration, hydrationOk, hydrationFailed,
   hydrationSaveBlock, currentHydrationGeneration, noteHydratedAnnotationCount,
   noteHydratedAnnotations, annotationsChangedSinceHydration
-} from "./state.js?v=8";
+} from "./state.js?v=9";
 import { view } from "./canvas/view.js?v=1";
 import { commentOverlayRefs, clearCommentOverlayAnchor } from "./comment-overlay.js?v=2";
 import { backspaceAction, modeAfterCommentCommit } from "./comment-mode.js?v=1";
@@ -19,7 +19,7 @@ import { drawAllLayers } from "./canvas/draw.js?v=6";
 import {
   setStatus, syncToBackend, save, loadSaved, saveDraft, restoreDraft,
   render, manualSaveWithUI, refreshSaveStatus, pruneStaleDrafts, unhideAllObjects
-} from "./components/workspace.js?v=23";
+} from "./components/workspace.js?v=24";
 import {
   configureQueue, startQueue, subscribe as subscribeQueue, drainQueue,
   enqueueWrite, retryablePendingCount, noteServerReachable, noteServerUnreachable,
