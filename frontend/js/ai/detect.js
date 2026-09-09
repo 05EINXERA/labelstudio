@@ -1,4 +1,4 @@
-import { generateUUID, round } from "../utils.js?v=1";
+import { generateUUID, round } from "../utils.js?v=2";
 import { apiFetch, pollJob } from "../api.js?v=5";
 import { state, colorForName, labelByName, snapshot, selectedAnnotation } from "../state.js?v=9";
 import { updateAnnotationBounds } from "../canvas/geometry.js?v=1";
@@ -8,7 +8,7 @@ import { getImageSrcForAPI } from "./shared.js?v=1";
 import { autoDetectButton } from "../dom.js?v=4";
 import {
   setStatus, ensureLabel, save, render
-} from "../components/workspace.js?v=24";
+} from "../components/workspace.js?v=26";
 
 export function setDetectionBusy(isBusy) {
   detectState.detectionBusy = isBusy;

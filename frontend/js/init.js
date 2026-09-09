@@ -1,4 +1,4 @@
-import { generateUUID, clamp, round, normalizeClassName, formatTime, clientId } from "./utils.js?v=1";
+import { generateUUID, clamp, round, normalizeClassName, formatTime, clientId } from "./utils.js?v=2";
 import { apiFetch, pollJob } from "./api.js?v=5";
 import {
   state, snapshot, resetWorkspaceForNewImage,
@@ -19,7 +19,7 @@ import { drawAllLayers } from "./canvas/draw.js?v=6";
 import {
   setStatus, syncToBackend, save, loadSaved, saveDraft, restoreDraft,
   render, manualSaveWithUI, refreshSaveStatus, pruneStaleDrafts, unhideAllObjects
-} from "./components/workspace.js?v=24";
+} from "./components/workspace.js?v=26";
 import {
   configureQueue, startQueue, subscribe as subscribeQueue, drainQueue,
   enqueueWrite, retryablePendingCount, noteServerReachable, noteServerUnreachable,

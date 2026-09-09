@@ -13,7 +13,7 @@
  * permission still has unsaved work, and that work must survive.
  */
 import { apiFetch } from "./api.js?v=5";
-import { escapeHTML } from "./utils.js?v=1";
+import { escapeHTML } from "./utils.js?v=2";
 import { canAnnotate, canReview } from "./permissions.js?v=1";
 import {
   APPROVED_STATUSES,

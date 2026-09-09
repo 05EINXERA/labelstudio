@@ -1,4 +1,4 @@
-import { normalizeClassName, formatClassName } from "./utils.js?v=1";
+import { normalizeClassName, formatClassName } from "./utils.js?v=2";
 import { view } from "./canvas/view.js?v=1";
 
 export const storageKey = "image-annotation-mvp-v1";
@@ -144,8 +144,14 @@ export function colorForName(name) {
 }
 
 export function labelByName(name) {
+  // Both sides folded. `label.name` is the *display* name and keeps the casing
+  // its author typed ("Rust Area"), so comparing it against a normalised input
+  // would miss every class whose name is not already lowercase — and a miss
+  // here means ensureLabel() tries to create a class that already exists.
   const normalized = normalizeClassName(name);
-  return state.labels.find((label) => label.name === normalized) || null;
+  return state.labels.find(
+    (label) => normalizeClassName(label.name) === normalized
+  ) || null;
 }
 
 /**
@@ -174,7 +180,10 @@ export function labelByName(name) {
  */
 export function resolveAnnotationLabels(annotations, labels) {
   const byId = new Set(labels.map((label) => label.id));
-  const byName = new Map(labels.map((label) => [label.name, label]));
+  // Keyed on the folded form: `label.name` carries the author's casing.
+  const byName = new Map(
+    labels.map((label) => [normalizeClassName(label.name), label])
+  );
 
   return annotations.map((annotation) => {
     if (byId.has(annotation.labelId)) return annotation;

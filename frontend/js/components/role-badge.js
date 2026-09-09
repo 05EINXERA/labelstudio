@@ -8,7 +8,7 @@
  * `innerHTML`, and "it can only be one of five values" is exactly the
  * assumption that stops being true later.
  */
-import { escapeHTML } from "../utils.js?v=1";
+import { escapeHTML } from "../utils.js?v=2";
 import { roleLabel } from "../permissions.js?v=1";
 
 /** Project-role pill. `role` may be null for "no access". */

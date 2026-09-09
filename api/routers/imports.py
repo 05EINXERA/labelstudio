@@ -58,7 +58,8 @@ from formats import annotations_json
 from formats import coco as coco_format
 from formats import yolo as yolo_format
 from formats.annotation_rows import sync_task_annotations_for_project
-from formats.common import annotation_dicts, image_size, value_from_name
+from formats.common import (annotation_dicts, clean_label_name, image_size,
+                            normalize_label_name, value_from_name)
 
 # Folder names that mark a mask archive. Masks are export-only — tracing a
 # raster back to polygons is not a faithful inverse — so an archive of them is
@@ -278,8 +279,14 @@ _TRANSIENT_KEYS = ("labelName", "labelColor", "labelValue")
 
 
 def _label_key(a: dict) -> str:
-    """The key an annotation's class resolves under, case-insensitive."""
-    return (a.get("labelName") or "object").lower()
+    """The key an annotation's class resolves under.
+
+    The shared normaliser, not a bare `.lower()`: the key has to agree with the
+    form actually stored, or an import creates "Rust_Area" alongside the
+    "rust area" the project already has — which the unique index on
+    (project_id, name) then rejects outright.
+    """
+    return normalize_label_name(a.get("labelName") or "object")
 
 
 def _resolve_label_ids(by_filename: Dict[str, List[dict]], project_id: int, db: Session) -> Dict[str, str]:
@@ -299,7 +306,11 @@ def _resolve_label_ids(by_filename: Dict[str, List[dict]], project_id: int, db: 
     palette.
     """
     labels = db.query(models.Label).filter(models.Label.project_id == project_id).all()
-    existing = {l.name.lower(): l.id for l in labels}
+    # Keyed on the canonical form rather than the raw stored name: after
+    # migration a1c4e7b09f52 the two are identical, but a database that has not
+    # run it yet still holds "Object"-style rows, and those must still match an
+    # incoming "object" instead of being duplicated.
+    existing = {normalize_label_name(l.name): l.id for l in labels}
     # Secondary index: value form -> id. Only consulted when the display name
     # does not match, so an exact name match always wins.
     by_value = {value_from_name(l.name).lower(): l.id for l in labels}
@@ -326,7 +337,11 @@ def _resolve_label_ids(by_filename: Dict[str, List[dict]], project_id: int, db: 
                 continue
 
             color = a.get("labelColor") or palette[i % len(palette)]
-            labels_to_create[key] = {"name": a.get("labelName") or "object", "color": color}
+            # Store the file's own casing; `key` is only the matching form.
+            labels_to_create[key] = {
+                "name": clean_label_name(a.get("labelName") or "object"),
+                "color": color,
+            }
             i += 1
 
     # Create all new labels
@@ -334,11 +349,22 @@ def _resolve_label_ids(by_filename: Dict[str, List[dict]], project_id: int, db: 
         new_label = models.Label(
             id=uuid.uuid4().hex,
             name=label_data["name"],
+            name_key=key,
             color=label_data["color"],
             project_id=project_id
         )
         db.add(new_label)
         existing[key] = new_label.id
+
+    if labels_to_create:
+        # An annotation import that invents ten classes is a real change to a
+        # project shared by every annotator, and left no trace before this.
+        log_event(
+            "label.auto_create",
+            project=project_id,
+            count=len(labels_to_create),
+            names=",".join(sorted(labels_to_create)),
+        )
 
     return existing
 

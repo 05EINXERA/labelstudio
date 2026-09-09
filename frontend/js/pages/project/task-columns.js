@@ -11,7 +11,7 @@
  * Everything here is a pure function of (row, view-state). No fetching, no
  * listeners — `tasks.js` owns those and delegates clicks by `data-action`.
  */
-import { escapeHTML, formatTime } from "../../utils.js?v=1";
+import { escapeHTML, formatTime } from "../../utils.js?v=2";
 import { canAnnotate, canManage, canReview } from "../../permissions.js?v=1";
 import {
   TASK_STATUSES,

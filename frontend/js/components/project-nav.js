@@ -11,7 +11,7 @@
  * hidden tab does nothing about a typed or bookmarked URL, and every endpoint
  * behind these views is enforced server-side regardless.
  */
-import { escapeHTML } from "../utils.js?v=1";
+import { escapeHTML } from "../utils.js?v=2";
 import { atLeast } from "../permissions.js?v=1";
 
 export const NAV_ITEMS = [

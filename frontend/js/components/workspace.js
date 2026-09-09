@@ -1,4 +1,4 @@
-import { generateUUID, normalizeClassName } from "../utils.js?v=1";
+import { generateUUID, normalizeClassName } from "../utils.js?v=2";
 import { apiFetch } from "../api.js?v=5";
 import {
   state, storageKey, draftKey, legacyDraftKey, draftMatchesProject,
@@ -128,7 +128,7 @@ export function ensureLabel(className, customColor = null) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...label, projectId: Number(projectId) })
     }).then((res) => {
-      if (res && res.ok) return;
+      if (res && res.ok) return res.json().then((body) => adoptServerLabelId(label, body));
       // A transport failure (res undefined) is left alone deliberately: the
       // class may well exist once the network recovers, and dropping it would
       // discard work during an outage. Only an explicit refusal is rolled back.
@@ -138,6 +138,61 @@ export function ensureLabel(className, customColor = null) {
   }
 
   return label;
+}
+
+/**
+ * Take the id the server actually stored the class under.
+ *
+ * The server resolves by name now: posting a class whose name already exists
+ * returns that class's id rather than inserting a twin
+ * (.devnotes/fix-class-creation/02_PLAN.md phase 1). So the uuid this tab
+ * minted may not be the one the class lives under, and every annotation drawn
+ * against the local id would then reference a class the server does not have —
+ * which is precisely how a shape ends up rendering as "Object" for everyone
+ * else. Adopting the returned id closes that window.
+ *
+ * Nothing happens in the common case (a genuine create, ids equal). The
+ * annotations are remapped in place because the user may have drawn with the
+ * class while the request was in flight.
+ */
+function adoptServerLabelId(label, body) {
+  const serverId = body && body.id;
+  if (!serverId || serverId === label.id) return;
+
+  const localId = label.id;
+
+  // The class may already be in state under its real id — that happens when
+  // two shapes are drawn with a new class before the first POST returns. Drop
+  // the local twin rather than leaving both in the panel.
+  const duplicate = state.labels.find((l) => l.id === serverId);
+  if (duplicate) {
+    const index = state.labels.findIndex((l) => l.id === localId);
+    if (index !== -1) state.labels.splice(index, 1);
+  } else {
+    label.id = serverId;
+  }
+
+  let remapped = 0;
+  state.annotations.forEach((a) => {
+    if (a.labelId === localId) {
+      a.labelId = serverId;
+      remapped++;
+    }
+  });
+  if (state.activeLabelId === localId) state.activeLabelId = serverId;
+  if (state.hiddenLabelIds.has(localId)) {
+    state.hiddenLabelIds.delete(localId);
+    state.hiddenLabelIds.add(serverId);
+  }
+
+  // A draft written between the POST and this response still carries the local
+  // id. Rewriting it is not optional: the draft wins over the server copy on
+  // the next open, so leaving it would restore annotations pointing at an id
+  // that exists nowhere — which now renders as "Object" rather than creating a
+  // class, but is still wrong. Skipped when nothing was drafted.
+  if (remapped) saveDraft();
+
+  render();
 }
 
 /**

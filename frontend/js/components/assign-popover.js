@@ -31,7 +31,7 @@
  * permission/refresh sequencing in one place rather than split across a UI
  * component.
  */
-import { escapeHTML } from "../utils.js?v=1";
+import { escapeHTML } from "../utils.js?v=2";
 import {
   membersForTeam,
   describeAssignment,

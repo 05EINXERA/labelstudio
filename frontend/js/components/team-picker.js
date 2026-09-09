@@ -8,7 +8,7 @@
  * options the API rejects.
  */
 import { apiFetch } from "../api.js?v=5";
-import { escapeHTML } from "../utils.js?v=1";
+import { escapeHTML } from "../utils.js?v=2";
 
 /** Fetch the caller's teams once. Returns [] on failure rather than throwing —
  *  a picker that cannot populate should degrade to empty, not break its page. */

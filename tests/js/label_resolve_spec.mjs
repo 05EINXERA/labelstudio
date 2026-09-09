@@ -39,8 +39,12 @@ const ok = (name, cond) => {
   cond ? (pass++, console.log('  PASS', name)) : (fail++, console.log('  FAIL', name));
 };
 
+// `name` is the DISPLAY name and keeps its author's casing — the COCO and
+// FastLabel exports round-trip it — so the resolver must fold both sides when
+// matching. "Rust Area" here rather than "rust area" is deliberate: it is the
+// case that broke when storage was lowercased.
 const LABELS = [
-  { id: 'lbl-rust', name: 'rust area', color: '#111' },
+  { id: 'lbl-rust', name: 'Rust Area', color: '#111' },
   { id: 'lbl-crack', name: 'crack', color: '#222' },
 ];
 
@@ -100,6 +104,12 @@ const LABELS = [
   );
   ok('detectedClass matching is case-insensitive and underscore-normalised',
      out[0].labelId === 'lbl-rust');
+  // The stored name is not lowercase, so a resolver comparing raw strings
+  // would miss it entirely — and a miss makes ensureLabel create a duplicate.
+  ok('a mixed-case stored name is still matched',
+     resolveAnnotationLabels(
+       [{ id: 'a9', labelId: 'stale', detectedClass: 'rust area' }], LABELS
+     )[0].labelId === 'lbl-rust');
   ok('detectedClass matching trims and lowercases',
      out[1].labelId === 'lbl-crack');
 }
