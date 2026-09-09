@@ -14,7 +14,7 @@
  * selected team. Assigning a person from a team that has no grant would be
  * invisible work (E-09), which the server rejects with a 422 anyway.
  */
-import { escapeHTML } from "../../utils.js?v=1";
+import { escapeHTML } from "../../utils.js?v=2";
 // Shared with the canvas popover so the two pickers cannot disagree about who
 // is in a team — see assign-options.js for the roster's dedup caveat.
 import { membersForTeam } from "./assign-options.js?v=1";

@@ -18,7 +18,7 @@
  * Plan: .devnotes/move-task-feature/02_DESIGN.md § 6.
  */
 import { apiFetch } from "../../api.js?v=5";
-import { escapeHTML } from "../../utils.js?v=1";
+import { escapeHTML } from "../../utils.js?v=2";
 import { createDataTable } from "../../components/data-table.js?v=6";
 import { buildColumns, STATUSES } from "./task-columns.js?v=10";
 

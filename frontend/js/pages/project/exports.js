@@ -21,7 +21,7 @@
  * until complete, then offers /api/exports/{job_id}/download (one-shot).
  */
 import { apiFetch } from "../../api.js?v=5";
-import { escapeHTML } from "../../utils.js?v=1";
+import { escapeHTML } from "../../utils.js?v=2";
 import { APPROVED_STATUSES, WORKING_STATUSES } from "../../task-status.js?v=3";
 
 /**

@@ -10,7 +10,7 @@
  *   { teamId, team, currentUser, myRole, reloadTeam(), navigate() }
  */
 import { apiFetch } from "../../api.js?v=5";
-import { escapeHTML } from "../../utils.js?v=1";
+import { escapeHTML } from "../../utils.js?v=2";
 import { teamRoleBadge } from "../../components/role-badge.js?v=1";
 import { canManageTeam } from "../../permissions.js?v=1";
 

@@ -17,7 +17,7 @@
  * the "X / N uploaded" counter. An abort button cancels mid-flight.
  */
 import { apiFetch } from "../../api.js?v=5";
-import { escapeHTML, formatTime, clientId } from "../../utils.js?v=1";
+import { escapeHTML, formatTime, clientId } from "../../utils.js?v=2";
 import { createDataTable } from "../../components/data-table.js?v=6";
 import { fillTeamSelect } from "../../components/team-picker.js?v=2";
 import { canManage, canReview } from "../../permissions.js?v=1";

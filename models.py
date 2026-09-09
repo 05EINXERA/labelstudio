@@ -181,8 +181,29 @@ class Label(Base):
     __tablename__ = "labels"
     id = Column(String, primary_key=True, index=True)
     project_id = Column(Integer, ForeignKey("projects.id"), index=True)
+    # The **display** name, tidied by formats.common.clean_label_name but with
+    # the user's casing intact. It is data, not just a label: formats/coco.py
+    # writes it into `categories[].name` and the FastLabel export into `title`,
+    # and both round-trip through import, so "AF Paint" must not become
+    # "af paint".
     name = Column(String)
     color = Column(String)
+    # The case-folded matching key — formats.common.normalize_label_name — and
+    # the column the unique index is taken over. A separate stored column
+    # rather than a lower(name) expression index because expression indexes
+    # differ between SQLite and Postgres and this deployment runs both.
+    # Nullable so migration a1c4e7b09f52 can add it to a populated table.
+    name_key = Column(String, index=True)
+
+    # One class per name per project, compared case-insensitively. Six rows
+    # named "object" appeared in project 410 on 2026-09-08 because
+    # POST /api/labels resolved by id only, so the canvas's freshly minted uuid
+    # always inserted (.devnotes/fix-class-creation/01_AUDIT.md). The endpoint
+    # resolves by name now; this is what makes that true for a stale bundle, a
+    # direct API caller and any path written later.
+    __table_args__ = (
+        Index("ix_labels_project_name_unique", "project_id", "name_key", unique=True),
+    )
 
 class User(Base):
     __tablename__ = "users"

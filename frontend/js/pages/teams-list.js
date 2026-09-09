@@ -5,7 +5,7 @@
  * visible — there is no role that hides it.
  */
 import { apiFetch } from "../api.js?v=5";
-import { escapeHTML } from "../utils.js?v=1";
+import { escapeHTML } from "../utils.js?v=2";
 import { createDataTable } from "../components/data-table.js?v=6";
 import { createModal } from "../components/modal.js?v=1";
 import { teamRoleBadge } from "../components/role-badge.js?v=1";

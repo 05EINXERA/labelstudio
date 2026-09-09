@@ -20,7 +20,7 @@
  *    against the other 3,990 rows the user cannot see.
  *    See .devnotes/tasks-pagination/PLAN.md § 3.3.
  */
-import { escapeHTML } from "../utils.js?v=1";
+import { escapeHTML } from "../utils.js?v=2";
 
 /**
  * @param {object} opts

@@ -149,7 +149,12 @@ def build_label_map(
     claimed_by_name: Dict[str, str] = {}
 
     for label in source_labels:
-        key = (label.name or "").strip().lower()
+        # Must agree with formats.common.normalize_label_name, which is the
+        # form actually stored and what the unique index on (project_id, name)
+        # is taken over. Inlined rather than imported: this module deliberately
+        # depends on `models` alone (see the header), and common.py drags in
+        # PIL and config. tests/test_label_reconcile.py pins the agreement.
+        key = " ".join((label.name or "").replace("_", " ").strip().lower().split()) or "object"
 
         existing = target_by_name.get(key) or created_by_name.get(key)
         if existing is not None:
@@ -168,6 +173,9 @@ def build_label_map(
         new_label = models.Label(
             id=uuid.uuid4().hex,
             name=label.name,
+            # The matching key the unique index compares. Same expression as
+            # `key` above and as formats.common.normalize_label_name.
+            name_key=key,
             color=label.color,
             project_id=target_project_id,
         )

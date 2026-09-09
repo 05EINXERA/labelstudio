@@ -1,4 +1,4 @@
-import { normalizeClassName, formatClassName } from "./utils.js?v=1";
+import { normalizeClassName, formatClassName } from "./utils.js?v=2";
 import { view } from "./canvas/view.js?v=1";
 
 export const storageKey = "image-annotation-mvp-v1";
@@ -144,8 +144,54 @@ export function colorForName(name) {
 }
 
 export function labelByName(name) {
+  // Both sides folded. `label.name` is the *display* name and keeps the casing
+  // its author typed ("Rust Area"), so comparing it against a normalised input
+  // would miss every class whose name is not already lowercase — and a miss
+  // here means ensureLabel() tries to create a class that already exists.
   const normalized = normalizeClassName(name);
-  return state.labels.find((label) => label.name === normalized) || null;
+  return state.labels.find(
+    (label) => normalizeClassName(label.name) === normalized
+  ) || null;
+}
+
+/**
+ * Repoint annotations at classes that exist in `labels`. **Never creates one.**
+ *
+ * Pure, and here rather than in workspace.js, so it is testable: workspace.js
+ * imports dom.js, which needs a real canvas element at module load. Same
+ * arrangement as `draftMatchesProject` above.
+ *
+ * Returns a new array; `labels` is never modified. That is the invariant worth
+ * stating twice, because the caller this replaced did the opposite — it called
+ * `ensureLabel()` for every unresolvable id, which POSTs to /api/labels and so
+ * minted a real project-wide class named "object" on every task open. See
+ * .devnotes/fix-class-creation/01_AUDIT.md § 2.
+ *
+ * Resolution order per annotation:
+ *   1. `labelId` already names a known class — unchanged.
+ *   2. `detectedClass` names a known class (normalised) — repointed to it.
+ *      This is the legitimate recovery case: a detector wrote the name, the
+ *      class exists, only the id went stale.
+ *   3. Neither — left exactly as-is. An unresolvable id is stale data, not a
+ *      new class; `labelById()` renders it as "object", which is the correct
+ *      end state for a placeholder. The id is preserved rather than nulled
+ *      because it may become resolvable again and because
+ *      `extra._orphanedLabelId` recovery depends on the value surviving.
+ */
+export function resolveAnnotationLabels(annotations, labels) {
+  const byId = new Set(labels.map((label) => label.id));
+  // Keyed on the folded form: `label.name` carries the author's casing.
+  const byName = new Map(
+    labels.map((label) => [normalizeClassName(label.name), label])
+  );
+
+  return annotations.map((annotation) => {
+    if (byId.has(annotation.labelId)) return annotation;
+    if (!annotation.detectedClass) return annotation;
+
+    const match = byName.get(normalizeClassName(annotation.detectedClass));
+    return match ? { ...annotation, labelId: match.id } : annotation;
+  });
 }
 
 // Single source of truth for visibility, shared by the draw loops and the

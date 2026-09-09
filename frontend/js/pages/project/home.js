@@ -8,7 +8,7 @@
  * These are server-side counts.
  */
 import { apiFetch } from "../../api.js?v=5";
-import { escapeHTML, formatTime } from "../../utils.js?v=1";
+import { escapeHTML, formatTime } from "../../utils.js?v=2";
 import { APPROVED_STATUSES, statusClass } from "../../task-status.js?v=3";
 
 let abortController = null;
