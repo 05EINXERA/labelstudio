@@ -119,6 +119,30 @@ class BulkUpdate(BaseModel):
     assignee: Optional[str] = None
     status: Optional[str] = None
 
+class TaskMoveSkip(BaseModel):
+    """One task that was left behind by a move, and why."""
+    taskId: int
+    reason: str
+
+class TaskMove(BaseModel):
+    taskIds: List[int] = Field(min_length=1, max_length=1000)
+    targetProjectId: int
+
+class TaskMoveResult(BaseModel):
+    """Outcome of POST /api/tasks/move.
+
+    `labelsCreated` counts classes that had to be added to the destination
+    because no class of that name existed there; `labelsRemapped` counts
+    annotations whose label_id was repointed at the destination's own class
+    row. Together they are what keeps a moved annotation's *meaning* intact —
+    see the module docstring on `move_tasks`.
+    """
+    status: str = "ok"
+    moved: int
+    labelsCreated: int
+    labelsRemapped: int
+    skipped: List[TaskMoveSkip] = Field(default_factory=list)
+
 class TeamCreate(BaseModel):
     name: str = Field(min_length=1, max_length=64)
 

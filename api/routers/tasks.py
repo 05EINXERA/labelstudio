@@ -15,7 +15,10 @@ import time
 import models
 from config import IS_SQLITE
 from database import get_db, commit_with_retry, SessionLocal
-from schemas import TaskUpdate, BulkDelete, BulkUpdate, TaskDetail, PaginatedTasks, TaskSequenceItem
+from schemas import (
+    TaskUpdate, BulkDelete, BulkUpdate, TaskDetail, PaginatedTasks, TaskSequenceItem,
+    TaskMove, TaskMoveResult, TaskMoveSkip,
+)
 from api.auth import get_current_user, require_csrf, get_current_annotator
 from api.routers.projects import get_owned_project, get_user_accessible_team_ids, is_project_creator
 
@@ -923,5 +926,155 @@ def bulk_update_tasks(payload: BulkUpdate, db: Session = Depends(get_db), user: 
         update_data[models.Task.updated_at] = datetime.datetime.now(datetime.timezone.utc)
         db.query(models.Task).filter(models.Task.id.in_(owned)).update(update_data, synchronize_session=False)
         commit_with_retry(db)
-
     return {"status": "ok", "updated": len(owned) if update_data else 0, "skipped": skipped}
+
+
+def _remap_labels_by_name(task_ids, target_project_id: int, db: Session):
+    """Repoint the moved tasks' annotations at the destination project's classes.
+
+    Labels are per-project rows (`labels.project_id`) but `annotations.label_id`
+    is a plain FK to one of them, so a task that changes project keeps pointing
+    at classes its new project does not own. The shapes survive — geometry lives
+    on the annotation — but their class is invisible in the destination's
+    Classes view, exports disagree, and deleting the *source* project NULLs
+    every one of them (the FK is ON DELETE SET NULL; see delete_project).
+
+    So the move reconciles by class name: for each distinct source label used by
+    the moved annotations, find the destination label of the same name, creating
+    it (name + color copied) when the destination has none. Name, not id,
+    because two projects that both have a "Car" class hold two unrelated rows —
+    matching on id would only ever match when the label already belonged to the
+    destination.
+
+    Annotations whose label_id is already NULL, or already point at a
+    destination label, are left alone. Returns (labels_created, annotations_remapped).
+    """
+    source_label_ids = {
+        lid for (lid,) in db.query(distinct(models.Annotation.label_id))
+        .filter(
+            models.Annotation.task_id.in_(task_ids),
+            models.Annotation.label_id.isnot(None),
+        ).all()
+    }
+    if not source_label_ids:
+        return 0, 0
+
+    source_labels = db.query(models.Label).filter(models.Label.id.in_(source_label_ids)).all()
+    # Anything already owned by the destination needs no remapping.
+    source_labels = [l for l in source_labels if l.project_id != target_project_id]
+    if not source_labels:
+        return 0, 0
+
+    # Case-insensitive so "Car" and "car" reconcile to one class rather than
+    # leaving the destination with a near-duplicate pair.
+    dest_by_name = {
+        (l.name or "").strip().lower(): l
+        for l in db.query(models.Label).filter(models.Label.project_id == target_project_id).all()
+    }
+
+    created = 0
+    id_map = {}
+    for src in source_labels:
+        key = (src.name or "").strip().lower()
+        dest = dest_by_name.get(key)
+        if dest is None:
+            dest = models.Label(
+                id=uuid.uuid4().hex,
+                name=src.name,
+                color=src.color,
+                project_id=target_project_id,
+            )
+            db.add(dest)
+            dest_by_name[key] = dest
+            created += 1
+        id_map[src.id] = dest.id
+
+    if created:
+        # The new rows must exist before annotations can reference them.
+        db.flush()
+
+    remapped = 0
+    for src_id, dest_id in id_map.items():
+        remapped += (
+            db.query(models.Annotation)
+            .filter(
+                models.Annotation.task_id.in_(task_ids),
+                models.Annotation.label_id == src_id,
+            )
+            .update({models.Annotation.label_id: dest_id}, synchronize_session=False)
+        )
+
+    return created, remapped
+
+
+@router.post("/move", response_model=TaskMoveResult)
+def move_tasks(
+    payload: TaskMove,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+    annotator: Optional[models.TeamMember] = Depends(get_current_annotator),
+):
+    """Move tasks between projects, preserving their annotations.
+
+    The task row carries everything an annotator cares about — status,
+    assignee, time_spent, image_path, image dimensions — and annotations hang
+    off task_id, so changing project_id moves the geometry, z-order (`order`),
+    groups and `extra` untouched. Uploaded images are not partitioned by
+    project, so no file moves either. The one thing that does not travel
+    cleanly is the class each annotation points at; see _remap_labels_by_name.
+
+    The caller must own both ends: the source side is filtered per-task through
+    _restrict_to_creator (so mixing another owner's ids into the payload moves
+    nothing rather than failing the whole batch), and the destination through
+    get_owned_project.
+    """
+    target = get_owned_project(payload.targetProjectId, user, db, annotator)
+
+    requested = list(dict.fromkeys(payload.taskIds))
+    owned, _ = _restrict_to_creator(requested, user, db, annotator)
+    owned_set = set(owned)
+
+    skipped = [
+        TaskMoveSkip(taskId=tid, reason="not_owned")
+        for tid in requested if tid not in owned_set
+    ]
+
+    tasks = db.query(models.Task).filter(models.Task.id.in_(owned)).all() if owned else []
+
+    movable = []
+    for task in tasks:
+        if task.project_id == target.id:
+            skipped.append(TaskMoveSkip(taskId=task.id, reason="already_in_target"))
+            continue
+        # A task someone has open is being edited right now; moving it out from
+        # under them would drop it out of their gallery mid-edit, and their
+        # localStorage draft would then save against a task in another project.
+        # Refuse it and let the caller retry once the lock lapses (60s TTL).
+        if _lock_status(task.id, db) is not None:
+            skipped.append(TaskMoveSkip(taskId=task.id, reason="locked"))
+            continue
+        movable.append(task)
+
+    if not movable:
+        return TaskMoveResult(moved=0, labelsCreated=0, labelsRemapped=0, skipped=skipped)
+
+    movable_ids = [t.id for t in movable]
+    created, remapped = _remap_labels_by_name(movable_ids, target.id, db)
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    for task in movable:
+        task.project_id = target.id
+        task.updated_at = now
+
+    commit_with_retry(db)
+
+    logger.info(
+        "Moved %d task(s) to project %d (labels created=%d, annotations remapped=%d)",
+        len(movable_ids), target.id, created, remapped,
+    )
+    return TaskMoveResult(
+        moved=len(movable_ids),
+        labelsCreated=created,
+        labelsRemapped=remapped,
+        skipped=skipped,
+    )

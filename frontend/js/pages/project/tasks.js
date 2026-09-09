@@ -98,6 +98,7 @@ function template(isCreator) {
     <div class="bulk-bar" id="bulkBar">
       <span class="count" id="bulkCount"></span>
       <button type="button" class="tool-button" id="bulkAssignBtn">Bulk assign</button>
+      <button type="button" class="tool-button" id="bulkMoveBtn">Move to project…</button>
       <button type="button" class="tool-button" id="bulkDeleteBtn" style="color:#e05260;border-color:rgba(224,82,96,.3);">Bulk delete</button>
     </div>` : ""}
 
@@ -184,6 +185,33 @@ function template(isCreator) {
       </div>
     </div>
 
+    <div class="modal-overlay" id="moveModal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>Move to project</h2>
+          <button class="modal-close" id="moveClose" type="button">&times;</button>
+        </div>
+        <form id="moveForm">
+          <div class="modal-body">
+            <label style="display:grid;gap:6px;">
+              <span style="font-size:.85rem;color:var(--muted);">Destination project</span>
+              <select id="moveInput" style="padding:9px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink);">
+                <option value="">Loading…</option>
+              </select>
+            </label>
+            <p style="font-size:.8rem;color:var(--muted);margin:12px 0 0;">
+              Annotations move with the tasks. Any class they use that the
+              destination project does not have is created there.
+            </p>
+          </div>
+          <div style="display:flex;gap:10px;justify-content:flex-end;padding:16px;">
+            <button type="button" class="tool-button" id="moveCancel">Cancel</button>
+            <button type="submit" class="primary" style="padding:9px 18px;border-radius:6px;">Move</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <div class="modal-overlay" id="duplicateModal">
       <div class="modal-content" style="max-width:520px;">
         <div class="modal-header">
@@ -220,6 +248,23 @@ function el(id) { return root.querySelector(`#${id}`); }
 function showError(message) {
   const banner = el("errorBanner");
   banner.textContent = message;
+  banner.style.color = "";
+  banner.style.borderColor = "";
+  banner.style.display = "block";
+}
+
+/** Same banner, neutral styling — for outcomes that are not failures.
+ *
+ * The move action needs this: it succeeds while still having something the
+ * annotator must know (tasks skipped because they were locked), which is
+ * neither an error nor safe to swallow.
+ */
+function showNotice(message) {
+  const banner = el("errorBanner");
+  if (!banner) return;
+  banner.textContent = message;
+  banner.style.color = "var(--ink)";
+  banner.style.borderColor = "var(--line)";
   banner.style.display = "block";
 }
 
@@ -609,10 +654,106 @@ function updateBulkBar(selection) {
   if (countEl) countEl.textContent = `${selection.size} selected`;
 }
 
+/** Fill the move dialog's destination list with every project but this one.
+ *
+ * The list is what the caller can *see* (GET /api/projects returns projects
+ * reached via a team or an assigned task too), which is deliberately wider
+ * than what they may move *into* — POST /api/tasks/move requires ownership of
+ * the destination. Filtering here as well would duplicate that rule in the
+ * client and drift from it; instead an unowned pick comes back 403 and is
+ * reported below.
+ */
+async function loadMoveTargets() {
+  const select = el("moveInput");
+  if (!select) return;
+  try {
+    const res = await apiFetch("/api/projects");
+    if (!res || !res.ok) throw new Error(`status ${res && res.status}`);
+    const projects = (await res.json()).filter((p) => String(p.id) !== String(ctx.projectId));
+    if (!projects.length) {
+      select.innerHTML = `<option value="">No other projects</option>`;
+      return;
+    }
+    select.innerHTML = projects
+      .map((p) => `<option value="${p.id}">${escapeHTML(p.name || `Project ${p.id}`)}</option>`)
+      .join("");
+  } catch (err) {
+    console.error("Failed to load move targets", err);
+    select.innerHTML = `<option value="">Could not load projects</option>`;
+  }
+}
+
+/** Human-readable summary of a move response, including what it skipped. */
+function describeMoveResult(body) {
+  const parts = [`Moved ${body.moved} task${body.moved === 1 ? "" : "s"}.`];
+  if (body.labelsCreated) {
+    parts.push(`Created ${body.labelsCreated} class${body.labelsCreated === 1 ? "" : "es"} in the destination.`);
+  }
+  const skipped = body.skipped || [];
+  if (skipped.length) {
+    const locked = skipped.filter((s) => s.reason === "locked").length;
+    const already = skipped.filter((s) => s.reason === "already_in_target").length;
+    const notOwned = skipped.filter((s) => s.reason === "not_owned").length;
+    if (locked) parts.push(`${locked} skipped — open by another annotator; try again shortly.`);
+    if (already) parts.push(`${already} already in that project.`);
+    if (notOwned) parts.push(`${notOwned} skipped — not yours to move.`);
+  }
+  return parts.join(" ");
+}
+
 function bindBulkActions() {
   const deleteBtn = el("bulkDeleteBtn");
   const assignBtn = el("bulkAssignBtn");
   if (!deleteBtn || !assignBtn) return;
+
+  const moveBtn = el("bulkMoveBtn");
+  if (moveBtn) {
+    const closeMove = () => el("moveModal").classList.remove("is-active");
+    moveBtn.addEventListener("click", () => {
+      if (table.getSelection().size === 0) return;
+      el("moveModal").classList.add("is-active");
+      loadMoveTargets();
+    });
+    el("moveClose").addEventListener("click", closeMove);
+    el("moveCancel").addEventListener("click", closeMove);
+    el("moveModal").addEventListener("click", (e) => {
+      if (e.target === el("moveModal")) closeMove();
+    });
+
+    el("moveForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const ids = [...table.getSelection()];
+      const targetProjectId = Number(el("moveInput").value);
+      if (!ids.length || !targetProjectId) return;
+      try {
+        const res = await apiFetch("/api/tasks/move", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ taskIds: ids, targetProjectId }),
+        });
+        if (!res) return;
+        if (res.status === 403 || res.status === 404) {
+          showError("You can only move tasks into a project you own.");
+          return;
+        }
+        if (!res.ok) {
+          showError(`Could not move the selected tasks (${res.status}).`);
+          return;
+        }
+        const body = await res.json();
+        closeMove();
+        table.clearSelection();
+        await loadTasks();
+        // Not an error, but the skip reasons matter enough to surface: a
+        // locked task silently staying put is the case a bare "done" would
+        // hide.
+        showNotice(describeMoveResult(body));
+      } catch (err) {
+        console.error("Bulk move failed", err);
+        showError("Could not move the selected tasks.");
+      }
+    });
+  }
 
   deleteBtn.addEventListener("click", async () => {
     const ids = [...table.getSelection()];
