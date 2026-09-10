@@ -2109,7 +2109,17 @@ canvas {
    below actually runs (CLAUDE.md rule 15). */
 .notification-wrap { position: relative; display: inline-flex; }
 
-.notification-bell { position: relative; font-size: 1rem; line-height: 1; }
+/* The bell is an inline SVG stroked with currentColor, so it picks up the
+   button's text colour exactly as the table row-action icons do. Flex centring
+   replaces the line-height nudge the emoji needed. */
+.notification-bell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.notification-bell svg { display: block; }
 
 .notification-badge {
   position: absolute;
