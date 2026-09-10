@@ -64,15 +64,31 @@ def get_unread_notifications(
         .all()
     )
 
-    # Task notices carry a task id, but the UI navigates to project.html, so the
-    # owning project is resolved here in one query rather than N lookups client
-    # side. A task deleted since the notice was written simply has no project.
+    # Task notices carry a task id, but the UI links to the project and to the
+    # task's canvas, so the owning project's id *and* name are resolved here in
+    # one join rather than N lookups client side. A task deleted since the
+    # notice was written simply has no project, and the UI falls back to plain
+    # text instead of a dead link.
     task_ids = [r.entity_id for r in rows if r.type == "task" and r.entity_id]
     project_by_task = {}
     if task_ids:
-        project_by_task = dict(
-            db.query(models.Task.id, models.Task.project_id)
-            .filter(models.Task.id.in_(task_ids))
+        project_by_task = {
+            task_id: (project_id, project_name)
+            for task_id, project_id, project_name in (
+                db.query(models.Task.id, models.Project.id, models.Project.name)
+                .join(models.Project, models.Project.id == models.Task.project_id)
+                .filter(models.Task.id.in_(task_ids))
+                .all()
+            )
+        }
+
+    # Project notices name themselves, so their ids are resolved in one go too.
+    project_ids = [r.entity_id for r in rows if r.type == "project" and r.entity_id]
+    name_by_project = {}
+    if project_ids:
+        name_by_project = dict(
+            db.query(models.Project.id, models.Project.name)
+            .filter(models.Project.id.in_(project_ids))
             .all()
         )
 
@@ -80,9 +96,12 @@ def get_unread_notifications(
     for row in rows:
         item = schemas.NotificationResponse.model_validate(row)
         if row.type == "task":
-            item.project_id = project_by_task.get(row.entity_id)
+            project_id, project_name = project_by_task.get(row.entity_id, (None, None))
+            item.project_id = project_id
+            item.project_name = project_name
         elif row.type == "project":
             item.project_id = row.entity_id
+            item.project_name = name_by_project.get(row.entity_id)
         out.append(item)
     return out
 

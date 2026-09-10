@@ -2179,7 +2179,36 @@ canvas {
 .notification-item:focus-visible { background: var(--panel-2); }
 
 .notification-message { font-size: .86rem; color: var(--ink); }
-.notification-time { margin-top: 3px; font-size: .72rem; color: var(--muted); }
+
+/* The owning project, on its own line rather than inside the message, so the
+   name stays current even though the stored message is a fixed snapshot. */
+.notification-project {
+  margin-top: 2px;
+  font-size: .75rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notification-meta {
+  margin-top: 4px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.notification-time { font-size: .72rem; color: var(--muted); }
+
+.notification-link {
+  font-size: .72rem;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.notification-link:hover,
+.notification-link:focus-visible { text-decoration: underline; }
 
 .notification-empty {
   padding: 18px 12px;

@@ -103,12 +103,13 @@ def notify_task_status_changed(
     if project is None:
         return
     label = task.description or f"Task {task.id}"
+    where = f' in {project.name}' if project.name else ""
     emit(
         db,
         recipient_name=project.creator,
         type=TYPE_TASK,
         entity_id=task.id,
-        message=f'"{label}" is now {new_status}',
+        message=f'"{label}"{where} is now {new_status}',
         actor_name=actor_name,
     )
 
@@ -116,13 +117,21 @@ def notify_task_status_changed(
 def notify_task_assigned(
     db: Session, task_id: int, task_label: str,
     assignee: Optional[str], actor_name: Optional[str],
+    project: Optional[models.Project] = None,
 ) -> None:
-    """Tell an annotator that a task has been assigned to them."""
+    """Tell an annotator that a task has been assigned to them.
+
+    The project is named in the message when known: an annotator working across
+    several projects cannot otherwise tell which one a filename belongs to. The
+    id/link for the project is resolved separately at read time (see
+    api/routers/notifications.get_unread_notifications).
+    """
+    where = f' in {project.name}' if project is not None and project.name else ""
     emit(
         db,
         recipient_name=assignee,
         type=TYPE_TASK,
         entity_id=task_id,
-        message=f'You were assigned "{task_label}"',
+        message=f'You were assigned "{task_label}"{where}',
         actor_name=actor_name,
     )

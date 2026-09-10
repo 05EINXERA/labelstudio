@@ -895,6 +895,7 @@ def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: 
         notify_task_assigned(
             db, db_task.id, db_task.description or f"Task {db_task.id}",
             assigned_to, actor_name=annotator.name if annotator else user.username,
+            project=notify_project,
         )
 
     return {"id": task_id, "status": "ok", "updated_at": new_updated_at.isoformat()}
@@ -986,9 +987,20 @@ def bulk_update_tasks(payload: BulkUpdate, db: Session = Depends(get_db), user: 
         # After the commit (see api/notifications.py): the assignment is durable
         # before anyone is told about it.
         actor = annotator.name if annotator else user.username
+        # Resolved once outside the loop rather than per task: a bulk assign is
+        # always within one project, and the message names it.
+        notify_project = None
+        if newly_assigned:
+            notify_project = (
+                db.query(models.Project)
+                .join(models.Task, models.Task.project_id == models.Project.id)
+                .filter(models.Task.id == newly_assigned[0][0])
+                .first()
+            )
         for task_id, description in newly_assigned:
             notify_task_assigned(
-                db, task_id, description or f"Task {task_id}", payload.assignee, actor_name=actor,
+                db, task_id, description or f"Task {task_id}", payload.assignee,
+                actor_name=actor, project=notify_project,
             )
 
     return {"status": "ok", "updated": len(owned) if update_data else 0, "skipped": skipped}

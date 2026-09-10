@@ -114,14 +114,46 @@ export class NotificationManager {
         // offset and shifted every timestamp.
         const when = new Date(n.created_at);
         const stamp = Number.isNaN(when.getTime()) ? "" : when.toLocaleString();
+
+        // A direct link to the annotation canvas for the task, which is where
+        // the recipient actually wants to land. The row click still goes to the
+        // project's task list; this is the shortcut past it. Omitted when the
+        // task or its project has since been deleted, so the bell never renders
+        // a dead link.
+        const canOpen = n.type === "task" && n.entity_id && n.project_id;
+        const openLink = canOpen
+          ? `<a class="notification-link" data-role="open-task"
+                href="app.html?projectId=${encodeURIComponent(n.project_id)}&taskId=${encodeURIComponent(n.entity_id)}"
+                title="Open this task in the annotation workspace">Open task</a>`
+          : "";
+        const project = n.project_name
+          ? `<div class="notification-project">${escapeHTML(n.project_name)}</div>`
+          : "";
+
         return `<div class="notification-item" data-id="${n.id}" role="button" tabindex="0">
             <div class="notification-message">${escapeHTML(n.message)}</div>
-            <div class="notification-time">${escapeHTML(stamp)}</div>
+            ${project}
+            <div class="notification-meta">
+              <span class="notification-time">${escapeHTML(stamp)}</span>
+              ${openLink}
+            </div>
           </div>`;
       }).join("");
 
     this.list.querySelector('[data-action="mark-all"]')
       ?.addEventListener("click", () => this.markAllRead());
+
+    // The "Open task" anchor sits inside the clickable row, so its click must
+    // not also run the row handler — that would navigate to the task list and
+    // the canvas at once. The anchor still marks the notice read first, so
+    // acting on it clears the badge rather than leaving it unread.
+    this.list.querySelectorAll('[data-role="open-task"]').forEach((link) => {
+      link.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const id = Number(link.closest(".notification-item")?.dataset.id);
+        if (id) this.markRead([id]);
+      });
+    });
 
     this.list.querySelectorAll(".notification-item").forEach((el) => {
       const id = Number(el.dataset.id);

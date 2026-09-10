@@ -391,6 +391,10 @@ class NotificationResponse(BaseModel):
     # Present so a notice about a task can deep-link to the project that holds
     # it; resolved at read time because notifications store only entity_id.
     project_id: Optional[int] = None
+    # Also resolved at read time rather than baked into `message`: a stored
+    # message is an immutable snapshot of what was true when it fired, so a
+    # renamed project would leave stale text in the bell forever.
+    project_name: Optional[str] = None
 
 
 class MarkReadRequest(BaseModel):

@@ -72,6 +72,84 @@ def test_assigning_a_task_notifies_the_assignee(client, alice, owner_name, worke
     assert body[0]["project_id"] == pid
 
 
+def test_notification_names_the_project_and_carries_its_link_fields(client, alice, owner_name, worker_name):
+    """The recipient must be able to tell which project a filename belongs to.
+
+    The name is in the message *and* returned as `project_name`: the message is
+    a fixed snapshot, while the field is resolved at read time so a renamed
+    project shows its current name. `project_id` + `entity_id` are what the bell
+    builds the "Open task" link from.
+    """
+    auth = {**alice, "X-Annotator-Name": owner_name}
+    pid = _new_project(client, auth, owner_name, name="Aerial Survey")
+    tid = _new_task(client, auth, pid, "field.png", assignee=worker_name)
+
+    worker = {**alice, "X-Annotator-Name": worker_name}
+    body = client.get("/api/notifications", headers=worker).json()
+    assert len(body) == 1
+    notice = body[0]
+
+    assert "Aerial Survey" in notice["message"]
+    assert notice["project_name"] == "Aerial Survey"
+    # Both halves of the task link.
+    assert notice["project_id"] == pid
+    assert notice["entity_id"] == tid
+
+
+def test_project_name_is_resolved_fresh_after_a_rename(client, alice, owner_name, worker_name):
+    """A renamed project reports its new name, even though the message is fixed."""
+    auth = {**alice, "X-Annotator-Name": owner_name}
+    pid = _new_project(client, auth, owner_name, name="Old Name")
+    _new_task(client, auth, pid, "x.png", assignee=worker_name)
+
+    res = client.patch(f"/api/projects/{pid}", json={"name": "New Name"}, headers=auth)
+    assert res.status_code == 200, res.text
+
+    worker = {**alice, "X-Annotator-Name": worker_name}
+    notice = client.get("/api/notifications", headers=worker).json()[0]
+    assert notice["project_name"] == "New Name"
+    # The stored message keeps the name it was written with.
+    assert "Old Name" in notice["message"]
+
+
+def test_status_change_notification_names_the_project(client, alice, owner_name, worker_name):
+    auth = {**alice, "X-Annotator-Name": owner_name}
+    pid = _new_project(client, auth, owner_name, name="Rooftops")
+    tid = _new_task(client, auth, pid, "roof.png", assignee=worker_name)
+
+    worker = {**alice, "X-Annotator-Name": worker_name}
+    res = client.post(
+        f"/api/tasks?projectId={pid}",
+        json={"id": tid, "status": "Completed"},
+        headers=worker,
+    )
+    assert res.status_code == 200, res.text
+
+    notice = client.get("/api/notifications", headers=auth).json()[0]
+    assert "Rooftops" in notice["message"]
+    assert notice["project_name"] == "Rooftops"
+    assert notice["project_id"] == pid
+
+
+def test_bulk_assign_notifications_name_the_project(client, alice, owner_name, worker_name):
+    auth = {**alice, "X-Annotator-Name": owner_name}
+    pid = _new_project(client, auth, owner_name, name="Coastline")
+    ids = [_new_task(client, auth, pid, f"c{i}.png") for i in range(2)]
+
+    res = client.post(
+        "/api/tasks/bulk-update",
+        json={"ids": ids, "assignee": worker_name},
+        headers=auth,
+    )
+    assert res.status_code == 200, res.text
+
+    worker = {**alice, "X-Annotator-Name": worker_name}
+    body = client.get("/api/notifications", headers=worker).json()
+    assert len(body) == 2
+    assert all("Coastline" in n["message"] for n in body)
+    assert all(n["project_name"] == "Coastline" for n in body)
+
+
 def test_status_change_notifies_the_project_owner(client, alice, owner_name, worker_name):
     auth = {**alice, "X-Annotator-Name": owner_name}
     pid = _new_project(client, auth, owner_name)
