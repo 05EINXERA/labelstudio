@@ -6,7 +6,7 @@ import {
   labelDisplayName, snapshot, selectedAnnotation, hydrationOk, hydrationSaveBlock,
   clearIsUserIntent, annotationsChangedSinceHydration, noteHydratedAnnotations,
   isAnnotationHidden
-} from "../state.js?v=9";
+} from "../state.js?v=10";
 import { visibleRows, hiddenRowCount } from "../objects-filter.js?v=1";
 import { MAX_CLASS_SHORTCUTS } from "../shortcuts.js?v=1";
 import { pendingCount, retryablePendingCount, isServerUnreachable, peekWrite } from "../offline-queue.js?v=6";

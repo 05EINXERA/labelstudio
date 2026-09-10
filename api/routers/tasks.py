@@ -101,6 +101,24 @@ CONFLICT_TOLERANCE_SECONDS = float(
 )
 
 
+# When a save is loud enough to be worth a WARN line (fix plan S2).
+#
+# These describe *reporting*, not policy: nothing is refused on them. The floor
+# keeps small tasks quiet -- losing 3 of 8 boxes is 38% and completely routine
+# -- while the ratio is set where eight days of production traffic put the gap
+# between ordinary editing and the kind of loss worth a second look. Over that
+# window the pair fires five times across 4,644 losing saves.
+#
+# Tunable from the environment because the right value is a property of how the
+# team works, and the only way to learn it is to watch the line for a while.
+DESTRUCTIVE_LOSS_RATIO = float(
+    os.environ.get("TASK_DESTRUCTIVE_LOSS_RATIO", "0.30")
+)
+DESTRUCTIVE_LOSS_FLOOR = int(
+    os.environ.get("TASK_DESTRUCTIVE_LOSS_FLOOR", "25")
+)
+
+
 # Statuses that represent a review decision — the whole approved group (every
 # batch synonym) plus 'Rejected'. Moving a task *into* one requires the Reviewer
 # role: approving under any batch name is exactly as privileged as approving
@@ -1359,6 +1377,55 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
             time_delta=task.time_spent_delta or 0,
             changed=changed,
         )
+
+        # S2 -- surface a save that destroyed a large share of a task's work.
+        #
+        # Detection only: this refuses nothing and changes no behaviour. A
+        # proportional *guard* was designed (fix plan S1) and deliberately not
+        # built, because replaying it over eight days of production traffic
+        # showed it would refuse five saves, four of which were the project
+        # owner's legitimate cleanup -- the real wipe and the legitimate edits
+        # sit at 55% and 31-57% loss respectively, so no threshold separates
+        # them (.devnotes/wipe-guard-bypass-fix/04_VERIFICATION.md §D).
+        #
+        # What the same evidence does justify is *noticing*. Task 691 lost 1437
+        # objects and the number sat in this log for a day before a human
+        # spotted it in a browser. At this rate the line is written a handful of
+        # times a week, which is small enough to read and large enough to catch
+        # the next one on the day it happens.
+        if (
+            objects_now is not None
+            and objects_prev is not None
+            and objects_prev >= DESTRUCTIVE_LOSS_FLOOR
+            and objects_now < objects_prev
+            and (objects_prev - objects_now) / objects_prev > DESTRUCTIVE_LOSS_RATIO
+        ):
+            lost = objects_prev - objects_now
+            log_event(
+                "task.save.destructive",
+                level="WARN",
+                task=db_task.id,
+                project=db_task.project_id,
+                objects=objects_now,
+                objects_prev=objects_prev,
+                objects_client=task.object_count,
+                lost=lost,
+                # Whole percent: the ratio is a triage signal, not a
+                # measurement, and a bare integer greps cleanly.
+                loss_pct=round(lost * 100 / objects_prev),
+                client=task.client_id,
+                user=getattr(user, "username", None),
+            )
+            logger.warning(
+                "Task %s: save dropped %s of %s annotations (%s%%) by user=%s client=%s. "
+                "Not refused -- verify with the annotator if unexpected.",
+                db_task.id,
+                lost,
+                objects_prev,
+                round(lost * 100 / objects_prev),
+                getattr(user, "username", "unknown"),
+                task.client_id,
+            )
 
         task_id = db_task.id
         new_updated_at = db_task.updated_at
