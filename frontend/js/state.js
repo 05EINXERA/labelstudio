@@ -328,6 +328,27 @@ let hydratedAnnotationCount = 0;
 // just finished — including on merely opening it.
 let hydratedAnnotationFingerprint = null;
 
+/**
+ * Was the task that is currently open hydrated?
+ *
+ * Read *before* `beginHydration()` moves the generation, so a caller switching
+ * away can ask "did the task I am leaving ever get its annotations from the
+ * server?" — `hydrationOk()` cannot answer that, because by the time the
+ * outgoing task is flushed the generation already belongs to the incoming one.
+ *
+ * This exists because the gallery-switch flush (init.js) sends the outgoing
+ * task's annotation set deliberately outside the hydration gate, to rescue
+ * genuine unsaved work. When the outgoing task never hydrated, the set it
+ * copies off the canvas is `[]`, and that empty array is a valid annotation
+ * payload: it reaches the server as "make this task empty" and is only stopped
+ * by the clear-guard's 422. That is the source of the empty-payload wipe
+ * attempts logged 67 times in eight days
+ * (.devnotes/wipe-guard-bypass-fix/04_VERIFICATION.md §C).
+ */
+export function openTaskWasHydrated() {
+  return hydratedGeneration === hydrationGeneration;
+}
+
 /** Open a new hydration attempt. Returns the generation token for it. */
 export function beginHydration() {
   hydrationGeneration += 1;
