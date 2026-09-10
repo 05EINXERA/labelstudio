@@ -11,7 +11,7 @@ import {
   polygonsTouch,
   unionPolygons,
   smoothUnionCusps
-} from "./geometry.js?v=4";
+} from "./geometry.js?v=5";
 import { view } from "./view.js?v=1";
 import { draw, drawAllLayers } from "./draw.js?v=4";
 import { canvas, undoButton } from "../dom.js?v=1";

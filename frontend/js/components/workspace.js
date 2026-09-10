@@ -5,7 +5,7 @@ import {
   state, storageKey, draftKey, colorForName, labelByName, labelById,
   labelDisplayName, snapshot, selectedAnnotation
 } from "../state.js?v=2";
-import { annotationPoints, updateAnnotationBounds } from "../canvas/geometry.js?v=4";
+import { annotationPoints, updateAnnotationBounds } from "../canvas/geometry.js?v=5";
 import { view } from "../canvas/view.js?v=1";
 import { drainTaskTime } from "./timer.js?v=2";
 import { detectState } from "../ai/detect-state.js?v=1";

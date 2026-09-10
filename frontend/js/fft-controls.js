@@ -1,16 +1,13 @@
 /**
  * fft-controls.js
  *
- * Wires the FFT smoothing toolbar controls (Smooth button, strength slider,
- * auto-smooth toggle) to the canvas annotation state.
+ * Wires the FFT smoothing toolbar controls (auto-smooth toggle) to the canvas
+ * annotation state.
  *
  * Call initFftControls() once during app init.
  */
 
-import { smoothPolygon, autoTolerance } from './canvas/fft-smooth.js?v=1';
-import { state, snapshot } from './state.js?v=2';
-import { updateAnnotationBounds } from './canvas/geometry.js?v=4';
-import { render } from './components/workspace.js?v=6';
+import { smoothPolygon, autoTolerance } from './canvas/fft-smooth.js?v=2';
 import { setStatus } from './components/workspace.js?v=6';
 
 // ---------------------------------------------------------------------------
@@ -27,14 +24,12 @@ export function isAutoSmoothEnabled() {
   return localStorage.getItem(AUTO_SMOOTH_KEY) === 'true';
 }
 
-
-
 // ---------------------------------------------------------------------------
 // initFftControls — call once in init.js
 // ---------------------------------------------------------------------------
 export function initFftControls() {
   // ── Elements ──────────────────────────────────────────────────────────────
-  const autoToggle    = document.getElementById('fftAutoSmoothToggle');
+  const autoToggle = document.getElementById('fftAutoSmoothToggle');
 
   if (!autoToggle) {
     // Controls not present in this page (e.g. login page); silently bail.

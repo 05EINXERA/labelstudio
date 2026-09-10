@@ -672,12 +672,76 @@ export function addPolygonPointResolvingIntersections(points, newPoint) {
   return result;
 }
 
+// How sharp a turn has to be, in degrees, before the vertex is treated as a
+// hairpin rather than a corner an annotator meant to draw. A genuine acute
+// corner on a traced object is rarely tighter than this; a doubled-back sliver
+// is typically under 20 degrees.
+const HAIRPIN_ANGLE_DEGREES = 35;
+
+/** Interior turn at vertex i of a closed ring, in degrees (180 = straight). */
+function vertexTurnAngle(points, i) {
+  const n = points.length;
+  const prev = points[(i - 1 + n) % n];
+  const curr = points[i];
+  const next = points[(i + 1) % n];
+  const v1x = prev.x - curr.x;
+  const v1y = prev.y - curr.y;
+  const v2x = next.x - curr.x;
+  const v2y = next.y - curr.y;
+  const mag = Math.hypot(v1x, v1y) * Math.hypot(v2x, v2y);
+  if (mag === 0) return 180;
+  const cos = Math.max(-1, Math.min(1, (v1x * v2x + v1y * v2y) / mag));
+  return (Math.acos(cos) * 180) / Math.PI;
+}
+
+/**
+ * Trims the doubled-back tail a lasso leaves when the drag runs past its own
+ * starting point.
+ *
+ * The overlap does not self-intersect, which is why the loop-removal pass
+ * below never touched it: the tail runs *alongside* the head, offset by a
+ * fraction of the stroke, so no two edges actually cross. What it forms is a
+ * degenerate sliver — the path arrives at the last point still travelling
+ * forward, and the new closing edge sends it straight back the way it came.
+ * That doubling-back is a hairpin at the free end of the stroke (measured at
+ * ~6 degrees against ~176 everywhere else), which reads as a sharp spike
+ * hanging off an otherwise smooth outline.
+ *
+ * Because the sliver encloses almost no area, an area comparison cannot pick
+ * the "right" loop — there is only one loop. The fix is to drop trailing
+ * points until the closing edge no longer doubles back.
+ */
+function trimDoubledBackTail(points) {
+  let result = points;
+  // Only ever trim a minority of the stroke: a shape whose *whole* outline is
+  // this tight is a legitimately thin annotation, not an overshoot.
+  const floor = Math.max(3, Math.ceil(points.length * 0.6));
+
+  while (result.length > floor) {
+    const lastIdx = result.length - 1;
+    // Check both ends of the closing edge — the hairpin shows up at whichever
+    // side the overlap runs past.
+    const tailTurn = vertexTurnAngle(result, lastIdx);
+    const headTurn = vertexTurnAngle(result, 0);
+    if (tailTurn >= HAIRPIN_ANGLE_DEGREES && headTurn >= HAIRPIN_ANGLE_DEGREES) break;
+    result = result.slice(0, lastIdx);
+  }
+
+  return result;
+}
+
 /**
  * Resolves self-intersections when closing a polygon by finding loops and preserving
  * the primary valid polygon area using shoelace area comparison.
+ *
+ * Runs the crossing-loop pass first (a lasso that genuinely crosses itself
+ * leaves a loop with real area), then trims a doubled-back tail, which is the
+ * non-crossing case the loop pass cannot see.
  */
 export function resolvePolygonClosingIntersections(points) {
-  return resolveClosedPolygonIntersections(points);
+  const resolved = resolveClosedPolygonIntersections(points);
+  if (!Array.isArray(resolved) || resolved.length < 4) return resolved;
+  return trimDoubledBackTail(resolved);
 }
 
 /**
