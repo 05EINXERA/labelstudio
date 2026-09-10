@@ -40,6 +40,8 @@ const els = {
   memberSearchInput: document.getElementById("memberSearchInput"),
   selectedTeamBadge: document.getElementById("selectedTeamBadge"),
   selectedTeamName: document.getElementById("selectedTeamName"),
+  onlineCountBadge: document.getElementById("onlineCountBadge"),
+  onlineCountText: document.getElementById("onlineCountText"),
   clearTeamFilterBtn: document.getElementById("clearTeamFilterBtn"),
 
   exportSessionsBtn: document.getElementById("exportSessionsBtn"),
@@ -277,7 +279,31 @@ function renderMembers() {
     rows = rows.filter((r) => r.teams && r.teams.some((t) => t.id === selectedTeam.id));
   }
   membersTable.setRows(rows);
+  updateOnlineCount(rows);
   refreshOpenSessionPanels(rows);
+}
+
+/** Shows how many of the listed members are currently logged in.
+ *
+ * Counted from the same rows the table renders, so when a team is selected the
+ * badge reports that team rather than the whole workspace — a count that
+ * disagreed with the visible Status column would be worse than none.
+ * Refreshes for free on the 15s poll, since that re-enters renderMembers().
+ */
+function updateOnlineCount(rows) {
+  if (!els.onlineCountBadge || !els.onlineCountText) return;
+
+  const online = rows.filter((r) => r.is_logged_in === true).length;
+  if (!rows.length) {
+    els.onlineCountBadge.style.display = "none";
+    return;
+  }
+
+  els.onlineCountBadge.style.display = "inline-flex";
+  els.onlineCountText.textContent = `${online} of ${rows.length} logged in`;
+  els.onlineCountBadge.title = selectedTeam
+    ? `${online} of ${rows.length} members of ${selectedTeam.name} are logged in right now`
+    : `${online} of ${rows.length} team members are logged in right now`;
 }
 
 /** Keep expanded panels current across the 15s auto-refresh. */
