@@ -2164,10 +2164,15 @@ canvas {
 
 .notification-actions {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--line);
 }
+
+.notification-sound { display: inline-flex; align-items: center; gap: 7px; }
+.notification-sound-label { font-size: .72rem; color: var(--muted); }
 
 .notification-item {
   padding: 10px 12px;

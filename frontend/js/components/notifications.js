@@ -15,6 +15,48 @@ import { escapeHTML } from "../utils.js?v=2";
 
 const POLL_INTERVAL_MS = 30000;
 
+// Per-viewer preference, so people sharing an office can silence their own bell.
+// localStorage is right for this: a stale value is harmless and it never needs
+// to reach the server (CONVENTIONS.md § 5).
+const SOUND_PREF_KEY = "notif_sound";
+
+/** Two-tone chime, synthesised rather than loaded from a file.
+ *
+ * No audio asset is committed (repo rule 19) and the artifact CSP blocks media
+ * from every external host, so a few oscillator nodes are both the smallest and
+ * the only dependency-free option.
+ *
+ * Browsers refuse to start audio until the page has been interacted with, so
+ * the context can be born `suspended` — a tab left sitting on the projects list
+ * may never have been clicked. Every failure path here is swallowed: a silent
+ * chime is a much smaller problem than a poll that throws.
+ */
+function playChime(ctx) {
+  if (!ctx || ctx.state !== "running") return;
+  try {
+    const now = ctx.currentTime;
+    // A rising fifth (G5 -> D6). Short, quiet, and distinct from OS sounds.
+    [
+      { freq: 784.0, at: 0, dur: 0.16 },
+      { freq: 1174.7, at: 0.13, dur: 0.22 },
+    ].forEach(({ freq, at, dur }) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      // Eased in and out: a raw start/stop on a sine clicks audibly.
+      gain.gain.setValueAtTime(0.0001, now + at);
+      gain.gain.exponentialRampToValueAtTime(0.14, now + at + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + at + dur);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(now + at);
+      osc.stop(now + at + dur + 0.02);
+    });
+  } catch (err) {
+    console.debug("Notification chime failed", err);
+  }
+}
+
 export class NotificationManager {
   constructor(bellId, dropdownId, listId, badgeId) {
     this.bell = document.getElementById(bellId);
@@ -24,6 +66,17 @@ export class NotificationManager {
 
     this.notifications = [];
     this.pollTimer = null;
+
+    // Ids already seen by this page, so the chime fires on genuinely new
+    // notices rather than on a count change. Counting alone is wrong: marking
+    // one read while another arrives leaves the count flat, and that arrival
+    // still deserves a sound.
+    this.seenIds = new Set();
+    // The first fetch seeds `seenIds` silently. Without this, every navigation
+    // between the three management pages would replay a chime for a backlog
+    // the user has already seen.
+    this.primed = false;
+    this.audioCtx = null;
 
     if (!this.bell || !this.dropdown || !this.list || !this.badge) {
       // A page without the bell markup is a normal case (only the management
@@ -50,6 +103,24 @@ export class NotificationManager {
       if (e.key === "Escape") this.close();
     });
 
+    // The AudioContext can only start once the page has been interacted with,
+    // so it is created lazily on the first real interaction and resumed if the
+    // browser parked it. Passive + once: this costs nothing after the first.
+    const unlockAudio = () => {
+      try {
+        if (!this.audioCtx) {
+          const Ctx = window.AudioContext || window.webkitAudioContext;
+          if (Ctx) this.audioCtx = new Ctx();
+        }
+        if (this.audioCtx?.state === "suspended") this.audioCtx.resume();
+      } catch (err) {
+        console.debug("Audio unavailable", err);
+      }
+    };
+    ["pointerdown", "keydown"].forEach((evt) => {
+      document.addEventListener(evt, unlockAudio, { once: true, passive: true });
+    });
+
     this.fetchNotifications();
     this.pollTimer = setInterval(() => this.fetchNotifications(), POLL_INTERVAL_MS);
 
@@ -64,6 +135,37 @@ export class NotificationManager {
   unmount() {
     if (this.pollTimer) clearInterval(this.pollTimer);
     this.pollTimer = null;
+  }
+
+  /** Sound is on unless the viewer turned it off. Storage may be unavailable
+   *  (private mode, blocked site data), in which case the default stands. */
+  soundEnabled() {
+    try {
+      return localStorage.getItem(SOUND_PREF_KEY) !== "off";
+    } catch {
+      return true;
+    }
+  }
+
+  setSoundEnabled(on) {
+    try {
+      localStorage.setItem(SOUND_PREF_KEY, on ? "on" : "off");
+    } catch {
+      // A viewer with storage blocked keeps the setting for this page only.
+    }
+    // Turning sound on is itself an interaction, so it is a good moment to
+    // start the audio context the browser would not let us create earlier.
+    if (on) {
+      try {
+        if (!this.audioCtx) {
+          const Ctx = window.AudioContext || window.webkitAudioContext;
+          if (Ctx) this.audioCtx = new Ctx();
+        }
+        if (this.audioCtx?.state === "suspended") this.audioCtx.resume();
+      } catch (err) {
+        console.debug("Audio unavailable", err);
+      }
+    }
   }
 
   toggleDropdown() {
@@ -83,6 +185,20 @@ export class NotificationManager {
       const res = await apiFetch("/api/notifications");
       if (!res || !res.ok) return; // apiFetch handles 401 by redirecting
       this.notifications = await res.json();
+
+      const arrived = this.notifications.filter((n) => !this.seenIds.has(n.id));
+      this.notifications.forEach((n) => this.seenIds.add(n.id));
+      // A tab stays open all shift, so this set would otherwise grow without
+      // bound. Ids only ever increase, so dropping the oldest is safe: a
+      // re-appearing old id cannot happen.
+      if (this.seenIds.size > 500) {
+        this.seenIds = new Set([...this.seenIds].slice(-250));
+      }
+      if (this.primed && arrived.length && this.soundEnabled()) {
+        playChime(this.audioCtx);
+      }
+      this.primed = true;
+
       this.render();
     } catch (err) {
       // Never surface a failed poll as a user-facing error: the bell is
@@ -104,8 +220,16 @@ export class NotificationManager {
       return;
     }
 
+    const soundOn = this.soundEnabled();
     this.list.innerHTML =
       `<div class="notification-actions">
+         <span class="notification-sound">
+           <span class="notification-sound-label" id="notifSoundLabel">Sound</span>
+           <button type="button" class="switch${soundOn ? " is-on" : ""}"
+                   role="switch" aria-checked="${soundOn ? "true" : "false"}"
+                   aria-labelledby="notifSoundLabel"
+                   data-action="toggle-sound"><span class="switch-knob"></span></button>
+         </span>
          <button type="button" class="cell-link" data-action="mark-all">Mark all read</button>
        </div>` +
       this.notifications.map((n) => {
@@ -142,6 +266,17 @@ export class NotificationManager {
 
     this.list.querySelector('[data-action="mark-all"]')
       ?.addEventListener("click", () => this.markAllRead());
+
+    // Toggling sound must not close the dropdown or mark anything read, so it
+    // stops propagation and re-renders in place.
+    this.list.querySelector('[data-action="toggle-sound"]')
+      ?.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const next = !this.soundEnabled();
+        this.setSoundEnabled(next);
+        if (next) playChime(this.audioCtx); // confirm audibly that it is on
+        this.render();
+      });
 
     // The "Open task" anchor sits inside the clickable row, so its click must
     // not also run the row handler — that would navigate to the task list and
