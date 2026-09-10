@@ -7,7 +7,7 @@
   <title>Projects - Dataset Workspace</title>
   <link rel="icon" type="image/png" href="logo.png">
   <link rel="stylesheet" href="styles.css?v=7">
-  <link rel="modulepreload" href="js/pages/projects-list.js?v=3">
+  <link rel="modulepreload" href="js/pages/projects-list.js?v=4">
   <script>
     if (!localStorage.getItem('logged_in')) {
       window.location.replace('/');
@@ -33,6 +33,16 @@
     </nav>
     <div class="spacer"></div>
     <span class="mgmt-user" id="currentUser"></span>
+    <div class="notification-wrap">
+      <button class="tool-button notification-bell" id="notifBell" type="button"
+        aria-label="Notifications" aria-expanded="false" aria-haspopup="true">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg>
+        <span class="notification-badge" id="notifBadge">0</span>
+      </button>
+      <div class="notification-dropdown" id="notifDropdown" role="menu">
+        <div class="notification-list" id="notifList"></div>
+      </div>
+    </div>
     <button class="tool-button" id="logoutBtn" type="button">Log out</button>
   </header>
 
@@ -141,7 +151,7 @@
     </div>
   </div>
 
-  <script type="module" src="js/pages/projects-list.js?v=3"></script>
+  <script type="module" src="js/pages/projects-list.js?v=4"></script>
 </body>
 
 </html>

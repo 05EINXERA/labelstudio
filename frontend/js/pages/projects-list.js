@@ -9,6 +9,7 @@
 import { apiFetch } from "../api.js?v=3";
 import { escapeHTML, formatTime, statusPillClass } from "../utils.js?v=2";
 import { createDataTable } from "../components/data-table.js?v=2";
+import { NotificationManager } from "../components/notifications.js?v=2";
 
 const els = {
   user: document.getElementById("currentUser"),
@@ -396,6 +397,12 @@ els.logout.addEventListener("click", async () => {
 // --- init ------------------------------------------------------------------
 
 els.user.textContent = localStorage.getItem("dataset_username") || "";
+
+// Same bell as the project workspace: notifications follow the person, not the
+// page, so an assignment must be visible wherever they happen to be sitting.
+// Constructs a no-op on any page without the markup.
+new NotificationManager("notifBell", "notifDropdown", "notifList", "notifBadge");
+
 table.showLoading(6);
 Promise.all([loadProjects(), loadTeam()]).catch((err) => console.error("Initial load failed:", err));
 

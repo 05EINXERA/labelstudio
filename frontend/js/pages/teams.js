@@ -1,6 +1,7 @@
 import { apiFetch } from "../api.js?v=3";
 import { escapeHTML } from "../utils.js?v=2";
 import { createDataTable } from "../components/data-table.js?v=2";
+import { NotificationManager } from "../components/notifications.js?v=2";
 
 const els = {
   user: document.getElementById("currentUser"),
@@ -974,6 +975,10 @@ els.logout.addEventListener("click", async () => {
   localStorage.removeItem("access_token");
   window.location.replace("/");
 });
+
+// Same bell as the projects list and the project workspace: notifications
+// follow the person, not the page. Constructs a no-op without the markup.
+new NotificationManager("notifBell", "notifDropdown", "notifList", "notifBadge");
 
 initTables();
 teamsTable.showLoading(4);
