@@ -110,4 +110,9 @@ def clear_db():
         db.execute(text("DELETE FROM tasks;"))
         db.execute(text("DELETE FROM labels;"))
         db.execute(text("DELETE FROM projects;"))
+        # Notifications reference team_members, not projects, so they survive
+        # the deletes above and would leak unread rows into the next test's
+        # counts. Cleared before team_members to respect the FK.
+        db.execute(text("DELETE FROM notifications;"))
+        db.execute(text("DELETE FROM team_members;"))
         db.commit()

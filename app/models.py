@@ -118,6 +118,41 @@ class LoginSession(Base):
     # 'logout' (explicit) or 'inactive' (swept). NULL while open.
     ended_reason = Column(String(16), nullable=True)
 
+class Notification(Base):
+    """One unread-able notice addressed to a single annotator.
+
+    `recipient_name` points at `team_members.name`, not `users.username`: the
+    LAN deployment shares one login, so the User row identifies the *account*
+    and cannot address a person. The annotator identity is the one carried by
+    `X-Annotator-Name` (see api/auth.get_current_annotator) and it is what
+    `tasks.assignee` and `projects.creator` already store, so keying on it is
+    what makes "notify the assignee" and "notify the owner" routable at all.
+
+    `entity_id` is the id of the thing the notice is about, interpreted per
+    `type` ('task' -> tasks.id, 'project' -> projects.id). It is deliberately
+    not a foreign key: a notice about a deleted task should still render its
+    message rather than block the delete or vanish.
+
+    Rows are created only after the write they describe has committed (see
+    api/notifications.notify), so a notification never announces a change that
+    was later rolled back by the commit_with_retry path.
+    """
+    __tablename__ = "notifications"
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    recipient_name = Column(
+        String, ForeignKey("team_members.name", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # 'task' | 'project' — what entity_id refers to and how the UI navigates.
+    type = Column(String(32), nullable=False)
+    entity_id = Column(Integer, nullable=True)
+    # Pre-rendered, human-readable text. Stored rather than templated at read
+    # time so a notice keeps saying what was true when it fired.
+    message = Column(Text, nullable=False)
+    # 0 = unread, 1 = read. Integer rather than Boolean to match the column the
+    # existing migration created.
+    is_read = Column(Integer, nullable=False, default=0)
+    created_at = Column(UTCDateTime, server_default=func.now(), nullable=False, index=True)
+
 class TeamMemberAssociation(Base):
     __tablename__ = "team_member_associations"
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)

@@ -2104,6 +2104,84 @@ canvas {
 .mgmt-header .spacer { flex: 1; }
 .mgmt-user { color: var(--muted); font-size: .9rem; }
 
+/* --- Notification bell (project.html header) ------------------------------
+   Visibility is driven by `.is-active`, not inline display, so the transition
+   below actually runs (CLAUDE.md rule 15). */
+.notification-wrap { position: relative; display: inline-flex; }
+
+.notification-bell { position: relative; font-size: 1rem; line-height: 1; }
+
+.notification-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: #dc2626;
+  color: #fff;
+  font-size: .68rem;
+  font-weight: 700;
+  line-height: 17px;
+  text-align: center;
+  display: none;
+}
+.notification-badge.is-active { display: block; }
+
+.notification-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 320px;
+  max-height: 380px;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .14);
+  z-index: 1200;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-4px);
+  transition: opacity .15s ease, transform .15s ease, visibility .15s;
+}
+.notification-dropdown.is-active {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.notification-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.notification-item {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+.notification-item:last-child { border-bottom: none; }
+.notification-item:hover,
+.notification-item:focus-visible { background: var(--panel-2); }
+
+.notification-message { font-size: .86rem; color: var(--ink); }
+.notification-time { margin-top: 3px; font-size: .72rem; color: var(--muted); }
+
+.notification-empty {
+  padding: 18px 12px;
+  text-align: center;
+  color: var(--muted);
+  font-size: .85rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notification-dropdown { transition: none; }
+}
+
 .mgmt-main { padding: 24px; max-width: 1400px; margin: 0 auto; }
 
 .mgmt-title-row {

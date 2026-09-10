@@ -20,6 +20,7 @@ from schemas import (
     TaskMove, TaskMoveResult, TaskMoveSkip,
 )
 from api.auth import get_current_user, require_csrf, get_current_annotator
+from api.notifications import notify_task_assigned, notify_task_status_changed
 from api.routers.projects import get_owned_project, get_user_accessible_team_ids, is_project_creator
 
 router = APIRouter(
@@ -533,6 +534,14 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
             time.sleep(delay)
 
 def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: Session, user: models.User, annotator: Optional[models.TeamMember]):
+    # What actually changed in this write, for the notifications emitted after
+    # the commit. Reset per attempt: the retry loop re-enters this function, and
+    # a stale value here would announce a change the successful attempt did not
+    # make.
+    status_changed_to: Optional[str] = None
+    assigned_to: Optional[str] = None
+    notify_project: Optional[models.Project] = None
+
     if task.id:
         # for_update: serialise concurrent saves of this task. Taken here,
         # before the annotation rewrite below, so every writer acquires the
@@ -628,6 +637,15 @@ def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: 
                     )
         if task.client_id is not None:
             db_task.last_client_id = task.client_id
+        # Captured before the assignment so the emit after the commit can tell a
+        # real transition from an autosave echoing the value it already had —
+        # every save resends the current status and assignee (workspace.js
+        # syncToBackend), so comparing against the stored value is what stops
+        # the bell firing on every 30s drain.
+        if task.assignee is not None and task.assignee != db_task.assignee:
+            assigned_to = task.assignee
+        if incoming_status is not None and incoming_status != db_task.status:
+            status_changed_to = incoming_status
         if task.assignee is not None:
             db_task.assignee = task.assignee
         if incoming_status is not None:
@@ -773,6 +791,10 @@ def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: 
             updated_at=datetime.datetime.now(datetime.timezone.utc),
             last_client_id=task.client_id,
         )
+        # A task created already assigned notifies its assignee, same as one
+        # assigned later.
+        if task.assignee:
+            assigned_to = task.assignee
         if task.annotations is not None:
             try:
                 anns = json.loads(task.annotations)
@@ -848,12 +870,33 @@ def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: 
         elif completed > 0:
             new_status = 'In Progress'
 
+        # Loaded unconditionally (not only when the rollup changes) because the
+        # post-commit notify needs the owner regardless of whether the project's
+        # own status moved.
+        project = db.query(models.Project).filter(models.Project.id == project_id).first()
+        notify_project = project
+
         if new_status:
-            project = db.query(models.Project).filter(models.Project.id == project_id).first()
             if project and project.status != new_status:
                 project.status = new_status
 
     commit_with_retry(db)
+
+    # Notify AFTER the commit, never before: this whole function is re-run by
+    # the retry loop in update_or_create_task on contention, so an emit placed
+    # inside the transaction would fire for a write that later rolled back and
+    # would fire again on each attempt. See api/notifications.py.
+    if status_changed_to:
+        notify_task_status_changed(
+            db, notify_project, db_task, status_changed_to,
+            actor_name=annotator.name if annotator else user.username,
+        )
+    if assigned_to:
+        notify_task_assigned(
+            db, db_task.id, db_task.description or f"Task {db_task.id}",
+            assigned_to, actor_name=annotator.name if annotator else user.username,
+        )
+
     return {"id": task_id, "status": "ok", "updated_at": new_updated_at.isoformat()}
 
 @router.patch("/{task_id}")
@@ -923,9 +966,31 @@ def bulk_update_tasks(payload: BulkUpdate, db: Session = Depends(get_db), user: 
         update_data[models.Task.status] = payload.status
 
     if update_data and owned:
+        # Read the rows the assign notification needs before the UPDATE, so the
+        # message can name each task and so tasks already assigned to this
+        # person are skipped (a re-assign to the same name is not news).
+        newly_assigned = []
+        if payload.assignee:
+            newly_assigned = [
+                (tid, desc) for (tid, desc) in db.query(models.Task.id, models.Task.description)
+                .filter(
+                    models.Task.id.in_(owned),
+                    or_(models.Task.assignee.is_(None), models.Task.assignee != payload.assignee),
+                ).all()
+            ]
+
         update_data[models.Task.updated_at] = datetime.datetime.now(datetime.timezone.utc)
         db.query(models.Task).filter(models.Task.id.in_(owned)).update(update_data, synchronize_session=False)
         commit_with_retry(db)
+
+        # After the commit (see api/notifications.py): the assignment is durable
+        # before anyone is told about it.
+        actor = annotator.name if annotator else user.username
+        for task_id, description in newly_assigned:
+            notify_task_assigned(
+                db, task_id, description or f"Task {task_id}", payload.assignee, actor_name=actor,
+            )
+
     return {"status": "ok", "updated": len(owned) if update_data else 0, "skipped": skipped}
 
 

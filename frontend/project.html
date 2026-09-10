@@ -42,6 +42,15 @@
     </nav>
     <div class="spacer"></div>
     <span class="mgmt-user" id="currentUser"></span>
+    <div class="notification-wrap">
+      <button class="tool-button notification-bell" id="notifBell" type="button"
+        aria-label="Notifications" aria-expanded="false" aria-haspopup="true">
+        🔔<span class="notification-badge" id="notifBadge">0</span>
+      </button>
+      <div class="notification-dropdown" id="notifDropdown" role="menu">
+        <div class="notification-list" id="notifList"></div>
+      </div>
+    </div>
     <button class="primary" id="annotateBtn" type="button"
       style="padding: 9px 16px; border-radius: 8px; font-weight: 600;">Annotate</button>
     <button class="tool-button" id="logoutBtn" type="button">Log out</button>

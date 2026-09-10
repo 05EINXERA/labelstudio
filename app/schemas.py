@@ -379,6 +379,24 @@ class TaskDetail(BaseModel):
     class_count: int = 0
 
 
+class NotificationResponse(BaseModel):
+    model_config = {"from_attributes": True}
+    id: int
+    type: str
+    entity_id: Optional[int] = None
+    message: str
+    # Serialized as timezone-aware UTC (the column is UTCDateTime), so the
+    # client can parse it directly instead of appending a "Z" and hoping.
+    created_at: Optional[datetime] = None
+    # Present so a notice about a task can deep-link to the project that holds
+    # it; resolved at read time because notifications store only entity_id.
+    project_id: Optional[int] = None
+
+
+class MarkReadRequest(BaseModel):
+    notification_ids: List[int] = Field(default_factory=list, max_length=500)
+
+
 class UserCreate(BaseModel):
     username: str = Field(min_length=1, max_length=64)
     password: str

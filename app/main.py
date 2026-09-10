@@ -60,6 +60,7 @@ from api.routers import (
     imports,
     label_studio,
     labels,
+    notifications,
     projects,
     tasks,
     team,
@@ -176,6 +177,7 @@ app.include_router(labels.router)
 app.include_router(auth.router)
 app.include_router(imports.router)
 app.include_router(exports.router)
+app.include_router(notifications.router)
 
 
 @app.get("/health")

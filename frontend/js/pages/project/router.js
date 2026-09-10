@@ -11,6 +11,7 @@
 import { apiFetch } from "../../api.js?v=3";
 import { escapeHTML, statusPillClass } from "../../utils.js?v=2";
 import { renderNav, setActive, NAV_ITEMS } from "../../components/project-nav.js?v=1";
+import { NotificationManager } from "../../components/notifications.js?v=1";
 
 const VALID_ROUTES = new Set(NAV_ITEMS.map((i) => i.route));
 const DEFAULT_ROUTE = "home";
@@ -154,6 +155,10 @@ async function renderRoute(optPromise) {
 
 async function init() {
   els.user.textContent = localStorage.getItem("dataset_username") || "";
+
+  // Polls on the same 30s cadence as the presence heartbeat; a page without
+  // the bell markup constructs a no-op.
+  new NotificationManager("notifBell", "notifDropdown", "notifList", "notifBadge");
 
   if (!projectId || !/^\d+$/.test(projectId)) {
     els.name.textContent = "No project selected";
