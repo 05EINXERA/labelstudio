@@ -11,7 +11,7 @@
 import { apiFetch } from "../../api.js?v=3";
 import { escapeHTML, statusPillClass } from "../../utils.js?v=2";
 import { renderNav, setActive, NAV_ITEMS } from "../../components/project-nav.js?v=1";
-import { NotificationManager } from "../../components/notifications.js?v=3";
+import { NotificationManager } from "../../components/notifications.js?v=4";
 
 const VALID_ROUTES = new Set(NAV_ITEMS.map((i) => i.route));
 const DEFAULT_ROUTE = "home";

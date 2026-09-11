@@ -1,7 +1,7 @@
 import { apiFetch } from "../api.js?v=3";
 import { escapeHTML } from "../utils.js?v=2";
 import { createDataTable } from "../components/data-table.js?v=2";
-import { NotificationManager } from "../components/notifications.js?v=3";
+import { NotificationManager } from "../components/notifications.js?v=4";
 
 const els = {
   user: document.getElementById("currentUser"),

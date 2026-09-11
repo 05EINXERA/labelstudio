@@ -2847,3 +2847,48 @@ button.switch[aria-checked="true"] .switch-knob {
     color: black !important;
   }
 }
+
+/* --- Notification bell in the annotation workspace sidebar -----------------
+   The management pages (project/projects/teams) hang this dropdown absolutely
+   inside a plain, non-clipping header. The workspace has no such header, and
+   both candidate homes clip it:
+     - .toolbar turns into `overflow-x: auto` under 1200px;
+     - .sidebar is `overflow: hidden` so its panes scroll internally and
+       #userPanel stays pinned at the bottom.
+   So the bell lives beside logout in the sidebar's user footer, and the
+   dropdown escapes the clip by being positioned against the viewport. Its
+   coordinates are set from the bell's rect on open (see notifications.js
+   positionForSidebar) because a fixed element has no useful static position.
+   It opens *upward*: the footer is pinned to the bottom of the column. */
+.sidebar .notification-dropdown {
+  position: fixed;
+  top: auto;
+  right: auto;
+  /* left/bottom come from positionForSidebar(); until it runs the element is
+     hidden anyway (opacity/visibility), so the unset position never shows. */
+  z-index: 1300; /* over the sidebar (1000) and its backdrop (999) */
+}
+
+/* Below 860px the sidebar becomes a transformed drawer (translateX), and a
+   transformed ancestor is the containing block for `position: fixed` — the
+   dropdown would anchor to the drawer, not the viewport, and be re-clipped by
+   the drawer's own overflow-y. The drawer is a full-height scrolling column,
+   so there the dropdown just renders inline in the flow instead of floating. */
+@media (max-width: 860px) {
+  .sidebar .notification-dropdown {
+    position: static;
+    width: auto;
+    max-height: 260px;
+    margin-top: 8px;
+    box-shadow: none;
+    /* Collapsed while closed so it takes no space in the footer; the shared
+       rule only animates opacity/visibility, which would leave a gap here. */
+    display: none;
+  }
+  .sidebar .notification-dropdown.is-active {
+    display: block;
+  }
+  .sidebar .notification-wrap {
+    display: block;
+  }
+}

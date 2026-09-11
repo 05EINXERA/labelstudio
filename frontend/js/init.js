@@ -24,6 +24,7 @@ import { initModals } from "./components/modals.js?v=2";
 import { initModeControls } from "./components/mode-controls.js?v=1";
 import { initOpacityControl } from "./components/opacity-control.js?v=1";
 import { initConnectionMonitor, onConnectionChange } from "./connection.js?v=3";
+import { NotificationManager } from "./components/notifications.js?v=4";
 
 if (!localStorage.getItem('logged_in')) {
   window.location.replace('/');
@@ -249,6 +250,12 @@ document.addEventListener('DOMContentLoaded', () => {
       heartbeatTask(task.id, clientId()).catch(() => { });
     }
   }, 30_000);
+
+  // Same bell as the management pages: notifications follow the person, not
+  // the page, so an assignment arriving mid-shift must be visible without
+  // leaving the canvas. Here it hangs in the sidebar user footer and opens
+  // upward against the viewport — see .sidebar .notification-dropdown.
+  new NotificationManager("notifBell", "notifDropdown", "notifList", "notifBadge");
 
   initFftControls();
   initOpacityControl();

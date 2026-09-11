@@ -103,6 +103,13 @@ export class NotificationManager {
       if (e.key === "Escape") this.close();
     });
 
+    // A fixed dropdown does not follow its anchor, so a resize would leave it
+    // stranded away from the bell. Re-anchoring is cheap and keeps it attached;
+    // this is a no-op wherever the dropdown is not fixed.
+    window.addEventListener("resize", () => {
+      if (this.dropdown.classList.contains("is-active")) this.positionForSidebar();
+    });
+
     // The AudioContext can only start once the page has been interacted with,
     // so it is created lazily on the first real interaction and resumed if the
     // browser parked it. Passive + once: this costs nothing after the first.
@@ -168,11 +175,38 @@ export class NotificationManager {
     }
   }
 
+  /**
+   * Anchors the dropdown to the bell when it hangs in the workspace sidebar.
+   *
+   * There it is `position: fixed` (styles.css) to escape the sidebar's
+   * `overflow: hidden`, which means it has no useful static position and must
+   * be told where to go. It opens upward, because the bell sits in the user
+   * footer pinned to the bottom of the column.
+   *
+   * A no-op on the management pages, where the dropdown is absolutely
+   * positioned inside a header that does not clip it, and on the narrow-width
+   * drawer, where it renders inline — both are detected by asking for the
+   * computed position rather than re-testing the breakpoint in JS.
+   */
+  positionForSidebar() {
+    if (getComputedStyle(this.dropdown).position !== "fixed") return;
+    const r = this.bell.getBoundingClientRect();
+    // Clamped so the 320px panel cannot run off the right edge of a narrow
+    // sidebar, nor off the left of the viewport.
+    const width = this.dropdown.offsetWidth || 320;
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
+    this.dropdown.style.left = `${left}px`;
+    this.dropdown.style.bottom = `${window.innerHeight - r.top + 8}px`;
+  }
+
   toggleDropdown() {
+    const opening = !this.dropdown.classList.contains("is-active");
+    // Position before revealing: measuring a hidden-but-laid-out element is
+    // fine, and setting coordinates after the transition starts would slide it
+    // in from the wrong place.
+    if (opening) this.positionForSidebar();
     this.dropdown.classList.toggle("is-active");
-    this.bell.setAttribute(
-      "aria-expanded", this.dropdown.classList.contains("is-active") ? "true" : "false",
-    );
+    this.bell.setAttribute("aria-expanded", opening ? "true" : "false");
   }
 
   close() {
