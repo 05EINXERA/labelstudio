@@ -55,6 +55,7 @@ from api.auth import get_current_user, require_csrf, get_current_annotator
 from api.routers.projects import get_owned_project
 from formats import annotations_json
 from formats import coco as coco_format
+from formats import labelme as labelme_format
 from formats import yolo as yolo_format
 from formats.common import image_size, value_from_name
 
@@ -73,6 +74,7 @@ router = APIRouter(prefix="/api/imports", tags=["imports"], dependencies=[Depend
 # The geometry helpers that used to sit here moved to formats/common.py.
 _parse_coco = coco_format.parse
 _parse_native = annotations_json.parse
+_parse_labelme = labelme_format.parse
 
 
 # Zip-bomb guards. This endpoint takes an upload from any authenticated user,
@@ -83,7 +85,7 @@ _ZIP_MAX_TOTAL_BYTES = 250 * 1024 * 1024
 
 
 def _parse_single_json(raw: bytes) -> Dict[str, List[dict]]:
-    """Dispatch one JSON document to the COCO or native parser."""
+    """Dispatch one JSON document to the COCO, LabelMe or native parser."""
     try:
         data = json.loads(raw.decode("utf-8-sig", errors="replace"))
     except json.JSONDecodeError as exc:
@@ -91,6 +93,13 @@ def _parse_single_json(raw: bytes) -> Dict[str, List[dict]]:
 
     if isinstance(data, dict) and "images" in data and "annotations" in data:
         return _parse_coco(data)
+
+    # LabelMe writes one document per image: `shapes` + `imagePath`. Checked
+    # before the native parser, which would otherwise accept the dict and find
+    # no `annotations` in it, reporting "nothing recognizable" for a file we can
+    # read perfectly well.
+    if labelme_format.looks_like_document(data):
+        return _parse_labelme(data)
 
     # A class-set file (the Classes export) is a JSON array of label
     # definitions — {type, title, value, color, ...} with no per-image

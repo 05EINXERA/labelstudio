@@ -288,20 +288,28 @@ def get_tasks(
     tasks = query.offset(offset).limit(limit).all()
     task_ids = [t.id for t in tasks]
     
-    comment_counts = dict(
-        db.query(models.Annotation.task_id, func.count(models.Annotation.id))
-        .filter(models.Annotation.task_id.in_(task_ids), models.Annotation.type == "comment")
-        .group_by(models.Annotation.task_id)
-        .all()
-    ) if task_ids else {}
-    
-    class_counts = dict(
-        db.query(models.Annotation.task_id, func.count(distinct(models.Annotation.label_id)))
-        .filter(models.Annotation.task_id.in_(task_ids), models.Annotation.label_id.isnot(None))
-        .group_by(models.Annotation.task_id)
-        .all()
-    ) if task_ids else {}
-    
+    # Both counts come from one pass over the page's annotations. Split across
+    # two queries they each bitmap-scanned the same ~8,900 heap blocks to read
+    # `type` and `label_id` — the aggregate is cheap, the heap fetch is not, so
+    # paying for it twice doubled the cost of every 30s gallery poll. FILTER
+    # keeps the semantics identical: `count(id) FILTER (WHERE type='comment')`
+    # and a DISTINCT over label_id, which already ignores NULLs.
+    comment_counts = {}
+    class_counts = {}
+    if task_ids:
+        for row_task_id, comment_count, class_count in (
+            db.query(
+                models.Annotation.task_id,
+                func.count(models.Annotation.id).filter(models.Annotation.type == "comment"),
+                func.count(distinct(models.Annotation.label_id)),
+            )
+            .filter(models.Annotation.task_id.in_(task_ids))
+            .group_by(models.Annotation.task_id)
+            .all()
+        ):
+            comment_counts[row_task_id] = comment_count
+            class_counts[row_task_id] = class_count
+
     items = []
     for t in tasks:
         items.append({

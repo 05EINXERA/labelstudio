@@ -6,8 +6,9 @@
  *               file/mode UI as in classes.js but surfaced here too so
  *               "import something for this project" has one obvious home.
  *   Annotations — annotation import via the P4.2 endpoints: upload a COCO
- *                 JSON or the app's own export, see a preview of what will
- *                 match / be created, then apply with merge or replace.
+ *                 JSON, a LabelMe per-image JSON, or the app's own export, see
+ *                 a preview of what will match / be created, then apply with
+ *                 merge or replace.
  *
  * Both tabs reuse the apiFetch wrapper (rule 13) and modal CSS (rule 12).
  */
@@ -111,9 +112,10 @@ function template() {
     <div id="panelAnnotations" style="display:none;">
       <p style="font-size:.88rem; color:var(--muted); margin-bottom:18px;">
         Accepts a <strong>COCO JSON</strong> (images + categories + annotations),
-        the app's own per-task <strong>JSON export</strong>, or a
-        <strong>.zip</strong> of either — including the per-task export archive
-        straight from the Exports tab.
+        a <strong>LabelMe JSON</strong> (one file per image), the app's own
+        per-task <strong>JSON export</strong>, or a <strong>.zip</strong> of any
+        of them — including a folder of LabelMe files, or the per-task export
+        archive straight from the Exports tab.
         Images are matched to existing tasks by filename — upload images first
         via the Tasks tab, then import annotations here.
       </p>
