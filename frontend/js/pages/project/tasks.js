@@ -586,16 +586,21 @@ function openEditModal(task) {
   const statusSelect = el("editStatus");
   statusSelect.value = task.status || "New";
 
-  // Mirrors _is_task_editor in api/routers/tasks.py: the assignee and the
-  // project owner have equal authority over a task, so both may move it out of
-  // a terminal status. Anyone else sees the status frozen.
+  // Mirrors _is_task_editor in api/routers/tasks.py: the assignee, the project
+  // owner and an appointed reviewer have equal authority over a task, so all
+  // three may move it out of a terminal status. Sending finished work back for
+  // rework is the whole point of the reviewer role, so a reviewer who could
+  // only ever advance a status could not do the job. Anyone else sees the
+  // status frozen.
   const isOwner = Boolean(ctx?.project?.is_owner);
+  const isReviewer = Boolean(ctx?.project?.is_reviewer);
   const isAssignee = Boolean(task.assignee) &&
     task.assignee === (localStorage.getItem("dataset_username") || "");
-  const statusIsLocked = LOCKED_STATUSES.has(task.status) && !isOwner && !isAssignee;
+  const statusIsLocked =
+    LOCKED_STATUSES.has(task.status) && !isOwner && !isReviewer && !isAssignee;
   statusSelect.disabled = statusIsLocked;
   statusSelect.title = statusIsLocked
-    ? `Only ${task.assignee} or the project owner can change the status of a ${task.status} task.`
+    ? `Only ${task.assignee}, the project owner or a reviewer can change the status of a ${task.status} task.`
     : "";
 
   const preview = el("editPreview");
@@ -861,7 +866,20 @@ export async function mount(hostRoot, hostCtx) {
           : "",
       },
       { key: "description", label: "Filename", render: (r) => `<a href="app.html?projectId=${encodeURIComponent(ctx.projectId)}&taskId=${encodeURIComponent(r.id)}" style="max-width:320px;display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle;color:var(--accent);text-decoration:none;cursor:pointer;transition:color 0.2s ease;" onmouseover="this.style.color='var(--accent-dark)';this.style.textDecoration='underline'" onmouseout="this.style.color='var(--accent)';this.style.textDecoration='none'" title="${escapeHTML(r.description || '')}">${escapeHTML(r.description || "")}</a>` },
-      { key: "assignee", label: "Assignee", render: (r) => r.assignee ? escapeHTML(r.assignee) : `<span style="color:var(--muted);">—</span>` },
+      {
+        key: "assignee", label: "Assignee",
+        render: (r) => {
+          if (!r.assignee) return `<span style="color:var(--muted);">—</span>`;
+          // A reviewer badge here answers "can this person sign off my work"
+          // on the row where the question comes up. Reviewers are per-project,
+          // so the list comes from the project rather than the team member.
+          const reviewers = ctx?.project?.reviewers || [];
+          const badge = reviewers.includes(r.assignee)
+            ? ` <span title="Appointed reviewer for this project" style="font-size:.7rem;padding:1px 6px;border-radius:10px;background:rgba(15,139,141,.15);color:var(--accent);white-space:nowrap;vertical-align:middle;">Reviewer</span>`
+            : "";
+          return escapeHTML(r.assignee) + badge;
+        },
+      },
       {
         // T2.2 — show a "busy" badge when another annotator has the task open.
         key: "_lock", label: "", sortable: false, width: "56px",

@@ -68,7 +68,129 @@ function render(root, project, m) {
         <p>This project has no tasks yet.</p>
         <p><a class="cell-link" href="#/tasks">Upload images to get started →</a></p>
       </div>` : ""}
+
+    <div id="reviewerPanel"></div>
   `;
+}
+
+/**
+ * Reviewer management, rendered only for the project owner.
+ *
+ * Reviewers are per-project, so this lives in the project workspace rather than
+ * the workspace-wide Teams page, where "is a reviewer" would have no single
+ * answer. The server is the authority on both reads and writes here; the panel
+ * is hidden for non-owners purely as an affordance (the endpoints return 403
+ * regardless).
+ */
+function renderReviewerPanel(root, ctx, members) {
+  const host = root.querySelector("#reviewerPanel");
+  if (!host) return;
+  if (!ctx?.project?.is_owner) {
+    host.innerHTML = "";
+    return;
+  }
+
+  const reviewers = ctx.project.reviewers || [];
+  const candidates = members.filter((m) => m !== ctx.project.creator && !reviewers.includes(m));
+
+  host.innerHTML = `
+    <div class="metric-tile" style="margin-top:18px;">
+      <p class="label">Reviewers</p>
+      <p class="sub" style="margin-top:4px;">
+        A reviewer can open and correct any task in this project, whoever it is
+        assigned to, and move a finished task back for rework. They cannot
+        delete tasks, edit classes or change the project.
+      </p>
+
+      <div id="reviewerList" style="margin-top:14px; display:flex; flex-wrap:wrap; gap:8px;">
+        ${
+          reviewers.length
+            ? reviewers.map((name) => `
+                <span class="pill" style="display:inline-flex;align-items:center;gap:8px;padding:4px 10px;border:1px solid var(--line);">
+                  ${escapeHTML(name)}
+                  <button type="button" data-remove-reviewer="${escapeHTML(name)}"
+                    title="Remove ${escapeHTML(name)} as a reviewer"
+                    style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:1rem;line-height:1;padding:0;">×</button>
+                </span>`).join("")
+            : `<span style="color:var(--muted);font-size:.85rem;">No reviewers appointed.</span>`
+        }
+      </div>
+
+      <div style="margin-top:14px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+        <select id="reviewerSelect" aria-label="Team member to appoint as reviewer"
+          style="padding:7px 10px;border-radius:8px;border:1px solid var(--line);min-width:200px;">
+          <option value="">Choose a team member…</option>
+          ${candidates.map((m) => `<option value="${escapeHTML(m)}">${escapeHTML(m)}</option>`).join("")}
+        </select>
+        <button type="button" class="primary" id="addReviewerBtn"
+          style="padding:8px 16px;border-radius:8px;font-weight:600;">Add reviewer</button>
+      </div>
+      <div id="reviewerError" class="mgmt-error" style="display:none; margin-top:10px;"></div>
+    </div>
+  `;
+
+  const err = host.querySelector("#reviewerError");
+  const fail = (message) => {
+    err.textContent = message;
+    err.style.display = "block";
+  };
+
+  host.querySelector("#addReviewerBtn")?.addEventListener("click", async () => {
+    err.style.display = "none";
+    const name = host.querySelector("#reviewerSelect")?.value;
+    if (!name) return fail("Choose a team member first.");
+    try {
+      const res = await apiFetch(`/api/projects/${encodeURIComponent(ctx.projectId)}/reviewers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ member_name: name }),
+      });
+      if (!res || !res.ok) {
+        const body = res ? await res.json().catch(() => null) : null;
+        return fail(body?.detail || `Could not add the reviewer (${res?.status}).`);
+      }
+      // Re-read the project so `reviewers` and `is_reviewer` come from the
+      // server rather than being patched in locally and drifting.
+      await ctx.reloadProject();
+      renderReviewerPanel(root, ctx, members);
+    } catch (e) {
+      console.error("Failed to add reviewer", e);
+      fail("Could not add the reviewer.");
+    }
+  });
+
+  host.querySelectorAll("[data-remove-reviewer]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      err.style.display = "none";
+      const name = btn.getAttribute("data-remove-reviewer");
+      try {
+        const res = await apiFetch(
+          `/api/projects/${encodeURIComponent(ctx.projectId)}/reviewers/${encodeURIComponent(name)}`,
+          { method: "DELETE" },
+        );
+        if (!res || !res.ok) return fail(`Could not remove the reviewer (${res?.status}).`);
+        await ctx.reloadProject();
+        renderReviewerPanel(root, ctx, members);
+      } catch (e) {
+        console.error("Failed to remove reviewer", e);
+        fail("Could not remove the reviewer.");
+      }
+    });
+  });
+}
+
+/** Team member names, for the appoint dropdown. Empty on failure — the panel
+ *  still renders so existing reviewers can be removed. */
+async function loadMemberNames(signal) {
+  try {
+    const res = await apiFetch("/api/team", { signal });
+    if (!res || !res.ok) return [];
+    const rows = await res.json();
+    return Array.isArray(rows) ? rows.map((r) => r.name).filter(Boolean) : [];
+  } catch (e) {
+    if (e.name !== "AbortError") console.error("Failed to load team members", e);
+    return [];
+  }
 }
 
 export async function mount(root, ctx) {
@@ -96,6 +218,13 @@ export async function mount(root, ctx) {
       return;
     }
     render(root, ctx.project, await res.json());
+
+    // After render(), which owns root.innerHTML and would otherwise wipe the
+    // panel. The member list is only needed for the owner's appoint dropdown,
+    // so non-owners never pay for the request.
+    if (ctx?.project?.is_owner) {
+      renderReviewerPanel(root, ctx, await loadMemberNames(abortController.signal));
+    }
   } catch (err) {
     if (err.name === "AbortError") return; // navigated away mid-request
     console.error("Failed to load metrics", err);

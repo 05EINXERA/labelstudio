@@ -87,6 +87,10 @@ export const state = {
   // change (see _is_task_editor in api/routers/tasks.py). Never gate a save on
   // them: doing that client-side is what silently dropped edits on locked tasks.
   isProjectOwner: false,
+  // Appointed by the owner to correct and sign off other people's work, so a
+  // reviewer is not read-only on a task assigned to someone else. Separate from
+  // isProjectOwner because the role grants nothing destructive.
+  isProjectReviewer: false,
   isTaskAssignee: false
 };
 

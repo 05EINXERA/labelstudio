@@ -6,7 +6,7 @@
  */
 import { clientId } from "../utils.js?v=2";
 import { apiFetch } from "../api.js?v=3";
-import { state, resetWorkspaceForNewImage } from "../state.js?v=2";
+import { state, resetWorkspaceForNewImage } from "../state.js?v=3";
 import { view } from "../canvas/view.js?v=1";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
 import {
@@ -177,14 +177,17 @@ export async function switchImage(index) {
           if (detail.assignee !== undefined) item.assignee = detail.assignee;
           if (detail.status !== undefined) item.status = detail.status;
 
-          // Mirrors _is_task_editor in api/routers/tasks.py: the assignee and
-          // the project owner both have full authority over a task. The owner
-          // was previously treated as read-only on anyone else's task, so their
-          // edits were dropped client-side even though the server allowed them.
+          // Mirrors _is_task_editor in api/routers/tasks.py: the assignee, the
+          // project owner and an appointed reviewer all have full authority
+          // over a task. The owner was previously treated as read-only on
+          // anyone else's task, so their edits were dropped client-side even
+          // though the server allowed them; a reviewer would hit exactly the
+          // same bug, since reviewing is by definition work on someone else's
+          // task.
           const currentUsername = localStorage.getItem("dataset_username") || "";
           state.isTaskAssignee = Boolean(item.assignee && item.assignee === currentUsername);
           const readOnly = Boolean(item.assignee) &&
-            !state.isTaskAssignee && !state.isProjectOwner;
+            !state.isTaskAssignee && !state.isProjectOwner && !state.isProjectReviewer;
           if (readOnly) {
             setStatus("⚠ Task is assigned to another user (Read-only)");
           }

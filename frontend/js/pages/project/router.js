@@ -30,8 +30,8 @@ const projectId = new URLSearchParams(window.location.search).get("id");
 
 // View loaders with caching and preloading for instant zero-lag tab switching
 const VIEW_LOADERS = {
-  home: () => import("./home.js?v=1"),
-  tasks: () => import("./tasks.js?v=4"),
+  home: () => import("./home.js?v=2"),
+  tasks: () => import("./tasks.js?v=5"),
   classes: () => import("./classes.js?v=1"),
   imports: () => import("./imports.js?v=1"),
   exports: () => import("./exports.js?v=1"),

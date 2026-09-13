@@ -3,7 +3,7 @@
  */
 import { clientId } from "./utils.js?v=2";
 import { apiFetch } from "./api.js?v=3";
-import { state } from "./state.js?v=2";
+import { state } from "./state.js?v=3";
 import {
   setStatus, syncToBackend, loadSaved, saveDraft, render, loadTeamForWorkspace
 } from "./components/workspace.js?v=6";
@@ -19,7 +19,7 @@ import { initFftControls } from "./fft-controls.js?v=1";
 import { toolAvailability } from "./feature-flags.js?v=1";
 import {
   switchImage, initGalleryNavigation, loadWorkspaceTasks, resizeCanvas
-} from "./components/gallery.js?v=2";
+} from "./components/gallery.js?v=3";
 import { initModals } from "./components/modals.js?v=2";
 import { initModeControls } from "./components/mode-controls.js?v=1";
 import { initOpacityControl } from "./components/opacity-control.js?v=1";
@@ -190,6 +190,15 @@ async function initWorkspaceContext() {
     // account name as soon as anyone picks a profile on the shared login.
     state.isProjectOwner = Boolean(project.is_owner);
 
+    // A reviewer is appointed by the owner to correct and sign off other
+    // people's work, so the canvas must not treat a task assigned to someone
+    // else as read-only for them. Mirrors _is_task_editor on the server, which
+    // grants the assignee, the owner and a reviewer equal authority over a
+    // task. Kept as its own flag rather than folded into isProjectOwner: the
+    // role grants nothing destructive, and the owner-only affordances below
+    // must stay owner-only.
+    state.isProjectReviewer = Boolean(project.is_reviewer);
+
     if (breadcrumbProject) {
       breadcrumbProject.textContent = project.name || "Untitled project";
       breadcrumbProject.title = project.name || "Untitled project";
@@ -265,12 +274,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Parallel high-speed workspace data bootstrap.
   //
-  // Ownership is the one ordering constraint: opening a task decides whether it
-  // is read-only, and that decision reads state.isProjectOwner (gallery.js). If
-  // the tasks won the race the owner would be treated as a non-owner on any task
-  // assigned to someone else — read-only, isFullyLoaded false, and every save
-  // dropped before it reached the network. So the context resolves first, and
-  // the rest still loads alongside it.
+  // Standing in the project is the one ordering constraint: opening a task
+  // decides whether it is read-only, and that decision reads
+  // state.isProjectOwner and state.isProjectReviewer (gallery.js). If the tasks
+  // won the race an owner — or a reviewer — would be treated as a stranger on
+  // any task assigned to someone else: read-only, isFullyLoaded false, and
+  // every save dropped before it reached the network. So the context resolves
+  // first, and the rest still loads alongside it.
   const contextReady = initWorkspaceContext();
   Promise.all([
     contextReady,

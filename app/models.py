@@ -1,5 +1,5 @@
 """SQLAlchemy ORM models for database persistence."""
-from sqlalchemy import Column, Integer, String, DateTime, func, Text, ForeignKey, Float, LargeBinary
+from sqlalchemy import Column, Integer, String, DateTime, func, Text, ForeignKey, Float, LargeBinary, UniqueConstraint
 
 # All timestamp columns store timezone-aware UTC (CLAUDE.md rule 7). Without
 # timezone=True, Postgres silently strips tzinfo on write and hands back a
@@ -158,6 +158,35 @@ class TeamMemberAssociation(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     member_name = Column(String, ForeignKey("team_members.name", ondelete="CASCADE"), index=True)
     team_id = Column(Integer, ForeignKey("teams.id", ondelete="CASCADE"), index=True)
+
+class ProjectReviewer(Base):
+    """An annotator the project owner has appointed to review this project.
+
+    The reviewer is a `team_members.name`, not a user account: the deployment
+    shares one login, so a username identifies the account and cannot tell two
+    annotators apart. This is the identity `tasks.assignee`, `projects.creator`
+    and the `X-Annotator-Name` header all already use.
+
+    What the role grants is deliberately bounded (see `is_project_reviewer` in
+    api/routers/projects.py): a reviewer may open, edit and re-status *any*
+    task in the project regardless of who it is assigned to, including moving a
+    task out of a terminal status to send it back. It grants nothing
+    destructive — deleting tasks, editing classes and transferring the project
+    stay with the owner.
+
+    Like task assignment, this is advisory rather than a security boundary:
+    on a shared login any client can send any `X-Annotator-Name`. It shapes the
+    UI and the normal path; it does not withstand a forged header. Making it a
+    real boundary needs per-person logins.
+    """
+    __tablename__ = "project_reviewers"
+    __table_args__ = (UniqueConstraint("project_id", "member_name", name="uq_project_reviewer"),)
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    member_name = Column(String, ForeignKey("team_members.name", ondelete="CASCADE"), nullable=False, index=True)
+    # Which annotator made the appointment, so the UI can say who granted it.
+    appointed_by = Column(String, nullable=True)
+    created_at = Column(UTCDateTime, server_default=func.now(), nullable=False)
 
 class Label(Base):
     __tablename__ = "labels"

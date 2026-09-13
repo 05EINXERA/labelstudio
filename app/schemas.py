@@ -55,6 +55,21 @@ class ProjectUpdate(BaseModel):
     status: Optional[str] = None
     team_id: Optional[int] = None
 
+class ProjectReviewerCreate(BaseModel):
+    """Appoint one annotator as a reviewer of a project.
+
+    The name is a `team_members.name`, the same identity task assignment uses —
+    not a login, because the deployment shares one account.
+    """
+    member_name: str = Field(..., min_length=1, max_length=200)
+
+class ProjectReviewerResponse(BaseModel):
+    member_name: str
+    appointed_by: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
 class ProjectTransferOwnership(BaseModel):
     new_owner: str = Field(min_length=1, max_length=64)
 

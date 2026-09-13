@@ -12,7 +12,14 @@ import models
 import schemas
 from config import DATA_DIR, MAX_UPLOAD_FILES
 from database import get_db, commit_with_retry
-from schemas import ProjectModel, ProjectMetrics, ProjectSummary, ProjectTransferOwnership
+from schemas import (
+    ProjectModel,
+    ProjectMetrics,
+    ProjectReviewerCreate,
+    ProjectReviewerResponse,
+    ProjectSummary,
+    ProjectTransferOwnership,
+)
 from api.auth import get_current_user, require_csrf, get_current_annotator
 from formats.common import measure_image
 
@@ -62,6 +69,16 @@ def get_owned_project(project_id: int, user: models.User, db: Session, annotator
     if task_pids:
         conditions.append(models.Project.id.in_(task_pids))
 
+    # A reviewer reaches the project through the appointment alone: they may
+    # hold no task in it and belong to no team on it, which is the normal case
+    # for someone brought in only to check other people's work.
+    reviewed = db.query(models.ProjectReviewer.project_id).filter(
+        models.ProjectReviewer.project_id == project_id,
+        models.ProjectReviewer.member_name.in_(names),
+    ).first()
+    if reviewed:
+        conditions.append(models.Project.id == project_id)
+
     project = db.query(models.Project).filter(
         models.Project.id == project_id,
         or_(*conditions),
@@ -94,6 +111,64 @@ def is_project_creator(project: models.Project, user: models.User, annotator: Op
         return True
     return False
 
+
+
+def caller_annotator_names(user: models.User, annotator: Optional[models.TeamMember] = None) -> set:
+    """The identities a request acts under.
+
+    Mirrors `is_project_creator`: the selected annotator name when one is
+    active, otherwise the account username. Factored out because the reviewer
+    checks need exactly the same rule and must not drift from it.
+    """
+    if annotator and annotator.name:
+        return {annotator.name}
+    return {user.username}
+
+
+def reviewer_names(project_id: int, db: Session) -> List[str]:
+    """Annotator names appointed to review `project_id`."""
+    return [
+        name for (name,) in db.query(models.ProjectReviewer.member_name).filter(
+            models.ProjectReviewer.project_id == project_id
+        ).all()
+    ]
+
+
+def is_project_reviewer(project: models.Project, user: models.User, db: Session,
+                        annotator: Optional[models.TeamMember] = None) -> bool:
+    """True if the caller has been appointed a reviewer of `project`.
+
+    Deliberately does *not* fold in ownership: callers that mean "owner or
+    reviewer" say so, so the two authorities stay visible at every call site.
+    An owner is not implicitly a reviewer row, and appointing themselves is a
+    no-op they never need.
+    """
+    if project is None:
+        return False
+    names = caller_annotator_names(user, annotator)
+    if not names:
+        return False
+    return db.query(models.ProjectReviewer.id).filter(
+        models.ProjectReviewer.project_id == project.id,
+        models.ProjectReviewer.member_name.in_(names),
+    ).first() is not None
+
+
+def reviewed_project_ids(user: models.User, db: Session,
+                         annotator: Optional[models.TeamMember] = None) -> List[int]:
+    """Ids of every project the caller reviews.
+
+    Used to widen project access: a reviewer must be able to open a project
+    they neither created nor hold an assigned task in.
+    """
+    names = caller_annotator_names(user, annotator)
+    if not names:
+        return []
+    return [
+        pid for (pid,) in db.query(models.ProjectReviewer.project_id).filter(
+            models.ProjectReviewer.member_name.in_(names)
+        ).distinct().all()
+    ]
 
 
 def _derive_status(total: int, completed: int) -> Optional[str]:
@@ -226,7 +301,119 @@ def get_projects(db: Session = Depends(get_db), user: models.User = Depends(get_
 @router.get("/{project_id}")
 def get_project(project_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
     p = get_owned_project(project_id, user, db, annotator)
-    return {"id": p.id, "name": p.name, "slug": p.slug, "type": p.type, "status": p.status, "creator": p.creator, "created_at": p.created_at, "team_id": p.team_id, "is_owner": is_project_creator(p, user, annotator)}
+    # `reviewers` is reported to everyone with project access, not just the
+    # owner: an annotator needs to know who can sign off their work, and the
+    # Teams view badges the role. `is_reviewer` is the caller's own standing,
+    # so the workspace can unlock the status control without re-deriving it.
+    return {
+        "id": p.id, "name": p.name, "slug": p.slug, "type": p.type, "status": p.status,
+        "creator": p.creator, "created_at": p.created_at, "team_id": p.team_id,
+        "is_owner": is_project_creator(p, user, annotator),
+        "is_reviewer": is_project_reviewer(p, user, db, annotator),
+        "reviewers": reviewer_names(project_id, db),
+    }
+
+@router.get("/{project_id}/reviewers", response_model=List[ProjectReviewerResponse])
+def list_reviewers(
+    project_id: int,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+    annotator: Optional[models.TeamMember] = Depends(get_current_annotator),
+):
+    """Reviewers appointed to this project, newest first.
+
+    Readable by anyone with project access, not just the owner: an annotator
+    needs to know who can sign off their work.
+    """
+    get_owned_project(project_id, user, db, annotator)
+    return (
+        db.query(models.ProjectReviewer)
+        .filter(models.ProjectReviewer.project_id == project_id)
+        .order_by(models.ProjectReviewer.created_at.desc(), models.ProjectReviewer.id.desc())
+        .all()
+    )
+
+
+@router.post("/{project_id}/reviewers", response_model=ProjectReviewerResponse,
+             dependencies=[Depends(require_csrf)])
+def add_reviewer(
+    project_id: int,
+    payload: ProjectReviewerCreate,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+    annotator: Optional[models.TeamMember] = Depends(get_current_annotator),
+):
+    """Appoint a team member as a reviewer of this project. Owner only.
+
+    A reviewer cannot appoint further reviewers: the role would otherwise
+    spread without the owner ever acting.
+    """
+    project = get_owned_project(project_id, user, db, annotator)
+    if not is_project_creator(project, user, annotator):
+        raise HTTPException(status_code=403, detail="Only the project creator can appoint reviewers.")
+
+    name = payload.member_name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Reviewer name cannot be empty.")
+
+    member = db.query(models.TeamMember).filter(models.TeamMember.name == name).first()
+    if not member:
+        # Not auto-created: a typo would otherwise silently mint a team member
+        # who never logs in, and the reviewer list would look correct while
+        # granting the role to nobody.
+        raise HTTPException(
+            status_code=400,
+            detail=f"'{name}' is not a team member. Add them to the team first.",
+        )
+
+    if project.creator == name:
+        raise HTTPException(
+            status_code=400,
+            detail="The project creator already has every reviewer privilege.",
+        )
+
+    existing = db.query(models.ProjectReviewer).filter(
+        models.ProjectReviewer.project_id == project_id,
+        models.ProjectReviewer.member_name == name,
+    ).first()
+    if existing:
+        # Idempotent: re-appointing is what a double-click sends, and it is not
+        # an error worth surfacing.
+        return existing
+
+    appointed_by = next(iter(caller_annotator_names(user, annotator)), None)
+    row = models.ProjectReviewer(
+        project_id=project_id, member_name=name, appointed_by=appointed_by,
+    )
+    db.add(row)
+    commit_with_retry(db)
+    db.refresh(row)
+    logger.info("Appointed %r as reviewer of project %s (by %r)", name, project_id, appointed_by)
+    return row
+
+
+@router.delete("/{project_id}/reviewers/{member_name}", dependencies=[Depends(require_csrf)])
+def remove_reviewer(
+    project_id: int,
+    member_name: str,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+    annotator: Optional[models.TeamMember] = Depends(get_current_annotator),
+):
+    """Remove a reviewer from this project. Owner only."""
+    project = get_owned_project(project_id, user, db, annotator)
+    if not is_project_creator(project, user, annotator):
+        raise HTTPException(status_code=403, detail="Only the project creator can remove reviewers.")
+
+    deleted = db.query(models.ProjectReviewer).filter(
+        models.ProjectReviewer.project_id == project_id,
+        models.ProjectReviewer.member_name == member_name,
+    ).delete(synchronize_session=False)
+    if deleted:
+        commit_with_retry(db)
+        logger.info("Removed %r as reviewer of project %s", member_name, project_id)
+    return {"status": "ok", "removed": deleted}
+
 
 @router.get("/{project_id}/metrics", response_model=ProjectMetrics)
 def get_project_metrics(project_id: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
@@ -264,7 +451,10 @@ def _apply_project_update(db_project: models.Project, project_update: schemas.Pr
 @router.patch("/{project_id}")
 def patch_project(project_id: int, project_update: schemas.ProjectUpdate, request: Request, db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
     db_project = get_owned_project(project_id, user, db, annotator)
-    # X-Annotator-Name is used for UI filtering but is not a security boundary.
+    # Access is not authority to rewrite the project's name, team or status —
+    # see the note in delete_project. Owner only.
+    if not is_project_creator(db_project, user, annotator):
+        raise HTTPException(status_code=403, detail="Only the project creator can edit this project.")
     _apply_project_update(db_project, project_update)
     commit_with_retry(db)
     return {"status": "ok"}
@@ -272,7 +462,13 @@ def patch_project(project_id: int, project_update: schemas.ProjectUpdate, reques
 @router.delete("/{project_id}")
 def delete_project(project_id: int, request: Request, db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
     db_project = get_owned_project(project_id, user, db, annotator)
-    # X-Annotator-Name is used for UI filtering but is not a security boundary.
+    # `get_owned_project` answers "may this caller *see* the project", which is
+    # true for every team member, every task assignee and every reviewer. It is
+    # not an authorization check for destroying it: gating on access alone let
+    # any teammate delete a project along with all of its tasks and labels.
+    # Deletion is the owner's alone.
+    if not is_project_creator(db_project, user, annotator):
+        raise HTTPException(status_code=403, detail="Only the project creator can delete this project.")
     db.query(models.Task).filter(models.Task.project_id == project_id).delete()
     db.query(models.Label).filter(models.Label.project_id == project_id).delete()
     db.delete(db_project)

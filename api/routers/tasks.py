@@ -21,7 +21,12 @@ from schemas import (
 )
 from api.auth import get_current_user, require_csrf, get_current_annotator
 from api.notifications import notify_task_assigned, notify_task_status_changed
-from api.routers.projects import get_owned_project, get_user_accessible_team_ids, is_project_creator
+from api.routers.projects import (
+    get_owned_project,
+    get_user_accessible_team_ids,
+    is_project_creator,
+    is_project_reviewer,
+)
 
 router = APIRouter(
     prefix="/api/tasks",
@@ -162,6 +167,17 @@ def _accessible_project_ids(user: models.User, db: Session, annotator: Optional[
     if task_pids:
         conditions.append(models.Project.id.in_(task_pids))
 
+    # A reviewer reaches a project through the appointment alone — they may
+    # hold no task in it and belong to no team on it, which is the normal case
+    # for someone brought in only to check other people's work.
+    reviewed_pids = [
+        pid for (pid,) in db.query(models.ProjectReviewer.project_id).filter(
+            models.ProjectReviewer.member_name.in_(names)
+        ).distinct().all()
+    ]
+    if reviewed_pids:
+        conditions.append(models.Project.id.in_(reviewed_pids))
+
     return [
         pid for (pid,) in db.query(models.Project.id).filter(or_(*conditions)).all()
     ]
@@ -187,17 +203,32 @@ def _creator_project_ids(user: models.User, db: Session, annotator: Optional[mod
 
 
 def _is_task_editor(task: models.Task, user: models.User, db: Session, annotator: Optional[models.TeamMember] = None) -> bool:
-    """True if the caller may edit `task`, as its assignee or as the project owner.
+    """True if the caller may edit `task` — its assignee, the owner, or a reviewer.
 
-    The two have equal authority over a task: the assignee owns the work itself,
-    the project owner owns everything in the project. Every rule that restricts a
-    task write is keyed on this, so an unassigned task is editable by anyone with
-    project access, and an assigned one only by its assignee or the owner.
+    The three have equal authority over a task: the assignee owns the work
+    itself, the project owner owns everything in the project, and a reviewer is
+    appointed by the owner precisely to correct and sign off other people's
+    work. Every rule that restricts a task write is keyed on this, so an
+    unassigned task is editable by anyone with project access, and an assigned
+    one only by its assignee, the owner, or a reviewer.
+
+    Because the status lock also keys on this, a reviewer can move a task back
+    out of a terminal status — sending finished work back for rework is the
+    core of the role, and a reviewer who could only ever advance a status could
+    not do it.
+
+    This grants nothing destructive: deleting tasks, adding tasks and editing
+    classes are gated on `is_project_creator` separately and stay owner-only.
     """
     if annotator and task.assignee and task.assignee == annotator.name:
         return True
     project = db.query(models.Project).filter(models.Project.id == task.project_id).first()
-    return bool(project and is_project_creator(project, user, annotator))
+    if not project:
+        return False
+    return bool(
+        is_project_creator(project, user, annotator)
+        or is_project_reviewer(project, user, db, annotator)
+    )
 
 
 def _get_owned_task(task_id: int, user: models.User, db: Session, annotator: Optional[models.TeamMember] = None, require_edit: bool = True, for_update: bool = False) -> models.Task:
