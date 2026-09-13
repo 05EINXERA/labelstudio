@@ -111,9 +111,11 @@ function template() {
     <div id="panelAnnotations" style="display:none;">
       <p style="font-size:.88rem; color:var(--muted); margin-bottom:18px;">
         Accepts a <strong>COCO JSON</strong> (images + categories + annotations),
-        the app's own per-task <strong>JSON export</strong>, or a
-        <strong>.zip</strong> of either — including the per-task export archive
-        straight from the Exports tab.
+        the app's own per-task <strong>JSON export</strong>,
+        <strong>LabelMe</strong> per-image JSON, or a <strong>.zip</strong> of
+        any of them — including the per-task export archive straight from the
+        Exports tab. The format is detected from the file itself, so there is
+        nothing to choose.
         Images are matched to existing tasks by filename — upload images first
         via the Tasks tab, then import annotations here.
       </p>
@@ -266,6 +268,7 @@ function renderPreview(preview) {
   const matched = preview.matched || [];
   const unmatched = preview.unmatched || [];
   const newLabels = preview.new_labels || [];
+  const notes = preview.notes || [];
 
   let html = `<p style="font-size:.88rem; margin-bottom:12px;">
     <strong>${preview.total_annotations}</strong> annotation${preview.total_annotations === 1 ? "" : "s"}
@@ -307,6 +310,20 @@ function renderPreview(preview) {
       <strong>New classes that will be created:</strong>
       ${newLabels.map((n) => `<code style="background:var(--panel-2); border-radius:4px; padding:1px 5px;">${escapeHTML(n)}</code>`).join(" ")}
     </p>`;
+  }
+
+  // Shapes the parser recognised but cannot represent (a LabelMe point or
+  // mask). Shown before the import is applied: a silent drop is exactly the
+  // kind of loss that is expensive to discover afterwards.
+  if (notes.length > 0) {
+    html += `<p style="font-weight:600; font-size:.85rem; margin:0 0 6px; color:var(--muted);">
+      Not everything in this file can be imported:
+    </p>
+    <ul style="font-size:.82rem; color:var(--muted); margin:0 0 14px; padding-left:18px;">`;
+    for (const n of notes) {
+      html += `<li>${escapeHTML(n)}</li>`;
+    }
+    html += `</ul>`;
   }
 
   if (matched.length === 0) {

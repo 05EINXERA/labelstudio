@@ -294,6 +294,7 @@ EXPORT_FORMATS = [
     "annotations_json",     # array of task objects, one file
     "annotations_pertask",  # one task object per file
     "yolo",                 # classes.txt + annotations/<stem>.txt
+    "labelme",              # LabelMe 5.x, one per-image JSON per task
     "csv",                  # flat CSV (deprecated: dropped from the UI, still accepted)
 ]
 

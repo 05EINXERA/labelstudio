@@ -110,6 +110,10 @@ function template() {
             <input type="radio" name="format" value="yolo">
             YOLO segmentation
           </label>
+          <label style="display:flex; align-items:center; gap:8px; font-size:.9rem;" title="One LabelMe JSON per task, under labelme/, named after each image. Pair with the &quot;Original image&quot; output below for a folder LabelMe opens directly.">
+            <input type="radio" name="format" value="labelme">
+            LabelMe — per-image JSON
+          </label>
         </div>
       </div>
 
@@ -190,6 +194,7 @@ const FORMAT_LABELS = {
   annotations_json: "Task JSON — single file",
   annotations_pertask: "Task JSON — per-task",
   yolo: "YOLO segmentation",
+  labelme: "LabelMe — per-image JSON",
 };
 
 const IMAGE_OUTPUT_LABELS = {

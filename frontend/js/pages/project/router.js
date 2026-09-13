@@ -48,8 +48,8 @@ const VIEWS = {
   home: () => import("./home.js?v=6"),
   tasks: () => import("./tasks.js?v=16"),
   classes: () => import("./classes.js?v=3"),
-  imports: () => import("./imports.js?v=2"),
-  exports: () => import("./exports.js?v=3"),
+  imports: () => import("./imports.js?v=3"),
+  exports: () => import("./exports.js?v=4"),
   access: () => import("./access.js?v=2"),
   move: () => import("./move.js?v=2"),
 };

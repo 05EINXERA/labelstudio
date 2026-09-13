@@ -2,8 +2,8 @@
 
 An export is two independent axes bundled into one ZIP:
 
-- an annotation FORMAT — COCO, task JSON (single array or per-task), or YOLO
-  segmentation (plus legacy CSV);
+- an annotation FORMAT — COCO, task JSON (single array or per-task), YOLO
+  segmentation, or LabelMe per-image JSON (plus legacy CSV);
 - an IMAGE OUTPUT — none, the original image, the annotated image, or a mask
   (direct / index colour / binary).
 
@@ -71,6 +71,7 @@ from api.permissions import ProjectRole, require_project
 from formats import annotations_json
 from formats import coco as coco_format
 from formats import images as images_format
+from formats import labelme as labelme_format
 from formats import masks as masks_format
 from formats import yolo as yolo_format
 from formats.common import (
@@ -115,6 +116,7 @@ FORMAT_FOLDERS = {
     "annotations_json": "json/",
     "annotations_pertask": "jsons/",
     "yolo": "yolo/",
+    "labelme": "labelme/",
 }
 
 # Image-output axis -> (folder prefix, builder). "none" has no folder.
@@ -196,6 +198,13 @@ def _format_entries(fmt: str, tasks, labels, values, db) -> Tuple[List[Tuple[str
         return norm, []
     if fmt == "yolo":
         entries, skipped = yolo_format.build(tasks, labels, db=db)
+        norm = [(n, c.encode("utf-8") if isinstance(c, str) else c) for n, c in entries]
+        return norm, skipped
+    if fmt == "labelme":
+        # Unlike YOLO, `skipped` is always empty: LabelMe coordinates are
+        # absolute, so a task with unknown image dimensions still exports
+        # correctly (with null height/width) rather than being dropped.
+        entries, skipped = labelme_format.build(tasks, labels, db=db)
         norm = [(n, c.encode("utf-8") if isinstance(c, str) else c) for n, c in entries]
         return norm, skipped
     raise ValueError(f"Unknown export format {fmt!r}.")

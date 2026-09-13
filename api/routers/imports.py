@@ -1,7 +1,8 @@
 """Annotation import (tracker P4.2, G5).
 
-Imports COCO JSON, the task-JSON formats (single array or per-task), a YOLO
-segmentation archive, or a ZIP of the JSON formats — matching images to
+Imports COCO JSON, the task-JSON formats (single array or per-task), LabelMe
+per-image JSON, a YOLO segmentation archive, or a ZIP of the JSON formats —
+matching images to
 existing tasks by filename (`Task.description`), or by stem where the
 extensions cannot line up (a YOLO `P1000015.txt` against a `P1000015.JPG`
 task). Tasks are matched, not created: an image file is not part of any of
@@ -15,6 +16,13 @@ The container is detected from the bytes, not the extension: `_parse_import_file
 routes ZIPs to `_parse_zip`, which recognises mask and YOLO archives before
 falling back to a JSON walk. Everything downstream works on the resulting
 `{filename: [annotation, ...]}` dict.
+
+Per-document format detection is duck-typed on structure, in `_parse_single_json`,
+and its order matters: COCO (`images` + `annotations`), then LabelMe (`shapes`
++ an image key), then the class-set redirect, then the task-JSON fall-through.
+The fall-through is a catch-all that returns `{}` for anything it does not
+recognise, so a format added *after* it is a format that silently imports
+nothing — which is exactly how LabelMe files used to fail.
 
 YOLO annotations stay normalized to [0, 1] out of the parser and are scaled to
 pixels in the apply step, which is the first point the matched task's image
@@ -56,6 +64,7 @@ from api.auth import get_current_user, require_csrf
 from api.permissions import ProjectRole, require_project
 from formats import annotations_json
 from formats import coco as coco_format
+from formats import labelme as labelme_format
 from formats import yolo as yolo_format
 from formats.annotation_rows import sync_task_annotations_for_project
 from formats.common import (annotation_dicts, clean_label_name, image_size,
@@ -85,8 +94,15 @@ _ZIP_MAX_ENTRY_BYTES = 25 * 1024 * 1024
 _ZIP_MAX_TOTAL_BYTES = 250 * 1024 * 1024
 
 
-def _parse_single_json(raw: bytes) -> Dict[str, List[dict]]:
-    """Dispatch one JSON document to the COCO or native parser."""
+def _parse_single_json(raw: bytes, source_name: Optional[str] = None,
+                       notes: Optional[List[str]] = None) -> Dict[str, List[dict]]:
+    """Dispatch one JSON document to the COCO, LabelMe or native parser.
+
+    `source_name` is the file's own name, used by the LabelMe parser as the
+    image identity when the document's `imagePath` is missing. `notes`, when
+    given, collects human-readable strings about anything a parser dropped, so
+    the endpoint can report the loss instead of letting it pass silently.
+    """
     try:
         data = json.loads(raw.decode("utf-8-sig", errors="replace"))
     except json.JSONDecodeError as exc:
@@ -94,6 +110,18 @@ def _parse_single_json(raw: bytes) -> Dict[str, List[dict]]:
 
     if isinstance(data, dict) and "images" in data and "annotations" in data:
         return _parse_coco(data)
+
+    # Before the class-set check and the native fall-through. Ordering is
+    # load-bearing: a LabelMe document keys its image as `imagePath` and its
+    # shapes as `shapes`, so the native parser's container check matches none
+    # of its branches and quietly returns {} — which surfaced as "no
+    # recognizable annotations" for a file full of perfectly good polygons.
+    # See .devnotes/task-imports-new/fix/01_ANALYSIS.md § 2.
+    if labelme_format.looks_like(data):
+        parsed, parse_notes = labelme_format.parse(data, source_name=source_name)
+        if notes is not None:
+            notes.extend(parse_notes)
+        return parsed
 
     # A class-set file (the Classes export) is a JSON array of label
     # definitions — {type, title, value, color, ...} with no per-image
@@ -120,7 +148,7 @@ def _looks_like_class_set(data) -> bool:
     )
 
 
-def _parse_zip(raw: bytes) -> Dict[str, List[dict]]:
+def _parse_zip(raw: bytes, notes: Optional[List[str]] = None) -> Dict[str, List[dict]]:
     """A ZIP export -> {filename: [annotation, ...]}, merging every entry.
 
     Reads `*.json` at any depth rather than only the `jsons/` folder the
@@ -204,7 +232,7 @@ def _parse_zip(raw: bytes) -> Dict[str, List[dict]]:
                 logger.warning("Could not read archive entry %r, skipping: %s", name, exc)
                 continue
             try:
-                parsed = _parse_single_json(entry_raw)
+                parsed = _parse_single_json(entry_raw, source_name=name, notes=notes)
             except ValueError as exc:
                 logger.warning("Archive entry %r is not valid JSON, skipping: %s", name, exc)
                 continue
@@ -216,15 +244,16 @@ def _parse_zip(raw: bytes) -> Dict[str, List[dict]]:
     return dict(merged)
 
 
-def _parse_import_file(filename: str, raw: bytes) -> Dict[str, List[dict]]:
+def _parse_import_file(filename: str, raw: bytes,
+                       notes: Optional[List[str]] = None) -> Dict[str, List[dict]]:
     """Detect the container by content, not by filename.
 
     The extension is a hint the caller controls; the magic bytes are not. A
     ZIP uploaded as `.json` (or the reverse) still imports correctly.
     """
     if raw[:4] == b"PK\x03\x04":
-        return _parse_zip(raw)
-    return _parse_single_json(raw)
+        return _parse_zip(raw, notes=notes)
+    return _parse_single_json(raw, source_name=filename, notes=notes)
 
 
 def _stem(name: str) -> str:
@@ -379,8 +408,9 @@ async def preview_annotation_import(
     """Report what an import would do, without writing anything."""
     require_project(projectId, user, db, minimum=ProjectRole.MANAGER)
     raw = await read_capped(file)
+    notes: List[str] = []
     try:
-        by_filename = _parse_import_file(file.filename or "", raw)
+        by_filename = _parse_import_file(file.filename or "", raw, notes=notes)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
@@ -407,6 +437,10 @@ async def preview_annotation_import(
         "unmatched": unmatched,
         "new_labels": new_labels,
         "total_annotations": sum(len(v) for v in by_filename.values()),
+        # Shapes a parser recognised but could not represent (a LabelMe point
+        # or mask). Additive, and reported so the loss is visible before the
+        # import is applied rather than discovered afterwards.
+        "notes": notes,
     }
 
 
@@ -423,8 +457,9 @@ async def import_annotations(
     """
     require_project(projectId, user, db, minimum=ProjectRole.MANAGER)
     raw = await read_capped(file)
+    notes: List[str] = []
     try:
-        by_filename = _parse_import_file(file.filename or "", raw)
+        by_filename = _parse_import_file(file.filename or "", raw, notes=notes)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
@@ -515,4 +550,6 @@ async def import_annotations(
         # Tasks that matched but could not be written (normalized coordinates
         # with no image dimensions). Reported so the loss is visible.
         "skipped": skipped,
+        # Shapes a parser recognised but could not represent — see the preview.
+        "notes": notes,
     }
