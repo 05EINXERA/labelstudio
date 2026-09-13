@@ -1,7 +1,7 @@
 import { canvas } from "../dom.js?v=1";
 import { state, labelDisplayName } from "../state.js?v=3";
 import { view } from "./view.js?v=1";
-import { render, relabelSelection } from "../components/workspace.js?v=6";
+import { render, relabelSelection } from "../components/workspace.js?v=7";
 import {
   canvasPoint, hitTest,
   sendToBack, sendBackward, bringToFront, bringForward

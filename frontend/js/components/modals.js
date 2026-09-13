@@ -10,9 +10,9 @@
  * In accordance with repository UI rules, all modal visibility transitions
  * strictly use classList.add('is-active') / classList.remove('is-active').
  */
-import { setStatus } from "./workspace.js?v=6";
+import { setStatus } from "./workspace.js?v=7";
 import { state } from "../state.js?v=3";
-import { drainTaskTime } from "./timer.js?v=2";
+import { drainTaskTime } from "./timer.js?v=3";
 
 /**
  * Initializes the Settings modal and AI configuration controls.

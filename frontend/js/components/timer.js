@@ -12,6 +12,16 @@ export function setConflictHandler(fn) {
   onConflict = typeof fn === 'function' ? fn : null;
 }
 
+// Called when a save is refused by the server's annotation wipe guard. Distinct
+// from onConflict: a conflict is two clients disagreeing and the user picks a
+// winner, whereas this means our own canvas is missing annotations the server
+// still holds — there is nothing to choose, only to reload.
+let onSaveHalted = null;
+
+export function setSaveHaltedHandler(fn) {
+  onSaveHalted = typeof fn === 'function' ? fn : null;
+}
+
 const timerToggleBtn = document.getElementById("timerToggleBtn");
 const sessionTimerDisplay = document.getElementById("sessionTimerDisplay");
 const totalTimeLoggedDisplay = document.getElementById("totalTimeLogged");
@@ -76,6 +86,13 @@ function hasActiveTask() {
 /** Resolves true when the server accepted the write, false otherwise. */
 export async function drainTaskTime(task, { status, annotations, useBeacon = false } = {}) {
   if (!task || !task.id) return false;
+
+  // A task whose save was refused by the wipe guard stays halted until it is
+  // reloaded: the payload this tab would send is still the truncated one, so
+  // resending it only produces another refusal (and another WARNING in the
+  // server log). The accumulated seconds are left on the accumulator so a
+  // reload-and-resave still banks them.
+  if (task.saveHalted) return false;
 
   const taskId = task.id;
   const timeDelta = timerState.taskSessionSeconds;
@@ -161,6 +178,17 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
         // payload and refuse again. Surface it as an error to reload, not a
         // conflict to resolve.
         task.lastSaveError = message || 'Save refused to protect existing annotations. Reload the task.';
+
+        // The canvas holds fewer annotations than the server does, which means
+        // it opened without them — every subsequent autosave will be refused
+        // identically. Halt saving for this task and hand the annotator a
+        // blocking prompt, rather than letting them keep drawing into a save
+        // path that cannot succeed. Their work on the server is intact; it is
+        // this tab's view of it that is wrong.
+        task.saveHalted = true;
+        if (onSaveHalted) {
+          onSaveHalted(task, task.lastSaveError);
+        }
         return false;
       }
 

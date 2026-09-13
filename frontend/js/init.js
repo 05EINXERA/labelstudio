@@ -6,10 +6,11 @@ import { apiFetch } from "./api.js?v=3";
 import { state } from "./state.js?v=3";
 import {
   setStatus, syncToBackend, loadSaved, saveDraft, render, loadTeamForWorkspace
-} from "./components/workspace.js?v=6";
+} from "./components/workspace.js?v=7";
 import {
-  syncTimeToServer, setActiveTaskResolver, setConflictHandler, handleVisibilityChange as handleTimerVisibility
-} from "./components/timer.js?v=2";
+  syncTimeToServer, setActiveTaskResolver, setConflictHandler, setSaveHaltedHandler,
+  handleVisibilityChange as handleTimerVisibility
+} from "./components/timer.js?v=3";
 import { setZoomChangeHandler } from "./canvas/interactions.js?v=4";
 import { initContextMenu } from "./canvas/context-menu.js?v=2";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
@@ -19,7 +20,7 @@ import { initFftControls } from "./fft-controls.js?v=1";
 import { toolAvailability } from "./feature-flags.js?v=1";
 import {
   switchImage, initGalleryNavigation, loadWorkspaceTasks, resizeCanvas
-} from "./components/gallery.js?v=3";
+} from "./components/gallery.js?v=4";
 import { initModals } from "./components/modals.js?v=2";
 import { initModeControls } from "./components/mode-controls.js?v=1";
 import { initOpacityControl } from "./components/opacity-control.js?v=1";
@@ -113,6 +114,32 @@ setConflictHandler((task) => {
   if (conflictModal) {
     conflictModal.classList.add('is-active');
   }
+});
+
+/**
+ * The server refused a save because this canvas holds fewer annotations than it
+ * does — the task opened without them. Unlike a conflict there is nothing for
+ * the annotator to choose: their work is intact server-side and the only useful
+ * action is to reload the task and get it back.
+ *
+ * Deliberately blocking. The previous behaviour surfaced this in the small
+ * status pill, which reverted to the word "Saved" three seconds later — so
+ * annotators saw a steady "Saved" while nothing was reaching the server and
+ * re-drew work that had never been lost.
+ */
+const saveHaltedModal = document.getElementById('saveHaltedModal');
+
+setSaveHaltedHandler((task, message) => {
+  // NOT saveDraft(): the canvas is missing annotations the server still holds,
+  // so persisting it would overwrite a good draft with the truncated view.
+  if (!saveHaltedModal) return;
+  const detail = document.getElementById('saveHaltedDetail');
+  if (detail) detail.textContent = message || '';
+  saveHaltedModal.classList.add('is-active');
+});
+
+document.getElementById('saveHaltedReloadBtn')?.addEventListener('click', () => {
+  window.location.reload();
 });
 
 /**

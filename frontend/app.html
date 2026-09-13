@@ -7,7 +7,7 @@
   <title>Image Annotation MVP</title>
   <link rel="icon" type="image/png" href="logo.png">
   <link rel="stylesheet" href="styles.css?v=28">
-  <link rel="modulepreload" href="js/init.js?v=10">
+  <link rel="modulepreload" href="js/init.js?v=11">
   <!-- sync.js (legacy global annotation-slot sync to /api/data) removed in T3.1.
        Under a shared account the 'image-annotation-mvp-v1' row was last-writer-wins
        across all 25 clients. Per-task localStorage drafts (workspace.js restoreDraft)
@@ -663,6 +663,36 @@
     </div>
   </div>
 
+  <!-- Save-halted modal: the server refused a save because this canvas holds
+       fewer annotations than the server does (the annotation wipe guard). The
+       annotator's work is safe on the server; this tab's view of it is not, so
+       the only useful action is to reload the task. -->
+  <div id="saveHaltedModal" class="modal-overlay" style="z-index: 10001;">
+    <div class="modal-content" style="max-width: 520px;">
+      <div class="modal-header">
+        <h2 style="margin: 0; font-size: 1.2rem; color: #ef4444;">⚠️ Saving paused — your work on the server is safe</h2>
+      </div>
+      <div class="modal-body" style="padding: 24px;">
+        <p style="margin-top: 0; color: var(--ink-light);">
+          This task opened without its existing annotations, so saving now would
+          have deleted them. The server refused the save and
+          <strong>your annotations are still stored safely</strong>.
+        </p>
+        <p style="color: var(--ink-light);">
+          Saving is paused for this task. Reload it to get your annotations back —
+          you do not need to draw them again.
+        </p>
+        <p id="saveHaltedDetail" style="color: var(--muted); font-size: 0.85rem;"></p>
+        <div style="display: flex; gap: 10px; margin-top: 24px;">
+          <button id="saveHaltedReloadBtn" class="primary" style="flex: 1; padding: 12px; height: auto;">
+            <div style="font-weight: bold; margin-bottom: 4px;">Reload this task</div>
+            <div style="font-size: 0.75rem; font-weight: normal; opacity: 0.9;">(Recommended — restores your annotations)</div>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Save overlay with spinner (appears when user manually triggers save) -->
   <div id="saveOverlay" class="save-overlay">
     <div class="save-spinner-container">
@@ -671,7 +701,7 @@
     </div>
   </div>
 
-  <script type="module" src="js/init.js?v=10"></script>
+  <script type="module" src="js/init.js?v=11"></script>
 
 </body>
 

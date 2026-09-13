@@ -7,7 +7,7 @@ import {
 } from "../state.js?v=3";
 import { annotationPoints, updateAnnotationBounds } from "../canvas/geometry.js?v=5";
 import { view } from "../canvas/view.js?v=1";
-import { drainTaskTime } from "./timer.js?v=2";
+import { drainTaskTime } from "./timer.js?v=3";
 import { detectState } from "../ai/detect-state.js?v=1";
 import { draw, drawAllLayers } from "../canvas/draw.js?v=4";
 import {
@@ -21,15 +21,46 @@ import { commentOverlayRefs } from "../comment-overlay.js?v=1";
 import { toolAvailability } from "../feature-flags.js?v=1";
 
 
-export function setStatus(text) {
+export function setStatus(text, { sticky = false } = {}) {
   saveStatus.textContent = text;
   window.clearTimeout(setStatus.timer);
+
+  // A sticky message describes a state the annotator has to act on — it must
+  // not be overwritten three seconds later by a resting label that contradicts
+  // it. This is not cosmetic: a save refused by the server's wipe guard used to
+  // flash its warning for 3s and then settle on the word "Saved", so annotators
+  // saw a persistent "Saved" while nothing was reaching the server, and
+  // re-annotated work that was never lost. See the wipe_guard branch in
+  // components/timer.js.
+  if (sticky) {
+    setStatus.stuck = true;
+    // Recorded here, not by the caller: a sticky message has to survive the
+    // ordinary "Saving…"/"Saved" chatter below, which means something must
+    // remember what to re-display. Leaving that to each call site made the
+    // sticky text an implicit precondition nobody would notice omitting.
+    setStatus.stickyText = text;
+    return;
+  }
+
+  // Once stuck, only clearStatusHold() releases the pill. Ordinary autosave
+  // chatter ("Saving…", "Saved") must not talk over the warning.
+  if (setStatus.stuck) {
+    saveStatus.textContent = setStatus.stickyText || text;
+    return;
+  }
+
   setStatus.timer = window.setTimeout(() => {
     // Never idle back to "Saved" while the server is unreachable — that is the
     // one claim we know to be false, and it is exactly the reassurance an
     // annotator would act on before closing the tab.
     saveStatus.textContent = isOnline() ? "Saved" : "Not saved — offline";
   }, 3000);
+}
+
+/** Release a sticky status set by setStatus(..., {sticky:true}). */
+export function clearStatusHold() {
+  setStatus.stuck = false;
+  setStatus.stickyText = null;
 }
 
 export function ensureLabel(className, customColor = null) {
@@ -272,7 +303,13 @@ export function save() {
     const task = currentTask();
     Promise.resolve(syncToBackend())
       .then((ok) => {
-        if (ok === false && task?.lastSaveError) {
+        if (ok === false && task?.saveHalted) {
+          // Refused to protect existing annotations. The canvas is out of sync
+          // with the server, so every further autosave would be refused the
+          // same way; say so and keep saying so until the task is reloaded.
+          setStatus(`⚠ ${task.lastSaveError}`, { sticky: true });
+          task.lastSaveError = null;
+        } else if (ok === false && task?.lastSaveError) {
           setStatus(`⚠ ${task.lastSaveError}`);
           task.lastSaveError = null;
         } else if (ok === false) {
@@ -310,11 +347,15 @@ export async function manualSaveWithUI(targetStatus = null) {
     // that instead of the generic retry message when present.
     const currentTask = state.gallery && state.galleryIndex >= 0 ? state.gallery[state.galleryIndex] : null;
     let message = ok === false ? offlineOr("Not saved—retrying") : "Saved Successfully";
+    let sticky = false;
     if (ok === false && currentTask?.lastSaveError) {
       message = `⚠ ${currentTask.lastSaveError}`;
       currentTask.lastSaveError = null;
+      // A halted save must not settle back to "Saved" below — the annotator
+      // has to reload before anything can be persisted.
+      sticky = Boolean(currentTask.saveHalted);
     }
-    setStatus(message);
+    setStatus(message, { sticky });
     
     // Keep the overlay visible for a brief moment, then fade it out
     await new Promise(resolve => setTimeout(resolve, 800));

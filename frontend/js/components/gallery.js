@@ -13,9 +13,9 @@ import {
   canvas, ctx, backgroundImage, staticCanvas, staticCtx, stageWrap, emptyState
 } from "../dom.js?v=1";
 import { drawAllLayers } from "../canvas/draw.js?v=4";
-import { setStatus, render, restoreDraft } from "./workspace.js?v=6";
+import { setStatus, render, restoreDraft, clearStatusHold } from "./workspace.js?v=7";
 import { autoDetectObjects, preloadMagicWand, preloadDetectAndTag } from "../ai/detect.js?v=2";
-import { syncTaskTime, resetSessionForTask, refreshTimerDisplays } from "./timer.js?v=2";
+import { syncTaskTime, resetSessionForTask, refreshTimerDisplays } from "./timer.js?v=3";
 import { updateZoomDisplay } from "./zoom-control.js?v=1";
 import { claimTask, releaseTask } from "../task-lock.js?v=1";
 
@@ -135,6 +135,13 @@ export async function switchImage(index) {
   // Total readout switches to that task's stored total.
   resetSessionForTask();
   const item = state.gallery[index];
+
+  // A wipe-guard halt is per-task and clears when the task is (re)opened: the
+  // hydration below is exactly the retry that resolves it. Without this, a
+  // halted task would stay unsaveable for the life of the tab even after a
+  // successful reload.
+  if (item) item.saveHalted = false;
+  clearStatusHold();
 
   resetWorkspaceForNewImage();
 
