@@ -17,6 +17,12 @@ import { atLeast } from "../permissions.js?v=1";
 export const NAV_ITEMS = [
   { route: "home", label: "Home", icon: "📊", title: "Project metrics", minRole: "viewer" },
   { route: "tasks", label: "Tasks", icon: "🖼️", title: "Images and annotation tasks", minRole: "viewer" },
+  // Viewer, like Tasks. The inventory is strictly less than the Tasks table
+  // already shows the same caller — the filenames are there, and the
+  // resolution is visible the moment they open the image. The *spreadsheet*
+  // inside this view is reviewer-gated server-side and its button hidden to
+  // match; that asymmetry is explained in api/routers/image_info.py.
+  { route: "image-info", label: "Images Info", icon: "📐", title: "Image resolutions and file sizes", minRole: "viewer" },
   { route: "classes", label: "Classes", icon: "🏷️", title: "Label classes for this project", minRole: "viewer" },
   // Imports are manager+: a replace-mode import wipes a project's labels and
   // orphans annotations for everyone at once.

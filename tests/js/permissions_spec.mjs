@@ -77,8 +77,13 @@ ok('a project manager is not a team manager',
 // 6. Nav filtering per the 04_UI_UX.md § 6.1 table.
 const routesFor = (role) => nav.visibleNavItems(role).map((i) => i.route);
 
-ok('viewer sees home/tasks/classes',
-   JSON.stringify(routesFor('viewer')) === JSON.stringify(['home', 'tasks', 'classes']));
+ok('viewer sees home/tasks/image-info/classes',
+   JSON.stringify(routesFor('viewer')) ===
+   JSON.stringify(['home', 'tasks', 'image-info', 'classes']));
+// Images Info is viewer+ because the inventory is strictly less than the Tasks
+// table already shows the same caller. The reviewer gate on that view sits on
+// the *spreadsheet* inside it, server-side, not on the tab.
+ok('viewer sees image-info', routesFor('viewer').includes('image-info'));
 ok('viewer does not see imports', !routesFor('viewer').includes('imports'));
 ok('viewer does not see access', !routesFor('viewer').includes('access'));
 ok('annotator still does not see imports', !routesFor('annotator').includes('imports'));

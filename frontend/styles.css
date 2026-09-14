@@ -2544,6 +2544,38 @@ a.metric-tile.status-tile:hover { border-color: var(--tile-accent, var(--accent)
 .metric-tile.is-new       { --tile-accent: #64748b; --tile-tint: #f8fafc; }
 .metric-tile.is-rejected  { --tile-accent: #b91c1c; --tile-tint: #fef6f6; }
 
+/* ── Image resolution categories (Images Info) ────────────────────────────────
+   The Full / Half vocabulary from frontend/js/image-size.js. Two named sizes
+   get a colour each; Other and Unknown deliberately share the muted styling,
+   because neither is an answer about the image — one is "a size we don't have
+   a name for" and the other is "nobody measured it". Colouring them would give
+   them the same visual weight as a real category. */
+.pill.cat-full  { background: rgba(37,99,235,.14);  color: #1d4ed8; border-color: transparent; }
+.pill.cat-half  { background: rgba(217,119,6,.16);  color: #b45309; border-color: transparent; }
+.pill.cat-muted { background: var(--panel-2); color: var(--muted); }
+
+.metric-tile.cat-full  { --tile-accent: #1d4ed8; --tile-tint: #f5f8ff; }
+.metric-tile.cat-half  { --tile-accent: #b45309; --tile-tint: #fffaf2; }
+.metric-tile.cat-muted { --tile-accent: #94a3b8; --tile-tint: #f8fafc; }
+
+/* The filter bar above the Images Info table: search, category select and the
+   download button on one wrapping row. */
+.image-info-bar {
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.image-info-bar .spacer { flex: 1; }
+.image-info-bar input[type="search"],
+.image-info-bar select {
+  padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--ink); font-size: .9rem;
+}
+.image-info-bar input[type="search"] { min-width: 240px; }
+
+/* Dimensions are numbers to be compared down a column, so they are tabular and
+   monospaced-by-figure rather than proportional. */
+.res-cell { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
 @media (max-width: 820px) {
   .project-shell { flex-direction: column; }
   .project-nav {
