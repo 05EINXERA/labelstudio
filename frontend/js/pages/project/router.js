@@ -10,11 +10,31 @@
  */
 import { apiFetch } from "../../api.js?v=3";
 import { escapeHTML, statusPillClass } from "../../utils.js?v=2";
-import { renderNav, setActive, NAV_ITEMS } from "../../components/project-nav.js?v=1";
+import { renderNav, setActive, NAV_ITEMS, visibleNavItems } from "../../components/project-nav.js?v=2";
 import { NotificationManager } from "../../components/notifications.js?v=4";
 
 const VALID_ROUTES = new Set(NAV_ITEMS.map((i) => i.route));
 const DEFAULT_ROUTE = "home";
+
+/**
+ * Routes this caller may resolve, given their standing on the project.
+ *
+ * Derived from the same list that builds the nav, so a role-gated view cannot
+ * be reached by typing or bookmarking its hash once the project has loaded —
+ * hiding the nav link alone would not do that, and a role can be revoked after
+ * somebody saved the link.
+ *
+ * Rendering only. The endpoints remain the real boundary: this view falls back
+ * to Home for a caller without the role, but a caller who bypassed it entirely
+ * would still get a 403 from the API.
+ */
+function permittedRoutes() {
+  // Before the project resolves, its flags are unknown. Fall back to the
+  // ungated set so an owner's own deep link is not bounced to Home during the
+  // first paint; renderRoute re-checks once ctx.project is populated.
+  if (!ctx.project) return VALID_ROUTES;
+  return new Set(visibleNavItems(ctx.project).map((i) => i.route));
+}
 
 const els = {
   nav: document.getElementById("projectNav"),
@@ -35,6 +55,7 @@ const VIEW_LOADERS = {
   classes: () => import("./classes.js?v=1"),
   imports: () => import("./imports.js?v=1"),
   exports: () => import("./exports.js?v=1"),
+  images: () => import("./images.js?v=1"),
 };
 
 const moduleCache = new Map();
@@ -52,7 +73,13 @@ function getViewModule(route) {
 }
 
 function preloadAllViews() {
+  // Only routes this caller can actually reach, so a role-gated view is not
+  // fetched for everyone. (Cosmetic — the module contains no privileged data;
+  // the endpoints it calls are the boundary — but there is no sense pulling a
+  // view that can never be shown.)
+  const permitted = permittedRoutes();
   for (const [key, loader] of Object.entries(VIEW_LOADERS)) {
+    if (!permitted.has(key)) continue;
     if (!moduleCache.has(key)) {
       loader()
         .then((mod) => moduleCache.set(key, mod))
@@ -114,7 +141,7 @@ async function loadProject() {
 
 function routeFromHash() {
   const raw = (window.location.hash || "").replace(/^#\/?/, "").split("?")[0];
-  return VALID_ROUTES.has(raw) ? raw : DEFAULT_ROUTE;
+  return permittedRoutes().has(raw) ? raw : DEFAULT_ROUTE;
 }
 
 async function renderRoute(optPromise) {
@@ -183,7 +210,7 @@ async function init() {
   });
 
   const initialRoute = routeFromHash();
-  renderNav(els.nav, initialRoute);
+  renderNav(els.nav, initialRoute, ctx.project);
 
   // Normalise a bare/unknown hash so the address bar always shows the real
   // route and a reload lands in the same place.
@@ -195,6 +222,14 @@ async function init() {
   const initialViewPromise = getViewModule(initialRoute);
   const project = await loadProject();
   if (!project) return; // fatal already rendered
+
+  // The project's role flags are only known now, so re-render the nav with its
+  // gated items and bounce a deep link the caller may not resolve after all.
+  renderNav(els.nav, routeFromHash(), ctx.project);
+  const settled = routeFromHash();
+  if (settled !== initialRoute) {
+    history.replaceState(null, "", `${window.location.pathname}${window.location.search}#/${settled}`);
+  }
 
   window.addEventListener("hashchange", () => renderRoute());
   await renderRoute(initialViewPromise);

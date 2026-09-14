@@ -2317,6 +2317,16 @@ table.data-table tbody tr:last-child td { border-bottom: none; }
 .pill.is-reviewed  { background: rgba(139,92,246,.14); color: #6d28d9; border-color: transparent; }
 .pill.is-monitored { background: rgba(249,115,22,.14); color: #c2410c; border-color: transparent; }
 
+/* Image size categories (Images Info).
+   Each *named* size gets a distinct colour, because it is a real answer about
+   the image. "Other" and "Unknown" deliberately share one muted neutral style:
+   neither is an answer, so neither should draw the eye like a real category
+   does. Do not give them separate colours "for consistency" — they are muted
+   on purpose. They remain two distinct values everywhere else. */
+.pill.is-size-full { background: rgba(15,139,141,.14); color: var(--accent-dark); border-color: transparent; }
+.pill.is-size-half { background: rgba(59,130,246,.14); color: #1e5fbf; border-color: transparent; }
+.pill.is-size-muted { background: rgba(107,114,128,.10); color: var(--muted); border-color: transparent; }
+
 .row-actions { display: flex; gap: 6px; justify-content: center; }
 .row-actions button {
   padding: 6px; border-radius: 6px; background: none; border: none;

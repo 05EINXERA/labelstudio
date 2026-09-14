@@ -546,3 +546,103 @@ def test_size_total_is_complete_below_the_bound(client, alice):
     _seed(pid, [(f"f{i}.jpg", 5184, 3888) for i in range(6)])
     body = _inventory(client, alice, pid, limit=2).json()
     assert body["summary"]["total_size_is_complete"] is True
+
+
+# ---------------------------------------------------------------------------
+# 6. Frontend wiring (nav gating, route registration, version pins)
+# ---------------------------------------------------------------------------
+
+def _read(*parts):
+    path = os.path.join(os.path.dirname(FRONTEND_JS_DIR), *parts)
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
+
+
+def test_nav_item_is_gated_to_owner_or_reviewer():
+    """Rendering only, but it must agree with the endpoint's minimum."""
+    nav = _read("js", "components", "project-nav.js")
+    assert '"images"' in nav or "route: \"images\"" in nav
+    # The gate names both flags the API accepts, and no others.
+    match = re.search(r'route:\s*"images".*?\}', nav, re.S)
+    assert match, "images nav item not found"
+    item = match.group(0)
+    assert "is_owner" in item and "is_reviewer" in item
+
+
+def test_route_resolution_is_gated_by_the_same_list_as_the_nav():
+    """Hiding a nav link does nothing about a typed or bookmarked URL."""
+    router = _read("js", "pages", "project", "router.js")
+    assert "visibleNavItems" in router, "router must derive permitted routes from the nav list"
+    assert "permittedRoutes" in router
+    # routeFromHash must consult the gated set, not the ungated VALID_ROUTES.
+    match = re.search(r"function routeFromHash\(\).*?\}", router, re.S)
+    assert match and "permittedRoutes()" in match.group(0)
+
+
+def test_images_view_is_registered_as_a_route():
+    router = _read("js", "pages", "project", "router.js")
+    assert re.search(r'images:\s*\(\)\s*=>\s*import\("\./images\.js\?v=\d+"\)', router)
+
+
+def test_module_version_pins_are_consistent_across_import_sites():
+    """A partial bump ships clients a mixture of old and new modules.
+
+    Every import of a given module must carry the same ?v=, including the page
+    entry point in project.html.
+    """
+    pins = {}
+    roots = [FRONTEND_JS_DIR, os.path.dirname(FRONTEND_JS_DIR)]
+    seen = set()
+    for base in roots:
+        for dirpath, _, filenames in os.walk(base):
+            if "node_modules" in dirpath:
+                continue
+            for name in filenames:
+                if not name.endswith((".js", ".html")):
+                    continue
+                path = os.path.join(dirpath, name)
+                if path in seen:
+                    continue
+                seen.add(path)
+                with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read()
+                for module, version in re.findall(r'([\w./-]+\.js)\?v=(\d+)', content):
+                    key = os.path.basename(module)
+                    pins.setdefault(key, {}).setdefault(version, []).append(
+                        os.path.relpath(path, os.path.dirname(FRONTEND_JS_DIR))
+                    )
+
+    # Only assert on the modules this feature touched; the repo has pre-existing
+    # inconsistencies elsewhere that are not this change's to fix.
+    for module in ("project-nav.js", "router.js", "image-sizes.js", "images.js"):
+        versions = pins.get(module)
+        if not versions:
+            continue
+        assert len(versions) == 1, (
+            f"{module} is pinned at multiple versions across import sites: "
+            f"{ {v: sites for v, sites in versions.items()} }"
+        )
+
+
+def test_client_mirror_is_imported_by_the_view():
+    view = _read("js", "pages", "project", "images.js")
+    assert "image-sizes.js" in view
+    assert "IMAGE_SIZE_CATEGORIES" in view
+
+
+def test_search_is_debounced():
+    """A request per keystroke is self-inflicted load; data-table has no
+    debounce of its own, so the view must add one."""
+    view = _read("js", "pages", "project", "images.js")
+    assert "SEARCH_DEBOUNCE_MS" in view
+    assert "setTimeout" in view
+
+
+def test_size_pill_styles_exist_and_muted_catch_alls_share_one():
+    css = _read("styles.css")
+    assert ".pill.is-size-full" in css
+    assert ".pill.is-size-half" in css
+    # Other and Unknown share one neutral style deliberately.
+    assert ".pill.is-size-muted" in css
+    assert ".pill.is-size-other" not in css
+    assert ".pill.is-size-unknown" not in css
