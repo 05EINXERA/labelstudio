@@ -405,6 +405,60 @@ class TaskPage(BaseModel):
     total_pages: int
 
 
+class ImageInfoRow(BaseModel):
+    """One image's dimensions and file size — a row of the Images Info table.
+
+    Deliberately narrow. This is an inventory of *files*, not of annotation
+    work, so nothing here requires touching a Task entity or its annotations —
+    see the endpoint's docstring for why that matters
+    (`.devnotes/image-size-check/01_PLAN.md` § 3.2).
+    """
+    task_id: int
+    # Task.description, the original upload filename. Nullable because the
+    # column is: a task created by an import path that never set it exists.
+    filename: Optional[str] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    # Full | Half | Other | Unknown, from formats.image_sizes.categorize().
+    category: str
+    # None when the file is missing from disk — distinct from 0, which would be
+    # a real and alarming measurement. The client renders it as an em dash.
+    size_bytes: Optional[int] = None
+    status: Optional[str] = None
+
+
+class ImageInfoSummary(BaseModel):
+    """Category totals across the *filtered* set, not the current page.
+
+    This is the part that actually answers "what sizes do we have in here" at a
+    glance, so it must describe everything the filter selected — computing it
+    from the page would make it change as the user pages, which is a number
+    nobody can act on.
+    """
+    total: int
+    # category -> count, in CATEGORY_ORDER. Categories with no rows are
+    # included with a zero so the strip keeps a stable shape as filters change.
+    by_category: Dict[str, int] = Field(default_factory=dict)
+    # Summed over the current page only, and null when the whole filtered set
+    # was too large to stat. `total_bytes_partial` says which happened, so the
+    # client can label a partial figure rather than presenting it as the total.
+    total_bytes: Optional[int] = None
+    total_bytes_partial: bool = False
+    # Rows whose image_path points at a file that is not on disk. Surfaced
+    # because it is operational information the team has nowhere else.
+    missing_files: int = 0
+
+
+class ImageInfoPage(BaseModel):
+    """One page of the Images Info table, plus the whole-set summary."""
+    items: List[ImageInfoRow] = Field(default_factory=list)
+    summary: ImageInfoSummary
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
+
 class TaskOrder(BaseModel):
     """Every task id for a project, in display order — GET /api/tasks/order.
 

@@ -79,6 +79,14 @@ const routesFor = (role) => nav.visibleNavItems(role).map((i) => i.route);
 
 ok('viewer sees home/tasks/classes',
    JSON.stringify(routesFor('viewer')) === JSON.stringify(['home', 'tasks', 'classes']));
+// Images Info is owner-only — the strictest tier, and stricter than exports.
+// A whole-project inventory is a management view; the numbers are not secret
+// (a viewer sees every filename in the Tasks table) but gathering them into
+// one downloadable report is the owner's business.
+ok('viewer does not see image-info', !routesFor('viewer').includes('image-info'));
+ok('reviewer does not see image-info', !routesFor('reviewer').includes('image-info'));
+ok('manager does not see image-info', !routesFor('manager').includes('image-info'));
+ok('owner sees image-info', routesFor('owner').includes('image-info'));
 ok('viewer does not see imports', !routesFor('viewer').includes('imports'));
 ok('viewer does not see access', !routesFor('viewer').includes('access'));
 ok('annotator still does not see imports', !routesFor('annotator').includes('imports'));

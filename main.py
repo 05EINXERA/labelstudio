@@ -38,7 +38,7 @@ configure_logging()
 
 from api.middleware import ServiceLogMiddleware  # noqa: E402
 from api.compression import RequestDecompressionMiddleware  # noqa: E402
-from api.routers import projects, tasks, team, teams, grants, time_logs, data, detect, label_studio, labels, auth, imports, exports  # noqa: E402
+from api.routers import projects, tasks, team, teams, grants, time_logs, data, detect, label_studio, labels, auth, imports, exports, image_info  # noqa: E402
 from database import engine  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -235,6 +235,10 @@ app.add_middleware(RequestDecompressionMiddleware)
 
 # Include routers
 app.include_router(data.router)
+# Before projects.router: both share the /api/projects prefix, and mounting the
+# narrower literal routes (/{id}/image-info…) first keeps them from ever being
+# shadowed by a broader pattern added to projects.py later.
+app.include_router(image_info.router)
 app.include_router(projects.router)
 app.include_router(tasks.router)
 app.include_router(teams.router)
