@@ -13,6 +13,14 @@ import schemas
 from config import DATA_DIR, MAX_UPLOAD_FILES
 from database import get_db, commit_with_retry
 from schemas import (
+    categorize_image_size,
+    IMAGE_SIZE_CATEGORIES,
+    IMAGE_INVENTORY_DEFAULT_LIMIT,
+    IMAGE_INVENTORY_FULL_SIZE_MAX_ROWS,
+    IMAGE_INVENTORY_MAX_LIMIT,
+    ImageInventoryPage,
+    ImageInventoryRow,
+    ImageInventorySummary,
     ProjectModel,
     ProjectMetrics,
     ProjectReviewerCreate,
@@ -21,6 +29,7 @@ from schemas import (
     ProjectTransferOwnership,
 )
 from api.auth import get_current_user, require_csrf, get_current_annotator
+from app import image_inventory
 from formats.common import measure_image
 
 logger = logging.getLogger(__name__)
@@ -674,3 +683,122 @@ def upload_files(
         # shape until that page is deleted (tracker P5.1).
         "files": [u["path"] for u in uploaded],
     }
+
+
+# ---------------------------------------------------------------------------
+# Image Inventory ("Images Info")
+# ---------------------------------------------------------------------------
+
+def _require_inventory_access(project_id: int, user: models.User, db: Session,
+                              annotator: Optional[models.TeamMember]) -> models.Project:
+    """Authorize a caller for the image inventory: owner or appointed reviewer.
+
+    The minimum is a deliberate decision, not a default. The information is not
+    secret -- anyone who can open the project already sees every filename in
+    the task list and can open any image to read its resolution. What is being
+    restricted is the *aggregation*: gathering it into one downloadable,
+    forwardable report.
+
+    Owner-or-reviewer rather than owner-only because this deployment shares a
+    single login across ~20-25 annotators, so "project owner" resolves to the
+    account, not to a person, and is a weaker boundary than it sounds. The
+    reviewer role already exists for people brought in to confirm other
+    people's work, which is exactly the "does this delivery match the order"
+    question this report answers. Plain annotators are still excluded.
+
+    The same bar applies to the spreadsheet download. One minimum per feature
+    leaves no half-open door when somebody later edits one half.
+
+    Follows the codebase's not-found/forbidden convention: get_owned_project
+    raises 404 when the caller has no access at all, so project ids cannot be
+    enumerated; a caller who *can* see the project but holds neither role gets
+    403 with a message naming what is required.
+    """
+    project = get_owned_project(project_id, user, db, annotator)
+    if is_project_creator(project, user, annotator):
+        return project
+    if is_project_reviewer(project, user, db, annotator):
+        return project
+    raise HTTPException(
+        status_code=403,
+        detail="Only the project creator or an appointed reviewer can view the image inventory.",
+    )
+
+
+@router.get("/{project_id}/image-inventory", response_model=ImageInventoryPage)
+def get_image_inventory(
+    project_id: int,
+    search: Optional[str] = Query(None, description="Filename substring"),
+    category: Optional[str] = Query(None, description="Size category, or 'all'"),
+    sort_by: Optional[str] = Query(image_inventory.DEFAULT_SORT),
+    sort_desc: bool = Query(False),
+    limit: int = Query(IMAGE_INVENTORY_DEFAULT_LIMIT, ge=1, le=IMAGE_INVENTORY_MAX_LIMIT),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+    annotator: Optional[models.TeamMember] = Depends(get_current_annotator),
+):
+    """Every image in a project with its resolution, size category and file size.
+
+    Read-only by design. It is tempting to notice a row with no dimensions
+    while reading, measure the file and save it -- but a GET must not write
+    (CLAUDE.md rule 4), and more interestingly it would make the report
+    self-altering: the Unknown count would then depend on which pages somebody
+    happened to browse. Repair belongs in a separate, deliberately invoked
+    script.
+    """
+    _require_inventory_access(project_id, user, db, annotator)
+
+    if category and category.lower() != "all" and category not in IMAGE_SIZE_CATEGORIES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown size category: {category!r}. Valid: {IMAGE_SIZE_CATEGORIES}.",
+        )
+
+    query = image_inventory.base_query(db, project_id, search=search, category=category)
+
+    # The summary describes the whole filtered set, not the page. Counted from
+    # the page it would change as the user pages, which is not a fact about the
+    # project.
+    category_counts, total = image_inventory.summarize_categories(query)
+
+    rows = image_inventory.page_rows(
+        image_inventory.ordered(query, sort_by, sort_desc), offset, limit
+    )
+    row_ids = [r.id for r in rows]
+
+    # Only stat what we are returning -- except when the filtered set is small
+    # enough that a true whole-set total is cheap. Above the bound we sum the
+    # page and flag the total as partial rather than presenting it as complete.
+    total_size_is_complete = total <= IMAGE_INVENTORY_FULL_SIZE_MAX_ROWS
+    if total_size_is_complete:
+        sizes, missing, total_size = image_inventory.collect_sizes(db, query)
+    else:
+        sizes, missing, total_size = image_inventory.collect_sizes(db, query, row_ids)
+
+    items = [
+        ImageInventoryRow(
+            id=r.id,
+            filename=r.description,
+            width=r.image_width,
+            height=r.image_height,
+            category=categorize_image_size(r.image_width, r.image_height),
+            file_size=sizes.get(r.id),
+            status=r.status,
+        )
+        for r in rows
+    ]
+
+    return ImageInventoryPage(
+        items=items,
+        summary=ImageInventorySummary(
+            total=total,
+            categories=category_counts,
+            missing_files=missing,
+            total_size=total_size,
+            total_size_is_complete=total_size_is_complete,
+        ),
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
