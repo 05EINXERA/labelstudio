@@ -387,6 +387,52 @@ def polygon_points(ann: dict) -> Optional[List[Tuple[float, float]]]:
 _VALUE_STRIP = (" ", "/", "(", ")", ",")
 
 
+def clean_label_name(name: str) -> str:
+    """The stored form of a class name: tidied, but **case preserved**.
+
+    Underscores become spaces, whitespace is trimmed and interior runs
+    collapsed — and that is all. The display casing is data: `formats/coco.py`
+    writes `label.name` straight into `categories[].name`, the FastLabel export
+    puts it in `title`, and both round-trip through import. Lowercasing on
+    storage turned "AF Paint" into "af paint" permanently, which is a real loss
+    and is not what the duplicate fix needed.
+
+    Matching is case-insensitive via `normalize_label_name` below; storage
+    keeps what the user typed. Empty input falls back to "object".
+    """
+    out = " ".join(str(name or "").replace("_", " ").split())
+    return out or "object"
+
+
+def normalize_label_name(name: str) -> str:
+    """The **matching key** for a class name, and the form the index compares.
+
+    **Deliberate mirror of `normalizeClassName` in `frontend/js/utils.js`.**
+    There is no build step, so the two definitions cannot be shared; they are
+    kept in step by `tests/test_label_name_normalization.py`, which runs both
+    over one fixture list. Change one and you must change the other.
+
+    Until this existed, normalisation happened only in the browser and the
+    server stored whatever arrived. A client on a stale bundle — or any direct
+    API caller — could therefore create "Object", "object " and "object_" as
+    three separate rows for one class, which is also how the unique index in
+    the same revision could otherwise be defeated. See
+    .devnotes/fix-class-creation/01_AUDIT.md D6.
+
+    Order matters and is shared with the JS: substitute underscores *first*,
+    then trim, then collapse interior runs. Doing it the other way round (as
+    the JS did until this change) leaves "_object_" as " object " and "a__b" as
+    "a  b" — two more ways to store what is really one class. An empty result
+    falls back to "object", so "   " cannot become a nameless class.
+
+    This is `clean_label_name` plus a `.lower()`. The two are separate because
+    only one of them may be *stored* as the name: see there.
+    """
+    out = str(name or "").replace("_", " ").strip().lower()
+    out = " ".join(out.split())
+    return out or "object"
+
+
 def value_from_name(name: str) -> str:
     """A label's interop `value` (identifier) from its display name.
 

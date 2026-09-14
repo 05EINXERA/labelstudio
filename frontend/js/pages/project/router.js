@@ -1,7 +1,7 @@
 /**
  * Level 2 shell: hash router for the project workspace (tracker P2.3).
  *
- * One page hosts five views. Each view is a module exporting
+ * One page hosts several views. Each view is a module exporting
  * `mount(root, ctx)` and optionally `unmount()`; modules are loaded lazily on
  * first visit so opening Home does not pull in the export builder.
  *
@@ -9,9 +9,9 @@
  *   { projectId, project, reloadProject(), setStatus(), navigate() }
  */
 import { apiFetch } from "../../api.js?v=5";
-import { escapeHTML } from "../../utils.js?v=1";
+import { escapeHTML } from "../../utils.js?v=2";
 import { statusClass } from "../../task-status.js?v=3";
-import { renderNav, setActive, visibleNavItems } from "../../components/project-nav.js?v=3";
+import { renderNav, setActive, visibleNavItems } from "../../components/project-nav.js?v=4";
 import { renderAppNav, wireLogout } from "../../components/app-nav.js?v=3";
 import { getCurrentUser } from "../../session.js?v=2";
 import { wireAccountSettings } from "../../components/account-settings.js?v=2";
@@ -48,9 +48,10 @@ const VIEWS = {
   home: () => import("./home.js?v=6"),
   tasks: () => import("./tasks.js?v=16"),
   classes: () => import("./classes.js?v=3"),
-  imports: () => import("./imports.js?v=2"),
-  exports: () => import("./exports.js?v=3"),
+  imports: () => import("./imports.js?v=3"),
+  exports: () => import("./exports.js?v=4"),
   access: () => import("./access.js?v=2"),
+  move: () => import("./move.js?v=2"),
 };
 
 let currentView = null;   // the loaded module, so we can call unmount()

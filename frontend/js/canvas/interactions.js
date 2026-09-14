@@ -1,5 +1,5 @@
-import { generateUUID, clamp, round } from "../utils.js?v=1";
-import { state, snapshot, isAnnotationHidden, labelById, labelDisplayName } from "../state.js?v=7";
+import { generateUUID, clamp, round } from "../utils.js?v=2";
+import { state, snapshot, isAnnotationHidden, labelById, labelDisplayName } from "../state.js?v=10";
 import { annotationPoints, updateAnnotationBounds, pointInPolygon } from "./geometry.js?v=1";
 import { untangleRing } from "./untangle.js?v=2";
 import { unionAll } from "./merge.js?v=3";
@@ -10,7 +10,7 @@ import { commentHitTest, commentScreenGeometry, COMMENT_FONT } from "./comment-g
 import { normalizeRect, rectIsDegenerate, marqueeHits } from "./marquee.js?v=1";
 import { shouldCanvasClickBeBlocked } from "../comment-mode.js?v=1";
 import { commentOverlayRefs, openCommentEditor, anchorCommentOverlay } from "../comment-overlay.js?v=2";
-import { setStatus, save, render, activateLabel, toggleAnnotationsHidden, unhideAllObjects, editBlockReason } from "../components/workspace.js?v=22";
+import { setStatus, save, render, activateLabel, toggleAnnotationsHidden, unhideAllObjects, editBlockReason } from "../components/workspace.js?v=26";
 import { labelIndexForCode, hideTargetIds, shouldHide } from "../shortcuts.js?v=1";
 import { performMagicWandSegmentation } from "../ai/detect.js?v=4";
 import { applyAutoSmooth } from "../fft-controls.js?v=4";

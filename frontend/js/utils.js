@@ -56,8 +56,43 @@ export function round(value) {
   return Math.round(value * 100) / 100;
 }
 
+/**
+ * The canonical form of a class name.
+ *
+ * **Deliberate mirror of `normalize_label_name` in `formats/common.py`.**
+ * There is no build step, so the two cannot share a definition; they are kept
+ * in step by `tests/test_label_name_normalization.py`, which runs both over one
+ * fixture list. Change one and you must change the other.
+ *
+ * This used to be `.trim().toLowerCase().replace(/_/g, " ")`, which normalised
+ * in the wrong order and left three ways to produce a name the server would
+ * store as a distinct class:
+ *   "_object_" -> " object "   (underscores became spaces *after* the trim)
+ *   "a__b"     -> "a  b"       (a double space is not a double underscore)
+ *   "  "       -> ""           (an empty class name, which nothing rejects)
+ * Substituting first and collapsing whitespace after fixes all three, and the
+ * empty result falls back to "object" as the falsy input already did.
+ */
 export function normalizeClassName(className) {
-  return String(className || "object").trim().toLowerCase().replace(/_/g, " ");
+  return cleanClassName(className).toLowerCase();
+}
+
+/**
+ * The stored form of a class name: tidied, **case preserved**.
+ *
+ * **Deliberate mirror of `clean_label_name` in `formats/common.py`.**
+ * Guarded against drift by `tests/test_label_name_normalization.py`.
+ *
+ * The display casing is data, not decoration: the COCO export writes it into
+ * `categories[].name` and the FastLabel export into `title`, and both
+ * round-trip through import — so folding "AF Paint" to "af paint" on the way
+ * in loses it permanently. Matching is case-insensitive via
+ * `normalizeClassName`; storage keeps what the user typed.
+ */
+export function cleanClassName(className) {
+  const out = String(className || "").replace(/_/g, " ").trim()
+    .split(/\s+/).join(" ");
+  return out || "object";
 }
 
 export function formatClassName(className) {

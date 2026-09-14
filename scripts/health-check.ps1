@@ -48,12 +48,59 @@ try {
     $detail = "request failed: $($_.Exception.Message)"
 }
 
-$payload = [ordered]@{
-    timestamp = $timestamp
-    ok        = $ok
-    detail    = $detail
+# --- Destructive-save scan (wipe-guard-bypass-fix, S2) -----------------------
+#
+# The server writes a WARN `event=task.save.destructive` line for any save that
+# drops a large share of a task's annotations, and a `task.save.refused_clear`
+# line whenever the clear-guard stops an empty payload. Neither is an error:
+# the first is not refused at all, and the second means a guard did its job.
+#
+# They are surfaced here because the failure they describe is silent by nature.
+# Task 691 lost 1437 annotations and the number sat in the log for a full day
+# before a human noticed it in a browser. Reading the day's counts on every
+# health check turns "found eventually" into "found today", which is the whole
+# value: it bounds how long the next one goes unseen.
+$logDir = $null
+if (Test-Path $envFile) {
+    $line = Get-Content $envFile | Where-Object { $_ -match '^\s*LOG_DIR\s*=' } | Select-Object -First 1
+    if ($line) { $logDir = ($line -split '=', 2)[1].Trim().Trim('"') }
 }
-$payload | ConvertTo-Json | Set-Content -Path $statusPath -Encoding utf8
+if (-not $logDir) { $logDir = $logsDir }
+
+$today = (Get-Date).ToString("yyyy-MM-dd")
+$postLog = Join-Path $logDir "service/$today/POST.log"
+$destructive = 0
+$refusedClear = 0
+$destructiveLines = @()
+if (Test-Path $postLog) {
+    # -Raw would load a multi-hundred-MB day into memory; Select-String streams.
+    $hits = Select-String -Path $postLog -Pattern 'event=task\.save\.destructive' -ErrorAction SilentlyContinue
+    if ($hits) {
+        $destructive = @($hits).Count
+        # The last few are the useful ones for a glance; the file has the rest.
+        $destructiveLines = @($hits | Select-Object -Last 5 | ForEach-Object { $_.Line })
+    }
+    $refused = Select-String -Path $postLog -Pattern 'event=task\.save\.refused_clear' -ErrorAction SilentlyContinue
+    if ($refused) { $refusedClear = @($refused).Count }
+}
+
+$payload = [ordered]@{
+    timestamp              = $timestamp
+    ok                     = $ok
+    detail                 = $detail
+    destructive_saves      = $destructive
+    refused_clear_saves    = $refusedClear
+    destructive_recent     = $destructiveLines
+}
+$payload | ConvertTo-Json -Depth 3 | Set-Content -Path $statusPath -Encoding utf8
+
+if ($destructive -gt 0) {
+    Write-Host "[WARN] $timestamp $destructive destructive save(s) today - see $postLog"
+    foreach ($l in $destructiveLines) { Write-Host "       $l" }
+}
+if ($refusedClear -gt 0) {
+    Write-Host "[INFO] $timestamp $refusedClear empty save(s) refused by the clear-guard today"
+}
 
 if ($ok) {
     Write-Host "[OK] $timestamp $detail"

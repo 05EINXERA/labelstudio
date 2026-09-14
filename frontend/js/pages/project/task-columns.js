@@ -11,7 +11,7 @@
  * Everything here is a pure function of (row, view-state). No fetching, no
  * listeners — `tasks.js` owns those and delegates clicks by `data-action`.
  */
-import { escapeHTML, formatTime } from "../../utils.js?v=1";
+import { escapeHTML, formatTime } from "../../utils.js?v=2";
 import { canAnnotate, canManage, canReview } from "../../permissions.js?v=1";
 import {
   TASK_STATUSES,
@@ -199,11 +199,23 @@ export function canvasQuery(projectId, taskId, view) {
  *        rather than a value because columns are built once at mount while the
  *        state changes on every sort, filter and page.
  */
-export function buildColumns({ role, projectId, teamsById, usersById, lockCache, currentUser, viewState }) {
-  const isReviewer = canReview(role);
-  const isAnnotatorOnly = canAnnotate(role) && !isReviewer;
+/**
+ * @param {object} opts
+ * @param {boolean} [opts.readOnly] render the columns as a *picker*, not an
+ *        editor: no inline status/assignee selects, no row actions, and the
+ *        filename is plain text rather than a link into the canvas.
+ *
+ *        Used by the Move Tasks view, which needs the same rows the Tasks view
+ *        shows so an owner can recognise what they are moving — but must not
+ *        become a second place to edit them. Reusing the definitions rather
+ *        than copying a subset is what keeps the two tables looking alike when
+ *        a cell renderer changes.
+ */
+export function buildColumns({ role, projectId, teamsById, usersById, lockCache, currentUser, viewState, readOnly = false }) {
+  const isReviewer = canReview(role) && !readOnly;
+  const isAnnotatorOnly = canAnnotate(role) && !isReviewer && !readOnly;
 
-  return [
+  const columns = [
     {
       key: "image_path",
       label: "",
@@ -313,6 +325,23 @@ export function buildColumns({ role, projectId, teamsById, usersById, lockCache,
       render: (r) => actionsCell(r, role),
     },
   ];
+
+  if (!readOnly) return columns;
+
+  // A picker shows what a row *is*, never what can be done to it. The lock
+  // column stays: a task somebody has open is exactly the one a move will
+  // refuse, so seeing the badge before submitting saves a 409.
+  return columns
+    .filter((c) => c.key !== "actions")
+    .map((c) =>
+      c.key === "description"
+        ? {
+            ...c,
+            render: (r) =>
+              `<span class="task-filename" title="${escapeHTML(r.description || "")}">${escapeHTML(r.description || "")}</span>`,
+          }
+        : c
+    );
 }
 
 /** Whether the bulk bar should exist at all for this role. */

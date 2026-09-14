@@ -1,11 +1,12 @@
-import { generateUUID, normalizeClassName } from "../utils.js?v=1";
+import { generateUUID, normalizeClassName } from "../utils.js?v=2";
 import { apiFetch } from "../api.js?v=5";
 import {
-  state, storageKey, draftKey, legacyDraftKey, colorForName, labelByName, labelById,
+  state, storageKey, draftKey, legacyDraftKey, draftMatchesProject,
+  colorForName, labelByName, labelById, resolveAnnotationLabels,
   labelDisplayName, snapshot, selectedAnnotation, hydrationOk, hydrationSaveBlock,
   clearIsUserIntent, annotationsChangedSinceHydration, noteHydratedAnnotations,
   isAnnotationHidden
-} from "../state.js?v=7";
+} from "../state.js?v=10";
 import { visibleRows, hiddenRowCount } from "../objects-filter.js?v=1";
 import { MAX_CLASS_SHORTCUTS } from "../shortcuts.js?v=1";
 import { pendingCount, retryablePendingCount, isServerUnreachable, peekWrite } from "../offline-queue.js?v=6";
@@ -75,10 +76,26 @@ export function refreshSaveStatus() {
   saveStatus.textContent = restingStatus();
 }
 
+/**
+ * Did the most recent `ensureLabel()` call create a class, or find one?
+ *
+ * A companion flag rather than a changed return type, because `ensureLabel`
+ * has five call sites (`.devnotes/fix-class-creation/01_AUDIT.md` § 3.2) and
+ * four of them only want the label. Read it immediately after the call.
+ */
+let lastEnsureCreated = false;
+export function lastEnsureLabelCreated() {
+  return lastEnsureCreated;
+}
+
 export function ensureLabel(className, customColor = null) {
   const name = normalizeClassName(className);
   const existing = labelByName(name);
-  if (existing) return existing;
+  if (existing) {
+    lastEnsureCreated = false;
+    return existing;
+  }
+  lastEnsureCreated = true;
 
   const label = {
     id: generateUUID(),
@@ -111,7 +128,7 @@ export function ensureLabel(className, customColor = null) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...label, projectId: Number(projectId) })
     }).then((res) => {
-      if (res && res.ok) return;
+      if (res && res.ok) return res.json().then((body) => adoptServerLabelId(label, body));
       // A transport failure (res undefined) is left alone deliberately: the
       // class may well exist once the network recovers, and dropping it would
       // discard work during an outage. Only an explicit refusal is rolled back.
@@ -121,6 +138,61 @@ export function ensureLabel(className, customColor = null) {
   }
 
   return label;
+}
+
+/**
+ * Take the id the server actually stored the class under.
+ *
+ * The server resolves by name now: posting a class whose name already exists
+ * returns that class's id rather than inserting a twin
+ * (.devnotes/fix-class-creation/02_PLAN.md phase 1). So the uuid this tab
+ * minted may not be the one the class lives under, and every annotation drawn
+ * against the local id would then reference a class the server does not have —
+ * which is precisely how a shape ends up rendering as "Object" for everyone
+ * else. Adopting the returned id closes that window.
+ *
+ * Nothing happens in the common case (a genuine create, ids equal). The
+ * annotations are remapped in place because the user may have drawn with the
+ * class while the request was in flight.
+ */
+function adoptServerLabelId(label, body) {
+  const serverId = body && body.id;
+  if (!serverId || serverId === label.id) return;
+
+  const localId = label.id;
+
+  // The class may already be in state under its real id — that happens when
+  // two shapes are drawn with a new class before the first POST returns. Drop
+  // the local twin rather than leaving both in the panel.
+  const duplicate = state.labels.find((l) => l.id === serverId);
+  if (duplicate) {
+    const index = state.labels.findIndex((l) => l.id === localId);
+    if (index !== -1) state.labels.splice(index, 1);
+  } else {
+    label.id = serverId;
+  }
+
+  let remapped = 0;
+  state.annotations.forEach((a) => {
+    if (a.labelId === localId) {
+      a.labelId = serverId;
+      remapped++;
+    }
+  });
+  if (state.activeLabelId === localId) state.activeLabelId = serverId;
+  if (state.hiddenLabelIds.has(localId)) {
+    state.hiddenLabelIds.delete(localId);
+    state.hiddenLabelIds.add(serverId);
+  }
+
+  // A draft written between the POST and this response still carries the local
+  // id. Rewriting it is not optional: the draft wins over the server copy on
+  // the next open, so leaving it would restore annotations pointing at an id
+  // that exists nowhere — which now renders as "Object" rather than creating a
+  // class, but is still wrong. Skipped when nothing was drafted.
+  if (remapped) saveDraft();
+
+  render();
 }
 
 /**
@@ -154,14 +226,29 @@ function rollbackLabel(label, status) {
   render();
 }
 
-export function repairLabelsFromAnnotations() {
-  state.annotations = state.annotations.map((annotation) => {
-    const existing = state.labels.find((label) => label.id === annotation.labelId);
-    if (existing) return annotation;
-
-    const label = ensureLabel(annotation.detectedClass || "object");
-    return { ...annotation, labelId: label.id };
-  });
+/**
+ * Repoint annotations at classes that already exist. **Never creates one.**
+ *
+ * That invariant is the whole point of this function, and it used to do the
+ * opposite: it called `ensureLabel(annotation.detectedClass || "object")` for
+ * every unresolvable `labelId`, which POSTs to /api/labels — so opening a task
+ * whose draft carried a stale label set minted a real, project-wide class
+ * named "object", once per open. Six of them appeared in project 410 on
+ * 2026-09-08 that way, four inside 37 seconds of reloading one task, with no
+ * annotation drawn or changed. See .devnotes/fix-class-creation/01_AUDIT.md.
+ *
+ * An id that resolves to nothing is stale draft data, not a new class. The
+ * server already told us the project's full class set at boot; anything absent
+ * from it does not exist, and inventing it is how a display placeholder became
+ * a permanent row. `labelById()` renders "object" for an unresolved id, and
+ * that is the correct end state for one — a placeholder, saved by nobody.
+ *
+ * A `detectedClass` naming a class the project *does* have is still repointed:
+ * that is the legitimate case this function was written for (a detector wrote
+ * the name, the class exists, only the id is stale).
+ */
+export function resolveLabelsFromAnnotations() {
+  state.annotations = resolveAnnotationLabels(state.annotations, state.labels);
 }
 
 /**
@@ -421,7 +508,24 @@ export function saveDraft({ task = null, annotations = null } = {}) {
   try {
     localStorage.setItem(draftKey(target.id), JSON.stringify({
       annotations: set,
-      labels: state.labels,
+      // `labels` is deliberately NOT drafted. Classes are project state owned
+      // by /api/labels, re-fetched at every boot, and shared by all 25
+      // annotators — a per-tab snapshot of them is redundant with `projectId`
+      // below and carries an independent staleness mode. Restoring that
+      // snapshot over the freshly-fetched set is what left annotations
+      // pointing at ids the project no longer had, which the old
+      // repairLabelsFromAnnotations then "fixed" by creating a class per
+      // unresolved id. See .devnotes/fix-class-creation/01_AUDIT.md § 2.
+      //
+      // Same rule as undo/redo (state.js snapshot()): per-tab state does not
+      // get to roll project-wide state backwards.
+      //
+      // The project these annotations' label ids belong to. Label rows are
+      // per project, so a draft is only meaningful under the project it was
+      // written for; restoreDraft refuses one written elsewhere. Absent on
+      // drafts predating this field, which restoreDraft treats as "unknown"
+      // rather than "mismatched" — see there.
+      projectId: state.projectId ?? null,
       savedAt: Date.now()
     }));
   } catch (e) {
@@ -519,6 +623,41 @@ export function restoreDraft(task) {
       clearDraft(task.id);
       return false;
     }
+
+    // A draft written under a different project is not recoverable work.
+    //
+    // Label rows are per project: project A and project AA each hold their own
+    // row for "Rust Area", with different ids. A task can be moved between
+    // projects (.devnotes/move-task-feature/), and the server remaps every
+    // stored annotation's label_id as it goes — but a draft sitting in this
+    // browser still carries the *source* project's ids.
+    //
+    // Restoring it throws away the correctly-remapped set that was just
+    // fetched, and the next autosave sends the stale ids back. The server
+    // cannot resolve them against the new project, so it does what it does for
+    // any unknown label: NULLs label_id and preserves the original in
+    // `extra._orphanedLabelId`. Every shape then renders as an unnamed
+    // "Object". That is exactly what happened to task 1229
+    // (.devnotes/move-task-feature/07_DRAFT_STALENESS.md).
+    //
+    // The draft is *kept*, not cleared. It may hold real unsaved work, and the
+    // annotator can still reach it by moving the task back — clearing here
+    // would destroy on a move what rule 18a forbids destroying on a 403. It
+    // simply does not win over the server's copy, which under a different
+    // project is the only correct answer available.
+    //
+    // `undefined` is not a mismatch: drafts written before this field existed
+    // carry no projectId, and treating "unknown" as "wrong" would refuse to
+    // recover legitimate pending work on every task until each is saved once.
+    // Those drafts keep the pre-existing behaviour; new ones are protected.
+    if (!draftMatchesProject(draft.projectId, state.projectId)) {
+      const draftProject = draft.projectId;
+      console.warn(
+        `Ignoring draft for task ${task.id}: written under project ${draftProject}, ` +
+        `this task is now in project ${state.projectId}.`
+      );
+      return false;
+    }
     // Same content as the server's copy: nothing to recover.
     if (JSON.stringify(draft.annotations) === JSON.stringify(state.annotations)) {
       clearDraft(task.id);
@@ -539,10 +678,11 @@ export function restoreDraft(task) {
       return false;
     }
     state.annotations = draft.annotations;
-    if (Array.isArray(draft.labels) && draft.labels.length) {
-      state.labels = draft.labels;
-    }
-    repairLabelsFromAnnotations();
+    // `draft.labels` is ignored, including on drafts written before saveDraft
+    // stopped storing it. The classes fetched from the server at boot are
+    // authoritative; a draft's copy is only ever equal or stale, and applying a
+    // stale one is what made annotations unresolvable in the first place.
+    resolveLabelsFromAnnotations();
     return true;
   } catch {
     clearDraft(task.id);
@@ -687,11 +827,12 @@ export function loadSaved() {
   if (!saved) return;
 
   try {
-    const payload = JSON.parse(saved);
-    if (Array.isArray(payload.labels)) {
-      state.labels = payload.labels;
-    }
-    repairLabelsFromAnnotations();
+    JSON.parse(saved);
+    // `payload.labels` is ignored for the same reason restoreDraft ignores it,
+    // and more urgently: this slot is global, so it is not even scoped to one
+    // project. Applying its class set over the server's could point every
+    // annotation in the open task at ids belonging to a different project.
+    resolveLabelsFromAnnotations();
   } catch {
     // fall through to the removal below
   }
@@ -1081,9 +1222,18 @@ export function renderAnnotations() {
           const newColor = colorInput.value;
           if (newName) {
             const newLabel = ensureLabel(newName, newColor);
-            if (newLabel.id !== annotation.labelId || newLabel.color !== newColor) {
+            // Only a class this edit just created takes the picked colour.
+            //
+            // Recolouring an *existing* class here changed a project-wide class
+            // for all 25 annotators from a per-shape control — and did it in
+            // memory only, with no POST, so this tab silently disagreed with
+            // every other until reload. Retinting "car" for the whole team is
+            // never what "change this object's class to car" meant; the Classes
+            // page is where a class is recoloured deliberately.
+            const recolour = lastEnsureLabelCreated() && newLabel.color !== newColor;
+            if (newLabel.id !== annotation.labelId || recolour) {
               snapshot();
-              if (newLabel.color !== newColor) {
+              if (recolour) {
                 newLabel.color = newColor;
               }
               if (newLabel.id !== annotation.labelId) {

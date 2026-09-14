@@ -1,4 +1,4 @@
-import { formatTime, clientId } from "../utils.js?v=1";
+import { formatTime, clientId } from "../utils.js?v=2";
 import { apiFetch, withCsrfParam } from "../api.js?v=5";
 import { timerState } from "../timer-state.js?v=3";
 import { canvas } from "../dom.js?v=4";

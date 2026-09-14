@@ -10,7 +10,7 @@
  * duplication is what would bite.
  */
 import { apiFetch } from "../api.js?v=5";
-import { escapeHTML } from "../utils.js?v=1";
+import { escapeHTML } from "../utils.js?v=2";
 
 const LINKS = [
   { key: "projects", label: "Projects", href: "projects.html" },

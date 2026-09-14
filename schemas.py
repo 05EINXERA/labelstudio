@@ -294,6 +294,7 @@ EXPORT_FORMATS = [
     "annotations_json",     # array of task objects, one file
     "annotations_pertask",  # one task object per file
     "yolo",                 # classes.txt + annotations/<stem>.txt
+    "labelme",              # LabelMe 5.x, one per-image JSON per task
     "csv",                  # flat CSV (deprecated: dropped from the UI, still accepted)
 ]
 
@@ -593,6 +594,66 @@ class BulkAssignResult(BaseModel):
     updated: int
     skipped: int
     warnings: List[str] = Field(default_factory=list)
+
+
+# Cap on one move request. The relabel costs one UPDATE per *class*, not per
+# task, so the batch size is bounded for the request's sake rather than the
+# statement's: a move rewrites other people's work, and an unbounded id list is
+# how a mis-click becomes a project-sized accident.
+MAX_MOVE_IDS = 1000
+
+
+class MoveTasks(BaseModel):
+    """Move tasks to another project the caller owns.
+
+    `class_strategy` decides what happens to a class the destination does not
+    have: `match_or_create` adds it there (nothing is ever lost),
+    `match_only` leaves those annotations unlabelled with the original id
+    preserved in `extra` (for a destination whose class set is curated).
+    See .devnotes/move-task-feature/02_DESIGN.md § 3.2.
+    """
+
+    ids: List[int] = Field(..., max_length=MAX_MOVE_IDS)
+    target_project_id: int
+    class_strategy: Literal["match_or_create", "match_only"] = "match_or_create"
+    # Move a task somebody currently has open. Off by default: the lock means an
+    # annotator is looking at the task right now, and remapping its classes
+    # under them is exactly the situation the 409-and-reload guard exists for.
+    force: bool = False
+
+
+class MoveBlocked(BaseModel):
+    """One task the move refused to touch. Nothing was moved for these."""
+
+    task_id: int
+    reason: str
+    detail: str
+
+
+class MoveTasksResult(BaseModel):
+    status: str
+    moved: int
+    skipped: int
+    target_project_id: int
+    # Class reconciliation outcome, so the UI can say "3 classes were added to
+    # the destination" rather than leaving the owner to discover it.
+    labels_created: int = 0
+    labels_matched: int = 0
+    annotations_relabelled: int = 0
+    # Deduplicated. Assignment that survives the move but does not yet resolve
+    # in the destination is reported here, not enforced — the whole workflow is
+    # move first, grant access second (02_DESIGN.md § 4).
+    warnings: List[str] = Field(default_factory=list)
+    blocked: List[MoveBlocked] = Field(default_factory=list)
+
+
+class MoveTargetOut(BaseModel):
+    """A project the caller may move tasks into: owned, and not the source."""
+
+    id: int
+    name: Optional[str] = None
+    status: Optional[str] = None
+    task_count: int = 0
 
 
 # Review verbs. Every member of APPROVED_STATUSES gets a verb (its lowercased

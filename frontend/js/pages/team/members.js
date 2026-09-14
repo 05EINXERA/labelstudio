@@ -6,8 +6,8 @@
  * modal open with the value intact so it can be corrected.
  */
 import { apiFetch } from "../../api.js?v=5";
-import { escapeHTML } from "../../utils.js?v=1";
-import { createDataTable } from "../../components/data-table.js?v=4";
+import { escapeHTML } from "../../utils.js?v=2";
+import { createDataTable } from "../../components/data-table.js?v=6";
 import { createModal, setFieldError, clearFieldError } from "../../components/modal.js?v=1";
 import { teamRoleBadge } from "../../components/role-badge.js?v=1";
 import { canManageTeam, ownsTeam } from "../../permissions.js?v=1";

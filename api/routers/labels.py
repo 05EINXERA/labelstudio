@@ -8,6 +8,7 @@ import uuid
 from fastapi import APIRouter, Depends, Query, UploadFile, File, HTTPException
 from fastapi.responses import PlainTextResponse
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
@@ -15,6 +16,7 @@ import models
 from logging_service import log_event
 from database import get_db, commit_with_retry
 from api.uploads import read_capped
+from formats.common import clean_label_name, normalize_label_name
 from schemas import LabelModel, LabelBulkUpsert, LabelBulkDelete, LabelBulkResult, LabelImportResult
 from api.auth import get_current_user, require_csrf
 from api.permissions import ProjectRole, require_project
@@ -119,20 +121,88 @@ def get_label_usage(projectId: int = Query(...), db: Session = Depends(get_db),
 
 @router.post("")
 def create_or_update_label(label: LabelModel, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
+    """Create a class, or update the one the caller named.
+
+    **Resolution is by id first, then by name.** It used to be by id only, and
+    since the canvas mints a fresh uuid for every class it has not seen
+    (`ensureLabel`), a fresh id never matched and this endpoint *always*
+    inserted. That is how project 410 collected six classes named "object" on
+    2026-09-08 — one per task open, created by nobody
+    (.devnotes/fix-class-creation/01_AUDIT.md).
+
+    The order is what makes both callers correct:
+
+    1. **id hit** -> a rename/recolour of a class the caller already knows.
+       This is the Classes page's edit modal, and the only way to rename, so it
+       must stay first: a rename to a *new* name would otherwise be read as a
+       create by step 2 and silently do nothing to the original row.
+    2. **name hit** -> the class already exists. Return its real id rather than
+       inserting a twin. This is what makes `ensureLabel` idempotent: the canvas
+       gets the true id back, repoints its annotation at it, and a stale bundle
+       posting an unknown uuid can no longer create a duplicate.
+    3. neither -> insert.
+
+    A rename whose new name collides with a *different* existing row is a 409,
+    not a silent merge: merging would move every annotation of one class onto
+    another with no way back, and the unique index would refuse the insert
+    anyway.
+    """
     require_project(label.projectId, user, db, minimum=ProjectRole.MANAGER)
+
+    # Display name keeps the caller's casing; the key is what we match on.
+    name = clean_label_name(label.name)
+    key = normalize_label_name(label.name)
+
     db_label = db.query(models.Label).filter(
         models.Label.id == label.id, models.Label.project_id == label.projectId
     ).first()
+
+    by_name = db.query(models.Label).filter(
+        models.Label.project_id == label.projectId,
+        models.Label.name_key == key,
+    ).first()
+
     if db_label:
-        db_label.name = label.name
+        if by_name is not None and by_name.id != db_label.id:
+            raise HTTPException(
+                status_code=409,
+                detail=f'Another class in this project is already named "{name}".',
+            )
+        db_label.name = name
+        db_label.name_key = key
         db_label.color = label.color
+        created = False
+    elif by_name:
+        # The class exists under a different id. Adopt it; only the colour is
+        # worth carrying over, and only because the Classes page's create form
+        # is the one caller that sets it deliberately. The stored display name
+        # is left alone: the class already has one its author chose, and a
+        # canvas that merely referenced it must not restyle it for everyone.
+        db_label = by_name
+        db_label.color = label.color
+        created = False
     else:
-        db_label = models.Label(id=label.id, name=label.name, color=label.color, project_id=label.projectId)
+        db_label = models.Label(id=label.id, name=name, name_key=key,
+                                color=label.color, project_id=label.projectId)
         db.add(db_label)
-    commit_with_retry(db)
+        created = True
+
+    try:
+        commit_with_retry(db)
+    except IntegrityError:
+        # Unreachable through the resolution above, which is the point: this is
+        # the backstop that keeps the guarantee true if a future call path
+        # forgets to resolve by name. A 500 here would read as a server fault
+        # for what is a legible, actionable conflict.
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=f'A class named "{name}" already exists in this project.',
+        )
+
     log_event("label.upsert", project=label.projectId, label=db_label.id,
-              name=db_label.name)
-    return {"status": "ok", "id": db_label.id}
+              name=db_label.name, created=created)
+    return {"status": "ok", "id": db_label.id, "created": created}
 
 @router.post("/bulk", response_model=LabelBulkResult)
 def bulk_upsert_labels(payload: LabelBulkUpsert, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
@@ -151,21 +221,51 @@ def bulk_upsert_labels(payload: LabelBulkUpsert, db: Session = Depends(get_db), 
             detail=f"Labels {mismatched} do not belong to projectId {payload.projectId}.",
         )
 
-    existing = {
-        l.id: l for l in db.query(models.Label).filter(models.Label.project_id == payload.projectId).all()
-    }
+    rows = db.query(models.Label).filter(models.Label.project_id == payload.projectId).all()
+    existing = {l.id: l for l in rows}
+    # Name index, consulted when the id misses — same two-step resolution as
+    # POST /api/labels, and for the same reason: an id-only lookup here would
+    # insert a twin for any name the caller sent under an id we do not have.
+    # Rows created within this call are added as we go, so two payload entries
+    # normalising to one name collapse instead of colliding on the index.
+    by_name = {normalize_label_name(l.name): l for l in rows}
+
     created = updated = 0
     for label in payload.labels:
-        row = existing.get(label.id)
+        name = clean_label_name(label.name)
+        key = normalize_label_name(label.name)
+        row = existing.get(label.id) or by_name.get(key)
         if row:
-            row.name = label.name
+            if row.name_key != key and by_name.get(key) not in (None, row):
+                raise HTTPException(
+                    status_code=409,
+                    detail=f'Another class in this project is already named "{name}".',
+                )
+            by_name.pop(row.name_key, None)
+            row.name = name
+            row.name_key = key
             row.color = label.color
+            by_name[key] = row
             updated += 1
         else:
-            db.add(models.Label(id=label.id, name=label.name, color=label.color, project_id=payload.projectId))
+            row = models.Label(id=label.id, name=name, name_key=key,
+                               color=label.color, project_id=payload.projectId)
+            db.add(row)
+            existing[row.id] = row
+            by_name[key] = row
             created += 1
 
-    commit_with_retry(db)
+    try:
+        commit_with_retry(db)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Two classes in this request resolve to the same name.",
+        )
+
+    log_event("label.bulk_upsert", project=payload.projectId,
+              created=created, updated=updated)
     return LabelBulkResult(created=created, updated=updated)
 @router.post("/bulk-delete")
 def bulk_delete_labels(payload: LabelBulkDelete, db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
@@ -371,22 +471,32 @@ async def import_labels(
     if not parsed:
         raise HTTPException(status_code=422, detail="No classes found in the uploaded file.")
 
+    replaced_count = replaced_annotations = 0
     if mode == "replace":
         # Replacing the class set orphans every annotation in the project, so
         # purge them too rather than leaving unnamed "Object" shapes behind.
         old_ids = {row.id for row in db.query(models.Label.id).filter(models.Label.project_id == projectId).all()}
-        purge_annotations_for_labels(projectId, old_ids, db)
+        replaced_annotations = purge_annotations_for_labels(projectId, old_ids, db)
+        replaced_count = len(old_ids)
         db.query(models.Label).filter(models.Label.project_id == projectId).delete()
         by_name = {}
     else:
         existing = db.query(models.Label).filter(models.Label.project_id == projectId).all()
-        by_name = {l.name.lower(): l for l in existing}
+        # Canonical form, not the raw stored name: identical after migration
+        # a1c4e7b09f52, but a database that has not run it yet still holds
+        # "Object"-style rows that an incoming "object" must match rather than
+        # duplicate.
+        by_name = {normalize_label_name(l.name): l for l in existing}
 
     created = updated = skipped = 0
     seen_this_import = set()
     for i, item in enumerate(parsed):
-        name = (item.get("name") or "").strip()
-        key = name.lower()
+        raw = item.get("name") or ""
+        # Matched on the case-folded key so "Rust_Area" and "rust area" are one
+        # class, but *stored* with the file's own casing — a class set is often
+        # imported precisely to establish the display names.
+        name = clean_label_name(raw) if raw.strip() else ""
+        key = normalize_label_name(raw) if raw.strip() else ""
         if not name or key in seen_this_import:
             skipped += 1
             continue
@@ -398,12 +508,28 @@ async def import_labels(
             row.color = color
             updated += 1
         else:
-            row = models.Label(id=uuid.uuid4().hex, name=name, color=color, project_id=projectId)
+            row = models.Label(id=uuid.uuid4().hex, name=name, name_key=key,
+                               color=color, project_id=projectId)
             db.add(row)
             by_name[key] = row
             created += 1
 
     commit_with_retry(db)
+    # WARN on replace, for the same reason label.bulk_delete is WARN: that mode
+    # deleted the project's entire class set and every annotation using it, for
+    # every annotator, and until now left nothing in the log but a bare 200. An
+    # annotator reporting vanished boxes is very often this line.
+    log_event(
+        "label.import",
+        level="WARN" if mode == "replace" else "INFO",
+        project=projectId,
+        mode=mode,
+        created=created,
+        updated=updated,
+        skipped=skipped,
+        deleted=replaced_count,
+        annotations_deleted=replaced_annotations,
+    )
     final = db.query(models.Label).filter(models.Label.project_id == projectId).order_by(models.Label.name).all()
     return LabelImportResult(
         created=created, updated=updated, skipped=skipped,

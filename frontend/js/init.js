@@ -1,11 +1,11 @@
-import { generateUUID, clamp, round, normalizeClassName, formatTime, clientId } from "./utils.js?v=1";
+import { generateUUID, clamp, round, normalizeClassName, formatTime, clientId } from "./utils.js?v=2";
 import { apiFetch, pollJob } from "./api.js?v=5";
 import {
   state, snapshot, resetWorkspaceForNewImage,
   beginHydration, completeHydration, failHydration, hydrationOk, hydrationFailed,
   hydrationSaveBlock, currentHydrationGeneration, noteHydratedAnnotationCount,
-  noteHydratedAnnotations, annotationsChangedSinceHydration
-} from "./state.js?v=7";
+  noteHydratedAnnotations, annotationsChangedSinceHydration, openTaskWasHydrated
+} from "./state.js?v=10";
 import { view } from "./canvas/view.js?v=1";
 import { commentOverlayRefs, clearCommentOverlayAnchor } from "./comment-overlay.js?v=2";
 import { backspaceAction, modeAfterCommentCommit } from "./comment-mode.js?v=1";
@@ -19,7 +19,7 @@ import { drawAllLayers } from "./canvas/draw.js?v=6";
 import {
   setStatus, syncToBackend, save, loadSaved, saveDraft, restoreDraft,
   render, manualSaveWithUI, refreshSaveStatus, pruneStaleDrafts, unhideAllObjects
-} from "./components/workspace.js?v=22";
+} from "./components/workspace.js?v=26";
 import {
   configureQueue, startQueue, subscribe as subscribeQueue, drainQueue,
   enqueueWrite, retryablePendingCount, noteServerReachable, noteServerUnreachable,
@@ -233,11 +233,39 @@ async function switchImage(index) {
   // It also supersedes any switchImage still in flight: a stale call's
   // completeHydration() is refused, so rapid paging cannot mark the newest
   // task hydrated on the strength of an older task's fetch.
+  //
+  // Whether the task being *left* ever received its annotations from the
+  // server. MUST be read here, before beginHydration() moves the generation to
+  // the incoming task — after that, hydrationOk() describes the wrong task and
+  // the question can no longer be answered.
+  const outgoingWasHydrated = openTaskWasHydrated();
+
   const generation = beginHydration();
 
   if (state.galleryIndex >= 0 && state.gallery[state.galleryIndex]) {
     const prevTask = state.gallery[state.galleryIndex];
-    prevTask.annotations = [...state.annotations];
+    // Only trust the canvas as a description of the outgoing task when that
+    // task actually hydrated.
+    //
+    // `state.annotations` is `[]` for a task whose hydration never landed —
+    // superseded by a faster switch, or still in flight. Copying that onto
+    // `prevTask` and flushing it below sends `annotations: "[]"`, which the
+    // server reads as "empty this task" and refuses with a 422 clear-guard
+    // (or, on a task that happens to be empty already, accepts). Every one of
+    // the 67 empty-payload wipe attempts in eight days has this shape: a task
+    // is opened, hydration does not complete, the annotator pages away, and
+    // the flush ships an empty set seconds after the open
+    // (.devnotes/wipe-guard-bypass-fix/04_VERIFICATION.md §C).
+    //
+    // The whole point of this flush is to rescue unsaved work, so it is kept
+    // for the hydrated case — that set is real. For the unhydrated case there
+    // is nothing to rescue: the canvas never held this task's work, so the
+    // time delta is drained on its own and the stored annotations are left
+    // exactly as they are (timer.js treats an omitted `annotations` key as
+    // "leave the stored set alone", which is precisely what is wanted).
+    if (outgoingWasHydrated) {
+      prevTask.annotations = [...state.annotations];
+    }
     // Drains the accumulator against the outgoing task. Bound to prevTask, so
     // it stays correct even though galleryIndex moves before it resolves.
     //
@@ -246,12 +274,24 @@ async function switchImage(index) {
     // had failed and which nothing would ever retry. drainTaskTime queues the
     // failed payload itself, so all this needs to do is keep the draft (the
     // per-task safety net) alive and tell the user.
-    const saved = await syncTaskTime(prevTask, { annotations: prevTask.annotations });
-    if (saved === false) {
+    // The annotation set is passed only when it is trustworthy. Omitting the
+    // key makes this a time-only save (see the payload builder in timer.js),
+    // which is the correct meaning of "I have nothing to say about this task's
+    // annotations" — as opposed to `[]`, which asserts they are gone.
+    const saved = await syncTaskTime(
+      prevTask,
+      outgoingWasHydrated ? { annotations: prevTask.annotations } : {}
+    );
+    if (saved === false && outgoingWasHydrated) {
       // Name the task and the set explicitly. The hydration gate is already
       // shut for the *incoming* task by this point, but the work being
       // rescued belongs to the outgoing one and is genuine — an implicit
       // saveDraft() would read the shut gate and discard it.
+      //
+      // Guarded on hydration for the same reason as the flush above: writing a
+      // draft from an unhydrated canvas persists `[]` as if it were this
+      // task's work, and restoreDraft() would later offer it as a recovery.
+      // That is the draft-side half of the same wipe.
       saveDraft({ task: prevTask, annotations: prevTask.annotations });
       refreshSaveStatus();
     }
@@ -935,6 +975,17 @@ subscribeQueue(({ pending, unreachable }) => {
 startQueue();
 // Housekeeping: drop drafts that are long past useful and have no pending
 // write, so the localStorage quota stays available to the ones that matter.
+// The project the canvas was opened for. Read here, above every top-level call
+// below, because `state.projectId` gates the draft layer and must be set before
+// anything can read or write a draft.
+//
+// Label ids are per project, so a draft written under one project must not be
+// restored under another — see restoreDraft() in components/workspace.js and
+// .devnotes/move-task-feature/07_DRAFT_STALENESS.md.
+const urlParams = new URLSearchParams(window.location.search);
+const projectId = urlParams.get('projectId');
+state.projectId = projectId;
+
 pruneStaleDrafts();
 
 loadSaved();
@@ -1115,9 +1166,8 @@ async function fetchLabels() {
   }
 }
 
-// Workspace Project Support
-const urlParams = new URLSearchParams(window.location.search);
-const projectId = urlParams.get('projectId');
+// Workspace Project Support — `projectId` and `urlParams` are resolved above,
+// before the first top-level call that can touch a draft.
 
 // The signed-in user, resolved once at boot. Used for comment authorship and
 // the assignment banner. Null until `initIdentityAndPermissions` resolves, so
