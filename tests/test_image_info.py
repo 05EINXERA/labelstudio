@@ -9,6 +9,7 @@ missing file reported as zero bytes, a summary that describes the page instead
 of the filtered set.
 """
 import os
+from io import BytesIO
 
 import models
 from config import DATA_DIR
@@ -367,3 +368,158 @@ def test_does_not_persist_dimensions_it_could_have_measured(client, alice):
         assert task.image_height is None
     finally:
         db.close()
+
+
+# --- the spreadsheet ---------------------------------------------------------
+
+
+def _xlsx(client, headers, project_id, **params):
+    return client.get(
+        f"/api/projects/{project_id}/image-info.xlsx", params=params, headers=headers
+    )
+
+
+def _load(res):
+    from openpyxl import load_workbook
+    return load_workbook(BytesIO(res.content))
+
+
+def _grant(client, owner, member, project_id, role):
+    team = client.post("/api/teams", json={"name": f"T-{role}"}, headers=owner).json()
+    username = client.get("/api/auth/me", headers=member).json()["username"]
+    client.post(
+        f"/api/teams/{team['id']}/members",
+        json={"username": username, "role": "member"}, headers=owner,
+    )
+    client.post(
+        f"/api/projects/{project_id}/grants",
+        json={"team_id": team["id"], "role": role}, headers=owner,
+    )
+
+
+def test_download_is_reviewer_gated_not_viewer(client, alice, bob, carol):
+    """Deliberately stricter than the table, matching the Exports rationale:
+    browsing an inventory and one-clicking the whole dataset's inventory into a
+    file that leaves the building are different acts."""
+    project_id = _project(client, alice)
+    _task(project_id, "a.jpg", *FULL)
+
+    _grant(client, alice, bob, project_id, "annotator")
+    # The table is readable...
+    assert _get(client, bob, project_id).status_code == 200
+    # ...but the spreadsheet is not. 403, not 404: bob has *a* role, so he gets
+    # an actionable message naming the role required.
+    assert _xlsx(client, bob, project_id).status_code == 403
+
+    _grant(client, alice, carol, project_id, "reviewer")
+    assert _xlsx(client, carol, project_id).status_code == 200
+
+
+def test_download_returns_a_real_workbook(client, alice):
+    project_id = _project(client, alice)
+    _task(project_id, "full.jpg", *FULL, content=b"x" * (2 * 1024 * 1024))
+    _task(project_id, "half.jpg", *HALF, content=b"y" * 1024)
+
+    res = _xlsx(client, alice, project_id)
+    assert res.status_code == 200
+    assert res.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    assert "image-info-" in res.headers["content-disposition"]
+
+    wb = _load(res)
+    assert wb.sheetnames == ["Images", "Summary"]
+    ws = wb["Images"]
+    assert [c.value for c in ws[1]] == [
+        "Filename", "Width", "Height", "Resolution",
+        "Category", "Size (MB)", "Status", "Task ID",
+    ]
+    rows = {r[0]: r for r in ws.iter_rows(min_row=2, values_only=True)}
+    assert rows["full.jpg"][1:5] == (5184, 3888, "5184x3888", "Full")
+    assert rows["full.jpg"][5] == 2.0
+    assert rows["half.jpg"][4] == "Half"
+
+
+def test_size_is_a_number_so_the_column_can_be_summed(client, alice):
+    """Text cells make the recipient's first instinct — select the column and
+    read the sum — silently produce nothing."""
+    project_id = _project(client, alice)
+    _task(project_id, "a.jpg", *FULL, content=b"x" * 1024)
+
+    ws = _load(_xlsx(client, alice, project_id))["Images"]
+    assert isinstance(ws.cell(row=2, column=6).value, float)
+    assert ws.cell(row=2, column=6).number_format == "0.00"
+
+
+def test_header_is_frozen_and_filterable(client, alice):
+    project_id = _project(client, alice)
+    _task(project_id, "a.jpg", *FULL)
+
+    ws = _load(_xlsx(client, alice, project_id))["Images"]
+    assert ws.freeze_panes == "A2"
+    assert ws.auto_filter.ref == "A1:H2"
+
+
+def test_download_honours_the_active_filters(client, alice):
+    """A download button under a filtered table means 'give me this'. One that
+    silently returned everything would be discovered only after someone acted
+    on it."""
+    project_id = _project(client, alice)
+    _task(project_id, "site-a-full.jpg", *FULL)
+    _task(project_id, "site-b-half.jpg", *HALF)
+    _task(project_id, "other-full.jpg", *FULL)
+
+    ws = _load(_xlsx(client, alice, project_id, category="Full", q="site"))["Images"]
+    names = [r[0] for r in ws.iter_rows(min_row=2, values_only=True)]
+    assert names == ["site-a-full.jpg"]
+
+
+def test_summary_sheet_totals_by_category(client, alice):
+    project_id = _project(client, alice)
+    for i in range(3):
+        _task(project_id, f"f{i}.jpg", *FULL, content=b"x" * 1024)
+    _task(project_id, "h.jpg", *HALF)
+
+    ws = _load(_xlsx(client, alice, project_id))["Summary"]
+    counts = {
+        r[0]: r[1] for r in ws.iter_rows(min_row=6, values_only=True) if r[0]
+    }
+    assert counts["Full"] == 3
+    assert counts["Half"] == 1
+    assert counts["Other"] == 0
+    assert counts["Total"] == 4
+
+
+def test_sheet_name_survives_a_project_name_excel_rejects(client, alice):
+    """Unhandled, []:*?/\\ produce a workbook Excel refuses to open — which the
+    user would reasonably read as 'the export is broken'."""
+    project_id = _project(client, alice, name="Site A / Roofs [2026]")
+    _task(project_id, "a.jpg", *FULL)
+
+    res = _xlsx(client, alice, project_id)
+    assert res.status_code == 200
+    assert _load(res).sheetnames == ["Images", "Summary"]
+    # And the download filename carries nothing that could break the header.
+    disposition = res.headers["content-disposition"]
+    assert "/" not in disposition.split("filename=")[1]
+
+
+def test_unmeasured_rows_export_blank_not_zero(client, alice):
+    project_id = _project(client, alice)
+    _task(project_id, "unknown.jpg", None, None)
+
+    ws = _load(_xlsx(client, alice, project_id))["Images"]
+    row = next(ws.iter_rows(min_row=2, values_only=True))
+    assert row[1] is None and row[2] is None
+    # An empty resolution cell, not "0x0" — openpyxl reads a blank back as
+    # None. The point is that nothing fabricates a dimension nobody measured.
+    assert not row[3]
+    assert row[4] == "Unknown"
+
+
+def test_empty_project_still_downloads(client, alice):
+    """An empty workbook beats an error: 'no images match' is an answer."""
+    project_id = _project(client, alice)
+    res = _xlsx(client, alice, project_id)
+    assert res.status_code == 200
+    assert _load(res)["Images"].max_row == 1

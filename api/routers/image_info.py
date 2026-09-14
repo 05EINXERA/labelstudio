@@ -46,7 +46,7 @@ from io import BytesIO
 from typing import Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import func, or_, tuple_
+from sqlalchemy import func, tuple_
 from sqlalchemy.orm import Session
 
 import models
@@ -332,4 +332,224 @@ def get_image_info(
         # ceil with a floor of 1: an empty project has one empty page, not
         # zero, so the pager always has a page to be on.
         total_pages=max(1, -(-total // page_size)),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Spreadsheet
+# ---------------------------------------------------------------------------
+
+XLSX_MEDIA_TYPE = (
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
+
+#: Hard ceiling on one download. Well above any real project here, and present
+#: so a mistyped filter can never try to build a million-row workbook in memory
+#: on a box that is also serving 25 annotators.
+XLSX_MAX_ROWS = 50000
+
+#: (header, width). Widths are eyeballed for the real data: filenames are the
+#: long column, everything else is short.
+XLSX_COLUMNS = [
+    ("Filename", 34),
+    ("Width", 10),
+    ("Height", 10),
+    ("Resolution", 16),
+    ("Category", 12),
+    ("Size (MB)", 12),
+    ("Status", 14),
+    ("Task ID", 10),
+]
+
+
+def _safe_sheet_name(name: str) -> str:
+    """A project name reduced to something Excel will accept as a sheet name.
+
+    Excel rejects []:*?/\\ and caps the name at 31 characters. Unhandled, a
+    project called "Site A / Roofs" produces a workbook Excel refuses to open —
+    a failure the user would reasonably read as "the export is broken".
+    """
+    cleaned = "".join(" " if ch in "[]:*?/\\" else ch for ch in (name or "")).strip()
+    return (cleaned[:31] or "Images")
+
+
+def _build_workbook(project, rows: List[ImageInfoRow], by_category: Dict[str, int]):
+    """The two-sheet workbook, as bytes.
+
+    Imported inside the function rather than at module scope, against the usual
+    rule (CLAUDE.md rule 2), for one specific reason: openpyxl is pulled in by
+    exactly one endpoint that is used occasionally, and the alternative is
+    paying its import on every worker start for a feature most requests never
+    touch. The rule's target is `import json` hidden inside a hot function to
+    dodge a cycle; this is a deliberate, documented deferral of a heavy
+    optional dependency.
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Images"
+
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill("solid", fgColor="374151")
+
+    ws.append([label for label, _ in XLSX_COLUMNS])
+    for idx, (_, width) in enumerate(XLSX_COLUMNS, start=1):
+        cell = ws.cell(row=1, column=idx)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center")
+        ws.column_dimensions[get_column_letter(idx)].width = width
+
+    for row in rows:
+        # Size as a real number, not a formatted string: the recipient's first
+        # instinct is to select the column and read the sum, and text cells
+        # make that silently produce nothing.
+        #
+        # float(), and rounded to 4 rather than 2 places. Both matter. A small
+        # file rounded to 2 places is 0.0, which openpyxl writes as the integer
+        # 0 — so the column becomes a mix of ints and floats, and a genuinely
+        # small image reads as "no size at all" rather than "small". The cell's
+        # 0.00 display format still shows two places; the extra precision only
+        # keeps the stored value honest and the SUM correct.
+        megabytes = (
+            None if row.size_bytes is None
+            else float(round(row.size_bytes / (1024 * 1024), 4))
+        )
+        resolution = (
+            f"{row.width}x{row.height}" if row.width and row.height else ""
+        )
+        ws.append([
+            row.filename or "",
+            row.width, row.height, resolution,
+            row.category,
+            megabytes,
+            row.status or "",
+            row.task_id,
+        ])
+
+    for row_cells in ws.iter_rows(min_row=2, min_col=6, max_col=6):
+        for cell in row_cells:
+            cell.number_format = "0.00"
+
+    # Freeze the header and turn on the filter dropdowns, so the file is usable
+    # as a working document rather than only as a printout.
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = f"A1:{get_column_letter(len(XLSX_COLUMNS))}{ws.max_row}"
+
+    # --- Summary sheet ---
+    # Small, and it is the half that gets pasted into an email.
+    summary = wb.create_sheet("Summary")
+    summary.append(["Project", project.name or ""])
+    summary.append(["Generated (UTC)", datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")])
+    summary.append(["Total images", len(rows)])
+    summary.append([])
+    summary.append(["Category", "Count", "Size (MB)"])
+    for cell in summary[5]:
+        cell.font = header_font
+        cell.fill = header_fill
+
+    bytes_by_category: Dict[str, int] = {}
+    for row in rows:
+        if row.size_bytes is not None:
+            bytes_by_category[row.category] = (
+                bytes_by_category.get(row.category, 0) + row.size_bytes
+            )
+
+    # float() for the same reason as the Images sheet: a category whose files
+    # round to 0.0 must not become an integer cell in a numeric column.
+    def _mb(total_bytes: int) -> float:
+        return float(round(total_bytes / (1024 * 1024), 4))
+
+    for name in CATEGORY_ORDER:
+        summary.append([
+            name,
+            by_category.get(name, 0),
+            _mb(bytes_by_category.get(name, 0)),
+        ])
+    summary.append([
+        "Total",
+        sum(by_category.values()),
+        _mb(sum(bytes_by_category.values())),
+    ])
+    for label, width in (("A", 22), ("B", 12), ("C", 14)):
+        summary.column_dimensions[label].width = width
+    for row_cells in summary.iter_rows(min_row=6, min_col=3, max_col=3):
+        for cell in row_cells:
+            cell.number_format = "0.00"
+
+    buffer = BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()
+
+
+@router.get("/{project_id}/image-info.xlsx")
+def download_image_info(
+    project_id: int,
+    q: Optional[str] = Query(None),
+    category: Optional[str] = Query(None),
+    sort: str = Query(DEFAULT_SORT),
+    order: str = Query("asc", pattern="^(asc|desc)$"),
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """The filtered inventory as a formatted .xlsx workbook.
+
+    `reviewer`, not `viewer` like the table above it. Browsing an inventory and
+    one-clicking the whole dataset's inventory into a file that leaves the
+    building are different acts — the same reasoning the Exports tab already
+    applies (`.devnotes/teams/03_API.md` § 4.1). The asymmetry is deliberate.
+
+    **The same filters as the table**, honoured deliberately: a download button
+    under a filtered table means "give me this", and one that silently returned
+    everything would be discovered only after someone had acted on it.
+
+    Synchronous rather than routed through the `JOBS` queue that `exports.py`
+    uses. The payload is a few hundred KB of text even for thousands of rows
+    and builds in well under a second — there is no rasterisation here — and
+    `JOBS` is single-worker in-process state (rule 9) that should not grow
+    without cause.
+    """
+    project = require_project(project_id, user, db, minimum=ProjectRole.REVIEWER)
+
+    base = _apply_filters(_rows_query(project_id, db), q, category)
+    total, by_category = _summary_counts(base)
+
+    if total > XLSX_MAX_ROWS:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"{total} images match; the spreadsheet limit is {XLSX_MAX_ROWS}. "
+                "Narrow the filter and download in parts."
+            ),
+        )
+
+    column = SORT_COLUMNS.get(sort, SORT_COLUMNS[DEFAULT_SORT])
+    direction = column.desc() if order == "desc" else column.asc()
+    records = base.order_by(
+        direction, models.Task.description.asc(), models.Task.id.asc()
+    ).all()
+
+    rows, _, missing = _to_rows(records)
+    if missing:
+        logger.warning(
+            "Images Info export: %s of %s image file(s) missing on disk for project %s",
+            missing, total, project_id,
+        )
+
+    content = _build_workbook(project, rows, by_category)
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+    slug = (project.slug or project.name or f"project-{project_id}")
+    # Filename goes in a quoted header, so anything that could terminate the
+    # quoting or inject a header is replaced rather than escaped.
+    slug = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in slug)[:40]
+    filename = f"image-info-{slug or project_id}-{stamp}.xlsx"
+
+    return Response(
+        content=content,
+        media_type=XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

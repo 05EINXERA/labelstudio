@@ -1,4 +1,9 @@
 label-studio-sdk==2.0.18
+# Writes the Images Info spreadsheet (api/routers/image_info.py). Imported
+# inside the one endpoint that uses it, so a worker that never serves a
+# download never pays for it.
+openpyxl>=3.1.0
+
 opencv-python-headless>=4.8.0
 numpy>=1.26.0
 pillow==12.2.0
