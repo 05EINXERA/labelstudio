@@ -285,6 +285,72 @@ TASK_STATUSES = [
     "Verified", "Checked", "Passed", "Reviewed", "Monitored",
 ]
 
+# ---------------------------------------------------------------------------
+# Image size vocabulary (Image Inventory)
+# ---------------------------------------------------------------------------
+#
+# Users do not think in "5184 x 3888"; they think "a full-size one" and "a
+# half". These are the named resolutions this deployment actually produces,
+# verified against production data on 2026-09-14: of 497 task rows, 395 (79.5%)
+# were 2592x1944 and 86 (17.3%) were 5184x3888. The names are literally
+# accurate — 2592x1944 is exactly half of 5184x3888 on each axis.
+#
+# Keyed on an exact (width, height) tuple, so a transposed image (3888x5184, a
+# portrait re-export) is deliberately NOT "Full". It is a different image and
+# lands in "Other", where somebody can notice it.
+#
+# Data, not branching logic, and defined in one place: the filter, the summary
+# and the spreadsheet all read this dict.
+IMAGE_SIZE_NAMED = {
+    (5184, 3888): "Full",
+    (2592, 1944): "Half",
+}
+
+# The two catch-alls. They are structurally different and must not be merged,
+# however tempting a two-value enum looks on a dataset where one of them is
+# currently empty.
+#
+# OTHER — measured, but not a known size. A fact about the image. Production
+# had 16 such rows across 16 *distinct* one-off resolutions (phone photos,
+# crops, re-exports; one 1562x688 is not even the usual aspect ratio). A
+# two-value enum misfiles every one of them.
+#
+# UNKNOWN — no usable dimensions recorded. A gap in our data, not a fact about
+# the image. Zero rows today, and that is exactly why the bucket must exist:
+# `image_width`/`image_height` are nullable (models.Task), rows predating those
+# columns were never measured, and any future import path can create a task
+# without them. Folding Unknown into Other would hide that gap behind a
+# plausible bucket in a report whose whole purpose is to be trusted about
+# sizes — the failure would be silent under-reporting, discovered only after
+# somebody acted on it.
+IMAGE_SIZE_OTHER = "Other"
+IMAGE_SIZE_UNKNOWN = "Unknown"
+
+# Display order: named sizes largest-first, then the two catch-alls last. The
+# summary strip renders in this order and includes every entry even at zero, so
+# the display keeps a stable shape as filters change instead of reflowing.
+IMAGE_SIZE_CATEGORIES = [
+    "Full",
+    "Half",
+    IMAGE_SIZE_OTHER,
+    IMAGE_SIZE_UNKNOWN,
+]
+
+
+def categorize_image_size(width: Optional[int], height: Optional[int]) -> str:
+    """Bucket one (width, height) pair into the vocabulary above.
+
+    Treats zero as unmeasured, not as a real dimension: `formats.common.
+    image_size()` returns (0, 0) for an unreadable file, so a row carrying zero
+    is in exactly the same state as one carrying NULL and belongs in Unknown.
+    A half-measured row (width but no height) is likewise unmeasured — we
+    cannot name a resolution we only half know.
+    """
+    if not width or not height or width <= 0 or height <= 0:
+        return IMAGE_SIZE_UNKNOWN
+    return IMAGE_SIZE_NAMED.get((width, height), IMAGE_SIZE_OTHER)
+
+
 # Export "include" options actually implemented. Mask rendering and image
 # bundling are explicit TODOs (see REFACTOR_MANAGEMENT.md §3 Phase 4) — the
 # API rejects them rather than silently ignoring the request.
