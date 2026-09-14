@@ -337,6 +337,22 @@ IMAGE_SIZE_CATEGORIES = [
 ]
 
 
+# Caps. One request must not be able to ask for 50,000 rows and 50,000
+# filesystem calls, and the spreadsheet must not be built unboundedly in
+# memory.
+IMAGE_INVENTORY_MAX_LIMIT = 500
+IMAGE_INVENTORY_DEFAULT_LIMIT = 50
+IMAGE_INVENTORY_MAX_EXPORT_ROWS = 20000
+
+# Above this many rows in the filtered set, the size total covers only the
+# returned page and the response says so (`total_size_is_complete=False`).
+# A true total costs one stat per row; this bound keeps a page render cheap
+# while staying correct for every project we actually have -- the largest is
+# 269 tasks, and the whole database is 497 rows, so in practice the true total
+# is always computed. The bound exists for the day somebody bulk-imports.
+IMAGE_INVENTORY_FULL_SIZE_MAX_ROWS = 2000
+
+
 def categorize_image_size(width: Optional[int], height: Optional[int]) -> str:
     """Bucket one (width, height) pair into the vocabulary above.
 
@@ -514,6 +530,67 @@ class PaginatedTasks(BaseModel):
     total: int
     limit: int
     offset: int
+
+# ---------------------------------------------------------------------------
+# Image Inventory ("Images Info")
+# ---------------------------------------------------------------------------
+
+class ImageInventoryRow(BaseModel):
+    """One image in the inventory report.
+
+    `file_size` is Optional and a missing file yields None, never 0. A missing
+    multi-megabyte original rendered as "0 B" is a quietly wrong number in a
+    report whose whole job is to be right about sizes, and zero is plausible
+    enough that nobody questions it. The client renders None as a dash.
+    """
+    id: int
+    filename: Optional[str] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+    category: str
+    file_size: Optional[int] = None
+    status: Optional[str] = None
+
+
+class ImageInventoryCategoryCount(BaseModel):
+    category: str
+    count: int
+
+
+class ImageInventorySummary(BaseModel):
+    """Totals over the ENTIRE filtered set, not the current page.
+
+    Counted from the page these would change as the user pages, which is not a
+    fact about the project and is worse than omitting them.
+    """
+    total: int
+    # Every category, including those with a zero count, so the summary strip
+    # keeps a stable shape as filters change instead of reflowing. In
+    # particular Unknown is always present: if a project is 40% unmeasured the
+    # reader has to see that, or they act on a number describing 60% of their
+    # data while it looks complete.
+    categories: List[ImageInventoryCategoryCount]
+    # Files referenced by a row but absent from disk. Costs nothing once we are
+    # already stat-ing, and it is operational information most teams have
+    # nowhere else.
+    missing_files: int = 0
+    # Summed file size in bytes.
+    total_size: Optional[int] = None
+    # Whether `total_size` covers the whole filtered set or only this page.
+    # A whole-project total needs a stat per row, so it is computed only below
+    # IMAGE_INVENTORY_FULL_SIZE_MAX_ROWS; above that we sum the page and say
+    # so. The UI labels it "this page" when False. A partial total must never
+    # be presented silently as a complete one.
+    total_size_is_complete: bool = True
+
+
+class ImageInventoryPage(BaseModel):
+    items: List[ImageInventoryRow]
+    summary: ImageInventorySummary
+    total: int
+    limit: int
+    offset: int
+
 
 class TaskSequenceItem(BaseModel):
     id: int
