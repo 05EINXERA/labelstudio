@@ -4,7 +4,7 @@ import os
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, UploadFile, File, Query, HTTPException, Request
+from fastapi import APIRouter, Depends, UploadFile, File, Query, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 
@@ -17,6 +17,7 @@ from schemas import (
     IMAGE_SIZE_CATEGORIES,
     IMAGE_INVENTORY_DEFAULT_LIMIT,
     IMAGE_INVENTORY_FULL_SIZE_MAX_ROWS,
+    IMAGE_INVENTORY_MAX_EXPORT_ROWS,
     IMAGE_INVENTORY_MAX_LIMIT,
     ImageInventoryPage,
     ImageInventoryRow,
@@ -29,7 +30,7 @@ from schemas import (
     ProjectTransferOwnership,
 )
 from api.auth import get_current_user, require_csrf, get_current_annotator
-from app import image_inventory
+from app import image_inventory, image_inventory_xlsx
 from formats.common import measure_image
 
 logger = logging.getLogger(__name__)
@@ -801,4 +802,80 @@ def get_image_inventory(
         total=total,
         limit=limit,
         offset=offset,
+    )
+
+
+@router.get("/{project_id}/image-inventory.xlsx")
+def download_image_inventory(
+    project_id: int,
+    search: Optional[str] = Query(None, description="Filename substring"),
+    category: Optional[str] = Query(None, description="Size category, or 'all'"),
+    sort_by: Optional[str] = Query(image_inventory.DEFAULT_SORT),
+    sort_desc: bool = Query(False),
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+    annotator: Optional[models.TeamMember] = Depends(get_current_annotator),
+):
+    """The image inventory as a spreadsheet, honouring the active filters.
+
+    Same access minimum as the view it sits under: a download button beneath a
+    filtered table means "give me this", and one that silently returned
+    everything is discovered only after somebody has acted on the wrong data.
+
+    Built synchronously rather than through the export job queue -- there is no
+    image rasterisation here, just text.
+    """
+    project = _require_inventory_access(project_id, user, db, annotator)
+
+    if category and category.lower() != "all" and category not in IMAGE_SIZE_CATEGORIES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown size category: {category!r}. Valid: {IMAGE_SIZE_CATEGORIES}.",
+        )
+
+    query = image_inventory.base_query(db, project_id, search=search, category=category)
+    category_counts, total = image_inventory.summarize_categories(query)
+
+    if total > IMAGE_INVENTORY_MAX_EXPORT_ROWS:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"This export would contain {total} rows, above the limit of "
+                f"{IMAGE_INVENTORY_MAX_EXPORT_ROWS}. Narrow the filters and try again."
+            ),
+        )
+
+    rows = image_inventory.page_rows(
+        image_inventory.ordered(query, sort_by, sort_desc), 0, IMAGE_INVENTORY_MAX_EXPORT_ROWS
+    )
+    sizes, missing, total_size = image_inventory.collect_sizes(db, query)
+
+    items = [
+        {
+            "id": r.id,
+            "filename": r.description,
+            "width": r.image_width,
+            "height": r.image_height,
+            "category": categorize_image_size(r.image_width, r.image_height),
+            "file_size": sizes.get(r.id),
+            "status": r.status,
+        }
+        for r in rows
+    ]
+    summary = {
+        "total": total,
+        "categories": category_counts,
+        "missing_files": missing,
+        "total_size": total_size,
+        # Every row of the filtered set is written to the sheet and every one
+        # was stat-ed above, so this total is always the complete one.
+        "total_size_is_complete": True,
+    }
+
+    content = image_inventory_xlsx.build_workbook(project.name or "", items, summary)
+    filename = image_inventory_xlsx.download_filename(project.name or "")
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

@@ -646,3 +646,246 @@ def test_size_pill_styles_exist_and_muted_catch_alls_share_one():
     assert ".pill.is-size-muted" in css
     assert ".pill.is-size-other" not in css
     assert ".pill.is-size-unknown" not in css
+
+
+# ---------------------------------------------------------------------------
+# 7. The spreadsheet download
+# ---------------------------------------------------------------------------
+
+def _download(client, auth, pid, **params):
+    return client.get(
+        f"/api/projects/{pid}/image-inventory.xlsx", params=params, headers=auth
+    )
+
+
+def _parse(content):
+    """Load a produced workbook back, as the recipient's spreadsheet would."""
+    from io import BytesIO
+    from openpyxl import load_workbook
+    return load_workbook(BytesIO(content))
+
+
+def test_spreadsheet_parses_back_and_has_a_row_per_image(client, alice):
+    pid = _new_project(client, alice)
+    _seed(pid, [("a.jpg", 5184, 3888), ("b.jpg", 2592, 1944), ("c.jpg", 1335, 1004)])
+
+    res = _download(client, alice, pid)
+    assert res.status_code == 200, res.text
+    assert "spreadsheetml" in res.headers["content-type"]
+
+    workbook = _parse(res.content)
+    sheet = workbook.worksheets[0]
+    assert sheet.max_row == 4, "one header row plus three images"
+    names = [sheet.cell(row=r, column=1).value for r in range(2, 5)]
+    assert sorted(names) == ["a.jpg", "b.jpg", "c.jpg"]
+
+
+def test_spreadsheet_honours_the_active_filters(client, alice):
+    """A download beneath a filtered table means 'give me this'."""
+    pid = _new_project(client, alice)
+    _seed(pid, [
+        ("north-full.jpg", 5184, 3888),
+        ("north-half.jpg", 2592, 1944),
+        ("south-full.jpg", 5184, 3888),
+        ("odd.jpg", 1335, 1004),
+    ])
+
+    res = _download(client, alice, pid, category="Full")
+    sheet = _parse(res.content).worksheets[0]
+    names = sorted(sheet.cell(row=r, column=1).value for r in range(2, sheet.max_row + 1))
+    assert names == ["north-full.jpg", "south-full.jpg"]
+
+    res = _download(client, alice, pid, search="north", category="Full")
+    sheet = _parse(res.content).worksheets[0]
+    names = [sheet.cell(row=r, column=1).value for r in range(2, sheet.max_row + 1)]
+    assert names == ["north-full.jpg"]
+
+
+def test_spreadsheet_stores_file_size_as_a_number(client, alice):
+    """The recipient selects the column and reads the sum; text gives nothing.
+
+    Asserts *numeric*, not specifically float. openpyxl serialises an integral
+    float back to an int (float(4096) round-trips as 4096), so pinning float
+    here would fail for a reason that does not matter: in xlsx both are the
+    same numeric cell type and SUM() reads either. What must never appear is a
+    str -- that is the failure that silently produces an empty sum.
+    """
+    import config
+    pid = _new_project(client, alice)
+    uploads = os.path.join(config.DATA_DIR, "uploads")
+    os.makedirs(uploads, exist_ok=True)
+    sizes = {"inventory-xlsx-a.bin": 4096, "inventory-xlsx-b.bin": 1, "inventory-xlsx-c.bin": 1536}
+    for name, size in sizes.items():
+        with open(os.path.join(uploads, name), "wb") as f:
+            f.write(b"x" * size)
+    _seed(pid, [(f"s{i}.jpg", 5184, 3888, f"uploads/{name}")
+                for i, name in enumerate(sizes)])
+
+    sheet = _parse(_download(client, alice, pid).content).worksheets[0]
+    headers = [c.value for c in sheet[1]]
+    column = headers.index("File size (bytes)") + 1
+
+    values = [sheet.cell(row=r, column=column).value for r in range(2, sheet.max_row + 1)]
+    for value in values:
+        assert isinstance(value, (int, float)) and not isinstance(value, bool), (
+            f"file size stored as {type(value).__name__}, which breaks SUM()"
+        )
+    assert sorted(values) == sorted(sizes.values())
+    # And the column carries a display format rather than a pre-formatted string.
+    assert sheet.cell(row=2, column=column).number_format == "#,##0"
+
+
+def test_spreadsheet_leaves_a_missing_file_blank_not_zero(client, alice):
+    pid = _new_project(client, alice)
+    _seed(pid, [("gone.jpg", 5184, 3888, "uploads/not-there-xlsx.jpg")])
+    sheet = _parse(_download(client, alice, pid).content).worksheets[0]
+    headers = [c.value for c in sheet[1]]
+    column = headers.index("File size (bytes)") + 1
+    assert sheet.cell(row=2, column=column).value is None
+
+
+def test_spreadsheet_survives_a_project_name_excel_rejects(client, alice):
+    """`Site A / Roofs [2026]` otherwise makes a file Excel refuses to open,
+    which users reasonably report as 'the export is broken'."""
+    hostile = "Site A / Roofs [2026]: *final*?"
+    pid = _new_project(client, alice, hostile)
+    _seed(pid, [("a.jpg", 5184, 3888)])
+
+    res = _download(client, alice, pid)
+    assert res.status_code == 200, res.text
+
+    workbook = _parse(res.content)
+    for sheet in workbook.worksheets:
+        assert len(sheet.title) <= 31
+        for bad in "[]:*?/\\":
+            assert bad not in sheet.title, f"{bad!r} survived into sheet name {sheet.title!r}"
+
+    # The filename goes into a quoted Content-Disposition header.
+    disposition = res.headers["content-disposition"]
+    assert disposition.count('"') == 2, disposition
+    for bad in "/\\[]:*?":
+        assert bad not in disposition.split('"')[1]
+
+
+def test_spreadsheet_has_a_summary_sheet_with_every_category(client, alice):
+    pid = _new_project(client, alice)
+    _seed(pid, [("a.jpg", 5184, 3888), ("b.jpg", 5184, 3888), ("c.jpg", 2592, 1944)])
+
+    workbook = _parse(_download(client, alice, pid).content)
+    assert len(workbook.worksheets) == 2
+    summary = workbook.worksheets[1]
+    rows = {summary.cell(row=r, column=1).value: summary.cell(row=r, column=2).value
+            for r in range(1, summary.max_row + 1)}
+    for category in IMAGE_SIZE_CATEGORIES:
+        assert category in rows, f"{category} missing from the summary sheet"
+    assert rows["Full"] == 2
+    assert rows["Half"] == 1
+    assert rows[IMAGE_SIZE_OTHER] == 0
+    assert rows[IMAGE_SIZE_UNKNOWN] == 0
+    assert rows["Total images"] == 3
+
+
+def test_spreadsheet_header_is_frozen_and_filterable(client, alice):
+    pid = _new_project(client, alice)
+    _seed(pid, [("a.jpg", 5184, 3888)])
+    sheet = _parse(_download(client, alice, pid).content).worksheets[0]
+    assert sheet.freeze_panes == "A2"
+    assert sheet.auto_filter.ref is not None
+
+
+def test_spreadsheet_filename_carries_project_and_date(client, alice):
+    from datetime import datetime, timezone
+    pid = _new_project(client, alice, "Rooftops")
+    res = _download(client, alice, pid)
+    name = res.headers["content-disposition"].split('"')[1]
+    assert "Rooftops" in name
+    assert datetime.now(timezone.utc).strftime("%Y-%m-%d") in name
+    assert name.endswith(".xlsx")
+
+
+def test_spreadsheet_rejects_an_unrecognised_category(client, alice):
+    pid = _new_project(client, alice)
+    res = _download(client, alice, pid, category="Enormous")
+    assert res.status_code == 422
+
+
+def test_spreadsheet_export_is_capped(client, alice, monkeypatch):
+    """Reject an unreasonable export with a clear message rather than building
+    an enormous workbook in memory."""
+    pid = _new_project(client, alice)
+    _seed(pid, [(f"f{i}.jpg", 5184, 3888) for i in range(5)])
+    monkeypatch.setattr("api.routers.projects.IMAGE_INVENTORY_MAX_EXPORT_ROWS", 2)
+    res = _download(client, alice, pid)
+    assert res.status_code == 413
+    assert "Narrow the filters" in res.json()["detail"]
+
+
+# --- access control: the SAME minimum as the view ---------------------------
+
+def test_download_allows_owner(client, alice):
+    pid = _new_project(client, alice)
+    assert _download(client, alice, pid).status_code == 200
+
+
+def test_download_allows_appointed_reviewer(client, alice, bob):
+    pid = _new_project(client, alice)
+    _member(client, bob, "Rev")
+    client.post(f"/api/projects/{pid}/reviewers", json={"member_name": "Rev"}, headers=alice)
+    res = client.get(
+        f"/api/projects/{pid}/image-inventory.xlsx",
+        headers={**bob, "X-Annotator-Name": "Rev"},
+    )
+    assert res.status_code == 200, res.text
+
+
+def test_download_refuses_an_annotator_without_a_role(client, alice, bob):
+    """Uniform with the view: no half-open door on the export half."""
+    pid = _new_project(client, alice)
+    _member(client, bob, "Ann")
+    ids = _seed(pid, [("a.jpg", 5184, 3888)])
+    client.patch(f"/api/tasks/{ids[0]}?projectId={pid}", json={"assignee": "Ann"}, headers=alice)
+    res = client.get(
+        f"/api/projects/{pid}/image-inventory.xlsx",
+        headers={**bob, "X-Annotator-Name": "Ann"},
+    )
+    assert res.status_code == 403
+
+
+def test_download_refuses_an_unrelated_user_with_404(client, alice, bob):
+    pid = _new_project(client, alice)
+    assert _download(client, bob, pid).status_code == 404
+
+
+def test_download_requires_authentication(client, alice):
+    pid = _new_project(client, alice)
+    assert client.get(f"/api/projects/{pid}/image-inventory.xlsx").status_code == 401
+
+
+def test_download_never_includes_other_projects(client, alice):
+    mine = _new_project(client, alice, "mine-x")
+    other = _new_project(client, alice, "other-x")
+    _seed(mine, [("mine.jpg", 5184, 3888)])
+    _seed(other, [("theirs.jpg", 5184, 3888)])
+    sheet = _parse(_download(client, alice, mine).content).worksheets[0]
+    names = [sheet.cell(row=r, column=1).value for r in range(2, sheet.max_row + 1)]
+    assert names == ["mine.jpg"]
+
+
+# --- the sanitisers, directly ------------------------------------------------
+
+@pytest.mark.parametrize("raw", [
+    "Site A / Roofs [2026]",
+    "a:b*c?d",
+    "back\\slash",
+    "'quoted'",
+    "x" * 60,
+    "",
+    "[]:*?/\\",
+])
+def test_safe_sheet_name_always_produces_a_legal_name(raw):
+    from app.image_inventory_xlsx import safe_sheet_name
+    name = safe_sheet_name(raw)
+    assert 1 <= len(name) <= 31
+    for bad in "[]:*?/\\":
+        assert bad not in name
+    assert not name.startswith("'") and not name.endswith("'")
