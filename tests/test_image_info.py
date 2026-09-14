@@ -9,9 +9,16 @@ missing file reported as zero bytes, a summary that describes the page instead
 of the filtered set.
 """
 import os
+import uuid
 from io import BytesIO
 
+import pytest
+
 import models
+# Same route test_api_data_audit.py takes: the per-role cases need more than
+# the three named user fixtures, and one fresh account per role is what keeps
+# the grants from stacking.
+from conftest import _register
 from config import DATA_DIR
 from database import SessionLocal
 
@@ -62,6 +69,28 @@ def _get(client, headers, project_id, **params):
     )
 
 
+def _grant(client, owner, member, project_id, role):
+    """Give `member` exactly `role` on `project_id`, via a team of their own.
+
+    A fresh team per call, so re-granting a different role in a loop replaces
+    the caller's access rather than stacking a second grant — the resolver
+    takes the maximum over grants, so reusing one team would leave the previous
+    (possibly higher) role alive and silently pass a test that should fail.
+    """
+    team = client.post(
+        "/api/teams", json={"name": f"T-{role}-{uuid.uuid4().hex[:6]}"}, headers=owner
+    ).json()
+    username = client.get("/api/auth/me", headers=member).json()["username"]
+    client.post(
+        f"/api/teams/{team['id']}/members",
+        json={"username": username, "role": "member"}, headers=owner,
+    )
+    client.post(
+        f"/api/projects/{project_id}/grants",
+        json={"team_id": team["id"], "role": role}, headers=owner,
+    )
+
+
 # --- permissions -------------------------------------------------------------
 
 
@@ -81,22 +110,33 @@ def test_no_role_is_404_not_403(client, alice, bob):
     assert _get(client, bob, 999999).status_code == 404
 
 
-def test_viewer_may_read_the_table(client, alice, bob):
-    """Viewer, not reviewer: the Tasks view already shows this caller every
-    filename, and the resolution is visible the moment they open the image."""
+def test_owner_may_read_the_table(client, alice):
     project_id = _project(client, alice)
-    team = client.post("/api/teams", json={"name": "T"}, headers=alice).json()
-    username = client.get("/api/auth/me", headers=bob).json()["username"]
-    client.post(
-        f"/api/teams/{team['id']}/members",
-        json={"username": username, "role": "member"}, headers=alice,
-    )
-    client.post(
-        f"/api/projects/{project_id}/grants",
-        json={"team_id": team["id"], "role": "viewer"}, headers=alice,
-    )
+    _task(project_id, "a.jpg", *FULL)
+    assert _get(client, alice, project_id).status_code == 200
 
-    assert _get(client, bob, project_id).status_code == 200
+
+@pytest.mark.parametrize("role", ["viewer", "annotator", "reviewer", "manager"])
+def test_every_lesser_role_is_403(client, alice, role):
+    """Owner-only, and stricter than Exports. A whole-project inventory is a
+    management view: it answers 'what did we take delivery of', which is the
+    owner's question, not 'what is in front of me'.
+
+    403 rather than 404 because the caller has *a* role here — they need an
+    actionable message naming what is required, not one implying the project is
+    gone.
+
+    One fresh user per role rather than re-granting to the same person: the
+    resolver takes the maximum over a user's grants, so a loop that re-granted
+    would leave the previous (higher) role alive and pass regardless."""
+    project_id = _project(client, alice)
+    _task(project_id, "a.jpg", *FULL)
+    member = _register(client, f"member-{role}")
+    _grant(client, alice, member, project_id, role)
+
+    res = _get(client, member, project_id)
+    assert res.status_code == 403
+    assert "owner" in res.json()["detail"].lower()
 
 
 # --- categorisation ----------------------------------------------------------
@@ -384,35 +424,25 @@ def _load(res):
     return load_workbook(BytesIO(res.content))
 
 
-def _grant(client, owner, member, project_id, role):
-    team = client.post("/api/teams", json={"name": f"T-{role}"}, headers=owner).json()
-    username = client.get("/api/auth/me", headers=member).json()["username"]
-    client.post(
-        f"/api/teams/{team['id']}/members",
-        json={"username": username, "role": "member"}, headers=owner,
-    )
-    client.post(
-        f"/api/projects/{project_id}/grants",
-        json={"team_id": team["id"], "role": role}, headers=owner,
-    )
-
-
-def test_download_is_reviewer_gated_not_viewer(client, alice, bob, carol):
-    """Deliberately stricter than the table, matching the Exports rationale:
-    browsing an inventory and one-clicking the whole dataset's inventory into a
-    file that leaves the building are different acts."""
+@pytest.mark.parametrize("role", ["viewer", "annotator", "reviewer", "manager"])
+def test_download_is_owner_gated_too(client, alice, role):
+    """The same minimum as the table, deliberately. A view and its own download
+    disagreeing about "may I?" is the split that leaves a half-open door behind
+    after someone edits one of them."""
     project_id = _project(client, alice)
     _task(project_id, "a.jpg", *FULL)
+    member = _register(client, f"dl-{role}")
+    _grant(client, alice, member, project_id, role)
 
-    _grant(client, alice, bob, project_id, "annotator")
-    # The table is readable...
-    assert _get(client, bob, project_id).status_code == 200
-    # ...but the spreadsheet is not. 403, not 404: bob has *a* role, so he gets
-    # an actionable message naming the role required.
-    assert _xlsx(client, bob, project_id).status_code == 403
+    assert _xlsx(client, member, project_id).status_code == 403
+    # And the owner can.
+    assert _xlsx(client, alice, project_id).status_code == 200
 
-    _grant(client, alice, carol, project_id, "reviewer")
-    assert _xlsx(client, carol, project_id).status_code == 200
+
+def test_download_with_no_role_is_404(client, alice, bob):
+    """Same id-enumeration contract as the table."""
+    project_id = _project(client, alice)
+    assert _xlsx(client, bob, project_id).status_code == 404
 
 
 def test_download_returns_a_real_workbook(client, alice):

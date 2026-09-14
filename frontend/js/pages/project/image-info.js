@@ -20,7 +20,7 @@
 import { apiFetch } from "../../api.js?v=5";
 import { escapeHTML } from "../../utils.js?v=2";
 import { createDataTable } from "../../components/data-table.js?v=6";
-import { canReview } from "../../permissions.js?v=1";
+import { isOwner } from "../../permissions.js?v=1";
 import {
   CATEGORY_ORDER,
   categoryClass,
@@ -52,10 +52,12 @@ function el(id) {
 }
 
 function template(role) {
-  // The download is reviewer-gated server-side. Hiding it below that is a
-  // rendering decision only (rule 18b) — the endpoint re-checks regardless, and
-  // showing a button that always 403s is worse than not showing it.
-  const download = canReview(role)
+  // Owner-gated, the same minimum as the view itself, so in practice anyone
+  // who can see this page can also press the button. The check stays anyway:
+  // the router resolves the route from `myRole`, and if that ever loosens, a
+  // button that always 403s is worse than no button. Rendering only — the
+  // endpoint re-checks regardless (rule 18b).
+  const download = isOwner(role)
     ? `<button type="button" class="tool-button" id="downloadBtn">⬇ Download Excel</button>`
     : "";
 
