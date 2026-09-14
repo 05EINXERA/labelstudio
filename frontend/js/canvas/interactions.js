@@ -1201,8 +1201,54 @@ canvas.addEventListener("pointermove", (event) => {
   }
 });
 
+// Screen-pixel radius within which the second click of a double-click is
+// treated as landing on the same spot as the first. Converted to image
+// coordinates at use, so it stays a constant on-screen distance whatever the
+// zoom — at 8x zoom two clicks 6px apart on screen are 0.75px apart in the
+// image, and a fixed image-space threshold would stop recognising them.
+// Kept small on purpose: an annotator tracing fine detail may legitimately
+// place vertices close together, and eating one of those would be worse than
+// the doubled vertex this removes.
+const DBLCLICK_DUPLICATE_RADIUS_PX = 6;
+
 canvas.addEventListener("dblclick", (event) => {
-  // Polygon finalizing via double-click has been removed as per user request
+  // Double-click closes an in-progress polygon.
+  //
+  // This was previously removed ("as per user request"), then asked for again;
+  // the likely reason it was dropped the first time is the vertex it leaves
+  // behind. The browser fires mousedown/mouseup/click for BOTH clicks before
+  // dblclick, so by the time we get here the pointerdown handler has already
+  // added two vertices a few pixels apart — the second is an artifact of the
+  // gesture, not something the annotator meant to place. So drop it before
+  // finalizing, otherwise every double-closed polygon carries a doubled vertex
+  // at the end.
+  //
+  // Deliberately scoped to an in-progress polygon in draw mode, so the
+  // select-mode vertex deletion below is untouched.
+  if (view.drag?.type === "draw-polygon") {
+    const annotation = state.annotations.find((item) => item.id === view.drag.annotationId);
+    const pts = annotation?.points || [];
+
+    // The duplicate is only droppable if doing so still leaves a real polygon.
+    // Below that, finalizePolygon discards the shape anyway, and dropping a
+    // point first would only change which incomplete shape gets discarded.
+    if (pts.length >= 4) {
+      const last = pts[pts.length - 1];
+      const prev = pts[pts.length - 2];
+      const threshold = DBLCLICK_DUPLICATE_RADIUS_PX / (view.imageBox?.scale || 1);
+      if (last && prev && Math.hypot(last.x - prev.x, last.y - prev.y) <= threshold) {
+        pts.pop();
+        // Matches the invalidation the point-adding paths do: the parked
+        // point-undo stack no longer describes a reachable state once the
+        // vertex sequence changes underneath it.
+        if (view.drag.undonePoints) view.drag.undonePoints = [];
+      }
+    }
+
+    event.preventDefault();
+    finalizePolygon();
+    return;
+  }
 
   if (state.mode === "select" && state.selectedId) {
     const point = canvasPoint(event);
