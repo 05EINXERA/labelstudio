@@ -58,6 +58,12 @@ export function resizeCanvas() {
  */
 export function loadImageFromSource(src, name, { autoDetect = false } = {}) {
   const breadcrumbImage = document.querySelector("#breadcrumbImage");
+  // Point the backdrop <img> at the URL *before* kicking off the canvas
+  // Image(), so the two share one network fetch instead of racing into two.
+  // Setting it in onload (after the canvas image resolved) used to issue a
+  // second request, since /uploads sends no Cache-Control and the browser
+  // revalidates.
+  if (backgroundImage) backgroundImage.src = src;
   view.imageElement = new Image();
   view.imageElement.onload = async () => {
     view.imageLoaded = true;
@@ -78,7 +84,6 @@ export function loadImageFromSource(src, name, { autoDetect = false } = {}) {
       preloadMagicWand();
     }
     preloadDetectAndTag();
-    if (backgroundImage) backgroundImage.src = src;
   };
   view.imageElement.src = src;
 }

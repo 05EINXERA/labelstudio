@@ -138,7 +138,14 @@ async def add_security_and_cache_headers(request, call_next):
 
     # Intelligent static caching for high performance
     lower_path = path.lower()
-    if lower_path.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".woff", ".woff2", ".ttf")):
+    if lower_path.startswith("/uploads/"):
+        # Upload filenames are `uuid4().hex + ext` (see `_save_upload` in
+        # api/routers/projects.py) and are never rewritten in place, so a URL
+        # always maps to the same bytes. `immutable` lets the browser reuse a
+        # cached task image with no revalidation at all, which matters on the
+        # LAN deployment where annotators page back and forth through a gallery.
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    elif lower_path.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".woff", ".woff2", ".ttf")):
         response.headers["Cache-Control"] = "public, max-age=86400"
     elif lower_path.endswith((".js", ".css")):
         # Allow fast 304 revalidation or short-term reuse with background revalidation
