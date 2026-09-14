@@ -20,7 +20,7 @@
  */
 import { apiFetch } from "../../api.js?v=3";
 import { escapeHTML } from "../../utils.js?v=2";
-import { createDataTable } from "../../components/data-table.js?v=2";
+import { createDataTable } from "../../components/data-table.js?v=3";
 import {
   IMAGE_SIZE_CATEGORIES,
   formatBytes,

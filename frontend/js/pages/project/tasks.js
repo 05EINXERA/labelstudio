@@ -13,7 +13,7 @@
  */
 import { apiFetch } from "../../api.js?v=3";
 import { escapeHTML, formatTime, statusPillClass } from "../../utils.js?v=2";
-import { createDataTable } from "../../components/data-table.js?v=2";
+import { createDataTable } from "../../components/data-table.js?v=3";
 
 let root = null;
 let ctx = null;
@@ -97,6 +97,7 @@ function template(isCreator) {
     ${isCreator ? `
     <div class="bulk-bar" id="bulkBar">
       <span class="count" id="bulkCount"></span>
+      <button type="button" class="tool-button" id="bulkClearBtn">Clear selection</button>
       <button type="button" class="tool-button" id="bulkAssignBtn">Bulk assign</button>
       <button type="button" class="tool-button" id="bulkMoveBtn">Move to project…</button>
       <button type="button" class="tool-button" id="bulkDeleteBtn" style="color:#e05260;border-color:rgba(224,82,96,.3);">Bulk delete</button>
@@ -315,7 +316,10 @@ async function fetchServerTasks(state) {
   clearError();
   const data = await res.json();
   table.setServerData(data.items, data.total);
-  
+  // The rows changed without any checkbox being touched, so the "not shown"
+  // part of the count is stale until it is recomputed against the new page.
+  updateBulkBar(table.getSelection());
+
   // Prevent overwhelming the single-worker backend with hundreds of concurrent 
   // lock-status requests when printing (which sets pageSize to 100,000).
   if (data.items.length <= 50) {
@@ -651,12 +655,26 @@ function bindEditModal() {
 
 // --- bulk actions ------------------------------------------------------------
 
+/** Reflect the current selection in the bulk bar.
+ *
+ * A selection now outlives the visible page (see data-table.js
+ * `setServerData`), so the count alone can contradict what the owner sees: a
+ * search that hides every selected row would otherwise read "3 selected" with
+ * no box ticked. Naming the off-screen part makes the number verifiable, and
+ * the bar carries a Clear button because filtering the selection out of view
+ * is no longer a way to abandon it.
+ */
 function updateBulkBar(selection) {
   const bar = el("bulkBar");
   if (!bar) return;
   bar.classList.toggle("is-active", selection.size > 0);
   const countEl = el("bulkCount");
-  if (countEl) countEl.textContent = `${selection.size} selected`;
+  if (!countEl) return;
+  const visible = new Set((table?.getRows() || []).map((r) => r.id));
+  const hidden = [...selection].filter((id) => !visible.has(id)).length;
+  countEl.textContent = hidden
+    ? `${selection.size} selected (${hidden} not shown)`
+    : `${selection.size} selected`;
 }
 
 /** Fill the move dialog's destination list with every project but this one.
@@ -710,6 +728,9 @@ function bindBulkActions() {
   const deleteBtn = el("bulkDeleteBtn");
   const assignBtn = el("bulkAssignBtn");
   if (!deleteBtn || !assignBtn) return;
+
+  const clearBtn = el("bulkClearBtn");
+  if (clearBtn) clearBtn.addEventListener("click", () => table.clearSelection());
 
   const moveBtn = el("bulkMoveBtn");
   if (moveBtn) {

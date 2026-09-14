@@ -281,11 +281,21 @@ export function createDataTable(opts) {
       state.selected.forEach((id) => { if (!live.has(id)) state.selected.delete(id); });
       render();
     },
+    /**
+     * Install a server-fetched page of rows.
+     *
+     * Unlike `setRows`, this does NOT prune selections to the rows on screen.
+     * In server-paged mode the fetched rows are one page of a larger result,
+     * so an id being absent means "not on this page" far more often than it
+     * means "gone" — searching or paging would silently empty a selection the
+     * owner had just built up, which is exactly what a bulk move across a
+     * search needs to survive. Selections are instead dropped explicitly by
+     * `clearSelection()` after a bulk action, and a genuinely stale id is
+     * resolved against the database server-side (it is skipped, not applied).
+     */
     setServerData(items, total) {
       state.rows = items || [];
       state.totalRows = total || 0;
-      const live = new Set(state.rows.map(rowId));
-      state.selected.forEach((id) => { if (!live.has(id)) state.selected.delete(id); });
       render();
     },
     setQuery(q) { state.query = q || ""; state.page = 1; if (onFetchData) return onFetchData(state); else render(); },
