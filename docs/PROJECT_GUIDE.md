@@ -96,7 +96,13 @@ Client-side only, in `frontend/js/export/` — the browser builds the file and t
 
 Register/login at `/api/auth/register` and `/api/auth/token` (OAuth2 password form). Both set `access_token` as an **httpOnly, samesite=lax cookie** and also return the token in the body. `get_token()` accepts either the cookie or an `Authorization: Bearer` header, so scripts and the browser share one path. Tokens last 7 days.
 
-The signing secret resolves in order: `JWT_SECRET` env → `.jwt_secret` file in CWD → generated and written to that file. There is no roles/permissions layer — every authenticated user sees everything.
+The signing secret resolves in order: `JWT_SECRET` env → `.jwt_secret` file in CWD → generated and written to that file.
+
+**Roles (this section used to say there were none).** There is no global role layer — any authenticated user still reaches any project they own, created, share a team with, hold an assigned task in, or review. But there *are* per-project roles, resolved in `api/routers/projects.py` and returned on `GET /api/projects/{id}` as `is_owner` / `is_reviewer`:
+
+- **Owner** (`is_project_creator`) — checks `owner_id == user.id` unconditionally as well as the creator name. Gates destructive and management actions ("Only the project creator can…").
+- **Reviewer** (`is_project_reviewer`) — appointed per project; widens task editing and grants project access. Deliberately does not imply ownership.
+- Both are computed server-side. The client must never re-derive either by comparing names: this deployment shares one login, so the annotator display name usually differs from both the username and `project.creator`.
 
 **Status: fixed.** Every `/api/*` router now declares `dependencies=[Depends(get_current_user)]` except `/api/auth/*` itself (CLAUDE.md rule 1). This section previously described `tasks`, `data`, and `label_studio` as reachable unauthenticated; that gap is closed — any new router must include the same dependency.
 
@@ -105,7 +111,13 @@ The signing secret resolves in order: `JWT_SECRET` env → `.jwt_secret` file in
 - **Metrics** — `GET /api/projects/{id}/metrics` and `/api/projects/metrics/batch` (batch version exists to avoid N+1 from the dashboard). Returns total/completed/progress/comment counts, and writes back the derived project status as a side effect of a GET.
 - **Time tracking** — the client sends `time_spent_delta` on task saves (accumulated server-side) and posts to `/api/team/time` for the per-member roll-up.
 - **Bulk ops** — `POST /api/tasks/bulk-delete` and `/bulk-update` for assignee/status.
-- **Uploads** — `POST /api/projects/{id}/upload`, multi-file. Extension-allowlisted to png/jpg/jpeg/gif/webp, renamed to a UUID, stored under `$DATA_DIR/uploads`, one Task row created per file.
+- **Uploads** — `POST /api/projects/{id}/upload`, multi-file. Extension-allowlisted to png/jpg/jpeg/gif/webp, renamed to a UUID, stored under `$DATA_DIR/uploads`, one Task row created per file. Pixel dimensions are measured from the image header at this point and stored on the Task row, which is what makes the image inventory below a cheap read rather than a per-view measurement.
+- **Image inventory ("Images Info")** — a per-project report of every image with its resolution, a named size category and its file size.
+  - `GET /api/projects/{id}/image-inventory` — a page of rows plus a summary over the whole filtered set. Query: `search` (filename substring), `category`, `sort_by`, `sort_desc`, `limit` (≤ 500), `offset`.
+  - `GET /api/projects/{id}/image-inventory.xlsx` — the same filtered set as a spreadsheet. Returns 413 above 20,000 rows.
+  - **Permission for both: project owner OR appointed reviewer.** Deliberately uniform across the view and its download. 404 when the caller has no access to the project at all (so ids stay unenumerable), 403 when they can see it but hold neither role.
+  - The size vocabulary lives in `app/schemas.py` (`IMAGE_SIZE_NAMED`, `IMAGE_SIZE_CATEGORIES`), mirrored for rendering in `frontend/js/image-sizes.js` with a drift test. It has **two** catch-alls, and they must not be merged: `Other` is a measured but unrecognised resolution (a fact about the image), `Unknown` is a row with no usable dimensions (a gap in the data). Zero counts as unmeasured.
+  - Both endpoints are strictly read-only: they never measure and save a row they find unmeasured, because that would make the report self-altering — the `Unknown` count would depend on which pages somebody browsed.
 
 ## 9. Known rough edges
 
