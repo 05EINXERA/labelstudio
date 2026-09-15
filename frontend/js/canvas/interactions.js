@@ -225,9 +225,23 @@ export function finalizePolygon() {
   // to the class panel. Without it, re-arm the gate as before.
   state.needsLabelSelection = !state.stickyClass;
   state.justFinalized = true;
+  // Closing a polygon drops into select mode with the finished shape selected,
+  // so its vertices and label are immediately editable instead of the canvas
+  // still being armed to draw. The next single click restores draw mode (see
+  // the justFinalized block in pointerdown) without placing a vertex.
+  //
+  // Sticky class is deliberately exempt: there the whole point is that the next
+  // polygon starts on the very next click, and bouncing through select mode
+  // would cost an extra click per shape.
+  if (!state.stickyClass) {
+    state.mode = "select";
+    state.selectedIds.clear();
+    state.selectedIds.add(annotation.id);
+    state.selectedId = annotation.id;
+  }
   render();
   save();
-  setStatus(state.stickyClass ? "Polygon saved — keep drawing" : "Select class for next");
+  setStatus(state.stickyClass ? "Polygon saved — keep drawing" : "Polygon saved — click to draw again");
 }
 
 // Point-level undo/redo for an in-progress (not yet finalized) polygon.
@@ -750,7 +764,23 @@ canvas.addEventListener("pointerdown", (event) => {
     // click: vertex add/delete, point drag and move all work from here on.
     if (!hitId || !state.selectedIds.has(hitId)) {
       clearSelectionAfterFinalize();
-      if (!hitId) return;
+      if (!hitId) {
+        // Empty canvas: this click re-arms drawing rather than doing nothing.
+        // finalizePolygon parked the canvas in select mode so the finished shape
+        // stayed editable; one click on empty space says "done editing, draw the
+        // next one". Deliberately places no vertex — the click spends itself on
+        // the mode switch, and the polygon starts on the following click.
+        //
+        // Gated on the label gate: with no class armed, entering draw mode would
+        // only produce "Select class" on the next click, so staying in select
+        // mode is the more honest state.
+        if (!state.needsLabelSelection && state.activeLabelId) {
+          state.mode = "draw";
+          setStatus("Draw mode");
+        }
+        render();
+        return;
+      }
     }
   }
 
@@ -1250,7 +1280,7 @@ canvas.addEventListener("dblclick", (event) => {
     return;
   }
 
-  if (state.mode === "select" && state.selectedId) {
+  if (state.mode === "select") {
     const point = canvasPoint(event);
     const selected = state.annotations.find(a => a.id === state.selectedId);
     if (selected && selected.points && selected.points.length > 3) {
@@ -1264,6 +1294,40 @@ canvas.addEventListener("dblclick", (event) => {
         setStatus("Vertex removed");
         return;
       }
+    }
+
+    // Double-clicking inside a shape selects it. pointerdown has usually done
+    // this already (hitTest does a real interior pointInPolygon test), but not
+    // always: with Move Objects unlocked, double-clicking an already-selected
+    // shape takes the "move-shape" branch instead, and a Shift-held second
+    // click toggles the shape back off. Re-asserting the selection here makes
+    // the gesture mean one thing regardless of how it was reached.
+    //
+    // Ordered after the vertex check on purpose: a double-click landing on a
+    // vertex is a delete, and every vertex is also inside the shape, so
+    // selecting first would swallow that gesture.
+    const hitId = hitTest(point);
+    if (hitId) {
+      const hitAnnotation = state.annotations.find(a => a.id === hitId);
+      state.selectedIds.clear();
+      // Group-aware, matching the pointerdown selection path: a shape that
+      // belongs to a group is never selected alone.
+      if (hitAnnotation && hitAnnotation.groupId) {
+        state.annotations.forEach(a => {
+          if (a.groupId === hitAnnotation.groupId) state.selectedIds.add(a.id);
+        });
+      } else {
+        state.selectedIds.add(hitId);
+      }
+      state.selectedId = hitId;
+      view.selectedLineIndex = -1;
+      view.hoveredLineIndex = -1;
+      // Cancels any move armed by this gesture's pointerdown, so the shape
+      // cannot drift while the second click is being delivered.
+      view.drag = null;
+      setCanvasCursor("default");
+      // No snapshot() and no save(): selecting is not an undoable edit.
+      render();
     }
   }
 });
