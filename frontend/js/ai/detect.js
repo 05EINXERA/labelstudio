@@ -1,4 +1,4 @@
-import { generateUUID, round } from "../utils.js?v=2";
+import { generateUUID, round } from "../utils.js?v=3";
 import { apiFetch, pollJob } from "../api.js?v=3";
 import { state, colorForName, labelByName, snapshot, selectedAnnotation } from "../state.js?v=3";
 import { updateAnnotationBounds } from "../canvas/geometry.js?v=5";

@@ -2250,6 +2250,21 @@ canvas {
 }
 .mgmt-toolbar input[type="search"] { min-width: 240px; }
 
+/* --- view tabs (projects list / workspace-wide task search) -------------- */
+
+.view-tabs {
+  display: flex; gap: 4px; margin-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+.view-tab {
+  padding: 9px 16px; border: none; background: none; cursor: pointer;
+  color: var(--muted); font-size: .92rem; font-weight: 600;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  transition: color .15s ease, border-color .15s ease;
+}
+.view-tab:hover { color: var(--ink); }
+.view-tab.is-active { color: var(--accent); border-bottom-color: var(--accent); }
+
 /* --- data table --------------------------------------------------------- */
 
 .data-table-wrap {

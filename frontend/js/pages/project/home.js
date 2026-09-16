@@ -8,7 +8,7 @@
  * These are server-side counts.
  */
 import { apiFetch } from "../../api.js?v=3";
-import { escapeHTML, formatTime } from "../../utils.js?v=2";
+import { escapeHTML, formatTime } from "../../utils.js?v=3";
 
 let abortController = null;
 

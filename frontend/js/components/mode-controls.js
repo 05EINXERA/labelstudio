@@ -5,7 +5,7 @@
  * history actions (Undo, Redo), annotation mutations (Delete, Clear), manual save actions,
  * move objects lock/unlock toggle, and comment overlay keyboard handling.
  */
-import { generateUUID, round } from "../utils.js?v=2";
+import { generateUUID, round } from "../utils.js?v=3";
 import { state, snapshot, loadStickyClassPref, saveStickyClassPref } from "../state.js?v=3";
 import { view } from "../canvas/view.js?v=1";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";

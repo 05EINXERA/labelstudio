@@ -524,6 +524,12 @@ class TaskListItem(BaseModel):
     updated_at: Optional[datetime] = None
     comment_count: int = 0
     class_count: int = 0
+    # Only populated by the cross-project listing (no `projectId` given), where
+    # a row is meaningless without saying which project it came from. The
+    # per-project listing leaves them None rather than repeating the project on
+    # every row of a table that already names it.
+    project_id: Optional[int] = None
+    project_name: Optional[str] = None
 
 class PaginatedTasks(BaseModel):
     items: List[TaskListItem]

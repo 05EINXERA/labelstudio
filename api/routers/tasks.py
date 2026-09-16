@@ -44,6 +44,19 @@ LOCKED_STATUSES = {
     "Completed", "Approved", "Verified", "Passed", "Reviewed", "Monitored",
 }
 
+# Columns GET /api/tasks may be ordered by. Anything else falls back to
+# updated_at rather than reaching order_by — see the sort block in get_tasks.
+SORTABLE_TASK_COLUMNS = {
+    "id": models.Task.id,
+    "description": models.Task.description,
+    "assignee": models.Task.assignee,
+    "status": models.Task.status,
+    "time_spent": models.Task.time_spent,
+    "updated_at": models.Task.updated_at,
+    "created_at": models.Task.created_at,
+    "project_id": models.Task.project_id,
+}
+
 
 def _known_label_ids(anns, db) -> set:
     """The subset of labelIds in `anns` that actually exist in `labels`.
@@ -269,6 +282,7 @@ def _get_owned_task(task_id: int, user: models.User, db: Session, annotator: Opt
 @router.get("", response_model=PaginatedTasks)
 def get_tasks(
     projectId: Optional[int] = Query(None),
+    projectIds: Optional[List[int]] = Query(None),
     limit: int = Query(50),
     offset: int = Query(0),
     search: Optional[str] = Query(None),
@@ -280,6 +294,7 @@ def get_tasks(
     user: models.User = Depends(get_current_user),
     annotator: Optional[models.TeamMember] = Depends(get_current_annotator)
 ):
+    cross_project = not projectId
     if projectId:
         get_owned_project(projectId, user, db, annotator)
         query = db.query(models.Task).filter(models.Task.project_id == projectId)
@@ -296,6 +311,11 @@ def get_tasks(
                 models.Task.assignee.ilike(f"%{search}%")
             )
         )
+    if cross_project and projectIds:
+        # Narrow a cross-project search to a chosen subset. Intersected with the
+        # accessible set already applied above, so passing an id the caller
+        # cannot reach filters everything out rather than exposing it.
+        query = query.filter(models.Task.project_id.in_(projectIds))
     if status and status.lower() != "all":
         query = query.filter(models.Task.status == status)
     if assignee:
@@ -304,7 +324,13 @@ def get_tasks(
     total = query.count()
 
     if sort_by:
-        sort_col = getattr(models.Task, sort_by, models.Task.updated_at)
+        # Whitelisted, not getattr'd: the bare getattr fell back to updated_at
+        # only for names Task has no attribute for at all. A name that resolves
+        # to a relationship or another non-column attribute ("annotations",
+        # "metadata") got as far as order_by and raised there. The projects
+        # page's workspace-wide task search lets the reader sort by clicking
+        # any column header, so the sort key is now user-supplied in practice.
+        sort_col = SORTABLE_TASK_COLUMNS.get(sort_by, models.Task.updated_at)
         if sort_desc:
             sort_col = sort_col.desc()
         query = query.order_by(sort_col, models.Task.id.desc())
@@ -313,11 +339,26 @@ def get_tasks(
 
     query = query.with_entities(
         models.Task.id, models.Task.description, models.Task.assignee,
-        models.Task.image_path, models.Task.status, models.Task.time_spent, models.Task.updated_at
+        models.Task.image_path, models.Task.status, models.Task.time_spent,
+        models.Task.updated_at, models.Task.project_id
     )
     
     tasks = query.offset(offset).limit(limit).all()
     task_ids = [t.id for t in tasks]
+
+    # Cross-project rows need to say which project they came from — the whole
+    # point of the workspace-wide task search. One lookup for the page's
+    # distinct projects, not a join that would re-fetch the project row per
+    # task.
+    project_names = {}
+    if cross_project and tasks:
+        pids = {t.project_id for t in tasks if t.project_id}
+        if pids:
+            project_names = {
+                pid: name for pid, name in
+                db.query(models.Project.id, models.Project.name)
+                .filter(models.Project.id.in_(pids)).all()
+            }
     
     # Both counts come from one pass over the page's annotations. Split across
     # two queries they each bitmap-scanned the same ~8,900 heap blocks to read
@@ -348,7 +389,9 @@ def get_tasks(
              "image_path": t.image_path, "status": t.status, "time_spent": t.time_spent, 
              "updated_at": t.updated_at, "annotations": [],
              "comment_count": comment_counts.get(t.id, 0),
-             "class_count": class_counts.get(t.id, 0)
+             "class_count": class_counts.get(t.id, 0),
+             "project_id": t.project_id if cross_project else None,
+             "project_name": project_names.get(t.project_id) if cross_project else None,
         })
              
     return {"items": items, "total": total, "limit": limit, "offset": offset}

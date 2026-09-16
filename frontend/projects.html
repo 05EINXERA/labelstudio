@@ -6,8 +6,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Projects - Dataset Workspace</title>
   <link rel="icon" type="image/png" href="logo.png">
-  <link rel="stylesheet" href="styles.css?v=7">
-  <link rel="modulepreload" href="js/pages/projects-list.js?v=5">
+  <link rel="stylesheet" href="styles.css?v=8">
+  <link rel="modulepreload" href="js/pages/projects-list.js?v=7">
   <script>
     if (!localStorage.getItem('logged_in')) {
       window.location.replace('/');
@@ -58,7 +58,14 @@
 
     <div id="errorBanner" class="mgmt-error" style="display: none;"></div>
 
-    <div class="mgmt-toolbar">
+    <div class="view-tabs" role="tablist" aria-label="Browse">
+      <button type="button" class="view-tab is-active" id="viewTabProjects" role="tab"
+        aria-selected="true" aria-controls="tableMount">Projects</button>
+      <button type="button" class="view-tab" id="viewTabTasks" role="tab"
+        aria-selected="false" aria-controls="taskTableMount">Find tasks</button>
+    </div>
+
+    <div class="mgmt-toolbar" id="projectToolbar">
       <input type="search" id="searchInput" placeholder="Search projects…" aria-label="Search projects">
       <select id="statusFilter" aria-label="Filter by status">
         <option value="All">All statuses</option>
@@ -73,7 +80,30 @@
       </select>
     </div>
 
+    <div class="mgmt-toolbar" id="taskToolbar" style="display: none;">
+      <input type="search" id="taskSearchInput" placeholder="Search tasks in all projects…"
+        aria-label="Search tasks across all projects">
+      <select id="taskProjectFilter" aria-label="Filter by project">
+        <option value="All">All projects</option>
+      </select>
+      <select id="taskStatusFilter" aria-label="Filter tasks by status">
+        <option value="All">All statuses</option>
+      </select>
+      <select id="taskAssigneeFilter" aria-label="Filter tasks by assignee">
+        <option value="All">All assignees</option>
+      </select>
+      <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:.9rem; color: var(--ink);">
+        <input type="checkbox" id="taskMyTasksFilter"> My Tasks
+      </label>
+      <select id="taskPageSizeSelect" aria-label="Task rows per page">
+        <option value="25">25 per page</option>
+        <option value="50">50 per page</option>
+        <option value="100">100 per page</option>
+      </select>
+    </div>
+
     <div id="tableMount"></div>
+    <div id="taskTableMount" style="display: none;"></div>
   </main>
 
   <!-- New / edit project modal -->
@@ -151,7 +181,7 @@
     </div>
   </div>
 
-  <script type="module" src="js/pages/projects-list.js?v=5"></script>
+  <script type="module" src="js/pages/projects-list.js?v=7"></script>
 </body>
 
 </html>

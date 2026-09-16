@@ -1,7 +1,7 @@
 /**
  * Main workspace entry point and lifecycle orchestrator.
  */
-import { clientId } from "./utils.js?v=2";
+import { clientId } from "./utils.js?v=3";
 import { apiFetch } from "./api.js?v=3";
 import { state } from "./state.js?v=3";
 import {

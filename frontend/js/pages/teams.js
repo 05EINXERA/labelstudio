@@ -1,5 +1,5 @@
 import { apiFetch } from "../api.js?v=3";
-import { escapeHTML } from "../utils.js?v=2";
+import { escapeHTML } from "../utils.js?v=3";
 import { createDataTable } from "../components/data-table.js?v=3";
 import { NotificationManager } from "../components/notifications.js?v=4";
 

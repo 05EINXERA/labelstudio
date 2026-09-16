@@ -70,6 +70,22 @@ export function formatClassName(className) {
 // entry in schemas.TASK_STATUSES only needs a matching rule in styles.css —
 // there is no per-status mapping here to keep in sync. Returns "" for an
 // unknown or empty status, which renders as the plain default pill.
+// The task status vocabulary, shared by every page that offers a status
+// filter or picker. Kept in sync with api/routers/tasks.py; it lived as a
+// module-local const in pages/project/tasks.js until the workspace-wide task
+// search needed the same list, and a second copy would have drifted.
+export const TASK_STATUSES = [
+  "New", "In Progress", "Completed", "Approved", "Declined",
+  "Verified", "Checked", "Passed", "Reviewed", "Monitored",
+];
+
+// Once a task reaches one of these, only its assignee, the project owner or a
+// reviewer may change its status further (api/routers/tasks.py
+// LOCKED_STATUSES — kept in sync).
+export const LOCKED_TASK_STATUSES = new Set([
+  "Completed", "Approved", "Verified", "Passed", "Reviewed", "Monitored",
+]);
+
 export function statusPillClass(status) {
   const s = String(status || "").trim();
   if (!s) return "";

@@ -6,7 +6,7 @@
  * so they can be middle-clicked, copied and deep-linked; the router listens for
  * `hashchange`.
  */
-import { escapeHTML } from "../utils.js?v=2";
+import { escapeHTML } from "../utils.js?v=3";
 
 // `requires` gates an item to a project role. Omitted means everyone with
 // project access sees it.

@@ -18,7 +18,7 @@
  * until complete, then offers /api/exports/{job_id}/download (one-shot).
  */
 import { apiFetch } from "../../api.js?v=3";
-import { escapeHTML } from "../../utils.js?v=2";
+import { escapeHTML } from "../../utils.js?v=3";
 
 let root = null;
 let ctx = null;

@@ -1,4 +1,4 @@
-import { round } from "../utils.js?v=2";
+import { round } from "../utils.js?v=3";
 
 export function annotationPoints(annotation) {
   if (Array.isArray(annotation?.points) && annotation.points.length >= 1) {

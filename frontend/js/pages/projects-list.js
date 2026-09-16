@@ -7,9 +7,10 @@
  * /api/projects with /api/projects/metrics/batch.
  */
 import { apiFetch } from "../api.js?v=3";
-import { escapeHTML, formatTime, statusPillClass } from "../utils.js?v=2";
+import { escapeHTML, formatTime, statusPillClass } from "../utils.js?v=3";
 import { createDataTable } from "../components/data-table.js?v=3";
 import { NotificationManager } from "../components/notifications.js?v=4";
+import { createTaskSearch } from "./task-search.js?v=2";
 
 const els = {
   user: document.getElementById("currentUser"),
@@ -39,6 +40,18 @@ const els = {
   transferProjectName: document.getElementById("transferProjectName"),
   transferNewOwnerSelect: document.getElementById("transferProjectNewOwnerSelect"),
   transferFormCancel: document.getElementById("transferProjectFormCancel"),
+
+  tabProjects: document.getElementById("viewTabProjects"),
+  tabTasks: document.getElementById("viewTabTasks"),
+  projectToolbar: document.getElementById("projectToolbar"),
+  taskToolbar: document.getElementById("taskToolbar"),
+  taskMount: document.getElementById("taskTableMount"),
+  taskSearch: document.getElementById("taskSearchInput"),
+  taskProjectFilter: document.getElementById("taskProjectFilter"),
+  taskStatusFilter: document.getElementById("taskStatusFilter"),
+  taskAssigneeFilter: document.getElementById("taskAssigneeFilter"),
+  taskMyTasksFilter: document.getElementById("taskMyTasksFilter"),
+  taskPageSize: document.getElementById("taskPageSizeSelect"),
 };
 
 const ICON_EDIT = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></svg>`;
@@ -118,6 +131,53 @@ const table = createDataTable({
   ],
 });
 
+// --- workspace-wide task search --------------------------------------------
+
+const taskSearch = createTaskSearch({
+  mount: els.taskMount,
+  searchInput: els.taskSearch,
+  projectFilter: els.taskProjectFilter,
+  statusFilter: els.taskStatusFilter,
+  assigneeFilter: els.taskAssigneeFilter,
+  myTasksFilter: els.taskMyTasksFilter,
+  pageSizeSelect: els.taskPageSize,
+  onError: showError,
+  onClearError: clearError,
+});
+
+/**
+ * Switch between the projects table and the task search.
+ *
+ * The task view is inert until first opened — it neither fetches nor polls —
+ * so the common case of only ever looking at projects costs nothing.
+ */
+function setView(view) {
+  const tasks = view === "tasks";
+  els.tabProjects.classList.toggle("is-active", !tasks);
+  els.tabTasks.classList.toggle("is-active", tasks);
+  els.tabProjects.setAttribute("aria-selected", String(!tasks));
+  els.tabTasks.setAttribute("aria-selected", String(tasks));
+  els.projectToolbar.style.display = tasks ? "none" : "";
+  els.taskToolbar.style.display = tasks ? "" : "none";
+  els.mount.style.display = tasks ? "none" : "";
+  els.taskMount.style.display = tasks ? "" : "none";
+  clearError();
+
+  if (tasks) {
+    taskSearch.activate();
+    els.taskSearch.focus();
+  } else {
+    taskSearch.deactivate();
+  }
+
+  // Survives a reload and makes the view linkable, without a second history
+  // entry per toggle.
+  const url = new URL(window.location.href);
+  if (tasks) url.searchParams.set("view", "tasks");
+  else url.searchParams.delete("view");
+  window.history.replaceState({}, "", url);
+}
+
 // --- data ------------------------------------------------------------------
 
 async function loadProjects() {
@@ -129,7 +189,12 @@ async function loadProjects() {
       return;
     }
     clearError();
-    table.setRows(await res.json());
+    const projects = await res.json();
+    table.setRows(projects);
+    // The "Find tasks" project filter lists exactly the projects this page
+    // already fetched, so it needs no request of its own and can never offer a
+    // project the caller cannot reach.
+    taskSearch.setProjects(projects);
   } catch (err) {
     console.error("Failed to load projects", err);
     showError("Could not reach the server. Check your connection and reload.");
@@ -232,6 +297,9 @@ els.modal.addEventListener("click", (e) => {
   if (e.target === els.modal) closeModal();
 });
 
+els.tabProjects.addEventListener("click", () => setView("projects"));
+els.tabTasks.addEventListener("click", () => setView("tasks"));
+
 els.search.addEventListener("input", (e) => table.setQuery(e.target.value));
 els.status.addEventListener("change", (e) => table.setFilter("status", e.target.value));
 els.pageSize.addEventListener("change", (e) => table.setPageSize(e.target.value));
@@ -263,6 +331,7 @@ async function loadMembers() {
     const res = await apiFetch("/api/team");
     if (res && res.ok) {
       membersCache = await res.json();
+      taskSearch.setAssignees(membersCache);
     }
   } catch (err) {
     console.error("Failed to load team members", err);
@@ -404,13 +473,22 @@ els.user.textContent = localStorage.getItem("dataset_username") || "";
 new NotificationManager("notifBell", "notifDropdown", "notifList", "notifBadge");
 
 table.showLoading(6);
-Promise.all([loadProjects(), loadTeam()]).catch((err) => console.error("Initial load failed:", err));
+// loadMembers joins the initial load so the task search's assignee filter is
+// populated before the view is first opened; it used to run only when the
+// transfer modal was opened.
+Promise.all([loadProjects(), loadTeam(), loadMembers()])
+  .catch((err) => console.error("Initial load failed:", err));
+
+// Deep link: /projects.html?view=tasks opens straight into the task search.
+if (new URLSearchParams(window.location.search).get("view") === "tasks") {
+  setView("tasks");
+}
 
 // Poll every 30 s so LAN peers see project and team updates promptly.
 const POLL_INTERVAL_MS = 30_000;
 setInterval(async () => {
   try {
-    await Promise.all([loadProjects(), loadTeam()]);
+    await Promise.all([loadProjects(), loadTeam(), loadMembers()]);
   } catch { /* best-effort */ }
 }, POLL_INTERVAL_MS);
 

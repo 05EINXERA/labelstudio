@@ -9,7 +9,7 @@
  *   { projectId, project, reloadProject(), setStatus(), navigate() }
  */
 import { apiFetch } from "../../api.js?v=3";
-import { escapeHTML, statusPillClass } from "../../utils.js?v=2";
+import { escapeHTML, statusPillClass } from "../../utils.js?v=3";
 import { renderNav, setActive, NAV_ITEMS, visibleNavItems } from "../../components/project-nav.js?v=2";
 import { NotificationManager } from "../../components/notifications.js?v=4";
 

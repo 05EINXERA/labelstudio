@@ -11,7 +11,7 @@
  * (CLAUDE.md rule 15) — the CSS transition is keyed on the class.
  */
 import { apiFetch } from "../api.js?v=3";
-import { escapeHTML } from "../utils.js?v=2";
+import { escapeHTML } from "../utils.js?v=3";
 
 const POLL_INTERVAL_MS = 30000;
 
