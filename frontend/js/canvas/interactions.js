@@ -11,7 +11,7 @@ import { normalizeRect, rectIsDegenerate, marqueeHits } from "./marquee.js?v=1";
 import { shouldCanvasClickBeBlocked } from "../comment-mode.js?v=1";
 import { commentOverlayRefs, openCommentEditor, anchorCommentOverlay } from "../comment-overlay.js?v=2";
 import { setStatus, save, render, activateLabel, toggleAnnotationsHidden, unhideAllObjects, editBlockReason } from "../components/workspace.js?v=26";
-import { labelIndexForCode, hideTargetIds, shouldHide, hideKeyAction } from "../shortcuts.js?v=2";
+import { labelIndexForCode, hideTargetIdsWhileDrawing, shouldHide, hideKeyAction } from "../shortcuts.js?v=3";
 import { performMagicWandSegmentation } from "../ai/detect.js?v=4";
 import { applyAutoSmooth } from "../fft-controls.js?v=4";
 import { annotationSettings } from "../feature-flags.js?v=1";
@@ -1665,6 +1665,11 @@ canvas.addEventListener("pointercancel", () => {
 // Whether an "H" hold is currently peeking. Module scope because the keydown
 // and keyup listeners both need it and it must survive between the two.
 let peekActive = false;
+// What the most recent "H" tap did: the ids it acted on and which direction it
+// moved them. A press only reveals itself as a hold on its first auto-repeat,
+// by which point the tap has already fired, so the hold needs this to undo
+// exactly what the tap did — in either direction.
+let lastTap = null;
 
 /**
  * Carry out one decision from hideKeyAction().
@@ -1675,10 +1680,11 @@ let peekActive = false;
  * "peek-start" is the momentary hold. It first *undoes* the toggle the press's
  * own first keydown already applied — a hold must leave nothing behind on
  * release, and the browser only reveals a press is a hold on its first repeat,
- * by which time the tap has fired. Rather than remember what the tap did, the
- * same decision is recomputed against the now-current state and inverted, which
- * is exactly its inverse. The peek then goes in a set of its own, so a release
- * need only drop it, and so no other gesture can end the hold by accident.
+ * by which time the tap has fired. It undoes it from `lastTap` rather
+ * than by recomputing the direction: the toggle has already flipped the state,
+ * so shouldHide would answer the same way twice and re-hide instead of lifting.
+ * The peek then goes in a set of its own, so a release need only drop it, and
+ * so no other gesture can end the hold by accident.
  *
  * A peek deliberately does not touch the Objects panel: flickering every row's
  * eye for the duration of a hold would be worse than the canvas flicker this
@@ -1688,6 +1694,10 @@ function applyHideAction(action) {
   if (action === "peek-end") {
     if (!peekActive) return;
     peekActive = false;
+    // Nothing is left for a later hold to undo: this press's tap was already
+    // reversed at peek-start, and a stale entry would make the *next* hold undo
+    // a toggle that a different press had established.
+    lastTap = null;
     state.peekHiddenIds.clear();
     render();
     return;
@@ -1695,7 +1705,11 @@ function applyHideAction(action) {
 
   if (action !== "toggle" && action !== "peek-start") return;
 
-  const ids = hideTargetIds(state.selectedIds, state.annotations);
+  // Mid-draw the target is the shape being drawn, which is deliberately not in
+  // selectedIds — starting a polygon sets selectedId only. Without this, "H"
+  // mid-draw hit the empty-selection branch below and did nothing at all.
+  const drawingId = view.drag?.type === "draw-polygon" ? view.drag.annotationId : null;
+  const ids = hideTargetIdsWhileDrawing(state.selectedIds, state.annotations, drawingId);
   if (ids.length === 0) {
     // Only a tap reports this. A hold that began on an empty selection has
     // nothing to say a second time.
@@ -1703,9 +1717,18 @@ function applyHideAction(action) {
     return;
   }
 
-  const hide = shouldHide(ids, state.selectedId, (id) => state.hiddenAnnotationIds.has(id));
-
   if (action === "toggle") {
+    const hide = shouldHide(ids, state.selectedId, (id) => state.hiddenAnnotationIds.has(id));
+    // Remember what this tap did and to which ids, so that if the press turns
+    // out to be a hold, peek-start can undo precisely it. Recomputing the
+    // direction there instead does not work: the toggle has already flipped the
+    // state, so shouldHide answers the same way again and "inverting" it
+    // repeats the tap rather than lifting it.
+    //
+    // Both directions are recorded, not just the hide. A hold that starts on an
+    // already-hidden object taps it *visible* first, and leaving that unrecorded
+    // lost the sticky hide the object had before the press.
+    lastTap = { ids: ids.slice(), hid: hide };
     toggleAnnotationsHidden(ids, hide);
     // The selection is deliberately kept: hiding the only selected shape makes
     // it vanish from the canvas, and the selection is the handle that keeps its
@@ -1715,8 +1738,10 @@ function applyHideAction(action) {
     return;
   }
 
-  // peek-start
-  toggleAnnotationsHidden(ids, !hide);
+  // peek-start: reverse the tap, then hide momentarily instead, so the press
+  // leaves the sticky layer exactly as it found it once released.
+  if (lastTap) toggleAnnotationsHidden(lastTap.ids, !lastTap.hid);
+  lastTap = null;
   peekActive = true;
   ids.forEach((id) => state.peekHiddenIds.add(id));
   render();

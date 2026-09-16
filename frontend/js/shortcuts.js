@@ -110,3 +110,23 @@ export function hideKeyAction({ type, repeat, peeking } = {}) {
   if (!repeat) return "toggle";
   return peeking ? "none" : "peek-start";
 }
+
+/**
+ * Every annotation id the "H" key should act on, given the selection *and* any
+ * shape currently being drawn.
+ *
+ * Mid-draw the shape is the obvious target, but it is not in the selection:
+ * starting a polygon sets `state.selectedId` and leaves `selectedIds` empty
+ * (canvas/interactions.js, the first-point branch). hideTargetIds therefore
+ * returned [] and "H" answered "Select an object first" — so mid-draw neither
+ * the toggle nor the hold ran, and a release had nothing to restore.
+ *
+ * The shape being drawn wins outright rather than joining the selection: it is
+ * what the annotator is looking at, and hiding a stale selection alongside it
+ * would be a surprise. `drawingId` is null whenever no polygon is in progress,
+ * which collapses this back to plain hideTargetIds.
+ */
+export function hideTargetIdsWhileDrawing(selectedIds, annotations, drawingId) {
+  if (drawingId) return [drawingId];
+  return hideTargetIds(selectedIds, annotations);
+}
