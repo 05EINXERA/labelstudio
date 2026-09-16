@@ -5,7 +5,7 @@ import {
   beginHydration, completeHydration, failHydration, hydrationOk, hydrationFailed,
   hydrationSaveBlock, currentHydrationGeneration, noteHydratedAnnotationCount,
   noteHydratedAnnotations, annotationsChangedSinceHydration, openTaskWasHydrated
-} from "./state.js?v=10";
+} from "./state.js?v=11";
 import { view } from "./canvas/view.js?v=1";
 import { commentOverlayRefs, clearCommentOverlayAnchor } from "./comment-overlay.js?v=2";
 import { backspaceAction, modeAfterCommentCommit } from "./comment-mode.js?v=1";
@@ -33,7 +33,7 @@ import {
 } from "./components/timer.js?v=8";
 import {
   finalizePolygon, deleteSelected, undoAction, redoAction, setZoomChangeHandler
-} from "./canvas/interactions.js?v=15";
+} from "./canvas/interactions.js?v=16";
 import { initContextMenu } from "./canvas/context-menu.js?v=5";
 import { getCurrentUser } from "./session.js?v=2";
 import { initCanvasAssign, renderAssignButton } from "./canvas-assign.js?v=2";

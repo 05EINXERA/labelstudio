@@ -1,5 +1,5 @@
 import { generateUUID, clamp, round } from "../utils.js?v=2";
-import { state, snapshot, isAnnotationHidden, labelById, labelDisplayName } from "../state.js?v=10";
+import { state, snapshot, isAnnotationHidden, labelById, labelDisplayName } from "../state.js?v=11";
 import { annotationPoints, updateAnnotationBounds, pointInPolygon } from "./geometry.js?v=1";
 import { untangleRing } from "./untangle.js?v=2";
 import { unionAll } from "./merge.js?v=3";
