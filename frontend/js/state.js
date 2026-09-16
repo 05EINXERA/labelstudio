@@ -83,6 +83,15 @@ export const state = {
   // annotation shape is unaffected. Cleared naturally on reload.
   hiddenLabelIds: new Set(),
   hiddenAnnotationIds: new Set(),
+  // Momentary "peek" hide: populated while the "H" key is physically held and
+  // emptied on its keyup. Deliberately separate from hiddenAnnotationIds so a
+  // release never has to reconstruct what the sticky state was before the hold
+  // — it just drops this set, which is what makes a hold idempotent and safe to
+  // interrupt. Nothing but the hold's own keyup touches it, so a click, a
+  // right-click pan or a wheel zoom cannot break the hold.
+  // Session-only view state, like the sets above: never persisted, never sent
+  // to the backend, never written to a draft.
+  peekHiddenIds: new Set(),
   // Objects panel: when true the panel lists only the hidden objects. Same
   // nature as the two sets above — session-only view state, never persisted,
   // never sent to the backend, and read only at render time.
@@ -201,13 +210,32 @@ export function resolveAnnotationLabels(annotations, labels) {
 // both sets rather than mutating one from the other.
 export function isAnnotationHidden(annotation) {
   if (!annotation) return false;
-  // The shape being drawn right now is always visible, even if its class is
-  // hidden: the annotator needs to see the vertices they are placing. A polygon
-  // is pushed into state.annotations on its first click, so without this it
-  // would disappear mid-draw. It becomes subject to the class toggle as soon as
-  // the shape is closed and view.drag is cleared.
-  if (view.drag?.annotationId && view.drag.annotationId === annotation.id) return false;
+
+  // A momentary peek outranks everything, the mid-draw force-show below
+  // included: the annotator is holding "H" to see what is *underneath*, and the
+  // shape being drawn is the most likely thing in the way.
+  if (state.peekHiddenIds.has(annotation.id)) return true;
+
+  // An explicit per-annotation hide beats the mid-draw force-show too. It used
+  // to lose to it, which is why pressing "H" mid-draw appeared to do nothing
+  // until the polygon closed (.devnotes/new-hide-interactions/01_ANALYSIS.md
+  // § 4.1): the id went into the set, the Objects row flipped, and the resolver
+  // discarded it on every frame.
   if (state.hiddenAnnotationIds.has(annotation.id)) return true;
+
+  // The shape being drawn right now survives a *class* hide: the annotator
+  // needs to see the vertices they are placing, and a polygon inherits
+  // state.activeLabelId, so if that class's eye is off it would vanish on its
+  // first click with nothing on screen explaining why. It becomes subject to
+  // the class toggle as soon as the shape is closed and view.drag is cleared.
+  //
+  // Scoped to draw-polygon: view.drag is also set for move and reshape drags,
+  // which have no such problem, and matching those meant dragging a
+  // class-hidden shape briefly revealed it.
+  const isBeingDrawn = view.drag?.type === "draw-polygon"
+    && view.drag.annotationId === annotation.id;
+  if (isBeingDrawn) return false;
+
   if (annotation.labelId && state.hiddenLabelIds.has(annotation.labelId)) return true;
   return false;
 }
@@ -261,6 +289,7 @@ export function resetWorkspaceForNewImage() {
   // and a carried-over filter would open the next task on an empty
   // "hidden only" list. See .devnotes/object-selection/01_DESIGN.md § 5.1.
   state.hiddenAnnotationIds.clear();
+  state.peekHiddenIds.clear();
   state.hiddenLabelIds.clear();
   state.hiddenFilterActive = false;
   clearHistory();
