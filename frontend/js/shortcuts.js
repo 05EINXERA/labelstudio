@@ -82,3 +82,31 @@ export function shouldHide(ids, primaryId, isHidden) {
   const representative = ids.includes(primaryId) ? primaryId : ids[0];
   return !isHidden(representative);
 }
+
+/**
+ * What should an "H" key event do?
+ *
+ * A tap and a hold are different gestures and cannot share one handler. The
+ * original binding toggled on every keydown, so the auto-repeat stream a held
+ * key produces inverted the state at the platform's repeat rate (~30/s) — the
+ * shapes flickered, and whether they ended up hidden depended on whether the
+ * repeat count happened to be odd or even.
+ *
+ * Splitting them needs no timer, because the browser already tells us: the
+ * first keydown of a press has `repeat === false`, every one after it `true`.
+ *
+ *  - first keydown  -> "toggle"     the sticky behaviour, unchanged.
+ *  - a repeat, not yet peeking -> "peek-start"  the key is being held.
+ *  - any further repeat -> "none"   idempotent, which is what stops the flicker.
+ *  - keyup -> "peek-end" when peeking, else "none" (the tap's release).
+ *
+ * `peeking` is the caller's current hold state. Keeping it an argument rather
+ * than module state leaves this function pure and lets the spec drive a whole
+ * press/hold/release sequence through it.
+ */
+export function hideKeyAction({ type, repeat, peeking } = {}) {
+  if (type === "keyup") return peeking ? "peek-end" : "none";
+  if (type !== "keydown") return "none";
+  if (!repeat) return "toggle";
+  return peeking ? "none" : "peek-start";
+}

@@ -18,10 +18,14 @@
  *  3. That a mixed selection flips in one direction, so H twice returns to
  *     where it started.
  *
+ *  4. That a held "H" resolves to one peek rather than a stream of toggles.
+ *     This is the flicker fix: the auto-repeat events a held key produces used
+ *     to invert the hide on every one of them.
+ *
  * The module imports nothing, so no DOM shim is needed.
  */
 const url = new URL('../../frontend/js/shortcuts.js', import.meta.url);
-const { labelIndexForCode, hideTargetIds, shouldHide, MAX_CLASS_SHORTCUTS } = await import(url);
+const { labelIndexForCode, hideTargetIds, shouldHide, hideKeyAction, MAX_CLASS_SHORTCUTS } = await import(url);
 
 let pass = 0, fail = 0;
 const ok = (name, cond) => {
@@ -87,6 +91,51 @@ const first = shouldHide(batch, 'a1', isHidden);
 batch.forEach((id) => (first ? hiddenSet.add(id) : hiddenSet.delete(id)));
 const second = shouldHide(batch, 'a1', isHidden);
 ok('H twice reverses itself', first !== second);
+
+// --- hideKeyAction: tap vs hold vs release -----------------------------------
+//
+// A held key delivers one keydown with repeat=false followed by a stream with
+// repeat=true. The old handler toggled on all of them, so the shapes flickered
+// at the platform repeat rate. Only the first event may toggle; the rest must
+// collapse into a single peek that ends on keyup.
+console.log('hideKeyAction');
+ok('the first keydown taps',
+  hideKeyAction({ type: 'keydown', repeat: false, peeking: false }) === 'toggle');
+ok('the first repeat starts a peek',
+  hideKeyAction({ type: 'keydown', repeat: true, peeking: false }) === 'peek-start');
+ok('further repeats do nothing',
+  hideKeyAction({ type: 'keydown', repeat: true, peeking: true }) === 'none');
+ok('keyup ends an active peek',
+  hideKeyAction({ type: 'keyup', repeat: false, peeking: true }) === 'peek-end');
+ok("a tap's keyup does nothing",
+  hideKeyAction({ type: 'keyup', repeat: false, peeking: false }) === 'none');
+ok('an unrelated event type does nothing',
+  hideKeyAction({ type: 'keypress', repeat: false, peeking: false }) === 'none');
+ok('a missing argument does nothing', hideKeyAction() === 'none');
+
+// The whole point, stated as a sequence: drive a realistic hold through the
+// function the way the handler does, threading `peeking` from one event to the
+// next, and assert exactly one peek-start and one peek-end come out of it
+// however long the key is held.
+const held = [
+  { type: 'keydown', repeat: false },
+  ...Array.from({ length: 30 }, () => ({ type: 'keydown', repeat: true })),
+  { type: 'keyup', repeat: false },
+];
+let peeking = false;
+const actions = held.map((e) => {
+  const action = hideKeyAction({ ...e, peeking });
+  if (action === 'peek-start') peeking = true;
+  if (action === 'peek-end') peeking = false;
+  return action;
+});
+ok('a long hold toggles exactly once',
+  actions.filter((a) => a === 'toggle').length === 1);
+ok('a long hold starts exactly one peek',
+  actions.filter((a) => a === 'peek-start').length === 1);
+ok('a long hold ends exactly one peek',
+  actions.filter((a) => a === 'peek-end').length === 1);
+ok('a long hold leaves no peek open', peeking === false);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
