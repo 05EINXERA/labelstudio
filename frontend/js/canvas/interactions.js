@@ -11,7 +11,7 @@ import { normalizeRect, rectIsDegenerate, marqueeHits } from "./marquee.js?v=1";
 import { shouldCanvasClickBeBlocked } from "../comment-mode.js?v=1";
 import { commentOverlayRefs, openCommentEditor, anchorCommentOverlay } from "../comment-overlay.js?v=2";
 import { setStatus, save, render, activateLabel, toggleAnnotationsHidden, unhideAllObjects, editBlockReason } from "../components/workspace.js?v=26";
-import { labelIndexForCode, hideTargetIds, shouldHide } from "../shortcuts.js?v=1";
+import { labelIndexForCode, hideTargetIds, shouldHide, hideKeyAction } from "../shortcuts.js?v=2";
 import { performMagicWandSegmentation } from "../ai/detect.js?v=4";
 import { applyAutoSmooth } from "../fft-controls.js?v=4";
 import { annotationSettings } from "../feature-flags.js?v=1";
@@ -1175,6 +1175,17 @@ canvas.addEventListener("pointerdown", (event) => {
         // Subsequent points – add to the live annotation
         const annotation = state.annotations.find((item) => item.id === view.drag.annotationId);
         if (!annotation) { view.drag = null; render(); return; }
+
+        // A click on the shape being drawn brings it back, whether it was
+        // hidden by a tap or is being peeked right now: the annotator hid it to
+        // see what was underneath and has now decided where the point goes.
+        // Clearing both layers means they need not track which one hid it, and
+        // doing it here covers placing a vertex and deleting one alike — the
+        // two clicks are hard to tell apart, so they get one predictable rule.
+        // A no-op when the shape was never hidden.
+        state.hiddenAnnotationIds.delete(annotation.id);
+        state.peekHiddenIds.delete(annotation.id);
+
         const pts = annotation.points || [];
 
         // Closure is now handled by the hitTestPoint logic above
@@ -1651,6 +1662,81 @@ canvas.addEventListener("pointercancel", () => {
   if (wasMoved) save();
 });
 
+// Whether an "H" hold is currently peeking. Module scope because the keydown
+// and keyup listeners both need it and it must survive between the two.
+let peekActive = false;
+
+/**
+ * Carry out one decision from hideKeyAction().
+ *
+ * "toggle" is the sticky behaviour, unchanged: it writes hiddenAnnotationIds,
+ * so the Objects panel's eye icons follow it.
+ *
+ * "peek-start" is the momentary hold. It first *undoes* the toggle the press's
+ * own first keydown already applied — a hold must leave nothing behind on
+ * release, and the browser only reveals a press is a hold on its first repeat,
+ * by which time the tap has fired. Rather than remember what the tap did, the
+ * same decision is recomputed against the now-current state and inverted, which
+ * is exactly its inverse. The peek then goes in a set of its own, so a release
+ * need only drop it, and so no other gesture can end the hold by accident.
+ *
+ * A peek deliberately does not touch the Objects panel: flickering every row's
+ * eye for the duration of a hold would be worse than the canvas flicker this
+ * replaces. The panel shows the sticky state, which is the state that survives.
+ */
+function applyHideAction(action) {
+  if (action === "peek-end") {
+    if (!peekActive) return;
+    peekActive = false;
+    state.peekHiddenIds.clear();
+    render();
+    return;
+  }
+
+  if (action !== "toggle" && action !== "peek-start") return;
+
+  const ids = hideTargetIds(state.selectedIds, state.annotations);
+  if (ids.length === 0) {
+    // Only a tap reports this. A hold that began on an empty selection has
+    // nothing to say a second time.
+    if (action === "toggle") setStatus("Select an object first");
+    return;
+  }
+
+  const hide = shouldHide(ids, state.selectedId, (id) => state.hiddenAnnotationIds.has(id));
+
+  if (action === "toggle") {
+    toggleAnnotationsHidden(ids, hide);
+    // The selection is deliberately kept: hiding the only selected shape makes
+    // it vanish from the canvas, and the selection is the handle that keeps its
+    // row in the Objects panel so H can bring it back.
+    render();
+    setStatus(hide ? "Object hidden" : "Object shown");
+    return;
+  }
+
+  // peek-start
+  toggleAnnotationsHidden(ids, !hide);
+  peekActive = true;
+  ids.forEach((id) => state.peekHiddenIds.add(id));
+  render();
+  setStatus("Hiding while held");
+}
+
+window.addEventListener("keyup", (event) => {
+  if (event.key?.toLowerCase() !== "h") return;
+  // No isTyping guard, deliberately: if focus moved into a field mid-hold, the
+  // release still has to end the peek or the shapes stay hidden with no key
+  // down to explain it.
+  applyHideAction(hideKeyAction({ type: "keyup", repeat: false, peeking: peekActive }));
+});
+
+// A keyup is never delivered if focus leaves the window mid-hold (alt-tab, a
+// DevTools open). Without this the peek would strand shapes hidden.
+window.addEventListener("blur", () => {
+  if (peekActive) applyHideAction("peek-end");
+});
+
 window.addEventListener("keydown", (event) => {
   const target = event.target;
   const isTyping = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
@@ -1801,20 +1887,17 @@ window.addEventListener("keydown", (event) => {
   // puts nothing in selectedIds, so highlighting a class and pressing H is a
   // no-op rather than hiding the whole class. Class visibility stays with the
   // Classes panel's own eye (state.hiddenLabelIds), which this never touches.
+  // A tap toggles; holding the key peeks until release. The two are told apart
+  // by event.repeat rather than a timer — see hideKeyAction. Repeats past the
+  // first return without any work, which is what stops the flicker the old
+  // toggle-on-every-keydown binding produced.
   if (event.key.toLowerCase() === "h") {
     event.preventDefault();
-    const ids = hideTargetIds(state.selectedIds, state.annotations);
-    if (ids.length === 0) {
-      setStatus("Select an object first");
-      return;
-    }
-    const hide = shouldHide(ids, state.selectedId, (id) => state.hiddenAnnotationIds.has(id));
-    toggleAnnotationsHidden(ids, hide);
-    // The selection is deliberately kept: hiding the only selected shape makes
-    // it vanish from the canvas, and the selection is the handle that keeps its
-    // row in the Objects panel so H can bring it back.
-    render();
-    setStatus(hide ? "Object hidden" : "Object shown");
+    applyHideAction(hideKeyAction({
+      type: "keydown",
+      repeat: event.repeat,
+      peeking: peekActive,
+    }));
     return;
   }
 
