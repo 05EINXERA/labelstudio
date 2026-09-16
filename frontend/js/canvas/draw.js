@@ -1,5 +1,5 @@
 import { canvas, ctx, imageCanvas, imageCtx, staticCanvas, staticCtx } from "../dom.js?v=4";
-import { state, labelById, isAnnotationHidden } from "../state.js?v=10";
+import { state, labelById, isAnnotationHidden } from "../state.js?v=11";
 import { annotationSettings, annotationOpacity } from "../feature-flags.js?v=1";
 import { view } from "./view.js?v=1";
 import { annotationPoints, hexToRgba } from "./geometry.js?v=1";
@@ -178,6 +178,13 @@ export function draw() {
   // Draw close-point indicator and preview line for active polygon drawing
   if (view.drag?.type === "draw-polygon") {
     const annotation = state.annotations.find((item) => item.id === view.drag.annotationId);
+    // The in-progress overlay — the translucent fill and the dashed line to the
+    // cursor — is painted here rather than by drawAnnotation, so it needs the
+    // visibility check of its own that the shared draw loops get for free.
+    // Without it, hiding the shape being drawn removed its outline and vertices
+    // but left the fill and rubber-band line on screen, which is most of what
+    // the annotator was trying to see past.
+    if (isAnnotationHidden(annotation)) return;
     const pts = annotation?.points || [];
     const label = annotation ? labelById(annotation.labelId) : null;
     const edgeColor = label ? label.color : "#0f8b8d";
