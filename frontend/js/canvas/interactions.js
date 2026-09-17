@@ -1682,6 +1682,10 @@ let peekActive = false;
 // by which point the tap has already fired, so the hold needs this to undo
 // exactly what the tap did — in either direction.
 let lastTap = null;
+// Identifies one physical press of "H". Bumped on every non-repeat keydown, so
+// a repeat can tell whether the recorded tap is its own or a leftover from an
+// earlier press that a later gesture must not undo.
+let pressId = 0;
 // The pending mid-draw auto-reveal, and whether the peek now on screen is one.
 // A timed peek deliberately outlives the keyup that started it, so keyup must
 // be able to tell the two apart and leave this one running.
@@ -1771,6 +1775,12 @@ function applyHideAction(action) {
     // stacking a second one, so the reveal is always DRAW_PEEK_MS from the last
     // press and never from the first.
     cancelDrawPeekTimer();
+    // This press establishes no sticky toggle, so there is nothing for a hold
+    // to roll back. Any lastTap here belongs to an *earlier* press — typically
+    // a sticky hide on some other object before drawing started — and leaving
+    // it armed made the hold reveal that object instead. Only the most recent
+    // one, because lastTap is a single slot each tap overwrites.
+    lastTap = null;
     peekActive = true;
     drawPeekTimed = true;
     ids.forEach((id) => state.peekHiddenIds.add(id));
@@ -1798,7 +1808,7 @@ function applyHideAction(action) {
     // Both directions are recorded, not just the hide. A hold that starts on an
     // already-hidden object taps it *visible* first, and leaving that unrecorded
     // lost the sticky hide the object had before the press.
-    lastTap = { ids: ids.slice(), hid: hide };
+    lastTap = { ids: ids.slice(), hid: hide, press: pressId };
     toggleAnnotationsHidden(ids, hide);
     // The selection is deliberately kept: hiding the only selected shape makes
     // it vanish from the canvas, and the selection is the handle that keeps its
@@ -1816,7 +1826,13 @@ function applyHideAction(action) {
   // the key is still down. The hide then lasts exactly as long as the key,
   // which is the hold's own rule.
   cancelDrawPeekTimer();
-  if (lastTap) toggleAnnotationsHidden(lastTap.ids, !lastTap.hid);
+  // Only a tap from *this* press may be rolled back. A repeat always follows
+  // its own keydown, so anything older belongs to a previous press and undoing
+  // it would reveal an object the user hid deliberately and never asked about
+  // — the bug where holding H while drawing un-hid the last hidden object.
+  if (lastTap && lastTap.press === pressId) {
+    toggleAnnotationsHidden(lastTap.ids, !lastTap.hid);
+  }
   lastTap = null;
   peekActive = true;
   ids.forEach((id) => state.peekHiddenIds.add(id));
@@ -1998,6 +2014,9 @@ window.addEventListener("keydown", (event) => {
   // and no selection to bring it back with. Holding is unchanged either way.
   if (event.key.toLowerCase() === "h") {
     event.preventDefault();
+    // A fresh press starts a new gesture; its repeats carry the same id, which
+    // is how peek-start knows whether the recorded tap is its own.
+    if (!event.repeat) pressId += 1;
     applyHideAction(hideActionFor("keydown", event.repeat));
     return;
   }
