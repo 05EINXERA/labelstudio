@@ -7,7 +7,7 @@ import {
 } from "../state.js?v=3";
 import { annotationPoints, updateAnnotationBounds } from "../canvas/geometry.js?v=5";
 import { view } from "../canvas/view.js?v=1";
-import { drainTaskTime } from "./timer.js?v=3";
+import { drainTaskTime } from "./timer.js?v=4";
 import { detectState } from "../ai/detect-state.js?v=1";
 import { draw, drawAllLayers } from "../canvas/draw.js?v=4";
 import {
@@ -99,7 +99,7 @@ export function repairLabelsFromAnnotations() {
   });
 }
 
-export function syncToBackend({ useBeacon = false, targetStatus = null } = {}) {
+export function syncToBackend({ useBeacon = false, targetStatus = null, intent = null } = {}) {
   if (typeof state === 'undefined' || state.galleryIndex < 0 || !state.gallery || !state.gallery[state.galleryIndex]) return;
   const currentTask = state.gallery[state.galleryIndex];
   if (!currentTask.id) return;
@@ -129,7 +129,8 @@ export function syncToBackend({ useBeacon = false, targetStatus = null } = {}) {
   return Promise.resolve(drainTaskTime(currentTask, {
     status: taskStatus,
     annotations: currentTask.annotations,
-    useBeacon
+    useBeacon,
+    intent
   })).then((ok) => {
     // The draft exists to cover work the server does not have. Once it has
     // taken the write, the draft is stale and must go, or the next load would
@@ -316,7 +317,7 @@ export function saveDebounceMs(annotationCount) {
     : SAVE_DEBOUNCE_MS;
 }
 
-export function save() {
+export function save({ intent = null } = {}) {
   saveDraft();
   setStatus("Saving…");
 
@@ -332,7 +333,7 @@ export function save() {
     // Reporting it on the localStorage write alone told annotators their work
     // was safe while it existed nowhere but their own browser.
     const task = currentTask();
-    Promise.resolve(syncToBackend())
+    Promise.resolve(syncToBackend({ intent }))
       .then((ok) => {
         if (ok === false && task?.saveHalted) {
           // Refused to protect existing annotations. The canvas is out of sync

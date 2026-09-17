@@ -8,6 +8,7 @@ from fastapi import Depends, HTTPException, status, Request, Response
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 import bcrypt
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 import models
@@ -145,6 +146,29 @@ def get_current_annotator(request: Request, db: Session = Depends(get_db)):
     if not annotator_name:
         return None
     member = db.query(models.TeamMember).filter(models.TeamMember.name == annotator_name).first()
+    if not member:
+        # The annotator identity is a display name the user types into Settings
+        # (localStorage['dataset_username'] -> X-Annotator-Name), and every
+        # authority check downstream is an exact string compare against it:
+        # tasks.assignee, projects.creator, project_reviewers.member_name.
+        # So " Sanjita" or "sanjita" resolved to nobody, and the assignee of a
+        # task was locked out of their own work with a 403 while the project
+        # owner — authorized on users.id, not on a name — could still save.
+        #
+        # Resolve case/whitespace variants to the single member they can only
+        # mean. Deliberately NOT applied when several members share a
+        # normalized form (e.g. both "sanjita" and "Sanjita" exist and each
+        # holds real work): picking one would silently hand one person's tasks
+        # to another. Those stay unresolved until the rows are merged by hand.
+        normalized = annotator_name.strip()
+        if normalized:
+            matches = db.query(models.TeamMember).filter(
+                # trim(), not btrim(): ANSI SQL, so this works on both Postgres
+                # (deployment) and SQLite (dev + the test suite).
+                func.lower(func.trim(models.TeamMember.name)) == normalized.lower()
+            ).all()
+            if len(matches) == 1:
+                member = matches[0]
     if member:
         now = datetime.now(timezone.utc)
         if member.last_active_at is None:

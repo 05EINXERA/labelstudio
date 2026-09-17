@@ -538,3 +538,61 @@ def test_create_with_deleted_label_does_not_500(client, alice):
     assert res.status_code == 200, res.text
     detail = client.get(f"/api/tasks/{res.json()['id']}", headers=alice).json()
     assert [a["labelId"] for a in detail["annotations"]] == [None]
+
+
+def test_deliberate_clear_all_is_allowed_through_the_wipe_guard(client, alice):
+    """Clear all empties the task; the guard must not stand in the way.
+
+    The guard cannot distinguish a deliberate clear from a tab that autosaved
+    an unhydrated canvas -- both are an empty payload -- so it refused both,
+    and an annotator could not clear a task at all. The explicit intent, set
+    only by the Clear all button, separates the two.
+    """
+    project_id = _project(client, alice)
+    task = _create_task(client, alice, project_id)
+
+    saved = client.post("/api/tasks", json={
+        "id": task["id"], "annotations": _annotations(40, project_id),
+        "updated_at": task["updated_at"], "client_id": "tab-A",
+    }, headers=alice)
+    assert saved.status_code == 200
+
+    cleared = client.post("/api/tasks", json={
+        "id": task["id"], "annotations": json.dumps([]),
+        "updated_at": saved.json()["updated_at"], "client_id": "tab-A",
+        "intent": "clear_all",
+    }, headers=alice)
+    assert cleared.status_code == 200, cleared.text
+
+    detail = client.get(f"/api/tasks/{task['id']}", headers=alice).json()
+    assert detail["annotations"] == []
+
+
+def test_wipe_guard_still_refuses_a_save_without_the_clear_intent(client, alice):
+    """The bypass must be opt-in per save, never a mode the tab stays in.
+
+    A tab that has cleared one task keeps autosaving others; if the intent
+    leaked into those saves the guard would be off exactly where it is needed.
+    """
+    project_id = _project(client, alice)
+    task = _create_task(client, alice, project_id)
+
+    saved = client.post("/api/tasks", json={
+        "id": task["id"], "annotations": _annotations(40, project_id),
+        "updated_at": task["updated_at"], "client_id": "tab-A",
+    }, headers=alice)
+    assert saved.status_code == 200
+
+    for bogus in (None, "", "something_else"):
+        payload = {
+            "id": task["id"], "annotations": json.dumps([]),
+            "updated_at": saved.json()["updated_at"], "client_id": "tab-A",
+        }
+        if bogus is not None:
+            payload["intent"] = bogus
+        res = client.post("/api/tasks", json=payload, headers=alice)
+        assert res.status_code == 409, f"intent={bogus!r} bypassed the guard"
+        assert res.json()["detail"]["code"] == "wipe_guard"
+
+    detail = client.get(f"/api/tasks/{task['id']}", headers=alice).json()
+    assert len(detail["annotations"]) == 40

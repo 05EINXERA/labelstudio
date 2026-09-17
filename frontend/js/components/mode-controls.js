@@ -14,7 +14,7 @@ import {
   autoDetectButton, autoTagButton, undoButton, redoButton, deleteButton,
   clearButton, saveButton, stageWrap
 } from "../dom.js?v=1";
-import { setStatus, save, render, manualSaveWithUI } from "./workspace.js?v=8";
+import { setStatus, save, render, manualSaveWithUI } from "./workspace.js?v=9";
 import { autoDetectObjects, autoTagObjects, preloadMagicWand } from "../ai/detect.js?v=2";
 import { finalizePolygon, deleteSelected, undoAction, redoAction } from "../canvas/interactions.js?v=7";
 
@@ -283,13 +283,33 @@ export function initModeControls() {
 
   if (clearButton) {
     clearButton.addEventListener("click", () => {
+      const count = Array.isArray(state.annotations) ? state.annotations.length : 0;
+      if (count === 0) {
+        setStatus("Nothing to clear");
+        return;
+      }
+      // Clearing a task is the one edit that destroys everything at once, and
+      // the server takes it without the wipe guard second-guessing it, so the
+      // confirmation is the only checkpoint left. Sized so the annotator sees
+      // what they are about to lose.
+      if (!confirm(
+        `Delete all ${count} annotation(s) on this image?\n\n` +
+        `This clears the task on the server. Undo (Ctrl+Z) restores them on ` +
+        `the canvas if you change your mind before leaving the task.`
+      )) {
+        return;
+      }
+      // Before the mutation, so Ctrl+Z can bring the shapes back.
+      snapshot();
       state.annotations = [];
       state.selectedIds.clear();
       state.selectedId = null;
       view.drag = null;
       render();
-      save();
-      setStatus("Cleared all");
+      // The explicit intent is what lets this through the server's wipe guard,
+      // which otherwise refuses an emptying payload as a failed-load symptom.
+      save({ intent: "clear_all" });
+      setStatus(`Cleared all ${count} annotation(s)`);
     });
   }
 

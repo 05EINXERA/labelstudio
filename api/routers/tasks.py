@@ -113,6 +113,11 @@ ANNOTATION_WIPE_GUARD_THRESHOLD = int(os.environ.get("ANNOTATION_WIPE_GUARD_THRE
 ANNOTATION_WIPE_GUARD_MIN_FRACTION = float(os.environ.get("ANNOTATION_WIPE_GUARD_MIN_FRACTION", "0.5"))
 ANNOTATION_WIPE_GUARD_ABS_FLOOR = int(os.environ.get("ANNOTATION_WIPE_GUARD_ABS_FLOOR", "5"))
 
+# Saves that delete more than this many annotations are logged even when the
+# wipe guard allows them. Deleting a few shapes by hand is routine and would
+# only add noise; a double-digit drop is worth being able to find afterwards.
+ANNOTATION_DELETE_LOG_THRESHOLD = int(os.environ.get("ANNOTATION_DELETE_LOG_THRESHOLD", "10"))
+
 
 def _sweep_stale_locks(db: Optional[Session] = None, ttl_seconds: int = TASK_LOCK_TTL_SECONDS) -> int:
     """Proactively evict expired task locks to prevent table growth over long uptimes."""
@@ -273,7 +278,14 @@ def _get_owned_task(task_id: int, user: models.User, db: Session, annotator: Opt
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    if require_edit and annotator and task.assignee and task.assignee != annotator.name:
+    # `annotator` is deliberately not part of this condition. It used to be, so
+    # a caller whose X-Annotator-Name matched no TeamMember row skipped the
+    # check entirely and could edit anyone's task — an unrecognized name got
+    # *more* authority than a misspelled real one. On a shared login the header
+    # is the only thing naming a person, so an unresolvable one must mean less
+    # access, never more. _is_task_editor still admits the assignee, the
+    # project owner (by users.id) and appointed reviewers.
+    if require_edit and task.assignee:
         if not _is_task_editor(task, user, db, annotator):
             raise HTTPException(status_code=403, detail="Task is assigned to another user")
 
@@ -761,8 +773,17 @@ def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: 
                 # Deleting every shape one at a time still works (each save
                 # carries the shrinking remainder close to 1:1), so this only
                 # ever fires on a single save that guts most of the task at once.
+                #
+                # `intent="clear_all"` is the one exception: the annotator
+                # pressed Clear all on a canvas that was showing the shapes, so
+                # they can see what they are deleting and the emptiness is the
+                # edit rather than a symptom of a failed load. Only an explicit
+                # user action sets it; autosaves, beacons and timer drains never
+                # do, so they stay guarded. The deletion is logged either way.
                 existing_count = len(existing_map)
-                if (existing_count >= ANNOTATION_WIPE_GUARD_THRESHOLD
+                deliberate_clear = task.intent == "clear_all"
+                if (not deliberate_clear
+                        and existing_count >= ANNOTATION_WIPE_GUARD_THRESHOLD
                         and len(anns) < existing_count * ANNOTATION_WIPE_GUARD_MIN_FRACTION
                         and len(anns) < ANNOTATION_WIPE_GUARD_ABS_FLOOR):
                     logger.warning(
@@ -796,6 +817,20 @@ def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: 
 
                 # Remove annotations that are no longer in the payload
                 to_remove = [a for a in db_task.annotations if a.id not in incoming_ids]
+                # Deletions that the wipe guard *allows* were previously silent, so a
+                # task drained in several under-threshold steps left no trace at all:
+                # the only log lines from the 2026-09-16 loss of project 54 were the
+                # refusals a stale tab produced hours afterwards, which pointed at the
+                # wrong time window entirely. Log every net-negative save so a drain is
+                # reconstructable from the log alone.
+                if len(to_remove) > ANNOTATION_DELETE_LOG_THRESHOLD:
+                    logger.info(
+                        "Task %s save removed %d of %d annotations (%d remain, "
+                        "client_id=%s%s)",
+                        db_task.id, len(to_remove), existing_count,
+                        len(existing_map) - len(to_remove), task.client_id,
+                        ", deliberate clear_all" if deliberate_clear else "",
+                    )
                 for a in to_remove:
                     db_task.annotations.remove(a)
                     # explicitly delete to handle passive_deletes=True

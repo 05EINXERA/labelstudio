@@ -13,9 +13,9 @@ import {
   canvas, ctx, backgroundImage, staticCanvas, staticCtx, stageWrap, emptyState
 } from "../dom.js?v=1";
 import { drawAllLayers } from "../canvas/draw.js?v=4";
-import { setStatus, render, restoreDraft, clearStatusHold } from "./workspace.js?v=8";
+import { setStatus, render, restoreDraft, clearStatusHold } from "./workspace.js?v=9";
 import { autoDetectObjects, preloadMagicWand, preloadDetectAndTag } from "../ai/detect.js?v=2";
-import { syncTaskTime, resetSessionForTask, refreshTimerDisplays } from "./timer.js?v=3";
+import { syncTaskTime, resetSessionForTask, refreshTimerDisplays } from "./timer.js?v=4";
 import { updateZoomDisplay } from "./zoom-control.js?v=2";
 import { claimTask, releaseTask } from "../task-lock.js?v=1";
 
@@ -227,6 +227,16 @@ export async function switchImage(index) {
       .catch((e) => {
         console.error("Failed to hydrate task annotations:", e);
         item.annotations = [];
+        // A thrown fetch (network drop, timeout, aborted request) leaves the
+        // canvas empty exactly like the non-OK branches above, so it must mark
+        // the task not-loaded for the same reason: `isFullyLoaded` is the only
+        // thing standing between an unhydrated task and an autosave that sends
+        // `annotations: []` over real server data (see syncToBackend in
+        // components/workspace.js and the isFullyLoaded gate in
+        // components/timer.js). Leaving it true here let a task that was
+        // *previously* opened successfully keep its stale true and save the
+        // empty canvas — the wipe path in 04_ANNOTATION_SAVE_LOSS.md.
+        item.isFullyLoaded = false;
       });
 
     const lockPromise = detailPromise.then(() => {

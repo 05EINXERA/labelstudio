@@ -84,7 +84,7 @@ function hasActiveTask() {
  * single drain point for timerState.taskSessionSeconds (F4).
  */
 /** Resolves true when the server accepted the write, false otherwise. */
-export async function drainTaskTime(task, { status, annotations, useBeacon = false } = {}) {
+export async function drainTaskTime(task, { status, annotations, useBeacon = false, intent = null } = {}) {
   if (!task || !task.id) return false;
 
   // A task whose save was refused by the wipe guard stays halted until it is
@@ -121,6 +121,14 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
     payload.annotations = JSON.stringify(annotations);
   } else if (task.isFullyLoaded) {
     payload.annotations = JSON.stringify(task.annotations || []);
+  }
+
+  // Marks a save the annotator asked for explicitly (Clear all), letting the
+  // server's wipe guard tell it apart from a tab autosaving a canvas that
+  // never loaded. Set only by that user action — never by an autosave, a
+  // beacon or a timer drain — so the guard keeps protecting every other path.
+  if (intent) {
+    payload.intent = intent;
   }
 
   // On unload a normal fetch is not guaranteed to be delivered; fetch with keepalive is

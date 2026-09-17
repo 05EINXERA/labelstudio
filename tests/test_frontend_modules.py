@@ -125,3 +125,41 @@ def test_active_task_table_prioritization():
     assert "priorityRowId: activeTaskId" in tasks_content
     assert "row-recent-task" in tasks_content
 
+
+
+def test_failed_task_hydration_marks_task_not_fully_loaded():
+    """Every path that leaves the canvas un-hydrated must clear isFullyLoaded.
+
+    `isFullyLoaded` is the only gate preventing an autosave from sending an
+    empty annotation list over real server data (see syncToBackend in
+    components/workspace.js and the gate in components/timer.js). The .catch()
+    on the detail fetch used to blank `item.annotations` without clearing the
+    flag, so a task that had previously loaded kept a stale `true` and could
+    save its empty canvas -- the project 54 / task 241 wipe of 2026-09-16.
+    """
+    gallery_file = os.path.join(FRONTEND_JS_DIR, "components", "gallery.js")
+    with open(gallery_file, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    # Isolate the hydration handler: from the detail fetch to the lock claim
+    # that follows it, so unrelated assignments elsewhere can't satisfy this.
+    start = content.index("const detailPromise")
+    end = content.index("const lockPromise", start)
+    hydration = content[start:end]
+
+    # Each blanking of annotations in this block must be accompanied by
+    # clearing isFullyLoaded -- including the .catch() path.
+    assert hydration.count("item.annotations = []") >= 3, (
+        "expected the 403, non-OK and catch branches to blank annotations"
+    )
+    assert hydration.count("item.isFullyLoaded = false") == hydration.count(
+        "item.annotations = []"
+    ), (
+        "every branch that empties item.annotations must also set "
+        "item.isFullyLoaded = false, or an autosave can wipe server data"
+    )
+
+    catch_block = hydration[hydration.index(".catch("):]
+    assert "item.isFullyLoaded = false" in catch_block, (
+        "the .catch() hydration-failure path must clear isFullyLoaded"
+    )

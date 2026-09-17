@@ -88,6 +88,14 @@ class TaskUpdate(BaseModel):
     # against the same task. Only a *different* client is a real conflict.
     # See .devnotes/deployment-hardening/04_ANNOTATION_SAVE_LOSS.md.
     client_id: Optional[str] = Field(None, max_length=64)
+    # Set only by a deliberate destructive action the annotator took on a
+    # canvas they could see (Clear all). The wipe guard cannot tell such a save
+    # from a tab that opened without its annotations and autosaved the empty
+    # canvas — both arrive as an empty list — so it refused both, and clearing
+    # a task by hand was impossible. An explicit intent separates them: a user
+    # who can see the shapes they are deleting is allowed to delete them, while
+    # every *automatic* save stays guarded.
+    intent: Optional[str] = Field(None, max_length=32)
 
 class ProjectSummary(BaseModel):
     """A project plus its task metrics — one row of the projects list.
