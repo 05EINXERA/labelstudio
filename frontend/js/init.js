@@ -6,7 +6,7 @@ import { apiFetch } from "./api.js?v=3";
 import { state } from "./state.js?v=3";
 import {
   setStatus, syncToBackend, loadSaved, saveDraft, render, loadTeamForWorkspace
-} from "./components/workspace.js?v=7";
+} from "./components/workspace.js?v=8";
 import {
   syncTimeToServer, setActiveTaskResolver, setConflictHandler, setSaveHaltedHandler,
   handleVisibilityChange as handleTimerVisibility
@@ -20,7 +20,7 @@ import { initFftControls } from "./fft-controls.js?v=1";
 import { toolAvailability } from "./feature-flags.js?v=1";
 import {
   switchImage, initGalleryNavigation, loadWorkspaceTasks, resizeCanvas
-} from "./components/gallery.js?v=6";
+} from "./components/gallery.js?v=7";
 import { initModals } from "./components/modals.js?v=2";
 import { initModeControls } from "./components/mode-controls.js?v=2";
 import { initOpacityControl } from "./components/opacity-control.js?v=1";

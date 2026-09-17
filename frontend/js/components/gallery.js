@@ -13,7 +13,7 @@ import {
   canvas, ctx, backgroundImage, staticCanvas, staticCtx, stageWrap, emptyState
 } from "../dom.js?v=1";
 import { drawAllLayers } from "../canvas/draw.js?v=4";
-import { setStatus, render, restoreDraft, clearStatusHold } from "./workspace.js?v=7";
+import { setStatus, render, restoreDraft, clearStatusHold } from "./workspace.js?v=8";
 import { autoDetectObjects, preloadMagicWand, preloadDetectAndTag } from "../ai/detect.js?v=2";
 import { syncTaskTime, resetSessionForTask, refreshTimerDisplays } from "./timer.js?v=3";
 import { updateZoomDisplay } from "./zoom-control.js?v=2";
@@ -125,6 +125,17 @@ export async function switchImage(index) {
     const prevTask = state.gallery[state.galleryIndex];
     if (prevTask.isFullyLoaded) {
       prevTask.annotations = [...state.annotations];
+    }
+    // Drop any debounced autosave still pending for the outgoing task. The
+    // syncTaskTime below already writes prevTask.annotations (refreshed just
+    // above), so the pending timer has nothing left to contribute — but if it
+    // fired after galleryIndex moved it would call syncToBackend(), which reads
+    // the *current* task, and write this task's state under the next task's id.
+    // Harmless at the old flat 1s debounce, reachable at the larger debounce
+    // used for shape-heavy tasks (see SAVE_DEBOUNCE_LARGE_MS in workspace.js).
+    if (window.backendSyncTimeout) {
+      clearTimeout(window.backendSyncTimeout);
+      window.backendSyncTimeout = null;
     }
     // Drains the accumulator against the outgoing task. Bound to prevTask, so
     // it stays correct even though galleryIndex moves before it resolves.

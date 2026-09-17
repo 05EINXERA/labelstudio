@@ -623,6 +623,10 @@ def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: 
     status_changed_to: Optional[str] = None
     assigned_to: Optional[str] = None
     notify_project: Optional[models.Project] = None
+    # Whether this write creates a task rather than updating one. Read by the
+    # project-rollup block near the end, which only needs to recompute when the
+    # project's spread of task statuses can actually have moved.
+    is_create = not task.id
 
     if task.id:
         # for_update: serialise concurrent saves of this task. Taken here,
@@ -936,31 +940,44 @@ def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: 
     # (CLAUDE.md rule 4 / docs/TIMER_AUDIT.md F13).
     project_id = db_task.project_id
     if project_id is not None:
-        # Push the pending task change to the DB so the aggregate below counts
-        # it; without this the project never reaches 'Completed' on the update
-        # that completes its last task.
-        db.flush()
-        counts = db.query(
-            func.count(models.Task.id),
-            func.sum(case((models.Task.status == 'Completed', 1), else_=0)),
-        ).filter(models.Task.project_id == project_id).one()
-        total, completed = counts[0] or 0, counts[1] or 0
-
-        new_status = None
-        if total > 0 and completed == total:
-            new_status = 'Completed'
-        elif completed > 0:
-            new_status = 'In Progress'
-
-        # Loaded unconditionally (not only when the rollup changes) because the
+        # Loaded unconditionally (not only when the rollup runs) because the
         # post-commit notify needs the owner regardless of whether the project's
         # own status moved.
         project = db.query(models.Project).filter(models.Project.id == project_id).first()
         notify_project = project
 
-        if new_status:
-            if project and project.status != new_status:
-                project.status = new_status
+        # The rollup only depends on the *distribution of task statuses* in the
+        # project, so it can only change when a task status changed. A plain
+        # annotation autosave cannot move it, and running it anyway put a
+        # project-wide COUNT/SUM over `tasks` on the hot save path — once per
+        # autosave, per annotator (~2,140 POST /api/tasks in a single day's
+        # log). `is_create` covers the other case that shifts the
+        # distribution: a new task arrives as 'New', which can take a project
+        # that was 'Completed' back to 'In Progress'.
+        #
+        # Deletes also shift it (removing the last non-Completed task should
+        # complete the project) and are NOT handled here — they never were;
+        # the delete endpoints don't run this block at all. Unchanged by this.
+        if status_changed_to is not None or is_create:
+            # Push the pending task change to the DB so the aggregate below
+            # counts it; without this the project never reaches 'Completed' on
+            # the update that completes its last task.
+            db.flush()
+            counts = db.query(
+                func.count(models.Task.id),
+                func.sum(case((models.Task.status == 'Completed', 1), else_=0)),
+            ).filter(models.Task.project_id == project_id).one()
+            total, completed = counts[0] or 0, counts[1] or 0
+
+            new_status = None
+            if total > 0 and completed == total:
+                new_status = 'Completed'
+            elif completed > 0:
+                new_status = 'In Progress'
+
+            if new_status:
+                if project and project.status != new_status:
+                    project.status = new_status
 
     commit_with_retry(db)
 

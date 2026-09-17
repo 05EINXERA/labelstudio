@@ -288,6 +288,34 @@ export function restoreDraft(task) {
   }
 }
 
+// Autosave debounce, scaled by how much the save will actually ship.
+//
+// Every autosave POSTs the task's *entire* annotation array and rewrites the
+// matching rows server-side, so its cost scales with the shape count, not with
+// the size of the edit. 80% of tasks here carry 100+ shapes and 117 carry over
+// a thousand (top task: 8,520), and with ~25 annotators on one uvicorn worker a
+// flat 1s debounce put multi-megabyte writes on the wire roughly once per
+// second of active drawing — enough to exhaust the connection pool (see
+// .devnotes/deployment-hardening/08_POOL_EXHAUSTION.md).
+//
+// Waiting longer on the heavy tasks coalesces a burst of edits into one write.
+// This is safe because `saveDraft()` runs synchronously at the top of `save()`
+// on every call: unsaved work is already in localStorage and is restored on
+// task open (CLAUDE.md rule 18), so a longer server debounce widens the window
+// in which the *server* is behind, never the window in which work can be lost.
+//
+// A proper fix — sending only changed shapes — makes this scaling unnecessary;
+// until then this is the cheap half of it.
+const SAVE_DEBOUNCE_MS = 1000;
+const SAVE_DEBOUNCE_LARGE_MS = 4000;
+const SAVE_DEBOUNCE_LARGE_THRESHOLD = 500;
+
+export function saveDebounceMs(annotationCount) {
+  return annotationCount > SAVE_DEBOUNCE_LARGE_THRESHOLD
+    ? SAVE_DEBOUNCE_LARGE_MS
+    : SAVE_DEBOUNCE_MS;
+}
+
 export function save() {
   saveDraft();
   setStatus("Saving…");
@@ -295,6 +323,9 @@ export function save() {
   if (window.backendSyncTimeout) {
     clearTimeout(window.backendSyncTimeout);
   }
+  const debounceMs = saveDebounceMs(
+    Array.isArray(state.annotations) ? state.annotations.length : 0
+  );
   window.backendSyncTimeout = setTimeout(() => {
     window.backendSyncTimeout = null;
     // "Saved" is only claimed once the server has actually taken the write.
@@ -319,7 +350,7 @@ export function save() {
         }
       })
       .catch(() => setStatus(offlineOr("Not saved—retrying")));
-  }, 1000);
+  }, debounceMs);
 }
 
 /**
