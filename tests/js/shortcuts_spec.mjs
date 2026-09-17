@@ -25,7 +25,7 @@
  * The module imports nothing, so no DOM shim is needed.
  */
 const url = new URL('../../frontend/js/shortcuts.js', import.meta.url);
-const { labelIndexForCode, hideTargetIds, hideTargetIdsWhileDrawing, shouldHide, hideKeyAction, MAX_CLASS_SHORTCUTS } = await import(url);
+const { labelIndexForCode, hideTargetIds, hideTargetIdsWhileDrawing, shouldHide, hideKeyAction, drawHideKeyAction, DRAW_PEEK_MS, MAX_CLASS_SHORTCUTS } = await import(url);
 
 let pass = 0, fail = 0;
 const ok = (name, cond) => {
@@ -224,6 +224,82 @@ const tapped = runPress({ events: TAP, startHidden: [] });
 ok('a tap still hides stickily', tapped.hidden === true && tapped.sticky.has('a1'));
 const untapped = runPress({ events: TAP, startHidden: ['a1'] });
 ok('a second tap still shows', untapped.hidden === false);
+
+// --- drawHideKeyAction: the mid-draw timed peek -------------------------------
+//
+// While a polygon is being drawn a tap must not toggle stickily: the shape has
+// no Objects-panel row to un-hide it from and, once invisible, no selection to
+// press "H" against. So a tap hides on a timer that reveals it again by itself.
+//
+// The subtle part is the keyup. A tap's release must NOT end the peek — the
+// hide is meant to outlive the key — while a hold's release must. `timed` is
+// what tells the two apart.
+console.log('drawHideKeyAction');
+ok('a mid-draw tap starts a timed peek',
+  drawHideKeyAction({ type: 'keydown', repeat: false, peeking: false, timed: false }) === 'peek-timed');
+ok("a timed peek's keyup leaves it running",
+  drawHideKeyAction({ type: 'keyup', repeat: false, peeking: true, timed: true }) === 'none');
+ok('a repeat upgrades a timed peek to a hold',
+  drawHideKeyAction({ type: 'keydown', repeat: true, peeking: true, timed: true }) === 'peek-start');
+ok('a repeat with no peek yet starts a hold',
+  drawHideKeyAction({ type: 'keydown', repeat: true, peeking: false, timed: false }) === 'peek-start');
+ok('further repeats during a hold do nothing',
+  drawHideKeyAction({ type: 'keydown', repeat: true, peeking: true, timed: false }) === 'none');
+ok("a hold's keyup ends it",
+  drawHideKeyAction({ type: 'keyup', repeat: false, peeking: true, timed: false }) === 'peek-end');
+ok('a keyup with nothing peeking does nothing',
+  drawHideKeyAction({ type: 'keyup', repeat: false, peeking: false, timed: false }) === 'none');
+ok('an unrelated event type does nothing',
+  drawHideKeyAction({ type: 'keypress', repeat: false, peeking: false }) === 'none');
+ok('a missing argument does nothing', drawHideKeyAction() === 'none');
+
+ok('the reveal delay is two seconds', DRAW_PEEK_MS === 2000);
+
+// A mid-draw tap and release: the shape must still be hidden afterwards, with
+// only the timer left to reveal it. This is the requirement in one assertion —
+// the non-drawing rules would have ended the peek on the keyup instead.
+const tapEvents = [
+  { type: 'keydown', repeat: false },
+  { type: 'keyup', repeat: false },
+];
+let peekingD = false, timedD = false;
+for (const e of tapEvents) {
+  const action = drawHideKeyAction({ ...e, peeking: peekingD, timed: timedD });
+  if (action === 'peek-timed') { peekingD = true; timedD = true; }
+  if (action === 'peek-start') { peekingD = true; timedD = false; }
+  if (action === 'peek-end') { peekingD = false; timedD = false; }
+}
+ok('a mid-draw tap survives its own keyup', peekingD === true && timedD === true);
+
+// Contrast: the same two events under the non-drawing rules toggle stickily and
+// leave no peek. The two gestures must not converge.
+let peekingS = false;
+for (const e of tapEvents) {
+  const action = hideKeyAction({ ...e, peeking: peekingS });
+  if (action === 'peek-start') peekingS = true;
+  if (action === 'peek-end') peekingS = false;
+}
+ok('the selection tap is still sticky, not a peek', peekingS === false);
+
+// A mid-draw hold: upgrades to a real hold, and its release does end it.
+const holdEvents = [
+  { type: 'keydown', repeat: false },
+  { type: 'keydown', repeat: true },
+  { type: 'keydown', repeat: true },
+  { type: 'keyup', repeat: false },
+];
+let peekingH = false, timedH = false;
+const seen = [];
+for (const e of holdEvents) {
+  const action = drawHideKeyAction({ ...e, peeking: peekingH, timed: timedH });
+  seen.push(action);
+  if (action === 'peek-timed') { peekingH = true; timedH = true; }
+  if (action === 'peek-start') { peekingH = true; timedH = false; }
+  if (action === 'peek-end') { peekingH = false; timedH = false; }
+}
+ok('a mid-draw hold ends on release', peekingH === false);
+ok('a mid-draw hold takes over from the timed peek',
+  seen[0] === 'peek-timed' && seen.includes('peek-start') && seen[seen.length - 1] === 'peek-end');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

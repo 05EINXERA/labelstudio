@@ -8,7 +8,7 @@ import {
   isAnnotationHidden
 } from "../state.js?v=11";
 import { visibleRows, hiddenRowCount } from "../objects-filter.js?v=1";
-import { MAX_CLASS_SHORTCUTS } from "../shortcuts.js?v=3";
+import { MAX_CLASS_SHORTCUTS } from "../shortcuts.js?v=4";
 import { pendingCount, retryablePendingCount, isServerUnreachable, peekWrite } from "../offline-queue.js?v=6";
 import { coalesce } from "../save-coalesce.js?v=1";
 import { annotationPoints, updateAnnotationBounds } from "../canvas/geometry.js?v=1";

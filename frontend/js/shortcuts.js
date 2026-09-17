@@ -130,3 +130,42 @@ export function hideTargetIdsWhileDrawing(selectedIds, annotations, drawingId) {
   if (drawingId) return [drawingId];
   return hideTargetIds(selectedIds, annotations);
 }
+
+/**
+ * How long a mid-draw "H" tap hides the shape before it comes back by itself.
+ *
+ * Mid-draw the sticky toggle is the wrong gesture: the annotator is mid-gesture
+ * with a shape that has no row to un-hide it from and no selection to press "H"
+ * against once it is invisible, so a hide that waits for a second press is a
+ * trap. A timed reveal makes the hide self-limiting — glance underneath, and the
+ * shape is back without any further input.
+ */
+export const DRAW_PEEK_MS = 2000;
+
+/**
+ * What should an "H" key event do *while a shape is being drawn*?
+ *
+ * The same press/hold/release stream as hideKeyAction, but a tap resolves to a
+ * timed peek rather than a sticky toggle. The hold cases are unchanged: holding
+ * still hides for as long as the key is down, so the two gestures stay
+ * consistent and a hold is not cut short by the tap's timer.
+ *
+ *  - first keydown -> "peek-timed": hide now, reveal after DRAW_PEEK_MS.
+ *  - a repeat, not yet peeking -> "peek-start": the key is held; the caller
+ *    cancels the timer so the hide lasts as long as the key does.
+ *  - any further repeat -> "none".
+ *  - keyup -> "peek-end" only when the hold took over. A tap's keyup must NOT
+ *    end the peek: the whole point is that it outlives the key by design.
+ */
+export function drawHideKeyAction({ type, repeat, peeking, timed } = {}) {
+  if (type === "keyup") return peeking && !timed ? "peek-end" : "none";
+  if (type !== "keydown") return "none";
+  if (!repeat) return "peek-timed";
+  // A repeat means the key is held, so the hold takes over — including from the
+  // timed peek this very press started a moment ago. Without that the timer
+  // would keep running and reveal the shape mid-hold, with the key still down.
+  // Only a peek that is already a *hold* is left alone, so later repeats stay
+  // no-ops and the flicker guard holds.
+  if (peeking && !timed) return "none";
+  return "peek-start";
+}

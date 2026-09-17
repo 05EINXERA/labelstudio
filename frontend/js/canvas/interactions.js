@@ -11,7 +11,7 @@ import { normalizeRect, rectIsDegenerate, marqueeHits } from "./marquee.js?v=1";
 import { shouldCanvasClickBeBlocked } from "../comment-mode.js?v=1";
 import { commentOverlayRefs, openCommentEditor, anchorCommentOverlay } from "../comment-overlay.js?v=2";
 import { setStatus, save, render, activateLabel, toggleAnnotationsHidden, unhideAllObjects, editBlockReason } from "../components/workspace.js?v=26";
-import { labelIndexForCode, hideTargetIdsWhileDrawing, shouldHide, hideKeyAction } from "../shortcuts.js?v=3";
+import { labelIndexForCode, hideTargetIdsWhileDrawing, shouldHide, hideKeyAction, drawHideKeyAction, DRAW_PEEK_MS } from "../shortcuts.js?v=4";
 import { performMagicWandSegmentation } from "../ai/detect.js?v=4";
 import { applyAutoSmooth } from "../fft-controls.js?v=4";
 import { annotationSettings } from "../feature-flags.js?v=1";
@@ -331,6 +331,11 @@ export function finalizePolygon() {
   if (view.drag?.type !== "draw-polygon") return;
   const annotation = state.annotations.find((item) => item.id === view.drag.annotationId);
   view.drag = null;
+  // The shape is no longer being drawn, so a mid-draw peek has nothing left to
+  // apply to. Ending it here means a polygon committed within the 2s window
+  // appears immediately rather than staying invisible for the remainder, and
+  // stops a pending reveal firing after the drawing state has gone.
+  if (peekActive || drawPeekTimer !== null) applyHideAction("peek-end");
   if (!annotation || (annotation.points || []).length < 3) {
     // Remove incomplete polygon
     if (annotation) {
@@ -1183,6 +1188,13 @@ canvas.addEventListener("pointerdown", (event) => {
         // doing it here covers placing a vertex and deleting one alike — the
         // two clicks are hard to tell apart, so they get one predictable rule.
         // A no-op when the shape was never hidden.
+        //
+        // The pending auto-reveal goes too. Leaving it armed would fire a
+        // reveal seconds later against whatever is hidden by then — and would
+        // leave peekActive set, so the next keyup would be read as ending a
+        // hold that is not running.
+        cancelDrawPeekTimer();
+        peekActive = false;
         state.hiddenAnnotationIds.delete(annotation.id);
         state.peekHiddenIds.delete(annotation.id);
 
@@ -1670,6 +1682,34 @@ let peekActive = false;
 // by which point the tap has already fired, so the hold needs this to undo
 // exactly what the tap did — in either direction.
 let lastTap = null;
+// The pending mid-draw auto-reveal, and whether the peek now on screen is one.
+// A timed peek deliberately outlives the keyup that started it, so keyup must
+// be able to tell the two apart and leave this one running.
+let drawPeekTimer = null;
+let drawPeekTimed = false;
+
+/**
+ * The "H" decision for one event, picking the mid-draw rules when a polygon is
+ * in progress. Shared by the keydown and keyup listeners so the two can never
+ * disagree about which gesture is in force — a keyup routed through the wrong
+ * one would either strand a hold or cancel a timed peek early.
+ */
+function hideActionFor(type, repeat) {
+  const drawing = view.drag?.type === "draw-polygon";
+  const event = { type, repeat, peeking: peekActive };
+  return drawing
+    ? drawHideKeyAction({ ...event, timed: drawPeekTimed })
+    : hideKeyAction(event);
+}
+
+/** Cancel any pending mid-draw auto-reveal without revealing anything. */
+function cancelDrawPeekTimer() {
+  if (drawPeekTimer !== null) {
+    clearTimeout(drawPeekTimer);
+    drawPeekTimer = null;
+  }
+  drawPeekTimed = false;
+}
 
 /**
  * Carry out one decision from hideKeyAction().
@@ -1692,6 +1732,10 @@ let lastTap = null;
  */
 function applyHideAction(action) {
   if (action === "peek-end") {
+    // The timer is cleared even when no peek is on screen: the two can come
+    // apart (a vertex click reveals the shape while the reveal is still armed),
+    // and an orphaned timer would fire against a later, unrelated hide.
+    cancelDrawPeekTimer();
     if (!peekActive) return;
     peekActive = false;
     // Nothing is left for a later hold to undo: this press's tap was already
@@ -1703,7 +1747,7 @@ function applyHideAction(action) {
     return;
   }
 
-  if (action !== "toggle" && action !== "peek-start") return;
+  if (action !== "toggle" && action !== "peek-start" && action !== "peek-timed") return;
 
   // Mid-draw the target is the shape being drawn, which is deliberately not in
   // selectedIds — starting a polygon sets selectedId only. Without this, "H"
@@ -1714,6 +1758,32 @@ function applyHideAction(action) {
     // Only a tap reports this. A hold that began on an empty selection has
     // nothing to say a second time.
     if (action === "toggle") setStatus("Select an object first");
+    return;
+  }
+
+  // A mid-draw tap: hide now, reveal by itself after DRAW_PEEK_MS. It uses the
+  // peek layer rather than the sticky one precisely so it can expire — and
+  // because a sticky mid-draw hide is a trap: the shape has no Objects-panel
+  // row to un-hide it from while it is being drawn, and once invisible there is
+  // no selection to press "H" against either.
+  if (action === "peek-timed") {
+    // A second tap before the timer fires restarts the window rather than
+    // stacking a second one, so the reveal is always DRAW_PEEK_MS from the last
+    // press and never from the first.
+    cancelDrawPeekTimer();
+    peekActive = true;
+    drawPeekTimed = true;
+    ids.forEach((id) => state.peekHiddenIds.add(id));
+    drawPeekTimer = setTimeout(() => {
+      drawPeekTimer = null;
+      drawPeekTimed = false;
+      peekActive = false;
+      state.peekHiddenIds.clear();
+      render();
+      setStatus("Object shown");
+    }, DRAW_PEEK_MS);
+    render();
+    setStatus(`Hidden for ${Math.round(DRAW_PEEK_MS / 1000)}s`);
     return;
   }
 
@@ -1740,6 +1810,12 @@ function applyHideAction(action) {
 
   // peek-start: reverse the tap, then hide momentarily instead, so the press
   // leaves the sticky layer exactly as it found it once released.
+  //
+  // Mid-draw there is no sticky toggle to reverse — the tap was a timed peek —
+  // but its timer must go, or the shape would pop back into view mid-hold while
+  // the key is still down. The hide then lasts exactly as long as the key,
+  // which is the hold's own rule.
+  cancelDrawPeekTimer();
   if (lastTap) toggleAnnotationsHidden(lastTap.ids, !lastTap.hid);
   lastTap = null;
   peekActive = true;
@@ -1753,7 +1829,7 @@ window.addEventListener("keyup", (event) => {
   // No isTyping guard, deliberately: if focus moved into a field mid-hold, the
   // release still has to end the peek or the shapes stay hidden with no key
   // down to explain it.
-  applyHideAction(hideKeyAction({ type: "keyup", repeat: false, peeking: peekActive }));
+  applyHideAction(hideActionFor("keyup", false));
 });
 
 // A keyup is never delivered if focus leaves the window mid-hold (alt-tab, a
@@ -1916,13 +1992,13 @@ window.addEventListener("keydown", (event) => {
   // by event.repeat rather than a timer — see hideKeyAction. Repeats past the
   // first return without any work, which is what stops the flicker the old
   // toggle-on-every-keydown binding produced.
+  //
+  // While a polygon is being drawn the tap is a *timed* peek instead, expiring
+  // by itself after DRAW_PEEK_MS: a sticky hide there has no Objects-panel row
+  // and no selection to bring it back with. Holding is unchanged either way.
   if (event.key.toLowerCase() === "h") {
     event.preventDefault();
-    applyHideAction(hideKeyAction({
-      type: "keydown",
-      repeat: event.repeat,
-      peeking: peekActive,
-    }));
+    applyHideAction(hideActionFor("keydown", event.repeat));
     return;
   }
 
