@@ -35,6 +35,8 @@ from schemas import (
     TaskDetail,
     TaskOrder,
     TaskPage,
+    TaskSearchPage,
+    TaskSearchRow,
     TaskUpdate,
 )
 from api.auth import get_current_user, require_csrf
@@ -544,6 +546,53 @@ def _apply_ordering(query, sort: str, order: str):
     return query.order_by(*keys)
 
 
+# The search endpoint's sortable columns: everything the task list offers, plus
+# the project name.
+#
+# `"project"` is deliberately NOT added to `_SORT_COLUMNS` above. That dict is
+# shared with GET /api/tasks and GET /api/tasks/order, neither of which has
+# `projects` in its FROM clause — adding it there would let a caller ask two
+# endpoints for an ORDER BY over a table they never joined, which is a SQL error
+# on endpoints that never asked for the feature.
+_SEARCH_SORT_COLUMNS = {**_SORT_COLUMNS, "project": models.Project.name}
+
+
+def _apply_search_ordering(query, sort: str, order: str):
+    """Order the cross-project search deterministically, tie-broken by id.
+
+    Mirrors `_apply_ordering` — same whitelist-then-422 shape, same
+    `description, id` tiebreak — over the wider column set. The duplication is
+    two lines and is preferred to parameterising the shared helper with a column
+    map, which would make the existing call sites read as though they could sort
+    by project when they cannot.
+
+    The tiebreak matters more here than there. Sorting by project name across a
+    workspace where one project holds most of the tasks produces a very large
+    tie group, and without a unique final key LIMIT/OFFSET may show one row on
+    two pages and another on none.
+    """
+    column = _SEARCH_SORT_COLUMNS.get(sort)
+    if column is None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Unknown sort field '{sort}'. "
+                f"Allowed: {', '.join(sorted(_SEARCH_SORT_COLUMNS))}"
+            ),
+        )
+    if order not in ("asc", "desc"):
+        raise HTTPException(
+            status_code=422, detail=f"Unknown sort order '{order}'. Allowed: asc, desc"
+        )
+
+    direction = (lambda c: c.desc()) if order == "desc" else (lambda c: c.asc())
+    keys = [direction(column)]
+    if sort != "description":
+        keys.append(models.Task.description.asc())
+    keys.append(models.Task.id.asc())
+    return query.order_by(*keys)
+
+
 def _visible_tasks_query(projectId: Optional[int], user: models.User, db: Session):
     """Base query for tasks the caller may see, scoped to one project or all.
 
@@ -886,6 +935,128 @@ def bulk_lock_status(projectId: int = Query(...), db: Session = Depends(get_db),
             "seconds_remaining": max(0, TASK_LOCK_TTL_SECONDS - int(age)),
         }
     return result
+
+
+DEFAULT_SEARCH_PAGE_SIZE = 25
+
+
+# NOTE: this route must stay ABOVE `@router.get("/{task_id}")`. FastAPI matches
+# in declaration order, so a `/search` registered after it is swallowed by the
+# path parameter and answers 422 for a non-integer task id.
+@router.get("/search", response_model=TaskSearchPage)
+def search_tasks(
+    q: Optional[str] = Query(None, max_length=200),
+    status: Optional[str] = Query(None),
+    team: Optional[str] = Query(None),
+    assignee: Optional[str] = Query(None),
+    projectId: Optional[int] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(DEFAULT_SEARCH_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
+    sort: str = Query(DEFAULT_SORT),
+    order: str = Query(DEFAULT_ORDER),
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """Search tasks across every project the caller can reach.
+
+    Backs the Find Tasks tab on the projects page. Separate from
+    GET /api/tasks rather than a flag on it for three reasons: that endpoint
+    already serves two shapes selected by `page` and so cannot declare a
+    `response_model` (rule 6), this one can; the decisions that make it fast are
+    hard-coded here instead of exposed as flags a caller could get wrong; and
+    the existing endpoint's pinned contract stays untouched.
+
+    **The projection is the performance design, not a detail.** Selecting
+    columns rather than `Task` entities is what keeps `Task.annotation_rows`
+    (`lazy="selectin"`, one extra query per page returning every shape) and the
+    deferred `Task.annotations` blob (11-18 MB on real rows) out of this query
+    altogether. They are unreachable here by construction, which is stronger
+    than remembering not to touch them.
+
+    `accessible_project_ids` is called **once** per request and its result is an
+    IN list; never once per row. Total cost is a fixed number of queries -- 3 to
+    resolve access, 1 COUNT, 1 page SELECT, and at most 2 name lookups --
+    independent of how many tasks matched.
+
+    See .devnotes/task-project-search/02_DESIGN.md.
+    """
+    # Permission scope first, and it is the only access check this endpoint
+    # needs: every row it can return comes from a project in this list.
+    if projectId is not None:
+        require_project(projectId, user, db, minimum=ProjectRole.VIEWER)
+        project_ids = [projectId]
+    else:
+        project_ids = accessible_project_ids(user, db)
+
+    if not project_ids:
+        # Not an optimisation: `IN ()` is a syntax error on some engines and an
+        # always-false predicate on others. The answer is known, so say it.
+        # total_pages floors at 1 — an empty result is one empty page, so the
+        # pager always has a page to be on (matching `_as_page`).
+        return TaskSearchPage(
+            items=[], total=0, page=page, page_size=page_size, total_pages=1
+        )
+
+    # An inner join, not an outer one: project_id is constrained to ids drawn
+    # from `projects`, so every surviving row provably has a project. An
+    # outerjoin would only render an orphaned row with a blank project name,
+    # silently papering over data corruption.
+    query = (
+        db.query(
+            models.Task.id,
+            models.Task.description,
+            models.Task.status,
+            models.Task.time_spent,
+            models.Task.updated_at,
+            models.Task.project_id,
+            models.Project.name.label("project_name"),
+            models.Task.assigned_team_id,
+            models.Task.assignee_user_id,
+        )
+        .join(models.Project, models.Project.id == models.Task.project_id)
+        .filter(models.Task.project_id.in_(project_ids))
+    )
+
+    # Reused verbatim from the task list, so the search box, the three selects
+    # and every sentinel ("unassigned", "mine", "none", "user-<id>") behave
+    # identically in both places. A second copy would be free to drift.
+    query = _apply_filters(query, q, status, team, assignee, user)
+    query = _apply_search_ordering(query, sort, order)
+
+    # COUNT before LIMIT/OFFSET, with the ordering stripped: ordering a count is
+    # wasted work.
+    total = query.order_by(None).count()
+    rows = query.offset((page - 1) * page_size).limit(page_size).all()
+
+    # Two batched IN queries over the page's distinct ids — the same helper the
+    # task list uses. At most `page_size` distinct values, so joining two more
+    # tables for display names would be the wrong trade.
+    team_names, user_names = _assignment_names(rows, db)
+
+    items = [
+        TaskSearchRow(
+            id=r.id,
+            description=r.description,
+            status=r.status,
+            time_spent=r.time_spent,
+            updated_at=r.updated_at,
+            project_id=r.project_id,
+            project_name=r.project_name,
+            assigned_team_id=r.assigned_team_id,
+            assigned_team_name=team_names.get(r.assigned_team_id),
+            assignee_user_id=r.assignee_user_id,
+            assignee_name=user_names.get(r.assignee_user_id),
+        )
+        for r in rows
+    ]
+
+    return TaskSearchPage(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=max(1, -(-total // page_size)),
+    )
 
 
 @router.get("/{task_id}", response_model=TaskDetail)

@@ -2907,6 +2907,47 @@ button.switch[aria-checked="true"] .switch-knob {
   opacity: .65;
 }
 
+/* --- in-page view tabs: Projects | Find tasks ---------------------------- */
+
+/* A Level-2 view switch *within* a page, distinct from `.app-nav` above, which
+   moves between pages. Drawn as an underlined strip rather than pills so the
+   two never read as the same control at a glance.
+
+   Defined here rather than inlined on the elements: `pages/project/imports.js`
+   inlines its tab styling, which is the kind of existing pattern the project
+   docs warn against copying. */
+
+.view-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 20px;
+  border-bottom: 2px solid var(--line);
+}
+
+.view-tab {
+  padding: 9px 20px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: .95rem;
+  font-weight: 500;
+  color: var(--muted);
+  /* Overlaps the strip's own border so the active underline replaces it
+     rather than stacking below it. */
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: color .15s ease, border-color .15s ease;
+}
+
+.view-tab:hover { color: var(--ink); }
+
+.view-tab.is-active {
+  color: var(--accent-dark);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+
 /* --- role pills ---------------------------------------------------------- */
 
 /* Deliberately distinct hues per level so a roster can be scanned without

@@ -82,3 +82,90 @@ export function shouldHide(ids, primaryId, isHidden) {
   const representative = ids.includes(primaryId) ? primaryId : ids[0];
   return !isHidden(representative);
 }
+
+/**
+ * What should an "H" key event do?
+ *
+ * A tap and a hold are different gestures and cannot share one handler. The
+ * original binding toggled on every keydown, so the auto-repeat stream a held
+ * key produces inverted the state at the platform's repeat rate (~30/s) — the
+ * shapes flickered, and whether they ended up hidden depended on whether the
+ * repeat count happened to be odd or even.
+ *
+ * Splitting them needs no timer, because the browser already tells us: the
+ * first keydown of a press has `repeat === false`, every one after it `true`.
+ *
+ *  - first keydown  -> "toggle"     the sticky behaviour, unchanged.
+ *  - a repeat, not yet peeking -> "peek-start"  the key is being held.
+ *  - any further repeat -> "none"   idempotent, which is what stops the flicker.
+ *  - keyup -> "peek-end" when peeking, else "none" (the tap's release).
+ *
+ * `peeking` is the caller's current hold state. Keeping it an argument rather
+ * than module state leaves this function pure and lets the spec drive a whole
+ * press/hold/release sequence through it.
+ */
+export function hideKeyAction({ type, repeat, peeking } = {}) {
+  if (type === "keyup") return peeking ? "peek-end" : "none";
+  if (type !== "keydown") return "none";
+  if (!repeat) return "toggle";
+  return peeking ? "none" : "peek-start";
+}
+
+/**
+ * Every annotation id the "H" key should act on, given the selection *and* any
+ * shape currently being drawn.
+ *
+ * Mid-draw the shape is the obvious target, but it is not in the selection:
+ * starting a polygon sets `state.selectedId` and leaves `selectedIds` empty
+ * (canvas/interactions.js, the first-point branch). hideTargetIds therefore
+ * returned [] and "H" answered "Select an object first" — so mid-draw neither
+ * the toggle nor the hold ran, and a release had nothing to restore.
+ *
+ * The shape being drawn wins outright rather than joining the selection: it is
+ * what the annotator is looking at, and hiding a stale selection alongside it
+ * would be a surprise. `drawingId` is null whenever no polygon is in progress,
+ * which collapses this back to plain hideTargetIds.
+ */
+export function hideTargetIdsWhileDrawing(selectedIds, annotations, drawingId) {
+  if (drawingId) return [drawingId];
+  return hideTargetIds(selectedIds, annotations);
+}
+
+/**
+ * How long a mid-draw "H" tap hides the shape before it comes back by itself.
+ *
+ * Mid-draw the sticky toggle is the wrong gesture: the annotator is mid-gesture
+ * with a shape that has no row to un-hide it from and no selection to press "H"
+ * against once it is invisible, so a hide that waits for a second press is a
+ * trap. A timed reveal makes the hide self-limiting — glance underneath, and the
+ * shape is back without any further input.
+ */
+export const DRAW_PEEK_MS = 1000;
+
+/**
+ * What should an "H" key event do *while a shape is being drawn*?
+ *
+ * The same press/hold/release stream as hideKeyAction, but a tap resolves to a
+ * timed peek rather than a sticky toggle. The hold cases are unchanged: holding
+ * still hides for as long as the key is down, so the two gestures stay
+ * consistent and a hold is not cut short by the tap's timer.
+ *
+ *  - first keydown -> "peek-timed": hide now, reveal after DRAW_PEEK_MS.
+ *  - a repeat, not yet peeking -> "peek-start": the key is held; the caller
+ *    cancels the timer so the hide lasts as long as the key does.
+ *  - any further repeat -> "none".
+ *  - keyup -> "peek-end" only when the hold took over. A tap's keyup must NOT
+ *    end the peek: the whole point is that it outlives the key by design.
+ */
+export function drawHideKeyAction({ type, repeat, peeking, timed } = {}) {
+  if (type === "keyup") return peeking && !timed ? "peek-end" : "none";
+  if (type !== "keydown") return "none";
+  if (!repeat) return "peek-timed";
+  // A repeat means the key is held, so the hold takes over — including from the
+  // timed peek this very press started a moment ago. Without that the timer
+  // would keep running and reveal the shape mid-hold, with the key still down.
+  // Only a peek that is already a *hold* is left alone, so later repeats stay
+  // no-ops and the flicker guard holds.
+  if (peeking && !timed) return "none";
+  return "peek-start";
+}

@@ -405,6 +405,60 @@ class TaskPage(BaseModel):
     total_pages: int
 
 
+class TaskSearchRow(BaseModel):
+    """One row of GET /api/tasks/search — a task plus the project it belongs to.
+
+    Typed, unlike `TaskPage.items` above, and the difference is deliberate
+    rather than an oversight: that endpoint serves two row shapes selected by
+    `include_annotations`, so pinning one model there would misdescribe the
+    other. This endpoint serves exactly one shape, so it is declared (rule 6).
+
+    `image_path` is absent on purpose. The Find Tasks table renders no
+    thumbnails, and the canvas link needs only `project_id` + `id`, so shipping
+    the path would be bytes nobody reads.
+
+    No annotation fields of any kind — not the blob, not the rows, not the
+    comment/class counts. The router builds these from a column projection
+    precisely so the annotation tables are unreachable from this query; see
+    .devnotes/task-project-search/02_DESIGN.md § 2.3.
+    """
+
+    id: int
+    description: Optional[str] = None
+    status: Optional[str] = None
+    time_spent: Optional[int] = 0
+    updated_at: Optional[datetime] = None
+
+    # The owning project. `project_name` is joined in rather than looked up per
+    # row — a per-row lookup would be the N+1 this endpoint exists to avoid, and
+    # `sort=project` needs the name in the ORDER BY, which a post-hoc lookup
+    # cannot provide.
+    project_id: int
+    project_name: Optional[str] = None
+
+    # Assignment, with display names resolved by the same batched helper the
+    # task list uses. Ids alone would force the client to hold a roster.
+    assigned_team_id: Optional[int] = None
+    assigned_team_name: Optional[str] = None
+    assignee_user_id: Optional[int] = None
+    assignee_name: Optional[str] = None
+
+
+class TaskSearchPage(BaseModel):
+    """One page of cross-project task search results.
+
+    Always paged — unlike GET /api/tasks there is no bare-array shape to keep
+    compatible, and an unpaged list of every task in every accessible project is
+    exactly the unbounded response MAX_PAGE_SIZE exists to prevent.
+    """
+
+    items: List[TaskSearchRow] = Field(default_factory=list)
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
+
 class ImageInfoRow(BaseModel):
     """One image's dimensions and file size — a row of the Images Info table.
 

@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Projects - Label Studio</title>
   <link rel="icon" type="image/png" href="logo.png">
-  <link rel="stylesheet" href="styles.css?v=10">
+  <link rel="stylesheet" href="styles.css?v=11">
 </head>
 
 <body style="background: var(--bg);">
@@ -27,30 +27,45 @@
     <div class="mgmt-title-row">
       <div>
         <p class="mgmt-eyebrow">Workspace</p>
-        <h2>Your projects</h2>
+        <h2 id="viewHeading">Your projects</h2>
       </div>
       <button class="primary" id="newProjectBtn" type="button"
         style="padding: 10px 18px; border-radius: 8px; font-weight: 600;">+ New project</button>
     </div>
 
-    <div id="errorBanner" class="mgmt-error" style="display: none;"></div>
-
-    <div class="mgmt-toolbar">
-      <input type="search" id="searchInput" placeholder="Search projects…" aria-label="Search projects">
-      <select id="statusFilter" aria-label="Filter by status">
-        <option value="All">All statuses</option>
-        <option value="Preparing">Preparing</option>
-        <option value="In Progress">In Progress</option>
-        <option value="Completed">Completed</option>
-      </select>
-      <select id="pageSizeSelect" aria-label="Rows per page">
-        <option value="10">10 per page</option>
-        <option value="25">25 per page</option>
-        <option value="50">50 per page</option>
-      </select>
+    <!-- Two panels, toggled in place. Deliberately not a hash router: there are
+         two tabs, neither role-gated, and nothing navigates back into a
+         specific one. See .devnotes/task-project-search/02_DESIGN.md § 5.1. -->
+    <div class="view-tabs" role="tablist" aria-label="Browse">
+      <button type="button" class="view-tab is-active" id="viewTabProjects" role="tab"
+        aria-selected="true" aria-controls="projectsPanel">Projects</button>
+      <button type="button" class="view-tab" id="viewTabTasks" role="tab"
+        aria-selected="false" aria-controls="findTasksPanel">Find tasks</button>
     </div>
 
-    <div id="tableMount"></div>
+    <div id="projectsPanel" role="tabpanel" aria-labelledby="viewTabProjects">
+      <div id="errorBanner" class="mgmt-error" style="display: none;"></div>
+
+      <div class="mgmt-toolbar">
+        <input type="search" id="searchInput" placeholder="Search projects…" aria-label="Search projects">
+        <select id="statusFilter" aria-label="Filter by status">
+          <option value="All">All statuses</option>
+          <option value="Preparing">Preparing</option>
+          <option value="In Progress">In Progress</option>
+          <option value="Completed">Completed</option>
+        </select>
+        <select id="pageSizeSelect" aria-label="Rows per page">
+          <option value="10">10 per page</option>
+          <option value="25">25 per page</option>
+          <option value="50">50 per page</option>
+        </select>
+      </div>
+
+      <div id="tableMount"></div>
+    </div>
+
+    <!-- Filled by js/pages/find-tasks.js, imported on first activation only. -->
+    <div id="findTasksPanel" role="tabpanel" aria-labelledby="viewTabTasks" hidden></div>
   </main>
 
   <!-- New / edit project modal -->
@@ -94,7 +109,7 @@
     </div>
   </div>
 
-  <script type="module" src="js/pages/projects-list.js?v=10"></script>
+  <script type="module" src="js/pages/projects-list.js?v=11"></script>
 </body>
 
 </html>

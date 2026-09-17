@@ -217,12 +217,77 @@ table.onAction("delete", async (row) => {
   }
 });
 
+// --- view tabs -------------------------------------------------------------
+//
+// Two panels toggled in place, not a hash router: there are two tabs, neither
+// role-gated, and nothing navigates back into a specific one. `#/find-tasks` is
+// therefore not bookmarkable, which is the accepted cost — see
+// .devnotes/task-project-search/02_DESIGN.md § 5.1, and F3 for the version that
+// would put the tab *and* the search state in the URL together.
+
+const tabs = {
+  projects: {
+    button: document.getElementById("viewTabProjects"),
+    panel: document.getElementById("projectsPanel"),
+    heading: "Your projects",
+  },
+  tasks: {
+    button: document.getElementById("viewTabTasks"),
+    panel: document.getElementById("findTasksPanel"),
+    heading: "Find tasks",
+  },
+};
+
+const heading = document.getElementById("viewHeading");
+
+/** Resolves once find-tasks.js has been imported and mounted; null until the
+ *  tab is first opened, so a user who never opens it never downloads it. */
+let findTasksReady = null;
+
+function showTab(name) {
+  for (const [key, tab] of Object.entries(tabs)) {
+    const active = key === name;
+    tab.button.classList.toggle("is-active", active);
+    // Kept in step with the class: `role="tab"` promises this to assistive
+    // tech, and the class alone says nothing to it.
+    tab.button.setAttribute("aria-selected", active ? "true" : "false");
+    // `hidden`, not just visually hidden — the inactive panel must leave the
+    // tab order, or keyboard focus strands inside an invisible table.
+    tab.panel.hidden = !active;
+  }
+  heading.textContent = tabs[name].heading;
+  // The New project button acts on the projects list. Leaving it over a task
+  // table invites a click that appears to do nothing relevant.
+  els.newBtn.hidden = name !== "projects";
+
+  if (name !== "tasks") return;
+
+  if (!findTasksReady) {
+    // Imported on first activation, not at page load: the module and its
+    // requests cost nothing for a user who only ever looks at projects.
+    findTasksReady = import("./find-tasks.js?v=1")
+      .then((mod) => mod.mount(tabs.tasks.panel))
+      .catch((err) => {
+        console.error("Failed to load the Find tasks view", err);
+        tabs.tasks.panel.innerHTML =
+          '<p class="mgmt-error">Could not load the task search.</p>';
+        // Cleared so a later click retries rather than staying broken for the
+        // life of the page.
+        findTasksReady = null;
+      });
+  }
+}
+
 // --- init ------------------------------------------------------------------
 
 async function init() {
   renderAppNav(document.getElementById("appNav"), "projects");
   wireLogout(els.logout);
   wireAccountSettings(els.settings);
+
+  for (const [name, tab] of Object.entries(tabs)) {
+    tab.button.addEventListener("click", () => showTab(name));
+  }
 
   // Real identity rather than the free-text localStorage name (rule 14).
   const user = await getCurrentUser();
