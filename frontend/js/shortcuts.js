@@ -140,7 +140,7 @@ export function hideTargetIdsWhileDrawing(selectedIds, annotations, drawingId) {
  * trap. A timed reveal makes the hide self-limiting — glance underneath, and the
  * shape is back without any further input.
  */
-export const DRAW_PEEK_MS = 2000;
+export const DRAW_PEEK_MS = 1000;
 
 /**
  * What should an "H" key event do *while a shape is being drawn*?
