@@ -780,6 +780,84 @@ export function filterConsecutiveDuplicates(pts) {
 }
 
 /**
+ * Splits a self-intersecting closed polygon into its separate loops instead of
+ * discarding the smaller one.
+ *
+ * Same crossing search as resolveClosedPolygonIntersections, but when a pinch
+ * cuts the outline in two, both halves are kept: the shape is recursively split
+ * until no part self-intersects. Slivers below `minArea` are dropped — a vertex
+ * dragged a pixel past a neighbouring edge should still read as one shape, not
+ * spawn a degenerate second annotation.
+ *
+ * Returns the parts ordered largest-area first; a polygon that does not cross
+ * itself comes back as a single-element array.
+ */
+export function splitClosedPolygonAtIntersections(points, minArea = 4) {
+  const start = filterConsecutiveDuplicates(points || []);
+  if (start.length < 4) return start.length >= 3 ? [start] : [];
+
+  const parts = [];
+  const pending = [start];
+  // Bounds the recursion the way the resolve pass bounds its while loop: a
+  // pathological outline must not hang the pointerup handler.
+  let maxSplits = 50;
+
+  while (pending.length) {
+    const ring = pending.shift();
+    const N = ring.length;
+    let didSplit = false;
+
+    if (N >= 4 && maxSplits > 0) {
+      outer:
+      for (let i = 0; i < N; i++) {
+        const p1 = ring[i];
+        const p2 = ring[(i + 1) % N];
+
+        for (let j = i + 2; j < N; j++) {
+          if (i === 0 && j === N - 1) continue;
+
+          const p3 = ring[j];
+          const p4 = ring[(j + 1) % N];
+
+          const hit = getLineSegmentsIntersection(p1, p2, p3, p4);
+          if (hit && hit.t > 1e-4 && hit.t < 1.0 - 1e-4 && hit.u > 1e-4 && hit.u < 1.0 - 1e-4) {
+            const intersectionPoint = { x: round(hit.x), y: round(hit.y) };
+
+            const loopA = [];
+            for (let k = 0; k <= i; k++) loopA.push(ring[k]);
+            loopA.push(intersectionPoint);
+            for (let k = j + 1; k < N; k++) loopA.push(ring[k]);
+
+            const loopB = [intersectionPoint];
+            for (let k = i + 1; k <= j; k++) loopB.push(ring[k]);
+
+            const cleanA = filterConsecutiveDuplicates(loopA);
+            const cleanB = filterConsecutiveDuplicates(loopB);
+
+            maxSplits--;
+            didSplit = true;
+            // Each half goes back through the search: one pinch can leave
+            // another crossing further along the outline.
+            if (cleanA.length >= 3) pending.push(cleanA);
+            if (cleanB.length >= 3) pending.push(cleanB);
+            break outer;
+          }
+        }
+      }
+    }
+
+    if (!didSplit && ring.length >= 3) parts.push(ring);
+  }
+
+  const kept = parts.filter((part) => polygonArea(part) >= minArea);
+  // Everything was a sliver: fall back to the single biggest loop so a drag can
+  // never erase the annotation outright.
+  const result = kept.length ? kept : parts.slice();
+  result.sort((a, b) => polygonArea(b) - polygonArea(a));
+  return result;
+}
+
+/**
  * Resolves self-intersections on a finished/closed polygon (e.g. after moving a vertex).
  * When two non-adjacent sides intersect, the intersected loop is deleted and replaced
  * with the intersection vertex, keeping the primary valid polygon intact.

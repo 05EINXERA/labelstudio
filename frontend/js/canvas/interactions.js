@@ -8,10 +8,11 @@ import {
   addPolygonPointResolvingIntersections,
   resolvePolygonClosingIntersections,
   resolveClosedPolygonIntersections,
+  splitClosedPolygonAtIntersections,
   polygonsTouch,
   unionPolygons,
   smoothUnionCusps
-} from "./geometry.js?v=5";
+} from "./geometry.js?v=6";
 import { view } from "./view.js?v=1";
 import { draw, drawAllLayers } from "./draw.js?v=4";
 import { canvas, undoButton } from "../dom.js?v=1";
@@ -1344,10 +1345,51 @@ canvas.addEventListener("pointerup", (e) => {
     view.drag = null;
     if (annotation && annotation.points && annotation.points.length >= 4) {
       const oldLen = annotation.points.length;
-      annotation.points = resolveClosedPolygonIntersections(annotation.points, pointIdx);
-      updateAnnotationBounds(annotation);
-      if (annotation.points.length !== oldLen) {
-        setStatus("Intersected sides removed");
+      // A drag that pinches the outline in two used to keep only the larger
+      // half and throw the rest away. Split it into fully independent polygons
+      // instead: same class, but each part is its own object that selects,
+      // moves and deletes on its own.
+      const parts = splitClosedPolygonAtIntersections(annotation.points);
+
+      if (parts.length > 1) {
+        annotation.points = parts[0].map((p) => ({ x: round(p.x), y: round(p.y) }));
+        annotation.type = "polygon";
+        // A split breaks the shape apart, so it also leaves whatever group the
+        // original belonged to — otherwise the new pieces would stay welded to
+        // each other and to that group's other shapes.
+        delete annotation.groupId;
+        // Likewise the merged-union rendering hint: the pieces are plain
+        // polygons now, not the outline of a merged group. The flag also
+        // round-trips nested under `extra`, so clear both spellings.
+        delete annotation.mergedFromGroup;
+        if (annotation.extra) delete annotation.extra.mergedFromGroup;
+        updateAnnotationBounds(annotation);
+
+        const insertAt = state.annotations.indexOf(annotation) + 1;
+        const siblings = parts.slice(1).map((part) => {
+          const sibling = {
+            id: generateUUID(),
+            type: "polygon",
+            labelId: annotation.labelId,
+            points: part.map((p) => ({ x: round(p.x), y: round(p.y) }))
+          };
+          updateAnnotationBounds(sibling);
+          return sibling;
+        });
+        state.annotations.splice(insertAt, 0, ...siblings);
+
+        // Select only the part still under the cursor. With no groupId the
+        // cascade in state.js leaves the other pieces alone, which is what
+        // makes them read as separate objects.
+        state.selectedIds.clear();
+        state.selectedId = annotation.id;
+        setStatus(`Shape split into ${parts.length} polygons`);
+      } else {
+        annotation.points = resolveClosedPolygonIntersections(annotation.points, pointIdx);
+        updateAnnotationBounds(annotation);
+        if (annotation.points.length !== oldLen) {
+          setStatus("Intersected sides removed");
+        }
       }
       render();
     }

@@ -1,7 +1,7 @@
 import { generateUUID, round } from "../utils.js?v=3";
 import { apiFetch, pollJob } from "../api.js?v=3";
 import { state, colorForName, labelByName, snapshot, selectedAnnotation } from "../state.js?v=3";
-import { updateAnnotationBounds } from "../canvas/geometry.js?v=5";
+import { updateAnnotationBounds } from "../canvas/geometry.js?v=6";
 import { view } from "../canvas/view.js?v=1";
 import { detectState } from "./detect-state.js?v=1";
 import { getImageSrcForAPI } from "./shared.js?v=1";
