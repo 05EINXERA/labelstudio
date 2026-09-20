@@ -217,6 +217,14 @@ def test_vertex_handle_radius_shrinks_with_zoom():
         f"half-width {edge_half_width}px, so handles merge into the outline."
     )
 
+    # The base must sit above the floor, or there is nothing left to shrink and
+    # the handle is pinned to one size at every zoom -- which silently disables
+    # the zoom-shrink behaviour rather than failing visibly.
+    assert data["base"] > data["floor"], (
+        f"Base handle radius {data['base']}px is not above the "
+        f"{data['floor']}px floor, so handles cannot shrink at all."
+    )
+
     # Zooming in shrinks the handle...
     assert data["radii"][1] < data["radii"][0], "Handle does not shrink on zoom-in"
 
@@ -230,3 +238,139 @@ def test_vertex_handle_radius_shrinks_with_zoom():
 
     # Zooming OUT must not inflate handles over a small shape.
     assert data["zoomedOut"] == data["base"]
+
+
+def test_grab_radii_do_not_create_phantom_snapping():
+    """The vertex grab radius must stay small enough, relative to the spacing
+    freehand tracing lays points down at, that adjacent grab areas cannot
+    overlap.
+
+    This is the invariant behind the "vertices snap to each other like a
+    magnet" report: there is no snapping code anywhere: the effect is entirely
+    a hit test claiming ground it should not. When `vertexGrabRadius` exceeds
+    half of `freehandPointSpacing`, a freehand-traced outline has overlapping
+    grab zones by construction, so clicking near one corner grabs whichever
+    neighbour wins the distance check.
+
+    Evaluated by running the module, so the invariant holds against the real
+    values rather than against the source text.
+    """
+    if not _node_available():
+        pytest.skip("node is not available on PATH")
+
+    import json
+    import subprocess
+
+    flags_url = (
+        "file:///"
+        + os.path.join(FRONTEND_JS_DIR, "feature-flags.js").replace("\\", "/")
+    )
+    script = (
+        f"import('{flags_url}').then(m => {{"
+        "  console.log(JSON.stringify({"
+        "    grab: m.annotationSettings.vertexGrabRadius,"
+        "    edge: m.annotationSettings.edgeGrabRadius,"
+        "    spacing: m.annotationSettings.freehandPointSpacing,"
+        "    floorAtDeepZoom: m.zoomScaledRadius("
+        "      m.annotationSettings.vertexGrabRadius, 8),"
+        "  }));"
+        "});"
+    )
+    result = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, f"node failed: {result.stderr}"
+    data = json.loads(result.stdout.strip())
+
+    assert data["grab"] * 2 <= data["spacing"], (
+        f"vertexGrabRadius {data['grab']}px exceeds half of "
+        f"freehandPointSpacing {data['spacing']}px, so neighbouring vertices "
+        f"on a freehand trace have overlapping grab areas and the wrong one "
+        f"can win a click."
+    )
+
+    # The edge test is only safe at or below the vertex radius: it runs second
+    # and a corner wins a tie, but an edge radius LARGER than the vertex one
+    # would claim ground outside any handle the annotator can see.
+    assert data["edge"] <= data["grab"], (
+        f"edgeGrabRadius {data['edge']}px exceeds vertexGrabRadius "
+        f"{data['grab']}px, so edges claim ground outside the drawn handles."
+    )
+
+    # At deep zoom the grab area is floored, and that floor is measured in
+    # SCREEN px: divided by the zoom it must stay under a pixel in image space,
+    # or placing a vertex next to an existing one at high zoom is impossible.
+    assert data["floorAtDeepZoom"] / 8 < 1.0, (
+        f"At 8x zoom the grab radius floors at {data['floorAtDeepZoom']}px "
+        f"screen = {data['floorAtDeepZoom'] / 8:.2f}px in image space, so a "
+        f"vertex cannot be placed within a pixel of an existing one."
+    )
+
+
+def test_freehand_commits_a_point_at_a_corner():
+    """Freehand drag-draw must lay a vertex down at a corner even when the
+    cursor has not travelled the spacing distance.
+
+    The spacing gate alone cannot see a corner, and loses it for a specific
+    reason: tracing into a corner the annotator slows and pivots, so the cursor
+    stays inside the spacing radius for the whole turn and no point is
+    committed. The next one lands a full spacing distance down the NEW heading,
+    so the outline cuts the corner and the vertex reads as pulled toward the
+    adjacent side -- reported as vertices "snapping like a magnet" at corners
+    on curved shapes.
+
+    `isFreehandCorner` is module-private and interactions.js touches the DOM at
+    import time, so the angle rule is re-implemented here and checked against
+    the same constants the module uses. The wiring (that the rule is actually
+    OR-ed into the spacing gate) is asserted separately below.
+    """
+    import math
+
+    interactions = os.path.join(FRONTEND_JS_DIR, "canvas", "interactions.js")
+    with open(interactions, "r", encoding="utf-8") as f:
+        source = f.read()
+
+    match = re.search(r"FREEHAND_CORNER_ANGLE_DEGREES\s*=\s*([\d.]+)", source)
+    assert match, "FREEHAND_CORNER_ANGLE_DEGREES is not defined"
+    corner_angle = float(match.group(1))
+
+    def turn_degrees(prev, last, end):
+        ix, iy = last[0] - prev[0], last[1] - prev[1]
+        ox, oy = end[0] - last[0], end[1] - last[1]
+        imag = math.hypot(ix, iy)
+        omag = math.hypot(ox, oy)
+        if imag == 0 or omag == 0:
+            return 0.0
+        cos = max(-1.0, min(1.0, (ix * ox + iy * oy) / (imag * omag)))
+        return math.degrees(math.acos(cos))
+
+    # A right-angle turn is unambiguously a corner and must commit.
+    square_corner = turn_degrees((0, 0), (10, 0), (10, 10))
+    assert square_corner > corner_angle, (
+        f"A 90-degree corner measures {square_corner} and does not exceed the "
+        f"{corner_angle}-degree threshold, so it would not be committed."
+    )
+
+    # A gentle arc must NOT trip the corner rule, or every traced curve gets a
+    # point at every mouse sample and the outline becomes needlessly heavy.
+    arc_step = turn_degrees((0, 0), (10, 0), (19.8, 2.0))
+    assert arc_step < corner_angle, (
+        f"A gentle arc step measures {arc_step} and exceeds the "
+        f"{corner_angle}-degree threshold, so smooth curves would be "
+        f"over-sampled."
+    )
+
+    # The rule must be OR-ed into the spacing gate -- a corner commits whether
+    # or not the cursor has travelled far enough.
+    assert "travelled > threshold || isFreehandCorner(pts, end)" in source, (
+        "the corner test must be OR-ed with the spacing gate, so a corner "
+        "commits a point regardless of distance travelled"
+    )
+
+    # A near-zero-length step has no meaningful heading; committing on one
+    # stacks a cluster of points at the moment of the turn.
+    assert "FREEHAND_CORNER_MIN_TRAVEL_PX" in source, (
+        "a minimum-travel floor is required, or cursor jitter at the corner "
+        "commits a burst of points"
+    )

@@ -20,7 +20,7 @@ import { commentOverlayRefs } from "../comment-overlay.js?v=1";
 import { setStatus, save, render, activateLabel, HOTKEY_LABEL_LIMIT } from "../components/workspace.js?v=9";
 import { performMagicWandSegmentation } from "../ai/detect.js?v=2";
 import { applyAutoSmooth } from "../fft-controls.js?v=1";
-import { annotationSettings, zoomScaledRadius } from "../feature-flags.js?v=2";
+import { annotationSettings, zoomScaledRadius } from "../feature-flags.js?v=3";
 
 export function canvasPoint(event) {
   const rect = canvas.getBoundingClientRect();
@@ -858,7 +858,13 @@ canvas.addEventListener("pointerdown", (event) => {
         // Any other vertex hit must fall through to the drawing code below, or the
         // move-point view.drag would overwrite view.drag.type and silently end the polygon.
         if (view.drag?.type === "draw-polygon") {
-          if (ptIndex === 0) {
+          // Requires 4 points, not the 3 the outer guard allows. At 3, the
+          // click landing in vertex 0's grab radius means the shape is a
+          // triangle whose free end is back at its own start — a degenerate
+          // sliver, not something an annotator set out to draw. finalizePolygon
+          // would accept it (its own floor is 3), so the floor has to be here.
+          // Below 4, fall through and let the click place a point instead.
+          if (ptIndex === 0 && selected.points.length >= 4) {
             finalizePolygon();
             return;
           }
@@ -1068,6 +1074,59 @@ canvas.addEventListener("pointerdown", (event) => {
   }
 });
 
+// How far, in degrees, the freehand stroke must swing away from the direction
+// it was last travelling before the turn counts as a corner rather than the
+// ordinary wander of a hand tracing a curve. A traced curve holds its heading
+// to within a few degrees between points; a deliberate corner swings far
+// wider. Set well above that noise so a shaky hand on a smooth arc does not
+// litter the outline with points.
+const FREEHAND_CORNER_ANGLE_DEGREES = 30;
+
+// Minimum travel, in SCREEN pixels, before a corner may be committed. Without
+// it the direction test fires continuously while the cursor jitters in place
+// at the moment of the turn -- the heading of a near-zero-length step is
+// meaningless -- and stacks a cluster of points on the corner.
+const FREEHAND_CORNER_MIN_TRAVEL_PX = 3;
+
+/**
+ * True when the freehand stroke has just turned a corner and the vertex must be
+ * committed now, regardless of the spacing gate.
+ *
+ * The spacing gate alone loses corners, and does so precisely because of how a
+ * hand draws one: approaching a corner the annotator slows and pivots, so the
+ * cursor stays inside the spacing radius throughout the turn and no point is
+ * laid down. By the time one is, the cursor has already travelled a full
+ * spacing distance down the NEW heading, and the outline cuts the corner off --
+ * the recorded vertex sits pulled toward the adjacent side.
+ *
+ * So the corner is detected by direction rather than distance: compare the
+ * heading of the step about to be taken against the heading the stroke arrived
+ * on, and commit as soon as they diverge. Distance still governs everything
+ * else, which keeps smooth runs sparse.
+ */
+function isFreehandCorner(pts, end) {
+  if (!Array.isArray(pts) || pts.length < 2) return false;
+  const last = pts[pts.length - 1];
+  const prev = pts[pts.length - 2];
+
+  // The heading the stroke arrived on, and the one it is about to take.
+  const inX = last.x - prev.x;
+  const inY = last.y - prev.y;
+  const outX = end.x - last.x;
+  const outY = end.y - last.y;
+
+  const inMag = Math.hypot(inX, inY);
+  const outMag = Math.hypot(outX, outY);
+  if (inMag === 0) return false;
+  // Below the floor the outgoing heading is noise, not a turn.
+  if (outMag < FREEHAND_CORNER_MIN_TRAVEL_PX / view.imageBox.scale) return false;
+
+  const cos = Math.max(-1, Math.min(1,
+    (inX * outX + inY * outY) / (inMag * outMag)));
+  const turnDegrees = (Math.acos(cos) * 180) / Math.PI;
+  return turnDegrees > FREEHAND_CORNER_ANGLE_DEGREES;
+}
+
 canvas.addEventListener("pointermove", (event) => {
   if (view.isPanning) {
     const dx = event.clientX - view.panStart.x;
@@ -1149,7 +1208,10 @@ canvas.addEventListener("pointermove", (event) => {
         // Screen pixels -> image space, so tracing at high zoom lays down
         // proportionally finer detail without retuning the setting.
         const threshold = annotationSettings.freehandPointSpacing / view.imageBox.scale;
-        if (lastPoint && Math.hypot(lastPoint.x - end.x, lastPoint.y - end.y) > threshold) {
+        const travelled = lastPoint
+          ? Math.hypot(lastPoint.x - end.x, lastPoint.y - end.y)
+          : 0;
+        if (lastPoint && (travelled > threshold || isFreehandCorner(pts, end))) {
           annotation.points = addPolygonPointResolvingIntersections(pts, end);
           updateAnnotationBounds(annotation);
           view.drag.needsSave = true;

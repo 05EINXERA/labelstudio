@@ -34,7 +34,9 @@ export const toolAvailability = {
  *   handles as the annotator zooms in: at high zoom the annotator is working
  *   on individual pixels, and a full-size handle covers exactly the detail
  *   they are trying to place. Lower it when vertices sit close together and
- *   the handles overlap each other.
+ *   the handles overlap each other — but keep it above `minVertexRadius()`,
+ *   since a base at or below the floor leaves nothing to shrink and pins the
+ *   handle to one size at every zoom.
  *
  * vertexGrabRadius
  *   Radius, in on-screen pixels, within which a click counts as grabbing a
@@ -44,7 +46,13 @@ export const toolAvailability = {
  *   Also passed through `zoomScaledRadius()`, so the grab area tracks the
  *   handle the annotator can actually see. Raise it for touch or pen input;
  *   if it exceeds roughly half the spacing between neighbouring vertices,
- *   adjacent grab areas start to overlap and the wrong vertex wins.
+ *   adjacent grab areas start to overlap and the wrong vertex wins. That is
+ *   the constraint that sets the current 5: it must stay under half of
+ *   `freehandPointSpacing`, or every freehand-traced outline has overlapping
+ *   grab zones by construction. Change the two together. 5-and-10 is the
+ *   tightest pair that satisfies this while keeping the spacing low enough for
+ *   faithful curves; raising the grab radius forces the spacing up with it,
+ *   which coarsens every traced outline.
  *
  * vertexZoomShrink
  *   How strongly zoom shrinks the two radii above, 0 to 1. 0 = no shrink
@@ -65,18 +73,31 @@ export const toolAvailability = {
  *   selected edge's HALF-width. This is the constraint that matters: a handle
  *   whose radius merely equals the half-width (ratio 1) is exactly as wide as
  *   the line it sits on, so it reads as a bump in the outline rather than as a
- *   grabbable corner. The ratio must stay comfortably above 1 — at 2 the
- *   handle is twice the line's half-width, which together with its own 2px
- *   stroke keeps a visible disc of white proud of the edge at any zoom.
- *   Raising the ratio makes deep-zoom handles more prominent but starts to
- *   cover the pixels the annotator is placing; that trade-off, not
- *   invisibility, is the reason not to raise it much further.
+ *   grabbable corner, so the ratio must stay comfortably above 1.
+ *
+ *   Expressed as a ratio rather than a flat pixel count so the floor tracks
+ *   `selectedEdgeWidth`: thin the outline and handles are free to shrink
+ *   further, thicken it and they stop sooner, with the "distinguishable from
+ *   the edge" guarantee holding either way.
+ *
+ *   At the current 3px edge, 2 puts the floor at 3px. This was previously
+ *   10/3 (a 5px floor), raised on annotator feedback that handles were hard
+ *   to grab at depth; it was lowered back because that floor is what makes
+ *   deep zoom feel "magnetic" — at 8x zoom a 5px floor is a grab area several
+ *   image pixels wide, so a vertex placed near an existing one gets swallowed
+ *   instead of placed. The trade-off runs both ways: raise it and deep-zoom
+ *   handles are easier to hit but cover the pixels being placed, lower it and
+ *   placement is precise but the handles get fiddly.
  *
  * edgeGrabRadius
  *   Radius, in on-screen pixels, within which a click counts as landing on a
  *   polygon EDGE (used to insert or select a segment) rather than on empty
- *   space. Keep at or below vertexGrabRadius — when the two compete the vertex
- *   should win, since dragging a corner is the more common intent.
+ *   space. Currently EQUAL to vertexGrabRadius, which is fine because the two
+ *   never actually compete on distance: the vertex test runs first and returns
+ *   early (see hitTestPoint/hitTestLine call order in interactions.js), so a
+ *   corner always wins a tie. Do not raise it above vertexGrabRadius — the
+ *   edge would then claim ground outside any handle that the annotator has no
+ *   visual cue for.
  *
  * freehandPointSpacing
  *   Minimum distance, in on-screen pixels, the cursor must travel before
@@ -85,12 +106,15 @@ export const toolAvailability = {
  *   denser, smoother outlines but heavier annotations (more vertices to
  *   store, render and hit-test); LARGER = sparser, coarser, cheaper traces.
  *   Measured per on-screen pixel, so tracing at high zoom naturally yields
- *   finer detail without changing this number.
+ *   finer detail without changing this number. Keep it above twice
+ *   `vertexGrabRadius` (see above): below that, freehand emits points closer
+ *   together than the grab test can tell apart, and editing a traced shape
+ *   grabs whichever neighbour happens to win.
  */
 export const annotationSettings = {
-  vertexHandleRadius: 4.5,
-  vertexGrabRadius: 6,
-  edgeGrabRadius: 6,
+  vertexHandleRadius: 8,
+  vertexGrabRadius: 5,
+  edgeGrabRadius: 5,
   freehandPointSpacing: 10,
   vertexZoomShrink: 0.6,
   selectedEdgeWidth: 3,

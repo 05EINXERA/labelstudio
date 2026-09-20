@@ -18,7 +18,7 @@ import {
   shapeHint, saveStatus
 } from "../dom.js?v=1";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
-import { toolAvailability } from "../feature-flags.js?v=2";
+import { toolAvailability } from "../feature-flags.js?v=3";
 
 
 export function setStatus(text, { sticky = false } = {}) {
