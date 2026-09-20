@@ -163,3 +163,70 @@ def test_failed_task_hydration_marks_task_not_fully_loaded():
     assert "item.isFullyLoaded = false" in catch_block, (
         "the .catch() hydration-failure path must clear isFullyLoaded"
     )
+
+
+def _node_available():
+    import shutil
+    return shutil.which("node") is not None
+
+
+def test_vertex_handle_radius_shrinks_with_zoom():
+    """Vertex handles must shrink as the annotator zooms in, but never below the
+    floor at which they stop being distinguishable from the outline they sit on.
+
+    Evaluated by actually running the module, so the invariant is enforced
+    against the real curve rather than against the source text.
+    """
+    if not _node_available():
+        pytest.skip("node is not available on PATH")
+
+    import json
+    import subprocess
+
+    flags_url = (
+        "file:///"
+        + os.path.join(FRONTEND_JS_DIR, "feature-flags.js").replace("\\", "/")
+    )
+    script = (
+        f"import('{flags_url}').then(m => {{"
+        "  const zooms = [1, 2, 4, 8, 16, 64];"
+        "  console.log(JSON.stringify({"
+        "    floor: m.minVertexRadius(),"
+        "    edgeWidth: m.annotationSettings.selectedEdgeWidth,"
+        "    base: m.annotationSettings.vertexHandleRadius,"
+        "    radii: zooms.map(z => m.zoomScaledRadius("
+        "      m.annotationSettings.vertexHandleRadius, z)),"
+        "    zoomedOut: m.zoomScaledRadius("
+        "      m.annotationSettings.vertexHandleRadius, 0.5),"
+        "  }));"
+        "});"
+    )
+    result = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, f"node failed: {result.stderr}"
+    data = json.loads(result.stdout.strip())
+
+    # The floor is what keeps a handle from merging into the edge: it must be
+    # strictly greater than the selected outline's half-width, or the handle is
+    # no wider than the line and reads as a bump in it.
+    edge_half_width = data["edgeWidth"] / 2
+    assert data["floor"] > edge_half_width, (
+        f"Vertex floor {data['floor']}px does not clear the selected edge's "
+        f"half-width {edge_half_width}px, so handles merge into the outline."
+    )
+
+    # Zooming in shrinks the handle...
+    assert data["radii"][1] < data["radii"][0], "Handle does not shrink on zoom-in"
+
+    # ...monotonically, and never past the floor.
+    for smaller, larger in zip(data["radii"], data["radii"][1:]):
+        assert larger <= smaller, f"Handle grew with zoom: {data['radii']}"
+    for radius in data["radii"]:
+        assert radius >= data["floor"], (
+            f"Handle shrank to {radius}px, below the {data['floor']}px floor"
+        )
+
+    # Zooming OUT must not inflate handles over a small shape.
+    assert data["zoomedOut"] == data["base"]

@@ -415,7 +415,10 @@ export function drawAnnotation(annotation, selected = false, targetCtx = ctx, sk
   }));
 
   targetCtx.save();
-  targetCtx.lineWidth = selected ? 3 : 2;
+  // The selected width comes from the config because minVertexRadius() derives
+  // the vertex-handle floor from it: a handle must never shrink to the point
+  // where it is indistinguishable from the outline it sits on.
+  targetCtx.lineWidth = selected ? annotationSettings.selectedEdgeWidth : 2;
   targetCtx.strokeStyle = label.color;
   // A merged polygon's outline meets at real cusps where the source shapes
   // crossed. The default miter join turns those into spikes, so merged shapes

@@ -53,9 +53,24 @@ export const toolAvailability = {
  *   to the zoom. Values in between shrink sub-linearly, which keeps handles
  *   grabbable while still uncovering the pixels underneath.
  *
- * vertexMinRadius
- *   Floor, in on-screen pixels, for the shrunk radii. Without it deep zoom
- *   would shrink handles until they are invisible and impossible to hit.
+ * selectedEdgeWidth
+ *   The `lineWidth` draw.js strokes a SELECTED shape's outline at. Vertex
+ *   handles are only ever drawn on a selected shape, so this is the line a
+ *   handle has to stay distinguishable from. Mirrored here (rather than read
+ *   from draw.js) so the floor below can be derived from it; if the stroke
+ *   width in drawAnnotation() changes, change this with it.
+ *
+ * vertexMinRadiusEdgeRatio
+ *   The real floor on the shrunk radii, expressed as a multiple of the
+ *   selected edge's HALF-width. This is the constraint that matters: a handle
+ *   whose radius merely equals the half-width (ratio 1) is exactly as wide as
+ *   the line it sits on, so it reads as a bump in the outline rather than as a
+ *   grabbable corner. The ratio must stay comfortably above 1 — at 2 the
+ *   handle is twice the line's half-width, which together with its own 2px
+ *   stroke keeps a visible disc of white proud of the edge at any zoom.
+ *   Raising the ratio makes deep-zoom handles more prominent but starts to
+ *   cover the pixels the annotator is placing; that trade-off, not
+ *   invisibility, is the reason not to raise it much further.
  *
  * edgeGrabRadius
  *   Radius, in on-screen pixels, within which a click counts as landing on a
@@ -78,8 +93,22 @@ export const annotationSettings = {
   edgeGrabRadius: 6,
   freehandPointSpacing: 10,
   vertexZoomShrink: 0.6,
-  vertexMinRadius: 1.5,
+  selectedEdgeWidth: 3,
+  vertexMinRadiusEdgeRatio: 2,
 };
+
+/**
+ * The smallest on-screen radius a vertex handle may shrink to.
+ *
+ * Derived, not hand-tuned: below roughly the selected outline's half-width a
+ * handle stops reading as a corner and merges into the edge it sits on, which
+ * is precisely the thing an annotator needs to be able to pick out in order to
+ * drag it. The floor is that half-width times `vertexMinRadiusEdgeRatio`.
+ */
+export function minVertexRadius() {
+  const edgeHalfWidth = annotationSettings.selectedEdgeWidth / 2;
+  return edgeHalfWidth * annotationSettings.vertexMinRadiusEdgeRatio;
+}
 
 /**
  * Shrink an on-screen radius as the view zooms in.
@@ -88,15 +117,20 @@ export const annotationSettings = {
  * below 1 the base radius is returned untouched — zooming OUT must not grow
  * handles, which would bury a small shape under its own vertices. Above 1 the
  * radius is divided by `zoom ** vertexZoomShrink`, then clamped to
- * `vertexMinRadius` so a handle never shrinks out of existence.
+ * `minVertexRadius()` so a handle can never shrink to the point where it is
+ * indistinguishable from the outline it sits on.
+ *
+ * The clamp is applied to the base radius too, so a base smaller than the
+ * floor is raised to it rather than being silently trusted.
  *
  * Kept here, next to the tunables it reads, so the drawn handle (draw.js) and
  * its click target (interactions.js) can never drift apart.
  */
 export function zoomScaledRadius(baseRadius, zoom) {
-  if (!Number.isFinite(zoom) || zoom <= 1) return baseRadius;
+  const floor = minVertexRadius();
+  if (!Number.isFinite(zoom) || zoom <= 1) return Math.max(floor, baseRadius);
   const shrunk = baseRadius / Math.pow(zoom, annotationSettings.vertexZoomShrink);
-  return Math.max(annotationSettings.vertexMinRadius, shrunk);
+  return Math.max(floor, shrunk);
 }
 
 /**
