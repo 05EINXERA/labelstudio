@@ -6,8 +6,8 @@
  * move objects lock/unlock toggle, and comment overlay keyboard handling.
  */
 import { generateUUID, round } from "../utils.js?v=3";
-import { state, snapshot, loadStickyClassPref, saveStickyClassPref } from "../state.js?v=3";
-import { view } from "../canvas/view.js?v=1";
+import { state, snapshot, loadStickyClassPref, saveStickyClassPref } from "../state.js?v=4";
+import { view } from "../canvas/view.js?v=2";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
 import {
   drawMode, selectMode, boxMode, polygonMode, commentMode, magicWandMode,
@@ -16,7 +16,7 @@ import {
 } from "../dom.js?v=1";
 import { setStatus, save, render, manualSaveWithUI } from "./workspace.js?v=9";
 import { autoDetectObjects, autoTagObjects, preloadMagicWand } from "../ai/detect.js?v=2";
-import { finalizePolygon, deleteSelected, undoAction, redoAction } from "../canvas/interactions.js?v=10";
+import { finalizePolygon, deleteSelected, undoAction, redoAction, clearStickyHover } from "../canvas/interactions.js?v=11";
 
 /**
  * Initializes Move Objects toggle button and dropdown menu.
@@ -175,6 +175,9 @@ export function initStickyClassToggle() {
       // Turning it off mid-session must not strand a shape-less "pick a class"
       // gate, and turning it on must clear one that is already pending.
       if (state.stickyClass) state.needsLabelSelection = false;
+      // Hover-arming is a sticky-class-only state; drop it as soon as the
+      // toggle goes off rather than waiting for the next pointer move.
+      if (!state.stickyClass) clearStickyHover();
       renderStickyClassUI();
       setStatus(state.stickyClass ? "Sticky Class: On" : "Sticky Class: Off");
       render();

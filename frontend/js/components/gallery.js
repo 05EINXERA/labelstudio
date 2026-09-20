@@ -6,8 +6,8 @@
  */
 import { clientId } from "../utils.js?v=3";
 import { apiFetch } from "../api.js?v=3";
-import { state, resetWorkspaceForNewImage } from "../state.js?v=3";
-import { view } from "../canvas/view.js?v=1";
+import { state, resetWorkspaceForNewImage } from "../state.js?v=4";
+import { view } from "../canvas/view.js?v=2";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
 import {
   canvas, ctx, backgroundImage, staticCanvas, staticCtx, stageWrap, emptyState

@@ -3,7 +3,7 @@
  */
 import { clientId } from "./utils.js?v=3";
 import { apiFetch } from "./api.js?v=3";
-import { state } from "./state.js?v=3";
+import { state } from "./state.js?v=4";
 import {
   setStatus, syncToBackend, loadSaved, saveDraft, render, loadTeamForWorkspace
 } from "./components/workspace.js?v=9";
@@ -11,7 +11,7 @@ import {
   syncTimeToServer, setActiveTaskResolver, setConflictHandler, setSaveHaltedHandler,
   handleVisibilityChange as handleTimerVisibility
 } from "./components/timer.js?v=4";
-import { setZoomChangeHandler } from "./canvas/interactions.js?v=10";
+import { setZoomChangeHandler } from "./canvas/interactions.js?v=11";
 import { initContextMenu } from "./canvas/context-menu.js?v=3";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
 import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=2";

@@ -11,7 +11,7 @@
  * strictly use classList.add('is-active') / classList.remove('is-active').
  */
 import { setStatus } from "./workspace.js?v=9";
-import { state } from "../state.js?v=3";
+import { state } from "../state.js?v=4";
 import { drainTaskTime } from "./timer.js?v=4";
 
 /**

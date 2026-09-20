@@ -18,6 +18,16 @@ export const view = {
   panStart: { x: 0, y: 0, panX: 0, panY: 0 },
   imageBox: { x: 0, y: 0, width: 0, height: 0, scale: 1 },
   drag: null,
+  // Sticky class only: the polygon finalized most recently, kept "hover-armed"
+  // so moving the pointer back inside it re-selects it for editing and crossing
+  // its boundary releases it and re-arms drawing. Null whenever no polygon is
+  // hover-armed (sticky class off, a new shape started, task changed).
+  stickyHoverId: null,
+  // Whether the pointer is currently inside view.stickyHoverId's boundary.
+  // Tracked separately from the selection so the enter/leave transitions can be
+  // detected without re-deriving them from state.selectedId, which other code
+  // (class panel, annotation list) also writes.
+  stickyHoverInside: false,
   hoveredLineIndex: -1,
   selectedLineIndex: -1,
   hoveredPointIndex: -1,

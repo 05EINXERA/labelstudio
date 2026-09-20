@@ -1,5 +1,5 @@
 import { generateUUID, clamp, round } from "../utils.js?v=3";
-import { state, snapshot, isAnnotationHidden, labelDisplayName } from "../state.js?v=3";
+import { state, snapshot, isAnnotationHidden, labelDisplayName } from "../state.js?v=4";
 import {
   annotationPoints,
   updateAnnotationBounds,
@@ -13,7 +13,7 @@ import {
   unionPolygons,
   smoothUnionCusps
 } from "./geometry.js?v=6";
-import { view } from "./view.js?v=1";
+import { view } from "./view.js?v=2";
 import { draw, drawAllLayers } from "./draw.js?v=4";
 import { canvas, undoButton } from "../dom.js?v=1";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
@@ -197,6 +197,82 @@ function clearSelectionAfterFinalize() {
   render();
 }
 
+// --- Sticky-class hover selection -------------------------------------------
+// In sticky class mode a finished polygon is not dropped straight back into a
+// pure drawing state. It stays "hover-armed": the pointer inside its boundary
+// selects it (select mode, handles shown) so it can be corrected immediately,
+// and the pointer leaving the boundary puts the canvas back in draw mode so the
+// next click begins the next polygon in the same class. That keeps the
+// one-click-per-shape flow sticky class exists for while making the common
+// "I need to nudge that last vertex" fix free of a mode switch.
+
+/** Start hover-arming `annotationId` (sticky class only). */
+function armStickyHover(annotationId) {
+  view.stickyHoverId = annotationId;
+  // The pointer has not moved since the closing click, so it is still inside the
+  // shape: enter the selected state immediately rather than waiting for the
+  // first pointermove, which may never come if the annotator reaches for a key.
+  view.stickyHoverInside = true;
+  state.mode = "select";
+  state.selectedIds.clear();
+  state.selectedIds.add(annotationId);
+  state.selectedId = annotationId;
+}
+
+/** Drop any hover-arming, leaving selection and mode untouched. */
+export function clearStickyHover() {
+  view.stickyHoverId = null;
+  view.stickyHoverInside = false;
+}
+
+/**
+ * Re-evaluate the hover-armed polygon against the cursor. Called from
+ * pointermove before anything else reads state.mode, so the click that follows
+ * a move sees the mode the cursor position implies.
+ * Returns true when the selection or mode changed (caller re-renders).
+ */
+function updateStickyHover(point) {
+  if (!view.stickyHoverId) return false;
+  // Any in-progress drag owns the interaction: a vertex being dragged out of the
+  // shape must not deselect it mid-gesture, and a new polygon already disarmed.
+  if (view.drag) return false;
+  if (!state.stickyClass) {
+    // The toggle can be flipped between shapes; honour it without stranding the
+    // canvas in select mode.
+    clearStickyHover();
+    return false;
+  }
+  const annotation = state.annotations.find((item) => item.id === view.stickyHoverId);
+  if (!annotation) {
+    // Deleted (or undone) while armed.
+    clearStickyHover();
+    return false;
+  }
+  // hitTest returns the topmost annotation, which may be a different shape
+  // overlapping this one; only this polygon's own boundary arms the selection.
+  const inside = pointInPolygon(imagePoint(point), annotationPoints(annotation));
+  if (inside === view.stickyHoverInside) return false;
+  view.stickyHoverInside = inside;
+  if (inside) {
+    state.mode = "select";
+    state.selectedIds.clear();
+    state.selectedIds.add(annotation.id);
+    state.selectedId = annotation.id;
+  } else {
+    state.selectedId = null;
+    state.selectedIds.clear();
+    view.selectedLineIndex = -1;
+    view.hoveredLineIndex = -1;
+    view.hoveredPointIndex = -1;
+    // Back to drawing the same class. The label gate is only re-armed when no
+    // class is actually armed, mirroring the justFinalized block in pointerdown.
+    if (!state.needsLabelSelection && state.activeLabelId) {
+      state.mode = "draw";
+    }
+  }
+  return true;
+}
+
 export function finalizePolygon() {
   if (view.drag?.type !== "draw-polygon") return;
   const annotation = state.annotations.find((item) => item.id === view.drag.annotationId);
@@ -240,6 +316,12 @@ export function finalizePolygon() {
     state.selectedIds.clear();
     state.selectedIds.add(annotation.id);
     state.selectedId = annotation.id;
+  } else {
+    // Hover-arm the finished polygon: while the pointer stays inside it, it is
+    // selected and editable (vertex drag, edge split, move); the moment the
+    // pointer crosses its boundary the selection is released and the next click
+    // starts a new polygon in the same class. See armStickyHover/updateStickyHover.
+    armStickyHover(annotation.id);
   }
   render();
   save();
@@ -443,6 +525,12 @@ export function deleteSelected() {
   // Drop visibility state for the ids going away, so the set does not grow
   // unboundedly across a session.
   state.selectedIds.forEach((id) => state.hiddenAnnotationIds.delete(id));
+  // Deleting the hover-armed polygon ends the arming and hands the canvas back
+  // to drawing, rather than leaving select mode with nothing selected.
+  if (view.stickyHoverId && state.selectedIds.has(view.stickyHoverId)) {
+    clearStickyHover();
+    if (state.stickyClass && state.activeLabelId) state.mode = "draw";
+  }
   state.annotations = state.annotations.filter((item) => !state.selectedIds.has(item.id));
   state.selectedIds.clear();
   state.selectedId = null;
@@ -755,10 +843,19 @@ canvas.addEventListener("pointerdown", (event) => {
   // With sticky class there is no pending class pick to protect, so this click
   // must not be swallowed — it is the first vertex/corner of the next shape.
   // Just drop the finished shape's selection and fall through.
-  if (state.justFinalized && state.stickyClass && state.mode === "draw") {
+  // Click while the hover-armed polygon is under the cursor: this is an edit of
+  // that polygon, not the start of the next one. Leave the selection and select
+  // mode in place and fall through to the vertex/edge/move blocks below.
+  if (view.stickyHoverId && view.stickyHoverInside) {
+    state.justFinalized = false;
+  } else if (state.justFinalized && state.stickyClass && state.mode === "draw") {
+    // Pointer is outside the armed polygon (or nothing is armed): the arming is
+    // spent and this click is the first vertex of the next shape.
+    clearStickyHover();
     state.justFinalized = false;
     clearSelectionAfterFinalize();
   } else if (state.justFinalized) {
+    clearStickyHover();
     state.justFinalized = false;
     const hitId = hitTest(point);
     // Clicking the finished shape itself keeps it selected; anything else releases
@@ -1137,7 +1234,11 @@ canvas.addEventListener("pointermove", (event) => {
     return;
   }
   const point = canvasPoint(event);
+  // Runs before updateCanvasCursor so the cursor reflects the mode this move
+  // just produced (crosshair outside the hover-armed polygon, pointer inside).
+  const stickyChanged = updateStickyHover(point);
   updateCanvasCursor(point);
+  if (stickyChanged) render();
 
   // Detect line & point hover on selected polygon (select mode only, even when no view.drag)
   if (state.mode === "select" && state.selectedId && !view.drag) {
