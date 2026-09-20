@@ -981,7 +981,13 @@ export function renderControls() {
   }
   const ungroupButton = document.querySelector("#ungroupButton");
   if (ungroupButton) {
-    ungroupButton.disabled = !state.annotations.some(a => state.selectedIds.has(a.id) && a.groupId);
+    // Group either merges touching shapes into one polygon or (when they do not
+    // touch) links them with a groupId. Ungroup reverses both, so both count —
+    // checking only groupId left the button dead after every real merge.
+    // mergedParts round-trips nested under `extra`, so accept both spellings.
+    ungroupButton.disabled = !state.annotations.some(a => state.selectedIds.has(a.id) && (
+      a.groupId || Array.isArray(a.mergedParts || a.extra?.mergedParts)
+    ));
   }
   clearButton.disabled = state.annotations.length === 0;
   const noData = !view.imageLoaded && state.annotations.length === 0;

@@ -17,7 +17,7 @@ import { view } from "./view.js?v=2";
 import { draw, drawAllLayers } from "./draw.js?v=4";
 import { canvas, undoButton } from "../dom.js?v=1";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
-import { setStatus, save, render, activateLabel, HOTKEY_LABEL_LIMIT } from "../components/workspace.js?v=9";
+import { setStatus, save, render, activateLabel, HOTKEY_LABEL_LIMIT } from "../components/workspace.js?v=10";
 import { performMagicWandSegmentation } from "../ai/detect.js?v=2";
 import { applyAutoSmooth } from "../fft-controls.js?v=1";
 import { annotationSettings, zoomScaledRadius } from "../feature-flags.js?v=3";
@@ -656,6 +656,36 @@ if (groupButton) {
   });
 }
 
+/**
+ * The pre-merge shapes recorded on a merged polygon, or null if it is not a
+ * merge survivor. Like `mergedFromGroup`, the field round-trips through the
+ * server's `extra` blob, so after a reload it arrives nested rather than as a
+ * top-level property — both spellings are accepted.
+ */
+function mergedPartsOf(annotation) {
+  const parts = annotation?.mergedParts || annotation?.extra?.mergedParts;
+  return Array.isArray(parts) && parts.length > 1 ? parts : null;
+}
+
+/**
+ * A deep-enough copy of an annotation to restore it later: points are cloned so
+ * a later edit of the merged shape cannot reach back and mutate the record.
+ */
+function snapshotAnnotation(annotation) {
+  const copy = { ...annotation, points: annotationPoints(annotation) };
+  // Not carried into the record: these describe the merged survivor, not the
+  // part, and keeping them would make a restored part claim to be a merge.
+  delete copy.mergedFromGroup;
+  delete copy.mergedParts;
+  delete copy.groupId;
+  if (copy.extra) {
+    copy.extra = { ...copy.extra };
+    delete copy.extra.mergedFromGroup;
+    delete copy.extra.mergedParts;
+  }
+  return copy;
+}
+
 export function groupSelectedAnnotations() {
   if (state.selectedIds.size <= 1) return;
 
@@ -695,6 +725,13 @@ export function groupSelectedAnnotations() {
     const smoothed = smoothUnionCusps(outline);
 
     const survivor = cluster[0];
+    // Captured before the survivor is overwritten: Ungroup restores these to
+    // undo the merge, so they are the shapes exactly as they were drawn. Nested
+    // merges flatten — a member that was itself merged contributes its own
+    // parts, so one Ungroup always returns to the original shapes rather than
+    // to an intermediate union.
+    const preMergeParts = cluster.flatMap(a => mergedPartsOf(a) || [snapshotAnnotation(a)]);
+
     survivor.type = "polygon";
     survivor.points = smoothed.map(p => ({ x: round(p.x), y: round(p.y) }));
     survivor.labelId = baseLabelId;
@@ -702,6 +739,8 @@ export function groupSelectedAnnotations() {
     // merged shape reads as smoothly as the old grouped rendering did. The
     // points above are the exact union and are not softened.
     survivor.mergedFromGroup = true;
+    survivor.mergedParts = preMergeParts;
+    if (survivor.extra) delete survivor.extra.mergedParts;
     delete survivor.groupId;
     updateAnnotationBounds(survivor);
 
@@ -786,21 +825,98 @@ function clusterTouchingAnnotations(annotations) {
   return [...groups.values()];
 }
 
+/**
+ * Reverses the last Group on the selection. Two things can need undoing, and a
+ * selection may contain both:
+ *
+ *  - a merged polygon, which is replaced by the shapes it was built from;
+ *  - a plain visual group (shapes that never touched, so were only linked),
+ *    which is unlinked.
+ *
+ * Returns true if anything changed. The caller owns the undo snapshot.
+ */
+export function ungroupSelectedAnnotations() {
+  let restoredParts = 0;
+  let unlinked = false;
+
+  // Indexed walk over a copy: restoring splices new annotations in beside the
+  // survivor, and the selection is rebuilt to hold the restored shapes.
+  const targets = state.annotations.filter(a => state.selectedIds.has(a.id));
+
+  targets.forEach(survivor => {
+    const parts = mergedPartsOf(survivor);
+    if (!parts) {
+      if (survivor.groupId) {
+        delete survivor.groupId;
+        unlinked = true;
+      }
+      return;
+    }
+
+    // The merged shape may have been dragged since it was created. Moves
+    // translate every point by one delta, so replaying that delta onto the
+    // stored parts puts them back under the outline the annotator is looking
+    // at instead of at the original coordinates.
+    const origin = mergedPartsOrigin(parts);
+    const dx = round((Number(survivor.x) || 0) - origin.x);
+    const dy = round((Number(survivor.y) || 0) - origin.y);
+
+    const restored = parts.map((part, index) => {
+      const shape = {
+        ...part,
+        // The survivor keeps its own id so anything else referring to it (the
+        // annotation list, the draft) still resolves; the rest are new objects.
+        id: index === 0 ? survivor.id : generateUUID(),
+        points: (part.points || []).map(p => ({ x: round(p.x + dx), y: round(p.y + dy) }))
+      };
+      updateAnnotationBounds(shape);
+      return shape;
+    });
+
+    const at = state.annotations.indexOf(survivor);
+    state.annotations.splice(at, 1, ...restored);
+
+    state.selectedIds.delete(survivor.id);
+    restored.forEach(shape => state.selectedIds.add(shape.id));
+    restoredParts += restored.length;
+  });
+
+  if (restoredParts) {
+    // The restored shapes are independent objects, so the single-selection
+    // pointer must not keep naming the survivor alone.
+    state.selectedId = null;
+    setStatus(`Merge undone — ${restoredParts} shapes restored`);
+  } else if (unlinked) {
+    setStatus("Ungrouped");
+  }
+
+  return restoredParts > 0 || unlinked;
+}
+
+/**
+ * Top-left corner of the stored parts, in the coordinates they were recorded
+ * in. Compared against the merged survivor's current corner to recover how far
+ * the merged shape has been moved since.
+ */
+function mergedPartsOrigin(parts) {
+  let x = Infinity;
+  let y = Infinity;
+  parts.forEach(part => {
+    (part.points || []).forEach(p => {
+      if (Number(p.x) < x) x = Number(p.x);
+      if (Number(p.y) < y) y = Number(p.y);
+    });
+  });
+  return { x: Number.isFinite(x) ? x : 0, y: Number.isFinite(y) ? y : 0 };
+}
+
 const ungroupButton = document.querySelector("#ungroupButton");
 if (ungroupButton) {
   ungroupButton.addEventListener("click", () => {
     snapshot();
-    let ungrouped = false;
-    state.annotations.forEach(a => {
-      if (state.selectedIds.has(a.id) && a.groupId) {
-        delete a.groupId;
-        ungrouped = true;
-      }
-    });
-    if (ungrouped) {
+    if (ungroupSelectedAnnotations()) {
       render();
       save();
-      setStatus("Ungrouped");
     } else {
       state.history.pop();
     }
@@ -1527,6 +1643,11 @@ canvas.addEventListener("pointerup", (e) => {
         // round-trips nested under `extra`, so clear both spellings.
         delete annotation.mergedFromGroup;
         if (annotation.extra) delete annotation.extra.mergedFromGroup;
+        // The recorded pre-merge shapes describe an outline that no longer
+        // exists, so restoring them would resurrect geometry the split just
+        // discarded. Drop them with the flag.
+        delete annotation.mergedParts;
+        if (annotation.extra) delete annotation.extra.mergedParts;
         updateAnnotationBounds(annotation);
 
         const insertAt = state.annotations.indexOf(annotation) + 1;
