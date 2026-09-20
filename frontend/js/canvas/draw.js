@@ -1,6 +1,6 @@
 import { canvas, ctx, backgroundImage, staticCanvas, staticCtx } from "../dom.js?v=1";
 import { state, labelById, isAnnotationHidden } from "../state.js?v=3";
-import { annotationSettings, annotationOpacity } from "../feature-flags.js?v=1";
+import { annotationSettings, annotationOpacity, zoomScaledRadius } from "../feature-flags.js?v=2";
 import { view } from "./view.js?v=1";
 import { annotationPoints, hexToRgba, isPointInsideOtherGroupPolygons } from "./geometry.js?v=6";
 
@@ -486,7 +486,10 @@ export function drawAnnotation(annotation, selected = false, targetCtx = ctx, sk
 }
 
 export function drawVertexHandles(points, color, targetCtx = ctx, isBeingDrawn = false) {
-  const radius = annotationSettings.vertexHandleRadius;
+  // Shrinks with zoom: see zoomScaledRadius() in feature-flags.js. hitTestPoint()
+  // in interactions.js applies the same shrink to the grab radius, so the click
+  // target keeps tracking the handle the annotator sees.
+  const radius = zoomScaledRadius(annotationSettings.vertexHandleRadius, view.viewZoom);
   targetCtx.strokeStyle = color;
   targetCtx.lineWidth = 2;
   points.forEach((point, i) => {

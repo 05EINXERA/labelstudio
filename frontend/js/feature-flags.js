@@ -29,18 +29,33 @@ export const toolAvailability = {
  *
  * vertexHandleRadius
  *   Radius, in on-screen pixels, of the round vertex handles DRAWN on a
- *   selected shape. Screen-space on purpose: a handle stays the same physical
- *   size at every zoom, so it neither disappears when zoomed out nor swallows
- *   the shape when zoomed in. Lower it when vertices sit close together and
+ *   selected shape at the default (fit-to-window) zoom. The radius actually
+ *   used is this value passed through `zoomScaledRadius()`, which shrinks the
+ *   handles as the annotator zooms in: at high zoom the annotator is working
+ *   on individual pixels, and a full-size handle covers exactly the detail
+ *   they are trying to place. Lower it when vertices sit close together and
  *   the handles overlap each other.
  *
  * vertexGrabRadius
  *   Radius, in on-screen pixels, within which a click counts as grabbing a
- *   vertex. Kept independent of (and by default LARGER than) the drawn radius:
- *   a forgiving click target makes vertices easy to catch without drawing
- *   handles big enough to hide the pixels underneath. Raise it for touch or
- *   pen input; if it exceeds roughly half the spacing between neighbouring
- *   vertices, adjacent grab areas start to overlap and the wrong vertex wins.
+ *   vertex, at the default zoom. Kept independent of (and by default LARGER
+ *   than) the drawn radius: a forgiving click target makes vertices easy to
+ *   catch without drawing handles big enough to hide the pixels underneath.
+ *   Also passed through `zoomScaledRadius()`, so the grab area tracks the
+ *   handle the annotator can actually see. Raise it for touch or pen input;
+ *   if it exceeds roughly half the spacing between neighbouring vertices,
+ *   adjacent grab areas start to overlap and the wrong vertex wins.
+ *
+ * vertexZoomShrink
+ *   How strongly zoom shrinks the two radii above, 0 to 1. 0 = no shrink
+ *   (constant on-screen size at every zoom, the old behaviour); 1 = the
+ *   handle is pinned to the image, shrinking on screen in exact proportion
+ *   to the zoom. Values in between shrink sub-linearly, which keeps handles
+ *   grabbable while still uncovering the pixels underneath.
+ *
+ * vertexMinRadius
+ *   Floor, in on-screen pixels, for the shrunk radii. Without it deep zoom
+ *   would shrink handles until they are invisible and impossible to hit.
  *
  * edgeGrabRadius
  *   Radius, in on-screen pixels, within which a click counts as landing on a
@@ -62,7 +77,27 @@ export const annotationSettings = {
   vertexGrabRadius: 6,
   edgeGrabRadius: 6,
   freehandPointSpacing: 10,
+  vertexZoomShrink: 0.6,
+  vertexMinRadius: 1.5,
 };
+
+/**
+ * Shrink an on-screen radius as the view zooms in.
+ *
+ * `zoom` is `view.viewZoom`: 1 at fit-to-window, higher when zoomed in. At or
+ * below 1 the base radius is returned untouched — zooming OUT must not grow
+ * handles, which would bury a small shape under its own vertices. Above 1 the
+ * radius is divided by `zoom ** vertexZoomShrink`, then clamped to
+ * `vertexMinRadius` so a handle never shrinks out of existence.
+ *
+ * Kept here, next to the tunables it reads, so the drawn handle (draw.js) and
+ * its click target (interactions.js) can never drift apart.
+ */
+export function zoomScaledRadius(baseRadius, zoom) {
+  if (!Number.isFinite(zoom) || zoom <= 1) return baseRadius;
+  const shrunk = baseRadius / Math.pow(zoom, annotationSettings.vertexZoomShrink);
+  return Math.max(annotationSettings.vertexMinRadius, shrunk);
+}
 
 /**
  * Annotation fill opacity, 0 (invisible) to 1 (opaque).

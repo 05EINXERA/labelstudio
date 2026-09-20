@@ -20,7 +20,7 @@ import { commentOverlayRefs } from "../comment-overlay.js?v=1";
 import { setStatus, save, render, activateLabel, HOTKEY_LABEL_LIMIT } from "../components/workspace.js?v=9";
 import { performMagicWandSegmentation } from "../ai/detect.js?v=2";
 import { applyAutoSmooth } from "../fft-controls.js?v=1";
-import { annotationSettings } from "../feature-flags.js?v=1";
+import { annotationSettings, zoomScaledRadius } from "../feature-flags.js?v=2";
 
 export function canvasPoint(event) {
   const rect = canvas.getBoundingClientRect();
@@ -63,10 +63,11 @@ export function hitTest(point) {
 export function hitTestPoint(point, annotation) {
   if (!annotation || !annotation.points) return -1;
   const img = imagePoint(point);
-  // Divided by scale to convert the on-screen pixel radius into image space,
-  // where the comparison happens — so the grab area stays a constant physical
-  // size on screen instead of shrinking as the annotator zooms in.
-  const threshold = annotationSettings.vertexGrabRadius / view.imageBox.scale;
+  // The base radius is first shrunk by zoom (same curve as the drawn handle in
+  // draw.js), then divided by scale to convert the on-screen pixel radius into
+  // image space, where the comparison happens.
+  const screenRadius = zoomScaledRadius(annotationSettings.vertexGrabRadius, view.viewZoom);
+  const threshold = screenRadius / view.imageBox.scale;
   const groupAnns = annotation.groupId ? state.annotations.filter(a => a.groupId === annotation.groupId) : null;
   for (let i = 0; i < annotation.points.length; i++) {
     const pt = annotation.points[i];
