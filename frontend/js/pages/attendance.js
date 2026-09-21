@@ -42,6 +42,8 @@ const els = {
   applyRange: document.getElementById("applyRangeBtn"),
   search: document.getElementById("searchInput"),
   summary: document.getElementById("summaryStrip"),
+  exportXlsx: document.getElementById("exportXlsxBtn"),
+  exportCsv: document.getElementById("exportCsvBtn"),
   mount: document.getElementById("tableMount"),
   currentUser: document.getElementById("currentUser"),
   modal: document.getElementById("sessionsModal"),
@@ -240,6 +242,44 @@ function renderSummary(rows) {
     .join("");
 }
 
+// --- export -----------------------------------------------------------------
+
+/**
+ * The period currently on screen, as the export endpoints take it.
+ *
+ * Exporting what is displayed rather than a separately-chosen range is what
+ * stops the file disagreeing with the table it was downloaded from — the one
+ * thing that would make an admin distrust both.
+ */
+function currentRange() {
+  if (els.mode.value === "day") {
+    return { from: els.day.value, to: els.day.value };
+  }
+  return { from: els.from.value, to: els.to.value };
+}
+
+/**
+ * Trigger a download.
+ *
+ * A plain navigation rather than fetch + Blob: the browser then handles the
+ * Content-Disposition filename, the progress and the save dialog, and there is
+ * no object URL to leak. The cookie rides along, and these are GETs, so no
+ * CSRF token is needed.
+ */
+function downloadExport(extension) {
+  const { from, to } = currentRange();
+  if (!from || !to) {
+    showError("Pick a period before exporting.");
+    return;
+  }
+  const url =
+    `/api/attendance/export.${extension}` +
+    `?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+  // Same tab would replace the dashboard on an error response; a download
+  // navigation in a throwaway tab leaves the page where it is either way.
+  window.open(url, "_blank", "noopener");
+}
+
 // --- the sessions popup -----------------------------------------------------
 
 async function openSessions(row) {
@@ -411,6 +451,9 @@ function wireControls() {
   els.applyRange.addEventListener("click", load);
 
   els.search.addEventListener("input", () => table.setQuery(els.search.value));
+
+  els.exportXlsx?.addEventListener("click", () => downloadExport("xlsx"));
+  els.exportCsv?.addEventListener("click", () => downloadExport("csv"));
 }
 
 async function init() {

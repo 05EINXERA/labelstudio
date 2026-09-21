@@ -27,13 +27,13 @@ and rule 1a's requirement attaches to the state-changing calls.
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 import config
 import models
-from api import attendance, attendance_report as report
+from api import attendance, attendance_export, attendance_report as report
 from api.auth import get_current_user, require_csrf
 from api.permissions import require_admin
 from database import get_db
@@ -444,3 +444,146 @@ def open_break(
         return None
     seconds = max(0, int((datetime.now(timezone.utc) - started_at).total_seconds()))
     return OpenBreak(started_at=started_at, seconds=seconds)
+
+
+# --- Export (R7) ------------------------------------------------------------
+#
+# Admin-only, and deliberately stricter than the codebase's existing export
+# bar: rule 1b puts dataset exports at `reviewer` because it is "a read, but
+# not one every annotator should one-click the whole dataset with". An
+# attendance export is personal data about every employee, so the bar is
+# higher still (Q20).
+#
+# Both are synchronous, unlike the annotation exports, which use the JOBS +
+# BackgroundTasks pattern because rasterizing images is the slow path. A month
+# of attendance is ~775 output rows -- milliseconds of work, so the job
+# plumbing would be pure overhead. If a range ever justifies it, that pattern
+# is there to adopt.
+
+XLSX_MEDIA_TYPE = (
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
+
+
+def _export_range(date_from: str, date_to: str):
+    """Parse and bound an export range. Shared by both formats."""
+    start_date = _parse_date(date_from)
+    end_date = _parse_date(date_to)
+    if end_date < start_date:
+        raise HTTPException(status_code=400, detail="'to' is before 'from'.")
+    span = (end_date - start_date).days + 1
+    if span > MAX_RANGE_DAYS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Range is {span} days; the maximum is {MAX_RANGE_DAYS}.",
+        )
+    return start_date, end_date
+
+
+def _sessions_by_key(db: Session, rows: list) -> dict:
+    """Sessions for every (user, day) in `rows`, for the Sessions sheet.
+
+    One query for the whole range rather than one per row: a per-row fan-out
+    is invisible at 25 users and fatal later (rule 11b).
+    """
+    if not rows:
+        return {}
+
+    window_start, _ = report.day_bounds(min(r["local_date"] for r in rows))
+    _, window_end = report.day_bounds(max(r["local_date"] for r in rows))
+    user_ids = {r["user_id"] for r in rows}
+
+    stored = report.observation_dicts(
+        db.query(models.AttendanceObservation)
+        .filter(
+            models.AttendanceObservation.user_id.in_(user_ids),
+            models.AttendanceObservation.seen_at >= window_start,
+            models.AttendanceObservation.seen_at < window_end,
+        )
+        .order_by(models.AttendanceObservation.seen_at)
+        .all()
+    )
+    buffered = [
+        row for row in attendance.buffered_observations(user_ids=user_ids)
+        if window_start <= row["seen_at"] < window_end
+    ]
+
+    grouped = {}
+    for row in stored + buffered:
+        if row["user_id"] is None:
+            continue
+        grouped.setdefault(
+            (row["user_id"], report.local_day(row["seen_at"])), []
+        ).append(row)
+
+    return {key: report.sessionise(obs) for key, obs in grouped.items()}
+
+
+def _export_filename(extension: str, date_from, date_to) -> str:
+    """A filename that names the instance and the range.
+
+    The instance is in the name as well as inside the file, because the first
+    thing that happens to two exports being compared is that they sit in one
+    folder together.
+
+    Sanitised rather than escaped: this goes into a quoted header, so anything
+    that could terminate the quoting or inject a header is replaced — the same
+    treatment `image_info.py` gives a project slug.
+    """
+    instance = "".join(
+        ch if ch.isalnum() or ch in "-_" else "-"
+        for ch in config.ATTENDANCE_INSTANCE_ID
+    )[:40]
+    return f"attendance-{instance}-{date_from}-to-{date_to}.{extension}"
+
+
+@router.get("/export.xlsx")
+def export_xlsx(
+    date_from: str = Query(..., alias="from"),
+    date_to: str = Query(..., alias="to"),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """The three-sheet styled workbook."""
+    require_admin(current_user)  # first, before any aggregation
+    start_date, end_date = _export_range(date_from, date_to)
+
+    rows = _collect(db, start_date, end_date)
+    content = attendance_export.build_workbook(
+        rows, start_date, end_date, sessions_by_key=_sessions_by_key(db, rows)
+    )
+    log_event(
+        "attendance.export", account=current_user.username,
+        fmt="xlsx", rows=len(rows),
+    )
+    filename = _export_filename("xlsx", start_date, end_date)
+    return Response(
+        content=content,
+        media_type=XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/export.csv")
+def export_csv(
+    date_from: str = Query(..., alias="from"),
+    date_to: str = Query(..., alias="to"),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """The Daily sheet, flat. A bare download, as `exports.py` treats CSV."""
+    require_admin(current_user)
+    start_date, end_date = _export_range(date_from, date_to)
+
+    rows = _collect(db, start_date, end_date)
+    content = attendance_export.build_csv(rows, start_date, end_date)
+    log_event(
+        "attendance.export", account=current_user.username,
+        fmt="csv", rows=len(rows),
+    )
+    filename = _export_filename("csv", start_date, end_date)
+    return Response(
+        content=content,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

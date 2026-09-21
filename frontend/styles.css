@@ -3340,3 +3340,9 @@ body.is-read-only #deleteButton {
   font-size: 12px;
   white-space: nowrap;
 }
+
+/* Pushes what follows to the right of a toolbar. Used on the attendance
+   dashboard so the export buttons sit apart from the period controls. */
+.toolbar-spacer {
+  flex: 1 1 auto;
+}

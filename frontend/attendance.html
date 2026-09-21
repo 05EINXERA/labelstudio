@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Attendance - Label Studio</title>
   <link rel="icon" type="image/png" href="logo.png">
-  <link rel="stylesheet" href="styles.css?v=11">
+  <link rel="stylesheet" href="styles.css?v=12">
 </head>
 
 <body style="background: var(--bg);">
@@ -76,6 +76,14 @@
         </span>
 
         <input type="search" id="searchInput" placeholder="Search people…" aria-label="Search people">
+
+        <span class="toolbar-spacer"></span>
+        <!-- Admin-only, like the rest of this page. The server enforces it
+             (require_admin, answering 404); these buttons are the convenience. -->
+        <button class="tool-button" id="exportXlsxBtn" type="button"
+          title="Download the current period as a formatted workbook">Export .xlsx</button>
+        <button class="tool-button" id="exportCsvBtn" type="button"
+          title="Download the current period as CSV">Export .csv</button>
       </div>
 
       <div id="summaryStrip" class="mgmt-summary" aria-live="polite"></div>
@@ -114,7 +122,7 @@
     </div>
   </div>
 
-  <script type="module" src="js/pages/attendance.js?v=1"></script>
+  <script type="module" src="js/pages/attendance.js?v=2"></script>
 </body>
 
 </html>
