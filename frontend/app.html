@@ -309,6 +309,29 @@
           </div>
         </div>
 
+        <!-- Annotation opacity tool group -->
+        <div class="tool-group opacity-tool-group" role="group" aria-label="Annotation opacity">
+          <span class="tool-group-label">Opacity</span>
+          <div class="tool-group-buttons opacity-group-buttons">
+            <div class="opacity-slider-wrap"
+              title="Fill opacity of the selected annotation. Lower it to see the pixels underneath. Resets on reload.">
+              <label class="tool-group-label opacity-slider-label" for="opacitySlider">
+                Selected: <span id="opacityValueLabel">60%</span>
+              </label>
+              <input
+                type="range"
+                id="opacitySlider"
+                min="0"
+                max="100"
+                step="1"
+                value="60"
+                class="opacity-slider"
+                aria-label="Selected annotation fill opacity"
+              >
+            </div>
+          </div>
+        </div>
+
         <div class="tool-group" role="group" aria-label="Selection status">
           <span class="tool-group-label">Selected</span>
           <div class="tool-group-buttons">

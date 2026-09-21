@@ -47,6 +47,7 @@ import { isFrozenForRole } from "./task-status.js?v=3";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
 import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=4";
 import { claimTask, heartbeatTask, releaseTask } from "./task-lock.js?v=3";
+import { initOpacityControls } from "./opacity-controls.js?v=1";
 
 if (!localStorage.getItem('logged_in')) {
   window.location.href = '/';
@@ -1595,3 +1596,6 @@ function closeTaskCompletedModal() {
 if (tcClose) tcClose.addEventListener('click', closeTaskCompletedModal);
 if (tcOk) tcOk.addEventListener('click', closeTaskCompletedModal);
 
+// Initialise the Opacity slider (selected-annotation fill opacity).
+// Session-only: it is not restored from storage and resets on reload.
+initOpacityControls();

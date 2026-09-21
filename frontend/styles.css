@@ -2588,6 +2588,101 @@ a.metric-tile.status-tile:hover { border-color: var(--tile-accent, var(--accent)
   .mgmt-main, .project-view { padding: 16px; }
 }
 
+/* ── Annotation opacity toolbar group ──────────────────────────────────────
+   Occupies the toolbar slot the FFT Smooth group used to hold, and reuses its
+   slider geometry so the control sits identically. The fill/rail split comes
+   from the --val custom property, set by opacity-controls.js on every input. */
+
+.opacity-tool-group {
+  border-left: 1px solid var(--line);
+  padding-left: 8px;
+}
+
+.opacity-group-buttons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+
+.opacity-slider-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 80px;
+}
+
+.opacity-slider-label {
+  font-size: 0.7rem;
+  color: var(--muted);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.opacity-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 90px;
+  height: 5px;
+  border-radius: 3px;
+  /* Fallback matches the 60% default; JS updates --val on init and on input. */
+  background: linear-gradient(
+    to right,
+    var(--accent) 0%,
+    var(--accent) var(--val, 60%),
+    rgba(0,0,0,0.15) var(--val, 60%),
+    rgba(0,0,0,0.15) 100%
+  );
+  cursor: pointer;
+  outline: none;
+  border: none;
+}
+/* Webkit thumb */
+.opacity-slider::-webkit-slider-runnable-track {
+  height: 5px;
+  border-radius: 3px;
+}
+.opacity-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(15,139,141,0.5);
+  cursor: pointer;
+  margin-top: -4.5px;   /* vertically centre thumb on the track */
+  transition: box-shadow 0.15s, transform 0.1s;
+}
+.opacity-slider:hover::-webkit-slider-thumb {
+  box-shadow: 0 0 0 4px rgba(15,139,141,0.22);
+  transform: scale(1.12);
+}
+.opacity-slider:active::-webkit-slider-thumb {
+  transform: scale(1.0);
+}
+/* Firefox thumb */
+.opacity-slider::-moz-range-track {
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(0,0,0,0.15);
+}
+.opacity-slider::-moz-range-progress {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--accent);
+}
+.opacity-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(15,139,141,0.5);
+  cursor: pointer;
+}
+
 /* ── Toggle Switch Button ────────────────────────────────────────────────── */
 
 button.switch {

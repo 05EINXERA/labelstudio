@@ -115,6 +115,16 @@ export const annotationSettings = {
  *
  * `selected` is deliberately the higher of the two: the active shape should
  * separate from its neighbours without any other visual cue.
+ *
+ * `selected` is ALSO the default position of the toolbar's Opacity slider,
+ * which writes back to it live as the user drags (opacity-controls.js). That
+ * makes this value the single source of truth for the slider's starting point
+ * — app.html carries a hardcoded 60% fallback for the no-JS case, and
+ * tests/js/opacity_slider_spec.mjs fails if the two drift apart.
+ *
+ * The slider is session-only: it mutates this object and nothing else, so a
+ * reload re-evaluates this module and the default is back. Do not add
+ * persistence without revisiting that contract.
  */
 export const annotationOpacity = {
   normal:   0.5,
