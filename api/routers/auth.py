@@ -24,7 +24,9 @@ from api.auth import (
     require_csrf,
     CSRF_COOKIE_NAME,
     ACCESS_TOKEN_EXPIRE_MINUTES,
+    resolve_user_optional,
 )
+from api import attendance
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -110,12 +112,28 @@ def login_for_access_token(
     # other way to learn who logged in.
     logging_service.set_user(user.username)
     log_event("auth.login", account=user.username)
+    # An explicit day boundary. The 7-day JWT means a returning annotator often
+    # produces no login at all, so this is a supplement to the ambient signal,
+    # never the primary one (05-open-questions.md Q5).
+    attendance.note_seen(user.id, kind=attendance.KIND_LOGIN)
     return {"access_token": access_token, "token_type": "bearer", "csrf_token": csrf_token}
 
 @router.post("/logout")
-def logout(response: Response):
+def logout(request: Request, response: Response, db: Session = Depends(get_db)):
+    # Identity resolved *optionally*: a logout is the only moment a session end
+    # can be stated rather than inferred, so it is worth attributing — but this
+    # endpoint deliberately keeps working for a caller whose token has already
+    # expired, who is just clearing cookies. It gains no auth dependency and no
+    # CSRF requirement; the only thing it does is take an in-memory note (the
+    # write happens in the flush). See 04-decision-and-impl-plan.md § 6.
+    user = resolve_user_optional(request, db)
     clear_session_cookies(response)
-    log_event("auth.logout")
+    if user is not None:
+        logging_service.set_user(user.username)
+        log_event("auth.logout", account=user.username)
+        attendance.note_seen(user.id, kind=attendance.KIND_LOGOUT)
+    else:
+        log_event("auth.logout")
     return {"status": "ok"}
 
 

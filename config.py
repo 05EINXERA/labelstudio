@@ -241,6 +241,51 @@ SERVICE_LOG_SAMPLE_PATHS = _csv(
 SERVICE_LOG_SAMPLE_WINDOW = int(os.environ.get("SERVICE_LOG_SAMPLE_WINDOW", "60"))
 
 
+# --- Attendance -----------------------------------------------------------
+# The annotator attendance register (.devnotes/attendance-feature/).
+#
+# Default OFF. Capture is a dict write on the hottest path in the app
+# (get_current_user, every /api/* request), so it ships dark and is turned on
+# deliberately — the same shape as SERVICE_LOG_ENABLED above, and the flag is
+# the whole rollback story for R2 (04-decision-and-impl-plan.md § 7).
+ATTENDANCE_ENABLED = _flag("ATTENDANCE_ENABLED", False)
+
+# The site timezone, as an IANA zone name — NEVER a numeric offset.
+#
+# Nepal is UTC+05:45. Anything assuming whole-hour offsets (a fixed
+# timedelta(hours=...), an int offset) is wrong by 45 minutes, and the symptom
+# looks like a rounding bug rather than a timezone bug. Observations are stored
+# UTC and tz-aware (CLAUDE.md rule 7); this zone is a *bucketing and display*
+# concern only. Nepal does not observe DST, so there is no transition to
+# handle. See 05-open-questions.md Q9.
+ATTENDANCE_TZ = os.environ.get("ATTENDANCE_TZ", "").strip() or "Asia/Kathmandu"
+
+# Which deployment produced a row. The two instances are never merged (Q2);
+# this exists so an exported file is self-identifying for the manual
+# comparison that is the only cross-instance story. Defaults to the host so an
+# unconfigured instance is still distinguishable rather than anonymous.
+ATTENDANCE_INSTANCE_ID = (
+    os.environ.get("ATTENDANCE_INSTANCE_ID", "").strip() or APP_HOST
+)[:64]
+
+# At most one observation per user per this many seconds. This is what keeps
+# capture O(1) per request rather than per-request-growth: at 25 annotators it
+# caps the table at ~25 rows/minute regardless of how many requests they make.
+ATTENDANCE_THROTTLE_SECONDS = int(
+    os.environ.get("ATTENDANCE_THROTTLE_SECONDS", "60")
+)
+
+# Minimum gap between buffer flushes. The flush rides existing POST traffic via
+# BackgroundTasks, so this bounds how often it can take a pool connection — at
+# 60s that is ~1 connection-second per minute against a 40-connection ceiling.
+ATTENDANCE_FLUSH_SECONDS = int(os.environ.get("ATTENDANCE_FLUSH_SECONDS", "60"))
+
+# Hard ceiling on buffered rows. If flushes stop firing (a traffic lull, or a
+# wedged callback) the buffer must not grow without bound; past this it drops
+# the oldest and logs, because attendance is a nice-to-have and memory is not.
+ATTENDANCE_BUFFER_MAX = int(os.environ.get("ATTENDANCE_BUFFER_MAX", "10000"))
+
+
 class ConfigError(RuntimeError):
     """A deployment-configuration problem that must stop startup."""
 

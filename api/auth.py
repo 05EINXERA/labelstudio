@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 import logging_service
 import models
+from api import attendance
 from config import (
     COOKIE_SAMESITE,
     COOKIE_SECURE,
@@ -250,4 +251,38 @@ def get_current_user(token: Optional[str] = Depends(get_token), db: Session = De
     # resolution, so this is the only place the username is known without
     # repeating the decode and the lookup. A no-op outside a request.
     logging_service.set_user(user.username)
+    # Observe presence. In-memory only, throttled to one row per user per
+    # minute, and a no-op when ATTENDANCE_ENABLED is off — strictly less work
+    # than the set_user() call above. It must stay that way: this runs on every
+    # /api/* request, and per-request work on a hot path has taken this
+    # deployment down before (.devnotes/attendance-feature/ invariant 1).
+    attendance.note_seen(user.id)
     return user
+
+
+def resolve_user_optional(request: Request, db: Session):
+    """The caller's User row, or None — never raises, never 401s.
+
+    For the one endpoint that wants to know who is calling but must not
+    *require* it: `POST /api/auth/logout` today answers a clean 200 for a
+    client with an expired token that is merely trying to clear its own
+    cookies. Adding `Depends(get_current_user)` there would turn that into a
+    401, which is a regression unrelated to attendance
+    (04-decision-and-impl-plan.md § 6).
+
+    Deliberately not a FastAPI dependency: it takes the request directly so it
+    cannot be mistaken for an authentication gate at a router's `dependencies=`
+    where a reader might read it as one.
+    """
+    try:
+        token = get_token(request)
+        if not token:
+            return None
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username = payload.get("sub")
+        if not username:
+            return None
+        return db.query(models.User).filter(models.User.username == username).first()
+    except JWTError:
+        # An expired or malformed token is the ordinary case here, not a fault.
+        return None
