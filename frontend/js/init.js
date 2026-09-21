@@ -33,8 +33,8 @@ import {
 } from "./components/timer.js?v=8";
 import {
   finalizePolygon, deleteSelected, undoAction, redoAction, setZoomChangeHandler
-} from "./canvas/interactions.js?v=20";
-import { initContextMenu } from "./canvas/context-menu.js?v=5";
+} from "./canvas/interactions.js?v=21";
+import { initContextMenu } from "./canvas/context-menu.js?v=6";
 import { getCurrentUser } from "./session.js?v=2";
 import { initCanvasAssign, renderAssignButton } from "./canvas-assign.js?v=2";
 import {
@@ -45,7 +45,7 @@ import {
 } from "./canvas-permissions.js?v=10";
 import { isFrozenForRole } from "./task-status.js?v=3";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
-import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=4";
+import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=5";
 import { claimTask, heartbeatTask, releaseTask } from "./task-lock.js?v=3";
 import { initOpacityControls } from "./opacity-controls.js?v=2";
 
