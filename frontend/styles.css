@@ -3263,3 +3263,80 @@ body.is-read-only #deleteButton {
   font-size: 13px;
   color: var(--muted);
 }
+
+/* --- The declared-break overlay (R6) -------------------------------------- */
+
+/* Modelled on .save-overlay, as the requirement described ("like Saving
+   Overlay, but with time and end button as well"). A higher z-index than the
+   save overlay: a break is the one state that should sit above everything,
+   since the whole point is that the annotator has stepped away. */
+.break-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(23, 32, 38, 0.72);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2100;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+}
+
+.break-overlay.is-active {
+  opacity: 1;
+  visibility: visible;
+}
+
+.break-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 40px 56px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  text-align: center;
+}
+
+.break-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* The running count, in the same monospace treatment as the timer readouts so
+   the digits do not jitter as they tick. */
+.break-elapsed {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 2.75rem;
+  font-weight: 800;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.break-hint {
+  margin: 0;
+  max-width: 34ch;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.break-end-btn {
+  margin-top: 6px;
+  padding: 10px 28px;
+  border-radius: 8px;
+  font-weight: 600;
+}
+
+/* The trigger in the timer row. Deliberately quiet: it is used twice a day,
+   and it sits next to controls used constantly. */
+.break-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  white-space: nowrap;
+}

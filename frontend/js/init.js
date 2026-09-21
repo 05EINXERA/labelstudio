@@ -30,12 +30,13 @@ import {
   syncTaskTime, syncTimeToServer, drainTaskTime, setActiveTaskResolver,
   setConflictHandler, resetSessionForTask, refreshTimerDisplays,
   handleVisibilityChange, setFrozenResolver, setEditedResolver
-} from "./components/timer.js?v=8";
+} from "./components/timer.js?v=9";
 import {
   finalizePolygon, deleteSelected, undoAction, redoAction, setZoomChangeHandler
 } from "./canvas/interactions.js?v=21";
 import { initContextMenu } from "./canvas/context-menu.js?v=6";
 import { getCurrentUser } from "./session.js?v=2";
+import { wireBreakOverlay } from "./components/break-overlay.js?v=1";
 import { initCanvasAssign, renderAssignButton } from "./canvas-assign.js?v=2";
 import {
   applyReadOnlyMode, isReadOnly, loadProjectPermissions, renderReviewControls,
@@ -1599,3 +1600,15 @@ if (tcOk) tcOk.addEventListener('click', closeTaskCompletedModal);
 // Initialise the Opacity slider (selected-annotation fill opacity).
 // Session-only: it is not restored from storage and resets on reload.
 initOpacityControls();
+
+// The declared-break overlay. Pauses the annotation timer and opens an
+// attendance break interval, so one user action owns the interval rather than
+// two mechanisms disagreeing about when it started
+// (.devnotes/attendance-feature/ Q15). Also restores an overlay for a break
+// that is still open after a reload.
+wireBreakOverlay({
+  button: document.getElementById('takeBreakBtn'),
+  overlay: document.getElementById('breakOverlay'),
+  elapsed: document.getElementById('breakElapsed'),
+  endBtn: document.getElementById('endBreakBtn'),
+});

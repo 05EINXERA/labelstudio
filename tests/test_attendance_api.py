@@ -351,3 +351,138 @@ def test_several_admins_can_coexist(client, alice, bob, carol):
     finally:
         db.close()
 
+
+
+# --- Declared breaks (R6) ---------------------------------------------------
+
+
+def _csrf_headers(client, headers):
+    """Bearer clients are CSRF-exempt, so these ride the Authorization header."""
+    return headers
+
+
+def test_break_start_and_end_round_trip(client, bob):
+    user_id = _user_id(client, bob)
+
+    started = client.post("/api/attendance/break/start", headers=bob)
+    assert started.status_code == 200, started.text
+    assert started.json()["already_open"] is False
+
+    ended = client.post("/api/attendance/break/end", headers=bob)
+    assert ended.status_code == 200
+    body = ended.json()
+    assert body["was_open"] is True
+    assert body["seconds"] >= 0
+
+    kinds = [
+        row["kind"] for row in attendance.buffered_observations(user_ids={user_id})
+    ]
+    assert attendance.KIND_BREAK_START in kinds
+    assert attendance.KIND_BREAK_END in kinds
+
+
+def test_starting_a_break_twice_does_not_open_a_second(client, bob):
+    """Two overlapping breaks cannot be corrected afterwards — the table is
+    append-only (Q24) — so the endpoint is idempotent rather than an error."""
+    user_id = _user_id(client, bob)
+
+    first = client.post("/api/attendance/break/start", headers=bob)
+    second = client.post("/api/attendance/break/start", headers=bob)
+
+    assert second.status_code == 200
+    assert second.json()["already_open"] is True
+    assert second.json()["started_at"] == first.json()["started_at"]
+
+    starts = [
+        row for row in attendance.buffered_observations(user_ids={user_id})
+        if row["kind"] == attendance.KIND_BREAK_START
+    ]
+    assert len(starts) == 1, "a second overlapping break was opened"
+
+
+def test_ending_a_break_that_was_never_started_is_a_noop_not_an_error(client, bob):
+    """The pagehide beacon and the End Break button can both fire for one
+    break; the second must not fail."""
+    res = client.post("/api/attendance/break/end", headers=bob)
+    assert res.status_code == 200
+    assert res.json()["was_open"] is False
+    assert res.json()["seconds"] == 0
+
+
+def test_ending_twice_is_safe(client, bob):
+    client.post("/api/attendance/break/start", headers=bob)
+    assert client.post("/api/attendance/break/end", headers=bob).status_code == 200
+    second = client.post("/api/attendance/break/end", headers=bob)
+    assert second.status_code == 200
+    assert second.json()["was_open"] is False
+
+
+def test_a_break_can_be_started_again_after_ending(client, bob):
+    client.post("/api/attendance/break/start", headers=bob)
+    client.post("/api/attendance/break/end", headers=bob)
+    again = client.post("/api/attendance/break/start", headers=bob)
+    assert again.json()["already_open"] is False
+
+
+def test_open_break_reports_an_unfinished_break(client, bob):
+    """So a reloaded page restores its overlay rather than stranding the user
+    with an open break and no way to end it."""
+    assert client.get("/api/attendance/break/open", headers=bob).json() is None
+
+    client.post("/api/attendance/break/start", headers=bob)
+    body = client.get("/api/attendance/break/open", headers=bob).json()
+    assert body is not None
+    assert body["started_at"]
+    assert body["seconds"] >= 0
+
+    client.post("/api/attendance/break/end", headers=bob)
+    assert client.get("/api/attendance/break/open", headers=bob).json() is None
+
+
+def test_breaks_are_self_scoped_and_take_no_user_parameter(client, alice, bob):
+    """Safe by construction: an endpoint that cannot name another user cannot
+    open or close a break on their behalf."""
+    alice_id = _user_id(client, alice)
+    bob_id = _user_id(client, bob)
+
+    client.post(
+        f"/api/attendance/break/start?user_id={alice_id}", headers=bob
+    )
+
+    buffered = attendance.buffered_observations()
+    starts = [
+        row for row in buffered if row["kind"] == attendance.KIND_BREAK_START
+    ]
+    assert starts, "precondition: a break should have been recorded"
+    assert all(row["user_id"] == bob_id for row in starts), (
+        "a break was recorded against another user"
+    )
+    assert alice_id not in {row["user_id"] for row in starts}
+
+
+def test_break_endpoints_require_authentication(client):
+    assert client.post("/api/attendance/break/start").status_code == 401
+    assert client.post("/api/attendance/break/end").status_code == 401
+    assert client.get("/api/attendance/break/open").status_code == 401
+
+
+def test_a_break_is_not_admin_gated(client, bob):
+    """Every annotator declares their own breaks; the admin gate is for seeing
+    other people's attendance."""
+    assert client.post("/api/attendance/break/start", headers=bob).status_code == 200
+
+
+def test_a_declared_break_reaches_the_dashboard(client, admin):
+    """End to end: declaring a break shows up as break time in the register."""
+    user_id = _user_id(client, admin)
+    _seed(user_id, minutes_ago=30)
+    client.post("/api/attendance/break/start", headers=admin)
+    client.post("/api/attendance/break/end", headers=admin)
+
+    rows = client.get(f"/api/attendance/days/{_today()}", headers=admin).json()["rows"]
+    mine = [r for r in rows if r["user_id"] == user_id]
+    assert mine, "the admin's own day should be present"
+    assert mine[0]["break_seconds"] >= 0
+    assert mine[0]["manual_break_seconds"] == 0, (
+        "a declared break must not be counted as manually entered"
+    )

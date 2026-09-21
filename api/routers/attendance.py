@@ -17,10 +17,15 @@ should survive any edit:
    `api/routers/projects.py::_aggregate_metrics` establishes and rule 11b
    requires. A fan-out is invisible at 25 users and fatal later.
 
-No `require_csrf`: rule 1a covers state-changing routers, and these are reads.
-The break-writing endpoints arrive in R6 and will carry it.
+Properties 1–4 describe the **read** endpoints, which are most of this module.
+The break endpoints at the bottom are the exception and are documented there:
+they write (through the buffer, not synchronously), they are self-scoped
+rather than admin-gated, and they each declare `require_csrf` individually —
+per-route rather than on the router, because everything else here is a read
+and rule 1a's requirement attaches to the state-changing calls.
 """
 from datetime import date, datetime, timedelta, timezone
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func
@@ -29,11 +34,15 @@ from sqlalchemy.orm import Session
 import config
 import models
 from api import attendance, attendance_report as report
-from api.auth import get_current_user
+from api.auth import get_current_user, require_csrf
 from api.permissions import require_admin
 from database import get_db
+from logging_service import log_event
 from schemas import (
     AttendanceDayResponse,
+    BreakEndResponse,
+    BreakStartResponse,
+    OpenBreak,
     AttendanceRangeResponse,
     AttendanceSessionsResponse,
 )
@@ -295,3 +304,143 @@ def my_attendance(
         # Scoped to the caller by construction, not by a check.
         rows=_collect(db, start_date, end_date, user_ids={current_user.id}),
     )
+
+
+# --- Declared breaks (R6) ---------------------------------------------------
+#
+# The only endpoints in the feature that write. They are user-initiated
+# (roughly twice a day per person) rather than periodic, so they do not reopen
+# the concern that ruled out a dedicated heartbeat endpoint: ~100 requests a
+# day across 25 annotators, against the ~50 heartbeats per *minute* already on
+# the wire.
+#
+# Both go through the buffer like every other observation, so they inherit the
+# batched flush and add no synchronous DB write.
+#
+# `require_csrf` is declared per-route rather than on the router, because the
+# router is otherwise all reads and rule 1a's requirement attaches to the
+# state-changing calls.
+
+
+def _open_break_for(db: Session, user_id: int):
+    """The caller's currently-open break, or None.
+
+    Reads the buffer *and* the table, because a break started moments ago may
+    not have flushed yet — and a break started this morning certainly has. A
+    check against either alone would let a second break open on top of the
+    first, and an overlapping pair cannot be corrected afterwards (Q24).
+
+    Only the current local day is considered: a break left open yesterday was
+    closed by the IDLE_GAP fallback at read time, and treating it as still
+    open would leave the annotator permanently unable to start a new one.
+    """
+    today = datetime.now(report.site_tz()).date()
+    start, end = report.day_bounds(today)
+
+    stored = report.observation_dicts(
+        db.query(models.AttendanceObservation)
+        .filter(
+            models.AttendanceObservation.user_id == user_id,
+            models.AttendanceObservation.seen_at >= start,
+            models.AttendanceObservation.seen_at < end,
+            models.AttendanceObservation.kind.in_([
+                attendance.KIND_BREAK_START,
+                attendance.KIND_BREAK_END,
+                attendance.KIND_BREAK_MANUAL_START,
+                attendance.KIND_BREAK_MANUAL_END,
+            ]),
+        )
+        .all()
+    )
+    buffered = [
+        row for row in attendance.buffered_observations(user_ids={user_id})
+        if row["kind"] in (
+            attendance.KIND_BREAK_START, attendance.KIND_BREAK_END,
+            attendance.KIND_BREAK_MANUAL_START, attendance.KIND_BREAK_MANUAL_END,
+        ) and start <= row["seen_at"] < end
+    ]
+
+    # Walk the edges in order; the last unmatched start is the open one.
+    edges = sorted(stored + buffered, key=lambda row: row["seen_at"])
+    open_at = None
+    for row in edges:
+        if row["kind"] in (
+            attendance.KIND_BREAK_START, attendance.KIND_BREAK_MANUAL_START
+        ):
+            if open_at is None:
+                open_at = row["seen_at"]
+        else:
+            open_at = None
+    return open_at
+
+
+@router.post("/break/start", response_model=BreakStartResponse)
+def start_break(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+    _csrf: None = Depends(require_csrf),
+):
+    """Declare the start of a break, for the caller.
+
+    Takes no user parameter: an endpoint that cannot name another user cannot
+    forge one (§ 9's safe-by-construction rule).
+
+    Idempotent. Starting a break while one is already open returns the
+    existing start rather than opening a second — two overlapping breaks
+    cannot be corrected afterwards, because the table is append-only.
+    """
+    existing = _open_break_for(db, current_user.id)
+    if existing is not None:
+        return BreakStartResponse(started_at=existing, already_open=True)
+
+    started_at = datetime.now(timezone.utc)
+    attendance.note_seen(
+        current_user.id, kind=attendance.KIND_BREAK_START, seen_at=started_at
+    )
+    log_event("attendance.break_start", account=current_user.username)
+    return BreakStartResponse(started_at=started_at, already_open=False)
+
+
+@router.post("/break/end", response_model=BreakEndResponse)
+def end_break(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+    _csrf: None = Depends(require_csrf),
+):
+    """Declare the end of the caller's open break.
+
+    Ending a break nobody started is a no-op answered 200, not an error: the
+    `pagehide` beacon and the End Break button can both fire for one break,
+    and the second must not fail.
+    """
+    ended_at = datetime.now(timezone.utc)
+    started_at = _open_break_for(db, current_user.id)
+    if started_at is None:
+        return BreakEndResponse(ended_at=ended_at, seconds=0, was_open=False)
+
+    attendance.note_seen(
+        current_user.id, kind=attendance.KIND_BREAK_END, seen_at=ended_at
+    )
+    seconds = max(0, int((ended_at - started_at).total_seconds()))
+    log_event(
+        "attendance.break_end", account=current_user.username, seconds=seconds
+    )
+    return BreakEndResponse(ended_at=ended_at, seconds=seconds, was_open=True)
+
+
+@router.get("/break/open", response_model=Optional[OpenBreak])
+def open_break(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """The caller's open break, if any, so a reloaded page restores its overlay.
+
+    Without this a refresh mid-break strands the annotator: the break is open
+    server-side, but the page has no overlay and so no way to end it — the
+    Q17 failure, reached by pressing F5.
+    """
+    started_at = _open_break_for(db, current_user.id)
+    if started_at is None:
+        return None
+    seconds = max(0, int((datetime.now(timezone.utc) - started_at).total_seconds()))
+    return OpenBreak(started_at=started_at, seconds=seconds)

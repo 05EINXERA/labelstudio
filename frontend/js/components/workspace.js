@@ -13,7 +13,7 @@ import { pendingCount, retryablePendingCount, isServerUnreachable, peekWrite } f
 import { coalesce } from "../save-coalesce.js?v=1";
 import { annotationPoints, updateAnnotationBounds } from "../canvas/geometry.js?v=1";
 import { view } from "../canvas/view.js?v=1";
-import { drainTaskTime, DRAIN_SKIPPED, refreshTimerDisplays } from "./timer.js?v=8";
+import { drainTaskTime, DRAIN_SKIPPED, refreshTimerDisplays } from "./timer.js?v=9";
 import { timerState } from "../timer-state.js?v=3";
 import { detectState } from "../ai/detect-state.js?v=3";
 import { draw, drawAllLayers } from "../canvas/draw.js?v=10";

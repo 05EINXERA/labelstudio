@@ -954,3 +954,33 @@ class AttendanceSessionsResponse(BaseModel):
     user_id: Optional[int] = None
     username: str
     sessions: List[AttendanceSession] = []
+
+
+class BreakStartResponse(BaseModel):
+    """Answer to POST /api/attendance/break/start."""
+    started_at: datetime
+    # True when a break was already open for this caller. The endpoint is
+    # idempotent rather than an error: a double-click, or a second tab, must
+    # not produce two overlapping breaks, and the user has no way to fix one
+    # if it does (the table is append-only — Q24).
+    already_open: bool = False
+
+
+class BreakEndResponse(BaseModel):
+    """Answer to POST /api/attendance/break/end."""
+    ended_at: datetime
+    seconds: int
+    # False when no break was open — ending a break nobody started is a no-op,
+    # not an error, for the same reason as above.
+    was_open: bool = True
+
+
+class OpenBreak(BaseModel):
+    """An unfinished break, so a reloaded page can restore its overlay.
+
+    Without this a refresh mid-break strands the user: the break is open
+    server-side but the page has no overlay and no way to end it — the Q17
+    failure, reached by pressing F5.
+    """
+    started_at: datetime
+    seconds: int

@@ -650,5 +650,41 @@ export function handleVisibilityChange() {
   }
 }
 
+// --- Declared breaks (.devnotes/attendance-feature/ § 4.1) -------------------
+//
+// A break pauses the annotation timer *and* opens an attendance break
+// interval, because Q15's answer is "both". One user action must own the
+// interval: without this the 30-minute break is handled twice, by two
+// mechanisms that disagree about when it started (the button press vs. the
+// last pointer event that the 5-minute idle auto-pause keys off).
+//
+// Modelled on the tab-visibility pause above, including the flag: only resume
+// a timer that *this* paused. A break that force-resumed would restart a timer
+// the annotator had deliberately paused before stepping away, silently
+// billing time to a task nobody was working on.
+let pausedByBreak = false;
+
+/** Pause for a declared break. Idempotent. */
+export function pauseTimerForBreak() {
+  if (timerLocalState.isTimerRunning) {
+    pausedByBreak = true;
+    pauseTimer();
+  }
+}
+
+/**
+ * Resume after a declared break, but only if the break is what paused it.
+ *
+ * `startTimer` refuses on a frozen task, so an approved task cannot be
+ * restarted by ending a break — the guard is already at the single start
+ * point rather than repeated here.
+ */
+export function resumeTimerAfterBreak() {
+  if (pausedByBreak) {
+    pausedByBreak = false;
+    startTimer();
+  }
+}
+
 // Initialize displays
 updateTimerDisplays();
