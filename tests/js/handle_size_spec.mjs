@@ -35,7 +35,7 @@
 // the one handle-size.js itself imports -- so when feature-flags.js is bumped,
 // bump it HERE too. A pin sweep over frontend/ alone misses this file and the
 // falloff test starts failing for a reason that looks nothing like a pin.
-const flagsUrl = new URL('../../frontend/js/feature-flags.js?v=3', import.meta.url);
+const flagsUrl = new URL('../../frontend/js/feature-flags.js?v=4', import.meta.url);
 const sizeUrl = new URL('../../frontend/js/canvas/handle-size.js?v=1', import.meta.url);
 const { annotationSettings } = await import(flagsUrl);
 const { vertexHandleRadius, vertexHandleLineWidth } = await import(sizeUrl);

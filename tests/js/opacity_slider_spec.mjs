@@ -32,10 +32,10 @@
  * — and test 7 would mutate a value nothing under test can see. The pins must
  * match the ones opacity-scale.js itself imports.
  */
-const flagsUrl = new URL('../../frontend/js/feature-flags.js?v=3', import.meta.url);
-const ctrlUrl = new URL('../../frontend/js/opacity-scale.js?v=1', import.meta.url);
+const flagsUrl = new URL('../../frontend/js/feature-flags.js?v=4', import.meta.url);
+const ctrlUrl = new URL('../../frontend/js/opacity-scale.js?v=2', import.meta.url);
 const { annotationOpacity } = await import(flagsUrl);
-const { pctToOpacity, opacityToPct, defaultPct } = await import(ctrlUrl);
+const { pctToOpacity, opacityToPct, defaultPct, drawingOpacityFor } = await import(ctrlUrl);
 
 let pass = 0, fail = 0;
 const ok = (name, cond) => {
@@ -46,6 +46,10 @@ const near = (a, b) => Math.abs(a - b) < 1e-9;
 // Mirrors the hardcoded fallback in frontend/app.html. If you change the
 // default in feature-flags.js, change it there too — that is what this guards.
 const MARKUP_FALLBACK_PCT = 60;
+
+// Captured before any test mutates the live object.
+const DEFAULT_SELECTED = annotationOpacity.selected;
+const DEFAULT_DRAWING = annotationOpacity.drawing;
 
 // 1. The default, and its agreement with the markup.
 console.log('\ndefault');
@@ -128,6 +132,48 @@ console.log('\ndefault is captured, not live');
   annotationOpacity.selected = original;
   ok('defaultPct is unaffected by a slider edit', before === after);
   ok('and still matches the markup fallback', after === MARKUP_FALLBACK_PCT);
+}
+
+// 8. The in-progress fill tracks the slider, keeping the default ratio.
+//    Annotators adjust opacity mid-trace, which is when the fill is most in
+//    the way, so `drawing` must move with the control and not only `selected`.
+console.log('\ndrawing opacity tracks the slider');
+{
+  const ratio = DEFAULT_DRAWING / DEFAULT_SELECTED;
+  ok('the default selected maps to the default drawing',
+     near(drawingOpacityFor(DEFAULT_SELECTED), DEFAULT_DRAWING));
+  ok('stays lighter than the selected fill',
+     drawingOpacityFor(DEFAULT_SELECTED) < DEFAULT_SELECTED);
+  ok('preserves the ratio at an arbitrary value',
+     near(drawingOpacityFor(0.4), 0.4 * ratio));
+  ok('0 selected gives 0 drawing', drawingOpacityFor(0) === 0);
+  ok('scales monotonically', drawingOpacityFor(0.2) < drawingOpacityFor(0.5));
+  let valid = true;
+  for (let pct = 0; pct <= 100; pct++) {
+    const d = drawingOpacityFor(pctToOpacity(pct));
+    if (!(Number.isFinite(d) && d >= 0 && d <= 1)) valid = false;
+  }
+  ok('is a valid alpha across the whole slider travel', valid);
+  for (const bad of [NaN, undefined, 'abc', {}]) {
+    ok(`${String(bad)} falls back to the captured default`,
+       near(drawingOpacityFor(bad), DEFAULT_DRAWING));
+  }
+}
+
+// 9. Like defaultPct, the drawing fallback is captured, not live - the slider
+//    mutates annotationOpacity.drawing, so a live read would drift.
+console.log('\ndrawing default is captured, not live');
+{
+  const origSel = annotationOpacity.selected;
+  const origDraw = annotationOpacity.drawing;
+  annotationOpacity.selected = 0.05;
+  annotationOpacity.drawing = 0.01;           // simulate a slider drag
+  const stillDefault = near(drawingOpacityFor(NaN), DEFAULT_DRAWING);
+  const ratioHeld = near(drawingOpacityFor(DEFAULT_SELECTED), DEFAULT_DRAWING);
+  annotationOpacity.selected = origSel;
+  annotationOpacity.drawing = origDraw;
+  ok('the fallback is unaffected by a slider edit', stillDefault);
+  ok('the ratio is unaffected by a slider edit', ratioHeld);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

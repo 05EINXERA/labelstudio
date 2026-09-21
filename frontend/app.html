@@ -314,9 +314,9 @@
           <span class="tool-group-label">Opacity</span>
           <div class="tool-group-buttons opacity-group-buttons">
             <div class="opacity-slider-wrap"
-              title="Fill opacity of the selected annotation. Lower it to see the pixels underneath. Resets on reload.">
+              title="Fill opacity of the selected shape and the one being drawn. Lower it to see the pixels underneath while tracing. Resets on reload.">
               <label class="tool-group-label opacity-slider-label" for="opacitySlider">
-                Selected: <span id="opacityValueLabel">60%</span>
+                Fill: <span id="opacityValueLabel">60%</span>
               </label>
               <input
                 type="range"
@@ -326,7 +326,7 @@
                 step="1"
                 value="60"
                 class="opacity-slider"
-                aria-label="Selected annotation fill opacity"
+                aria-label="Annotation fill opacity"
               >
             </div>
           </div>
@@ -516,7 +516,7 @@
     </div>
   </div>
 
-  <script type="module" src="js/init.js?v=39"></script>
+  <script type="module" src="js/init.js?v=40"></script>
 
 </body>
 

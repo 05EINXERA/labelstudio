@@ -15,7 +15,7 @@ import {
   autoDetectButton, undoButton, redoButton, deleteButton, clearButton, unhideAllButton,
   assignTaskButton, saveButton
 } from "./dom.js?v=5";
-import { drawAllLayers } from "./canvas/draw.js?v=8";
+import { drawAllLayers } from "./canvas/draw.js?v=9";
 import {
   setStatus, syncToBackend, save, loadSaved, saveDraft, restoreDraft,
   render, manualSaveWithUI, refreshSaveStatus, pruneStaleDrafts, unhideAllObjects
@@ -47,7 +47,7 @@ import { isFrozenForRole } from "./task-status.js?v=3";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
 import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=4";
 import { claimTask, heartbeatTask, releaseTask } from "./task-lock.js?v=3";
-import { initOpacityControls } from "./opacity-controls.js?v=1";
+import { initOpacityControls } from "./opacity-controls.js?v=2";
 
 if (!localStorage.getItem('logged_in')) {
   window.location.href = '/';

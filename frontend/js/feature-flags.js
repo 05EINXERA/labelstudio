@@ -122,8 +122,20 @@ export const annotationSettings = {
  * — app.html carries a hardcoded 60% fallback for the no-JS case, and
  * tests/js/opacity_slider_spec.mjs fails if the two drift apart.
  *
+ * `drawing` is driven by the same slider, keeping whatever RATIO it has to
+ * `selected` here (0.30 / 0.60 = half). Annotators thin the fill while
+ * tracing, not only after the shape closes. Change either number and the
+ * ratio changes with it — that is intended, and it is why opacity-scale.js
+ * derives the ratio instead of hardcoding 0.5. Keep `drawing` below
+ * `selected` unless you want the in-progress and committed states to look
+ * identical at the moment a polygon closes.
+ *
+ * `normal` is deliberately NOT on the slider: it paints the static canvas
+ * layer, so binding it would turn every slider input event into a full static
+ * repaint.
+ *
  * The slider is session-only: it mutates this object and nothing else, so a
- * reload re-evaluates this module and the default is back. Do not add
+ * reload re-evaluates this module and the defaults are back. Do not add
  * persistence without revisiting that contract.
  */
 export const annotationOpacity = {
