@@ -29,10 +29,44 @@ export const toolAvailability = {
  *
  * vertexHandleRadius
  *   Radius, in on-screen pixels, of the round vertex handles DRAWN on a
- *   selected shape. Screen-space on purpose: a handle stays the same physical
- *   size at every zoom, so it neither disappears when zoomed out nor swallows
- *   the shape when zoomed in. Lower it when vertices sit close together and
- *   the handles overlap each other.
+ *   selected shape, AT FIT ZOOM (viewZoom === 1). Above that the handles
+ *   shrink along the curve described under vertexHandleFalloff. Lower this
+ *   when vertices sit close together and the handles overlap each other.
+ *
+ *   Screen pixels, not image pixels: handles must not scale 1:1 with the
+ *   image, or they would vanish when zoomed out. But a FIXED screen size was
+ *   wrong in the other direction — a handle that stays 4.5 px at 4000% covers
+ *   exactly the pixels the annotator is trying to judge, and a dense polygon's
+ *   handles merge into a chain of white beads. Hence the falloff below.
+ *
+ * vertexHandleFalloff
+ *   Exponent controlling how fast the drawn handle shrinks as the user zooms:
+ *
+ *       radius = clamp(min, vertexHandleRadius / viewZoom ** falloff, max)
+ *
+ *   0 disables the effect entirely (constant screen size — the behaviour
+ *   before this was added). 1 would shrink in exact proportion to zoom, which
+ *   is far too aggressive. Values around 0.3-0.4 keep the handle visible while
+ *   noticeably getting out of the way. Raise it to shrink harder.
+ *
+ *   Keyed off `view.viewZoom`, NOT `view.imageBox.scale`. Scale folds in
+ *   baseScale, which depends on the image's natural size versus the canvas
+ *   box — keying off it would give a 6000px photo and a 400px thumbnail
+ *   different handle sizes at the same "fit" view, and would resize the
+ *   handles when the browser window resized. viewZoom is 1 at fit for every
+ *   image, so the curve tracks the user's zoom gesture and nothing else.
+ *
+ * vertexHandleMinRadius
+ *   Floor for the above, in on-screen pixels. This is the "never lost
+ *   visually" guarantee: past roughly viewZoom 6 the handle stops shrinking
+ *   and holds this size all the way to maximum zoom. Raise it if handles read
+ *   poorly against the 3px selected outline they sit on.
+ *
+ * vertexHandleMaxRadius
+ *   Ceiling for the above, in on-screen pixels, which bites when zoomed OUT
+ *   past fit (viewZoom < 1). Keep it at or below vertexGrabRadius: a handle
+ *   drawn larger than its own click target would be visible but unclickable
+ *   around its rim. tests/js/handle_size_spec.mjs asserts this.
  *
  * vertexGrabRadius
  *   Radius, in on-screen pixels, within which a click counts as grabbing a
@@ -41,6 +75,12 @@ export const toolAvailability = {
  *   handles big enough to hide the pixels underneath. Raise it for touch or
  *   pen input; if it exceeds roughly half the spacing between neighbouring
  *   vertices, adjacent grab areas start to overlap and the wrong vertex wins.
+ *
+ *   Deliberately NOT subject to vertexHandleFalloff: the grab area is
+ *   invisible, so there is no visual cost to leaving it generous, and
+ *   shrinking the click target would make vertices hardest to catch at
+ *   exactly the zoom where precision work happens. At high zoom the grab
+ *   area is therefore larger than the drawn circle. That is intended.
  *
  * edgeGrabRadius
  *   Radius, in on-screen pixels, within which a click counts as landing on a
@@ -58,10 +98,13 @@ export const toolAvailability = {
  *   finer detail without changing this number.
  */
 export const annotationSettings = {
-  vertexHandleRadius:   4.5,
-  vertexGrabRadius:     6,
-  edgeGrabRadius:       6,
-  freehandPointSpacing: 10,
+  vertexHandleRadius:    4.5,
+  vertexHandleFalloff:   0.35,
+  vertexHandleMinRadius: 2.5,
+  vertexHandleMaxRadius: 6,
+  vertexGrabRadius:      6,
+  edgeGrabRadius:        6,
+  freehandPointSpacing:  10,
 };
 
 /**
