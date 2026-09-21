@@ -180,6 +180,7 @@ def me(
         id=current_user.id,
         username=current_user.username,
         teams=[MeTeam(id=t.id, name=t.name, role=role) for t, role in teams],
+        is_admin=bool(current_user.is_admin),
     )
 
 

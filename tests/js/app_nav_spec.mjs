@@ -36,10 +36,10 @@ const ok = (name, cond) => {
   cond ? (pass++, console.log('  PASS', name)) : (fail++, console.log('  FAIL', name));
 };
 
-/** Render with the given active key and return the HTML string. */
-const render = (activeKey) => {
+/** Render with the given active key (and options) and return the HTML string. */
+const render = (activeKey, options) => {
   const container = { innerHTML: '' };
-  renderAppNav(container, activeKey);
+  renderAppNav(container, activeKey, options);
   return container.innerHTML;
 };
 
@@ -117,6 +117,34 @@ ok('the manual stays inactive even if its own key is passed as active',
 ok('external links are marked with is-external for styling',
    manual.includes('is-external') &&
    !linkFor(html, 'Projects').includes('is-external'));
+
+// --- The admin-only Attendance tab (R5) -------------------------------------
+//
+// Hiding the tab is a rendering convenience, never a control: every attendance
+// endpoint calls require_admin and answers 404 regardless (CLAUDE.md rule 18b).
+// What these guard is that the *default* is hidden -- a nav that showed the tab
+// to everyone would send annotators to a page that 404s at them.
+
+ok('attendance is hidden by default',
+   !render('projects').includes('attendance.html'));
+
+ok('attendance is hidden when isAdmin is explicitly false',
+   !render('projects', { isAdmin: false }).includes('attendance.html'));
+
+ok('attendance appears for an admin',
+   render('projects', { isAdmin: true }).includes('attendance.html'));
+
+ok('attendance goes active on its own page',
+   linkFor(render('attendance', { isAdmin: true }), 'Attendance')
+     .includes('is-active'));
+
+ok('a non-admin still gets the ordinary links',
+   ['Projects', 'Teams', 'Manual'].every((label) =>
+     render('projects').includes(label)));
+
+ok('attendance is an in-app link, not external',
+   !linkFor(render('projects', { isAdmin: true }), 'Attendance')
+     .includes('target="_blank"'));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

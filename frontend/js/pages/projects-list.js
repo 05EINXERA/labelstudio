@@ -10,7 +10,7 @@ import { apiFetch } from "../api.js?v=5";
 import { escapeHTML, formatTime } from "../utils.js?v=2";
 import { statusClass } from "../task-status.js?v=3";
 import { createDataTable } from "../components/data-table.js?v=6";
-import { renderAppNav, wireLogout } from "../components/app-nav.js?v=3";
+import { renderAppNav, revealAdminLinks, wireLogout } from "../components/app-nav.js?v=4";
 import { getCurrentUser } from "../session.js?v=2";
 import { roleBadge } from "../components/role-badge.js?v=1";
 import { wireAccountSettings } from "../components/account-settings.js?v=2";
@@ -282,6 +282,9 @@ function showTab(name) {
 
 async function init() {
   renderAppNav(document.getElementById("appNav"), "projects");
+  // Admin-only links appear once identity resolves; not awaited, so the
+  // header paints immediately (app-nav.js).
+  revealAdminLinks(document.getElementById("appNav"), "projects");
   wireLogout(els.logout);
   wireAccountSettings(els.settings);
 

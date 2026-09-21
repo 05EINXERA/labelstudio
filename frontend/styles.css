@@ -3176,3 +3176,90 @@ body.is-read-only #deleteButton {
   opacity: .45;
   pointer-events: none;
 }
+
+/* --- Attendance dashboard (R5) -------------------------------------------- */
+
+/* The summary strip above the register. Wraps rather than scrolling: on a
+   narrow window an admin should see fewer cards per row, not lose them off
+   the edge. */
+.mgmt-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.summary-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 120px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.summary-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.summary-value {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+/* Inline labels in the toolbar, so the date controls read as a sentence
+   rather than as bare inputs. */
+.field-label-inline {
+  margin: 0 6px 0 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.field-label-inline:first-child {
+  margin-left: 0;
+}
+
+/* "still here" — an open session, i.e. the person was seen within IDLE_GAP.
+   Deliberately the only badge on the page with a colour: everything else is a
+   fact about the past, this is the one live state. */
+.badge-live {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--ok-bg, #14532d);
+  color: var(--ok-fg, #bbf7d0);
+}
+
+/* The session breakdown inside the popup. */
+.session-block {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.session-block:last-child {
+  border-bottom: none;
+}
+
+.session-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.session-meta {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.session-breaks {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  font-size: 13px;
+  color: var(--muted);
+}

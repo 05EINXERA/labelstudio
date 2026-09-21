@@ -837,6 +837,12 @@ class Me(BaseModel):
     id: int
     username: str
     teams: List[MeTeam] = Field(default_factory=list)
+    # Instance-level admin. Present so the nav can decide whether to draw the
+    # Attendance tab — **rendering only** (CLAUDE.md rule 18b). The server
+    # gates every attendance endpoint with require_admin regardless of what
+    # the client believes, and a stale bundle showing the tab is a cosmetic
+    # bug that resolves in a 404, not a hole.
+    is_admin: bool = False
 
 
 class UserCreate(BaseModel):

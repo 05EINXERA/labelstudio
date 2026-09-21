@@ -12,7 +12,7 @@ import { apiFetch } from "../../api.js?v=5";
 import { escapeHTML } from "../../utils.js?v=2";
 import { statusClass } from "../../task-status.js?v=3";
 import { renderNav, setActive, visibleNavItems } from "../../components/project-nav.js?v=5";
-import { renderAppNav, wireLogout } from "../../components/app-nav.js?v=3";
+import { renderAppNav, revealAdminLinks, wireLogout } from "../../components/app-nav.js?v=4";
 import { getCurrentUser } from "../../session.js?v=2";
 import { wireAccountSettings } from "../../components/account-settings.js?v=2";
 import { consumeReturnTicket } from "./tasks-view-restore.js?v=2";
@@ -199,6 +199,9 @@ async function renderRoute() {
 
 async function init() {
   renderAppNav(document.getElementById("appNav"), "projects");
+  // Admin-only links appear once identity resolves; not awaited, so the
+  // header paints immediately (app-nav.js).
+  revealAdminLinks(document.getElementById("appNav"), "projects");
   wireLogout(els.logout);
   // Before the project-id guard: an unreadable id must not also cost the user
   // the account controls in the header.
