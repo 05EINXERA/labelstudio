@@ -4,7 +4,7 @@ import { annotationPoints, updateAnnotationBounds, pointInPolygon } from "./geom
 import { untangleRing } from "./untangle.js?v=2";
 import { unionAll } from "./merge.js?v=3";
 import { view } from "./view.js?v=1";
-import { draw, drawAllLayers } from "./draw.js?v=9";
+import { draw, drawAllLayers } from "./draw.js?v=10";
 import { canvas, ctx, undoButton } from "../dom.js?v=5";
 import { commentHitTest, commentScreenGeometry, COMMENT_FONT } from "./comment-geometry.js?v=2";
 import { normalizeRect, rectIsDegenerate, marqueeHits } from "./marquee.js?v=1";
@@ -13,7 +13,7 @@ import { commentOverlayRefs, openCommentEditor, anchorCommentOverlay } from "../
 import { setStatus, save, render, activateLabel, toggleAnnotationsHidden, unhideAllObjects, editBlockReason } from "../components/workspace.js?v=27";
 import { labelIndexForCode, hideTargetIdsWhileDrawing, shouldHide, hideKeyAction, drawHideKeyAction, DRAW_PEEK_MS } from "../shortcuts.js?v=4";
 import { performMagicWandSegmentation } from "../ai/detect.js?v=4";
-import { annotationSettings } from "../feature-flags.js?v=4";
+import { annotationSettings } from "../feature-flags.js?v=5";
 import { isTypingTarget } from "../typing-target.js?v=1";
 
 export function canvasPoint(event) {

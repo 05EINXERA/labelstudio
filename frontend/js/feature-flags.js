@@ -32,9 +32,14 @@ export const toolAvailability = {
  *
  *   Screen pixels, not image pixels: handles must not scale 1:1 with the
  *   image, or they would vanish when zoomed out. But a FIXED screen size was
- *   wrong in the other direction — a handle that stays 4.5 px at 4000% covers
- *   exactly the pixels the annotator is trying to judge, and a dense polygon's
- *   handles merge into a chain of white beads. Hence the falloff below.
+ *   wrong in the other direction — a handle that stays this size at 4000%
+ *   covers exactly the pixels the annotator is trying to judge, and a dense
+ *   polygon's handles merge into a chain of white beads. Hence the falloff
+ *   below.
+ *
+ *   Also sets the ring width: a handle at fit zoom gets a 2px ring, and
+ *   thinner rings as it shrinks (canvas/handle-size.js derives the divisor
+ *   from this value, so the proportion holds if you change it).
  *
  * vertexHandleFalloff
  *   Exponent controlling how fast the drawn handle shrinks as the user zooms:
@@ -67,10 +72,12 @@ export const toolAvailability = {
  *
  * vertexGrabRadius
  *   Radius, in on-screen pixels, within which a click counts as grabbing a
- *   vertex. Kept independent of (and by default LARGER than) the drawn radius:
- *   a forgiving click target makes vertices easy to catch without drawing
- *   handles big enough to hide the pixels underneath. Raise it for touch or
- *   pen input; if it exceeds roughly half the spacing between neighbouring
+ *   vertex. Kept independent of, and never smaller than, the drawn radius: a
+ *   forgiving click target makes vertices easy to catch without drawing
+ *   handles big enough to hide the pixels underneath. It equals
+ *   vertexHandleMaxRadius, so the two coincide at full zoom-out and the grab
+ *   area is strictly larger everywhere else. Raise it for touch or pen
+ *   input; if it exceeds roughly half the spacing between neighbouring
  *   vertices, adjacent grab areas start to overlap and the wrong vertex wins.
  *
  *   Deliberately NOT subject to vertexHandleFalloff: the grab area is
@@ -95,11 +102,11 @@ export const toolAvailability = {
  *   finer detail without changing this number.
  */
 export const annotationSettings = {
-  vertexHandleRadius:    4.5,
+  vertexHandleRadius:    5.6,
   vertexHandleFalloff:   0.35,
-  vertexHandleMinRadius: 2.5,
-  vertexHandleMaxRadius: 6,
-  vertexGrabRadius:      6,
+  vertexHandleMinRadius: 3,
+  vertexHandleMaxRadius: 7.5,
+  vertexGrabRadius:      7.5,
   edgeGrabRadius:        6,
   freehandPointSpacing:  10,
 };
