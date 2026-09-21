@@ -69,6 +69,28 @@ def site_tz() -> ZoneInfo:
     return ZoneInfo(config.ATTENDANCE_TZ)
 
 
+def as_utc(moment):
+    """Force a datetime to tz-aware UTC, or None.
+
+    **Not decoration — the aggregation crashes without it.** SQLite has no
+    timezone type, so a `DateTime(timezone=True)` column read back through it
+    yields a *naive* datetime, while Postgres yields an aware one. Comparing a
+    naive value with an aware one raises `TypeError`, so the same code path
+    works on the deployment and dies on the dev/test database (or on any row
+    written before rule 7 was followed).
+
+    Rows are always stored as UTC, so attaching UTC is a restoration of what
+    the column means, not a guess. Doing it here — at the boundary where rows
+    enter the aggregation — keeps every function below able to assume aware
+    datetimes.
+    """
+    if moment is None:
+        return None
+    if moment.tzinfo is None:
+        return moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(timezone.utc)
+
+
 def local_day(moment: datetime) -> date:
     """The local calendar day a UTC instant falls on.
 
@@ -76,12 +98,9 @@ def local_day(moment: datetime) -> date:
     00:15 the *next* day in Kathmandu, so the answer is not the UTC date and
     cannot be obtained by truncating one.
     """
-    if moment.tzinfo is None:
-        # A naive datetime here means a row was written without rule 7 being
-        # followed. Assume UTC rather than the machine's local zone, which
-        # would make the result depend on where the server happens to run.
-        moment = moment.replace(tzinfo=timezone.utc)
-    return moment.astimezone(site_tz()).date()
+    # Assume UTC for a naive value rather than the machine's local zone, which
+    # would make the result depend on where the server happens to run.
+    return as_utc(moment).astimezone(site_tz()).date()
 
 
 def day_bounds(local_date: date) -> tuple:
@@ -108,8 +127,14 @@ def sessionise(observations, now=None, idle_gap=IDLE_GAP) -> list:
     Returns a list of session dicts. One pass, so the cost is linear in the
     number of observations rather than quadratic in the number of sessions.
     """
+    # Normalised on the way in: stored rows and buffered rows arrive from two
+    # sources, and on SQLite the stored ones come back naive (see as_utc).
     rows = sorted(
-        (o for o in observations if o.get("seen_at") is not None),
+        (
+            {**o, "seen_at": as_utc(o["seen_at"]), "created_at": as_utc(o.get("created_at"))}
+            for o in observations
+            if o.get("seen_at") is not None
+        ),
         key=lambda o: o["seen_at"],
     )
     if not rows:
@@ -308,11 +333,11 @@ def observation_dicts(rows) -> list:
     return [
         {
             "user_id": row.user_id,
-            "seen_at": row.seen_at,
+            "seen_at": as_utc(row.seen_at),
             "task_id": row.task_id,
             "instance_id": row.instance_id,
             "kind": row.kind,
-            "created_at": row.created_at,
+            "created_at": as_utc(row.created_at),
             "entered_by": row.entered_by,
         }
         for row in rows

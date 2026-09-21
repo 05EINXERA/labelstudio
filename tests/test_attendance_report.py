@@ -351,3 +351,36 @@ def test_a_day_summary_is_unaffected_by_input_order():
     assert forward["present_seconds"] == reverse["present_seconds"]
     assert forward["session_count"] == reverse["session_count"]
     assert forward["end_reason"] == reverse["end_reason"]
+
+
+# --- Naive datetimes from SQLite -------------------------------------------
+
+
+def test_naive_stored_datetimes_do_not_crash_the_aggregation():
+    """SQLite returns DateTime(timezone=True) columns as NAIVE datetimes.
+
+    Postgres returns aware ones, so mixing a stored row with a live buffered
+    row raises TypeError on the dev/test database while working on the
+    deployment. Rows are always stored UTC, so the boundary restores that.
+    """
+    naive = {
+        "user_id": 1, "kind": KIND_SEEN, "task_id": None, "instance_id": "t",
+        "seen_at": datetime(2026, 9, 21, 9, 0),          # as SQLite hands it back
+        "created_at": datetime(2026, 9, 21, 9, 0),
+    }
+    aware = {
+        "user_id": 1, "kind": KIND_SEEN, "task_id": None, "instance_id": "t",
+        "seen_at": datetime(2026, 9, 21, 9, 5, tzinfo=timezone.utc),  # buffered
+        "created_at": None,
+    }
+    sessions = report.sessionise(
+        [naive, aware], now=datetime(2026, 9, 21, 9, 6, tzinfo=timezone.utc)
+    )
+    assert len(sessions) == 1
+    assert sessions[0]["started_at"].tzinfo is not None
+
+
+def test_as_utc_treats_naive_as_utc_not_machine_local():
+    naive = datetime(2026, 9, 21, 9, 0)
+    assert report.as_utc(naive) == datetime(2026, 9, 21, 9, 0, tzinfo=timezone.utc)
+    assert report.as_utc(None) is None

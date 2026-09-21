@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional, List, Dict, Any, Literal, get_args
 from pydantic import BaseModel, Field, field_validator
 
@@ -861,3 +861,90 @@ class Token(BaseModel):
     # body so a non-browser client (tests, scripts) can echo it back without
     # having to parse Set-Cookie.
     csrf_token: Optional[str] = None
+
+
+# --- Attendance ---------------------------------------------------------------
+#
+# Response models for the attendance register (.devnotes/attendance-feature/).
+# Declared as schemas rather than hand-built dicts, per CLAUDE.md rule 6.
+
+
+class AttendanceBreak(BaseModel):
+    """One break inside a session.
+
+    `source` is "declared" (the button) or "manual" (entered afterwards from
+    the profile page). `entered_at` is when the ROW was written, which for a
+    manual break is hours after `started_at` — that gap is how an admin sees a
+    break was reconstructed rather than observed. Provenance, not suspicion.
+    """
+    started_at: datetime
+    ended_at: datetime
+    seconds: int
+    # False means the break was never ended and was closed by the fallback.
+    # A lower bound, and it says so rather than being silently dropped.
+    ended: bool
+    source: Literal["declared", "manual"]
+    entered_at: Optional[datetime] = None
+
+
+class AttendanceSession(BaseModel):
+    """A maximal run of observations with no gap greater than IDLE_GAP."""
+    started_at: datetime
+    ended_at: datetime
+    # logout (stated) | timeout (inferred, a lower bound) | open (still running)
+    end_reason: Literal["logout", "timeout", "open"]
+    # Present time: the span minus declared breaks.
+    seconds: int
+    span_seconds: int
+    break_seconds: int
+    tasks_touched: int
+    breaks: List[AttendanceBreak] = []
+
+
+class AttendanceRow(BaseModel):
+    """One person's day.
+
+    `tasks_touched` and `tasks_reviewed` are deliberately literal. "Tasks
+    completed by user X" is NOT derivable — there is no author column on the
+    annotation write path — and no field here may imply it (CLAUDE.md rule 11a).
+    """
+    user_id: Optional[int] = None
+    username: str
+    local_date: date
+    first_seen: datetime
+    last_seen: datetime
+    last_seen_reason: Literal["logout", "timeout", "open"]
+    session_count: int
+    present_seconds: int
+    break_seconds: int
+    manual_break_seconds: int
+    # From `active`-kind observations, never from time_logs, which is a
+    # lifetime total with no date column at all.
+    active_seconds: int
+    tasks_touched: int
+    tasks_reviewed: int
+    has_unended_break: bool = False
+
+
+class AttendanceDayResponse(BaseModel):
+    date: date
+    instance_id: str
+    timezone: str
+    generated_at: datetime
+    rows: List[AttendanceRow] = []
+
+
+class AttendanceRangeResponse(BaseModel):
+    date_from: date
+    date_to: date
+    instance_id: str
+    timezone: str
+    generated_at: datetime
+    rows: List[AttendanceRow] = []
+
+
+class AttendanceSessionsResponse(BaseModel):
+    date: date
+    user_id: Optional[int] = None
+    username: str
+    sessions: List[AttendanceSession] = []
