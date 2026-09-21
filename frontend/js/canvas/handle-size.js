@@ -12,7 +12,7 @@
  * than imageBox.scale are all documented in feature-flags.js.
  */
 
-import { annotationSettings } from "../feature-flags.js?v=4";
+import { annotationSettings } from "../feature-flags.js?v=5";
 
 /**
  * Drawn radius, in on-screen pixels, of a vertex handle at `viewZoom`.
@@ -45,7 +45,14 @@ export function vertexHandleRadius(viewZoom) {
  * Scales with the handle instead of sitting at a constant 2px: at the minimum
  * radius a 2px ring would be most of the disc, leaving no white centre and
  * turning the handle into a solid colour dot.
+ *
+ * The divisor is derived from the configured base radius so that a handle at
+ * fit zoom gets the historical 2px ring whatever the base is set to. It was
+ * once hardcoded as 2.25, which silently encoded "the base is 4.5" -- raising
+ * the base then thinned the ring proportionally instead of keeping it.
  */
+const LINE_WIDTH_DIVISOR = annotationSettings.vertexHandleRadius / 2;
+
 export function vertexHandleLineWidth(radius) {
-  return Math.max(1, radius / 2.25);
+  return Math.max(1, radius / LINE_WIDTH_DIVISOR);
 }

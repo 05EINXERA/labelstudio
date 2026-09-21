@@ -23,9 +23,9 @@
  * this module is the wiring only.
  */
 
-import { annotationOpacity } from "./feature-flags.js?v=4";
+import { annotationOpacity } from "./feature-flags.js?v=5";
 import { pctToOpacity, defaultPct, drawingOpacityFor } from "./opacity-scale.js?v=2";
-import { draw } from "./canvas/draw.js?v=9";
+import { draw } from "./canvas/draw.js?v=10";
 
 /**
  * Wires the slider. Call once during app init; a no-op on pages without the

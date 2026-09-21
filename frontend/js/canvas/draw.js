@@ -1,9 +1,9 @@
 import { canvas, ctx, imageCanvas, imageCtx, staticCanvas, staticCtx } from "../dom.js?v=5";
 import { state, labelById, isAnnotationHidden } from "../state.js?v=11";
-import { annotationOpacity } from "../feature-flags.js?v=4";
+import { annotationOpacity } from "../feature-flags.js?v=5";
 import { view } from "./view.js?v=1";
 import { annotationPoints, hexToRgba } from "./geometry.js?v=1";
-import { vertexHandleRadius, vertexHandleLineWidth } from "./handle-size.js?v=1";
+import { vertexHandleRadius, vertexHandleLineWidth } from "./handle-size.js?v=2";
 import {
   commentScreenGeometry, COMMENT_FONT, COMMENT_PILL_RADIUS,
   COMMENT_TEXT_INSET_X, COMMENT_TEXT_BASELINE_Y

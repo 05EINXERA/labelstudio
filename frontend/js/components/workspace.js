@@ -16,7 +16,7 @@ import { view } from "../canvas/view.js?v=1";
 import { drainTaskTime, DRAIN_SKIPPED, refreshTimerDisplays } from "./timer.js?v=8";
 import { timerState } from "../timer-state.js?v=3";
 import { detectState } from "../ai/detect-state.js?v=3";
-import { draw, drawAllLayers } from "../canvas/draw.js?v=9";
+import { draw, drawAllLayers } from "../canvas/draw.js?v=10";
 import {
   emptyState, classesList, annotationList, annotationCount, selectedInfo,
   hiddenFilterButton, hiddenCount,
@@ -26,7 +26,7 @@ import {
   shapeHint, saveStatus
 } from "../dom.js?v=5";
 import { commentOverlayRefs, openCommentEditor } from "../comment-overlay.js?v=2";
-import { toolAvailability } from "../feature-flags.js?v=4";
+import { toolAvailability } from "../feature-flags.js?v=5";
 // Per-task write gating. `isReadOnly()` is project-role only, so it is false
 // for an annotator who simply is not assigned the open task — the sidepanel
 // needs the per-task answer, which is what taskWriteBlock() gives.

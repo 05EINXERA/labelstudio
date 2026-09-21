@@ -15,7 +15,7 @@ import {
   autoDetectButton, undoButton, redoButton, deleteButton, clearButton, unhideAllButton,
   assignTaskButton, saveButton
 } from "./dom.js?v=5";
-import { drawAllLayers } from "./canvas/draw.js?v=9";
+import { drawAllLayers } from "./canvas/draw.js?v=10";
 import {
   setStatus, syncToBackend, save, loadSaved, saveDraft, restoreDraft,
   render, manualSaveWithUI, refreshSaveStatus, pruneStaleDrafts, unhideAllObjects
