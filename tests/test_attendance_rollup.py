@@ -405,3 +405,35 @@ def test_the_prune_is_the_only_deleter_of_observations():
         "attendance_observations is append-only except for the retention "
         f"prune; found another deleter at: {offenders}"
     )
+
+
+# --- The scheduling script --------------------------------------------------
+
+
+def test_the_schedule_script_does_not_assume_a_local_venv():
+    """Development happens in a git worktree that has no venv of its own.
+
+    Only the main checkout carries one (run-dev.ps1 states the same
+    arrangement). A script that hardcodes `$repoRoot\venv` registers a
+    scheduled task pointing at a python.exe that does not exist — and that
+    fails at 02:00, silently, in the scheduler's log, weeks later.
+    """
+    from pathlib import Path
+
+    script = (
+        Path(__file__).parent.parent / "scripts" / "schedule-attendance-rollup.ps1"
+    )
+    source = script.read_text(encoding="utf-8")
+
+    # It must consult git for the main worktree rather than assuming a sibling
+    # path or a local venv.
+    assert "rev-parse --git-common-dir" in source, (
+        "the script does not locate the main worktree through git, so it will "
+        "not find the shared venv from a worktree"
+    )
+    # And it must offer an explicit override.
+    assert "[string]$Python" in source
+
+    # The bare "venv not found, create one" failure is wrong here: the expected
+    # arrangement is a shared venv, not a missing one.
+    assert "No Python interpreter found" in source
