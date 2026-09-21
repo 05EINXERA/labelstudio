@@ -17,7 +17,7 @@ import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
 import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=2";
 import { releaseTask, heartbeatTask } from "./task-lock.js?v=1";
 import { initFftControls } from "./fft-controls.js?v=1";
-import { toolAvailability } from "./feature-flags.js?v=3";
+import { toolAvailability } from "./feature-flags.js?v=9";
 import {
   switchImage, initGalleryNavigation, loadWorkspaceTasks, resizeCanvas
 } from "./components/gallery.js?v=8";

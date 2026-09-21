@@ -1,6 +1,6 @@
 import { canvas, ctx, backgroundImage, staticCanvas, staticCtx } from "../dom.js?v=1";
 import { state, labelById, isAnnotationHidden } from "../state.js?v=4";
-import { annotationSettings, annotationOpacity, zoomScaledRadius } from "../feature-flags.js?v=3";
+import { annotationSettings, annotationOpacity, zoomScaledRadius } from "../feature-flags.js?v=9";
 import { view } from "./view.js?v=2";
 import { annotationPoints, hexToRgba, isPointInsideOtherGroupPolygons } from "./geometry.js?v=6";
 
@@ -416,8 +416,9 @@ export function drawAnnotation(annotation, selected = false, targetCtx = ctx, sk
 
   targetCtx.save();
   // The selected width comes from the config because minVertexRadius() derives
-  // the vertex-handle floor from it: a handle must never shrink to the point
-  // where it is indistinguishable from the outline it sits on.
+  // the vertex-handle floor from it: a handle must never scale down to the
+  // point where it is indistinguishable from the outline it sits on (inert
+  // while handles are a constant size, but it bounds any future scaling).
   targetCtx.lineWidth = selected ? annotationSettings.selectedEdgeWidth : 2;
   targetCtx.strokeStyle = label.color;
   // A merged polygon's outline meets at real cusps where the source shapes
@@ -489,9 +490,10 @@ export function drawAnnotation(annotation, selected = false, targetCtx = ctx, sk
 }
 
 export function drawVertexHandles(points, color, targetCtx = ctx, isBeingDrawn = false) {
-  // Shrinks with zoom: see zoomScaledRadius() in feature-flags.js. hitTestPoint()
-  // in interactions.js applies the same shrink to the grab radius, so the click
-  // target keeps tracking the handle the annotator sees.
+  // Constant on-screen size at every zoom: see zoomScaledRadius() in
+  // feature-flags.js, which is an identity while vertexZoomScale is 0.
+  // hitTestPoint() in interactions.js derives the grab radius from the same
+  // curve, so the click target cannot drift from the handle the annotator sees.
   const radius = zoomScaledRadius(annotationSettings.vertexHandleRadius, view.viewZoom);
   targetCtx.strokeStyle = color;
   targetCtx.lineWidth = 2;

@@ -170,9 +170,18 @@ def _node_available():
     return shutil.which("node") is not None
 
 
-def test_vertex_handle_radius_shrinks_with_zoom():
-    """Vertex handles must shrink as the annotator zooms in, but never below the
-    floor at which they stop being distinguishable from the outline they sit on.
+def test_vertex_handle_radius_is_constant_across_zoom():
+    """Vertex handles must be the same on-screen size at every zoom level.
+
+    Zoom-dependent sizing has been tried in both directions and annotators
+    objected to both: shrinking on zoom-in was reported as vertices "becoming
+    smaller", and growing on zoom-in drew discs large enough to cover the work.
+    A constant size is the one behaviour nobody can report as the handles
+    changing under them, and it is what this test pins.
+
+    The trade-off is accepted deliberately: a constant handle covers more image
+    detail the further in the annotator zooms. It is kept small enough (a 10px
+    dot) that this stays tolerable.
 
     Evaluated by actually running the module, so the invariant is enforced
     against the real curve rather than against the source text.
@@ -189,15 +198,20 @@ def test_vertex_handle_radius_shrinks_with_zoom():
     )
     script = (
         f"import('{flags_url}').then(m => {{"
-        "  const zooms = [1, 2, 4, 8, 16, 64];"
+        "  const zooms = [0.25, 0.5, 1, 2, 4, 8, 64];"
         "  console.log(JSON.stringify({"
         "    floor: m.minVertexRadius(),"
         "    edgeWidth: m.annotationSettings.selectedEdgeWidth,"
         "    base: m.annotationSettings.vertexHandleRadius,"
+        "    ceiling: m.annotationSettings.vertexHandleRadius"
+        "      * m.annotationSettings.vertexMaxRadiusBaseRatio,"
+        "    zooms,"
         "    radii: zooms.map(z => m.zoomScaledRadius("
         "      m.annotationSettings.vertexHandleRadius, z)),"
-        "    zoomedOut: m.zoomScaledRadius("
-        "      m.annotationSettings.vertexHandleRadius, 0.5),"
+        "    atOne: m.zoomScaledRadius("
+        "      m.annotationSettings.vertexHandleRadius, 1),"
+        "    degenerate: [0, -1, null].map(z => m.zoomScaledRadius("
+        "      m.annotationSettings.vertexHandleRadius, z === null ? NaN : z)),"
         "  }));"
         "});"
     )
@@ -217,27 +231,49 @@ def test_vertex_handle_radius_shrinks_with_zoom():
         f"half-width {edge_half_width}px, so handles merge into the outline."
     )
 
-    # The base must sit above the floor, or there is nothing left to shrink and
-    # the handle is pinned to one size at every zoom -- which silently disables
-    # the zoom-shrink behaviour rather than failing visibly.
-    assert data["base"] > data["floor"], (
-        f"Base handle radius {data['base']}px is not above the "
-        f"{data['floor']}px floor, so handles cannot shrink at all."
+    # The base must sit strictly between the clamps, or one of them is silently
+    # dictating handle size instead of the configured radius.
+    assert data["floor"] < data["base"] < data["ceiling"], (
+        f"Base handle radius {data['base']}px is not between the "
+        f"{data['floor']}px floor and {data['ceiling']}px ceiling."
     )
 
-    # Zooming in shrinks the handle...
-    assert data["radii"][1] < data["radii"][0], "Handle does not shrink on zoom-in"
+    # At fit-to-window the annotator gets exactly the configured radius.
+    assert data["atOne"] == data["base"]
 
-    # ...monotonically, and never past the floor.
-    for smaller, larger in zip(data["radii"], data["radii"][1:]):
-        assert larger <= smaller, f"Handle grew with zoom: {data['radii']}"
-    for radius in data["radii"]:
-        assert radius >= data["floor"], (
-            f"Handle shrank to {radius}px, below the {data['floor']}px floor"
+    # The invariant: one size at every zoom, from far out to deep in. This is
+    # what makes "the vertices change size when I zoom" un-reportable.
+    assert all(r == data["base"] for r in data["radii"]), (
+        f"Handle size varies with zoom: "
+        f"{list(zip(data['zooms'], data['radii']))} (expected "
+        f"{data['base']}px throughout)"
+    )
+
+    # Neither clamp may bind while the size is constant -- if one did, it would
+    # be silently dictating handle size instead of vertexHandleRadius.
+    assert data["floor"] < data["base"] < data["ceiling"], (
+        f"Base radius {data['base']}px is not strictly between the "
+        f"{data['floor']}px floor and {data['ceiling']}px ceiling, so a clamp "
+        f"is overriding the configured size."
+    )
+
+    # A constant handle covers more of the image the further in the annotator
+    # zooms; that is the accepted cost of not changing size. Keep it bounded so
+    # the cost stays tolerable: at 8x a 10px dot spans ~1.25 image px.
+    at_eight = dict(zip(data["zooms"], data["radii"])).get(8)
+    if at_eight is not None:
+        covered = (at_eight * 2) / 8
+        assert covered < 2.0, (
+            f"At 8x zoom the handle covers {covered:.2f} image pixels, enough "
+            f"to hide the detail being annotated. Lower vertexHandleRadius."
         )
 
-    # Zooming OUT must not inflate handles over a small shape.
-    assert data["zoomedOut"] == data["base"]
+    # A zero, negative or non-finite zoom is not a meaningful view; scaling by
+    # one yields 0 or NaN, so the base radius is returned instead.
+    assert all(r == data["base"] for r in data["degenerate"]), (
+        f"Degenerate zooms did not fall back to the base radius: "
+        f"{data['degenerate']}"
+    )
 
 
 def test_grab_radii_do_not_create_phantom_snapping():
@@ -271,8 +307,18 @@ def test_grab_radii_do_not_create_phantom_snapping():
         "    grab: m.annotationSettings.vertexGrabRadius,"
         "    edge: m.annotationSettings.edgeGrabRadius,"
         "    spacing: m.annotationSettings.freehandPointSpacing,"
-        "    floorAtDeepZoom: m.zoomScaledRadius("
-        "      m.annotationSettings.vertexGrabRadius, 8),"
+        "    imageCap: m.annotationSettings.maxGrabRadiusImagePx,"
+        # The real hit-test path: screen radius at a range of zooms, divided
+        # back into image space the way hitTestPoint() does. imageBox.scale and
+        # viewZoom move together, so scale == zoom for this purpose.
+        "    imageSpaceReach: [1, 2, 4, 8, 16, 64].map(z =>"
+        "      m.vertexGrabScreenRadius("
+        "        m.annotationSettings.vertexGrabRadius, z, z) / z),"
+        "    screenReach: [0.25, 0.5, 1, 2, 4, 8, 64].map(z =>"
+        "      m.vertexGrabScreenRadius("
+        "        m.annotationSettings.vertexGrabRadius, z, z)),"
+        "    uncappedScale: m.vertexGrabScreenRadius("
+        "      m.annotationSettings.vertexGrabRadius, 4, NaN),"
         "  }));"
         "});"
     )
@@ -282,6 +328,19 @@ def test_grab_radii_do_not_create_phantom_snapping():
     )
     assert result.returncode == 0, f"node failed: {result.stderr}"
     data = json.loads(result.stdout.strip())
+
+    # Freehand traces must stay dense enough to follow a curve faithfully. This
+    # is the user-facing cost of a larger grab radius, and the reason the pair
+    # cannot simply be scaled up together: the invariant below is satisfiable
+    # by raising the spacing, but annotators then report the distance between
+    # vertices growing and traced outlines looking coarse. Cap the spacing so
+    # that escape route is closed.
+    assert data["spacing"] <= 10, (
+        f"freehandPointSpacing is {data['spacing']}px: freehand traces lay "
+        f"points down that far apart, which annotators see as the gap between "
+        f"vertices growing and outlines becoming coarse. If a larger grab "
+        f"radius forced this up, lower the grab radius instead."
+    )
 
     assert data["grab"] * 2 <= data["spacing"], (
         f"vertexGrabRadius {data['grab']}px exceeds half of "
@@ -298,13 +357,51 @@ def test_grab_radii_do_not_create_phantom_snapping():
         f"{data['grab']}px, so edges claim ground outside the drawn handles."
     )
 
-    # At deep zoom the grab area is floored, and that floor is measured in
-    # SCREEN px: divided by the zoom it must stay under a pixel in image space,
-    # or placing a vertex next to an existing one at high zoom is impossible.
-    assert data["floorAtDeepZoom"] / 8 < 1.0, (
-        f"At 8x zoom the grab radius floors at {data['floorAtDeepZoom']}px "
-        f"screen = {data['floorAtDeepZoom'] / 8:.2f}px in image space, so a "
-        f"vertex cannot be placed within a pixel of an existing one."
+    # Radii now scale WITH the image, so the grab area would cover a constant
+    # patch of image at every zoom and zooming in to place a vertex precisely
+    # would not help. vertexGrabScreenRadius() caps its reach in image space to
+    # restore that; this asserts the cap actually binds on the real hit-test
+    # path, at every zoom an annotator might use.
+    # The cap is floored at the base radius so it does not shrink the click
+    # target at ordinary zoom, so it binds from the zoom where the scaled
+    # radius overtakes it (4x with the current numbers) upward. That is the
+    # range where precise placement actually matters.
+    zooms = [1, 2, 4, 8, 16, 64]
+    for zoom, reach in zip(zooms, data["imageSpaceReach"]):
+        if zoom < 4:
+            continue
+        assert reach <= data["imageCap"] + 1e-9, (
+            f"At {zoom}x zoom a vertex grab reaches {reach:.2f}px into the "
+            f"image, past the {data['imageCap']}px cap: a vertex placed that "
+            f"close to an existing one gets swallowed instead of placed."
+        )
+
+    # The property that matters: zooming in must keep making placement finer.
+    # If reach in image space ever stopped decreasing, zooming in to separate
+    # two close vertices would stop working -- the magnet report.
+    for (z_small, r_small), (z_large, r_large) in zip(
+        list(zip(zooms, data["imageSpaceReach"])),
+        list(zip(zooms, data["imageSpaceReach"]))[1:],
+    ):
+        assert r_large <= r_small + 1e-9, (
+            f"Grab reach in image space grew from {r_small:.2f}px at "
+            f"{z_small}x to {r_large:.2f}px at {z_large}x zoom, so zooming in "
+            f"makes precise placement harder rather than easier."
+        )
+
+    # And the grab target must never fall below the comfortable base radius on
+    # screen, or vertices are drawn larger than the area that can catch a click.
+    assert min(data["screenReach"]) >= data["grab"] - 1e-9, (
+        f"Grab radius drops to {min(data['screenReach'])}px on screen, below "
+        f"the {data['grab']}px base: handles would look grabbable without "
+        f"being grabbable."
+    )
+
+    # A missing/degenerate image scale must not silently collapse the grab area
+    # to nothing -- the cap is skipped rather than computed from a bad scale.
+    assert data["uncappedScale"] > 0, (
+        "A non-finite imageScale collapsed the grab radius; the cap should be "
+        "skipped when the scale is unusable, not guessed."
     )
 
 
