@@ -1,7 +1,7 @@
 import { formatTime, clientId } from "../utils.js?v=3";
 import { apiFetch } from "../api.js?v=3";
 import { timerState } from "../timer-state.js?v=1";
-import { canvas } from "../dom.js?v=1";
+import { canvas } from "../dom.js?v=2";
 
 // Called when the server reports a genuine cross-client conflict. Registered
 // by the page so timer.js does not have to know how the workspace wants to

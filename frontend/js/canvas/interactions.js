@@ -15,9 +15,9 @@ import {
 } from "./geometry.js?v=6";
 import { view } from "./view.js?v=2";
 import { draw, drawAllLayers } from "./draw.js?v=4";
-import { canvas, undoButton } from "../dom.js?v=1";
+import { canvas, undoButton } from "../dom.js?v=2";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
-import { setStatus, save, render, activateLabel, HOTKEY_LABEL_LIMIT } from "../components/workspace.js?v=10";
+import { setStatus, save, render, activateLabel, HOTKEY_LABEL_LIMIT } from "../components/workspace.js?v=11";
 import { performMagicWandSegmentation } from "../ai/detect.js?v=2";
 import { applyAutoSmooth } from "../fft-controls.js?v=1";
 import { annotationSettings, vertexGrabScreenRadius } from "../feature-flags.js?v=9";
@@ -481,6 +481,19 @@ export function redoAction() {
   save();
 }
 
+// Ratio of one zoom notch, for both the wheel and the +/- buttons.
+//
+// Lives here, next to setZoom, and is imported by the zoom control rather than
+// being written out in each place: the two were previously separate copies of
+// 1.1, which is exactly the kind of pair that drifts apart and leaves the
+// buttons zooming at a different rate than the wheel.
+//
+// 1.05 is a ~5% change per notch. It was halved from 1.1 because a 10% step
+// overshoots when positioning a shape for fine vertex work -- the useful zoom
+// sits between two notches. The cost is twice as many notches to cross the
+// same range, which is the trade being made deliberately.
+export const ZOOM_STEP = 1.05;
+
 // The zoom readout subscribes here rather than being imported directly: the
 // component already imports setZoom, so a direct import would be circular.
 let onZoomChange = null;
@@ -931,7 +944,7 @@ canvas.addEventListener("wheel", (event) => {
   const rect = canvas.getBoundingClientRect();
   const mouseX = event.clientX - rect.left;
   const mouseY = event.clientY - rect.top;
-  const zoomFactor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
+  const zoomFactor = event.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
   setZoom(view.viewZoom * zoomFactor, mouseX, mouseY);
 }, { passive: false });
 
@@ -1301,7 +1314,40 @@ const FREEHAND_CORNER_ANGLE_DEGREES = 30;
 // it the direction test fires continuously while the cursor jitters in place
 // at the moment of the turn -- the heading of a near-zero-length step is
 // meaningless -- and stacks a cluster of points on the corner.
-const FREEHAND_CORNER_MIN_TRAVEL_PX = 3;
+//
+// This floor is not a free parameter: it is the corner path's share of the
+// same separation invariant the spacing gate enforces. A corner bypasses
+// `freehandPointSpacing` by design (that is the whole point -- the spacing
+// gate is what loses corners), so if the floor were merely "enough travel to
+// have a meaningful heading" the corner branch would happily commit a vertex
+// a couple of pixels from its neighbour, and a second one a couple of pixels
+// after that once the fresh short segment made the incoming heading noisy.
+// The annotator sees two handles stacked on the edge and cannot grab either
+// reliably. So the floor tracks `vertexGrabRadius`: a corner vertex may land
+// closer than the ordinary spacing, but never closer than the distance at
+// which the grab test can still tell it apart from the point before it.
+//
+// It is TWICE the grab radius, not once. Each of the two vertices carries its
+// own grab area, so the centres must be more than radius+radius apart for the
+// areas not to intersect -- the same doubling `freehandPointSpacing` already
+// encodes at 2x5=10. Using the bare radius leaves them overlapping by half,
+// which is what still fused handles at traced corners after the first attempt
+// at this fix.
+//
+// NOTE that at the current settings this makes the corner rule UNREACHABLE:
+// 2 * vertexGrabRadius (10) equals freehandPointSpacing (10), so the spacing
+// gate always opens first and `isFreehandCorner` never decides anything. That
+// is deliberate and was chosen over sharper corners -- fused handles are
+// unworkable, a corner rounded by at most one spacing step is cosmetic. The
+// rule is kept rather than deleted because it becomes live again the moment
+// the two settings separate (a smaller grab radius, or a wider spacing), and
+// it is the piece that keeps corners sharp when there is room for it.
+// A test pins the >= relationship so the overlap cannot silently return.
+function freehandCornerMinTravel() {
+  // Already in SCREEN pixels, and already floored at `minGrabScreenRadius`.
+  return 2 * vertexGrabScreenRadius(
+    annotationSettings.vertexGrabRadius, view.viewZoom, view.imageBox.scale);
+}
 
 /**
  * True when the freehand stroke has just turned a corner and the vertex must be
@@ -1333,8 +1379,9 @@ function isFreehandCorner(pts, end) {
   const inMag = Math.hypot(inX, inY);
   const outMag = Math.hypot(outX, outY);
   if (inMag === 0) return false;
-  // Below the floor the outgoing heading is noise, not a turn.
-  if (outMag < FREEHAND_CORNER_MIN_TRAVEL_PX / view.imageBox.scale) return false;
+  // Below the floor the outgoing heading is noise, not a turn -- and a vertex
+  // committed there would overlap the one before it.
+  if (outMag < freehandCornerMinTravel() / view.imageBox.scale) return false;
 
   const cos = Math.max(-1, Math.min(1,
     (inX * outX + inY * outY) / (inMag * outMag)));
@@ -1430,7 +1477,18 @@ canvas.addEventListener("pointermove", (event) => {
         const travelled = lastPoint
           ? Math.hypot(lastPoint.x - end.x, lastPoint.y - end.y)
           : 0;
-        if (lastPoint && (travelled > threshold || isFreehandCorner(pts, end))) {
+        // A corner is allowed to commit inside the spacing threshold -- that
+        // is the whole point of the corner rule, since the spacing gate is
+        // what rounds corners off. But it may not commit so close that the
+        // new handle lands inside its neighbour's grab area: the annotator
+        // sees two fused dots and cannot reliably grab either. So the corner
+        // path carries its own, smaller, separation floor measured from the
+        // last COMMITTED point -- which is the distance `isFreehandCorner`
+        // cannot check, because its outgoing step is the pending mouse
+        // sample, not the gap that will actually be left behind.
+        const cornerFloor = freehandCornerMinTravel() / view.imageBox.scale;
+        const cornerOpen = travelled > cornerFloor && isFreehandCorner(pts, end);
+        if (lastPoint && (travelled > threshold || cornerOpen)) {
           annotation.points = addPolygonPointResolvingIntersections(pts, end);
           updateAnnotationBounds(annotation);
           view.drag.needsSave = true;

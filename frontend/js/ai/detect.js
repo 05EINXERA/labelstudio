@@ -5,12 +5,12 @@ import { updateAnnotationBounds } from "../canvas/geometry.js?v=6";
 import { view } from "../canvas/view.js?v=2";
 import { detectState } from "./detect-state.js?v=1";
 import { getImageSrcForAPI } from "./shared.js?v=1";
-import { autoDetectButton } from "../dom.js?v=1";
+import { autoDetectButton } from "../dom.js?v=2";
 import { smoothPolygon, autoTolerance } from "../canvas/fft-smooth.js?v=2";
 import { toolAvailability } from "../feature-flags.js?v=9";
 import {
   setStatus, ensureLabel, save, render
-} from "../components/workspace.js?v=10";
+} from "../components/workspace.js?v=11";
 
 export function setDetectionBusy(isBusy) {
   detectState.detectionBusy = isBusy;

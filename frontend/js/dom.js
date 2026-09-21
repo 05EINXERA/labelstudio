@@ -13,6 +13,7 @@ export const emptyState = document.querySelector("#emptyState");
 export const classesList = document.querySelector("#classesList");
 export const annotationList = document.querySelector("#annotationList");
 export const annotationCount = document.querySelector("#annotationCount");
+export const hiddenObjectsIndicator = document.querySelector("#hiddenObjectsIndicator");
 export const selectedInfo = document.querySelector("#selectedInfo");
 export const drawMode = document.querySelector("#drawMode");
 export const selectMode = document.querySelector("#selectMode");

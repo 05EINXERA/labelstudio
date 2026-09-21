@@ -8,7 +8,7 @@
  */
 
 import { smoothPolygon, autoTolerance } from './canvas/fft-smooth.js?v=2';
-import { setStatus } from './components/workspace.js?v=10';
+import { setStatus } from './components/workspace.js?v=11';
 
 // ---------------------------------------------------------------------------
 // Persistence keys

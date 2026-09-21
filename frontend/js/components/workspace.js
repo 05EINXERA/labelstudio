@@ -11,12 +11,12 @@ import { drainTaskTime } from "./timer.js?v=4";
 import { detectState } from "../ai/detect-state.js?v=1";
 import { draw, drawAllLayers } from "../canvas/draw.js?v=4";
 import {
-  emptyState, classesList, annotationList, annotationCount, selectedInfo,
+  emptyState, classesList, annotationList, annotationCount, hiddenObjectsIndicator, selectedInfo,
   drawMode, selectMode, boxMode, polygonMode, commentMode, magicWandMode,
   autoDetectButton, aiSettingsMenuButton, autoTagButton, fftToolGroup,
   undoButton, redoButton, deleteButton, clearButton, exportLink,
   shapeHint, saveStatus
-} from "../dom.js?v=1";
+} from "../dom.js?v=2";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
 import { toolAvailability } from "../feature-flags.js?v=9";
 
@@ -482,6 +482,41 @@ function hotkeyChipHTML(index) {
   return `<kbd class="class-hotkey" title="Press ${combo} to select this class">${combo}</kbd>`;
 }
 
+/**
+ * Show a closed-eye icon in the Objects pane header while anything is hidden.
+ *
+ * Without it, hiding is invisible from the header: the count keeps reporting
+ * every object, so a annotator who hid a shape with H (or hid a whole class)
+ * and then scrolled away has no indication that what they see on the canvas is
+ * not everything. The per-row eye icons only tell the story for rows currently
+ * on screen, and the list is virtualized, so most rows are not in the DOM.
+ *
+ * Counts BOTH ways an object can be hidden -- `hiddenAnnotationIds` (the H key
+ * and the per-row eye) and `hiddenLabelIds` (a hidden class) -- because that is
+ * what the rows themselves treat as hidden, and an indicator that disagreed
+ * with the rows would be worse than none.
+ */
+function renderHiddenIndicator() {
+  if (!hiddenObjectsIndicator) return;
+  const hiddenCount = state.annotations.reduce((count, annotation) => {
+    const annHidden = state.hiddenAnnotationIds.has(annotation.id);
+    const classHidden = !!annotation.labelId && state.hiddenLabelIds.has(annotation.labelId);
+    return count + (annHidden || classHidden ? 1 : 0);
+  }, 0);
+
+  if (!hiddenCount) {
+    hiddenObjectsIndicator.hidden = true;
+    hiddenObjectsIndicator.innerHTML = "";
+    hiddenObjectsIndicator.removeAttribute("title");
+    return;
+  }
+
+  hiddenObjectsIndicator.hidden = false;
+  hiddenObjectsIndicator.innerHTML = EYE_OFF_SVG;
+  const noun = hiddenCount === 1 ? "object" : "objects";
+  hiddenObjectsIndicator.title = `${hiddenCount} ${noun} hidden (U to reveal)`;
+}
+
 function visibilityButtonHTML(isHidden, title) {
   return `<span class="eye-btn${isHidden ? " is-hidden-state" : ""}" title="${title}">${isHidden ? EYE_OFF_SVG : EYE_SVG}</span>`;
 }
@@ -658,6 +693,7 @@ export function renderAnnotations() {
     empty.textContent = "No annotations yet";
     annotationList.appendChild(empty);
     annotationCount.textContent = "0";
+    renderHiddenIndicator();
     
     const selected = state.annotations.find((item) => item.id === state.selectedId);
     if (selected) {
@@ -704,6 +740,7 @@ export function renderAnnotations() {
   });
 
   annotationCount.textContent = String(displayItems.length);
+  renderHiddenIndicator();
 
   const scrollContainer = annotationList.closest('.pane-body');
   if (scrollContainer && !virtualizationState.initialized) {

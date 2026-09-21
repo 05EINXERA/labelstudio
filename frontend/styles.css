@@ -894,6 +894,37 @@ h2 {
   opacity: 1;
 }
 
+/* Header actions sit in a row. The accordion panes have their own copy of this
+   rule (.accordion-header .header-actions); this base rule covers the plain
+   .pane-header case, where without it the children stack vertically — which
+   put the hidden marker above the object count instead of beside it. */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Closed-eye marker in the Objects pane header, shown while anything is hidden.
+   The count beside it keeps reporting every object, so without this the header
+   gives no sign that the canvas is showing less than the whole list — and the
+   list is virtualized, so the per-row eyes are only in the DOM for rows that
+   happen to be on screen. Same --accent-dark as .eye-btn.is-hidden-state so the
+   header and the rows read as the same state. */
+.hidden-objects-indicator {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  color: var(--accent-dark);
+}
+
+/* [hidden] alone loses to the display above, so the attribute has to win here
+   or the marker would be permanently visible. */
+.hidden-objects-indicator[hidden] {
+  display: none;
+}
+
 /* Dims the row's content, not its controls — the eye must stay readable so the
    row can be un-hidden. */
 .class-item.is-row-hidden > div:first-child,

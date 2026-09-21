@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Image Annotation</title>
   <link rel="icon" type="image/png" href="logo.png">
-  <link rel="stylesheet" href="styles.css?v=28">
+  <link rel="stylesheet" href="styles.css?v=29">
   <link rel="modulepreload" href="js/init.js?v=12">
   <!-- sync.js (legacy global annotation-slot sync to /api/data) removed in T3.1.
        Under a shared account the 'image-annotation-mvp-v1' row was last-writer-wins
@@ -142,6 +142,7 @@
           <div class="pane-header">
             <h2>Objects</h2>
             <div class="header-actions">
+              <span id="hiddenObjectsIndicator" class="hidden-objects-indicator" hidden></span>
               <strong id="annotationCount">0</strong>
             </div>
           </div>

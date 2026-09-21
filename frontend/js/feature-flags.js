@@ -104,16 +104,23 @@ export const toolAvailability = {
  *
  * vertexMaxRadiusBaseRatio
  *   Ceiling on the scaled radii, as a multiple of the BASE radius. Bounds
- *   whichever end of the zoom range GROWS: with the current negative
- *   `vertexZoomScale` that is the zoomed-OUT end, where the inverse exponent
- *   would otherwise inflate handles without limit as the view pulls back
- *   (10px radius at 0.25x, 16px at 0.1x) and bury a small shape under its own
- *   corners.
+ *   whichever end of the zoom range GROWS: with a negative `vertexZoomScale`
+ *   that is the zoomed-OUT end, where the inverse exponent would otherwise
+ *   inflate handles without limit as the view pulls back (10px radius at
+ *   0.25x, 16px at 0.1x) and bury a small shape under its own corners.
  *
- *   Inert while `vertexZoomScale` is 0, since nothing scales: the base sits
- *   strictly between this ceiling and the floor at every zoom, and a test
- *   asserts that neither clamp is secretly dictating handle size. Kept so that
- *   re-enabling zoom scaling is one number away and bounded from the start.
+ *   Set to 1.0: a handle may never be drawn LARGER than `vertexHandleRadius`.
+ *   The base is the size annotators have agreed reads correctly against a 3px
+ *   outline without covering the pixels being judged, so there is no zoom at
+ *   which exceeding it is an improvement — a handle bigger than normal hides
+ *   more detail precisely when the annotator has zoomed to inspect it. The
+ *   ratio was 1.4, which permitted a 7px handle; that allowance is now closed.
+ *   Scaling DOWN is still available (floor at `minVertexRadius()`), so the
+ *   clamp is one-sided by design.
+ *
+ *   Inert while `vertexZoomScale` is 0, since nothing scales: the base sits at
+ *   this ceiling and above the floor at every zoom. Kept so that re-enabling
+ *   zoom scaling is one number away and bounded from the start.
  *
  *   Expressed against the base rather than as flat pixels so it moves with
  *   `vertexHandleRadius` instead of silently overriding it.
@@ -205,7 +212,7 @@ export const annotationSettings = {
   edgeGrabRadius: 5,
   freehandPointSpacing: 10,
   vertexZoomScale: 0,
-  vertexMaxRadiusBaseRatio: 1.4,
+  vertexMaxRadiusBaseRatio: 1.0,
   minGrabScreenRadius: 5,
   maxGrabRadiusImagePx: 6,
   selectedEdgeWidth: 3,
@@ -252,7 +259,8 @@ export function minVertexRadius() {
  *  - CEILING, `vertexHandleRadius * vertexMaxRadiusBaseRatio`. Multiplying by
  *    zoom is unbounded — at 64x an 8px handle computes to 512px, a blob that
  *    would swallow the shape and everything near it. The ceiling is what makes
- *    image-pinned scaling safe at depth.
+ *    image-pinned scaling safe at depth. At its current 1.0 it pins the
+ *    maximum to the base, so no zoom can draw a handle bigger than normal.
  *
  * A zoom that is zero, negative or non-finite returns the base radius: those
  * are not meaningful views, and scaling by them yields 0 or NaN.

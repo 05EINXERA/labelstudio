@@ -8,7 +8,7 @@
 // or "150%" for a small image that is upscaled to fill the canvas.
 
 import { view } from "../canvas/view.js?v=2";
-import { setZoom } from "../canvas/interactions.js?v=12";
+import { setZoom, ZOOM_STEP } from "../canvas/interactions.js?v=15";
 import { drawAllLayers } from "../canvas/draw.js?v=4";
 
 // viewZoom bounds (multiplier over fit-scale).
@@ -23,8 +23,8 @@ import { drawAllLayers } from "../canvas/draw.js?v=4";
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 500;
 
-// Same ratio as one wheel notch, so button and wheel zoom feel identical.
-const STEP = 1.1;
+// Button zoom uses the same ZOOM_STEP as the wheel, imported rather than
+// redeclared so the two cannot drift apart.
 
 const zoomInButton = document.querySelector("#zoomInButton");
 const zoomOutButton = document.querySelector("#zoomOutButton");
@@ -52,7 +52,7 @@ export function updateZoomDisplay() {
   zoomLevel.title = "Click to reset to fit";
 
   const disabled = !view.imageLoaded;
-  // Small epsilon: repeated STEP multiplication lands fractionally short of
+  // Small epsilon: repeated ZOOM_STEP multiplication lands fractionally short of
   // the bound, which would leave a button enabled but inert.
   if (zoomInButton) {
     zoomInButton.disabled = disabled || view.viewZoom >= MAX_ZOOM - 1e-6;
@@ -75,13 +75,13 @@ export function initZoomControl() {
     zoomInButton.addEventListener("click", () => {
       // No cursor position: setZoom falls back to the canvas centre, which is
       // the right pivot for a button press.
-      setZoom(view.viewZoom * STEP);
+      setZoom(view.viewZoom * ZOOM_STEP);
     });
   }
 
   if (zoomOutButton) {
     zoomOutButton.addEventListener("click", () => {
-      setZoom(view.viewZoom / STEP);
+      setZoom(view.viewZoom / ZOOM_STEP);
     });
   }
 

@@ -231,11 +231,19 @@ def test_vertex_handle_radius_is_constant_across_zoom():
         f"half-width {edge_half_width}px, so handles merge into the outline."
     )
 
-    # The base must sit strictly between the clamps, or one of them is silently
-    # dictating handle size instead of the configured radius.
-    assert data["floor"] < data["base"] < data["ceiling"], (
-        f"Base handle radius {data['base']}px is not between the "
-        f"{data['floor']}px floor and {data['ceiling']}px ceiling."
+    # The clamp is deliberately one-sided. The floor must stay strictly below
+    # the base, or it is silently dictating handle size instead of the
+    # configured radius. The ceiling instead sits exactly AT the base: a handle
+    # may scale down, never up, because a handle drawn larger than normal hides
+    # the very pixels the annotator zoomed in to inspect.
+    assert data["floor"] < data["base"], (
+        f"Base handle radius {data['base']}px is not above the "
+        f"{data['floor']}px floor."
+    )
+    assert data["ceiling"] == data["base"], (
+        f"Ceiling {data['ceiling']}px does not equal the base "
+        f"{data['base']}px: a vertex could be drawn larger than normal at "
+        f"some zoom. vertexMaxRadiusBaseRatio must stay at 1.0."
     )
 
     # At fit-to-window the annotator gets exactly the configured radius.
@@ -249,12 +257,13 @@ def test_vertex_handle_radius_is_constant_across_zoom():
         f"{data['base']}px throughout)"
     )
 
-    # Neither clamp may bind while the size is constant -- if one did, it would
-    # be silently dictating handle size instead of vertexHandleRadius.
-    assert data["floor"] < data["base"] < data["ceiling"], (
-        f"Base radius {data['base']}px is not strictly between the "
-        f"{data['floor']}px floor and {data['ceiling']}px ceiling, so a clamp "
-        f"is overriding the configured size."
+    # The floor may not bind while the size is constant -- if it did, it would
+    # be silently dictating handle size instead of vertexHandleRadius. The
+    # ceiling sits at the base on purpose (see above), so it is excluded.
+    assert data["floor"] < data["base"], (
+        f"Base radius {data['base']}px is not strictly above the "
+        f"{data['floor']}px floor, so the floor is overriding the configured "
+        f"size."
     )
 
     # A constant handle covers more of the image the further in the annotator
@@ -273,6 +282,86 @@ def test_vertex_handle_radius_is_constant_across_zoom():
     assert all(r == data["base"] for r in data["degenerate"]), (
         f"Degenerate zooms did not fall back to the base radius: "
         f"{data['degenerate']}"
+    )
+
+
+def test_vertex_handle_never_exceeds_the_base_radius():
+    """A vertex may shrink with zoom, but must never be drawn larger.
+
+    `vertexHandleRadius` is the size that reads correctly against a 3px
+    outline without covering the pixels being judged. A handle bigger than
+    that hides detail exactly when the annotator has zoomed in to inspect it,
+    so there is no zoom at which exceeding the base is an improvement.
+
+    This is enforced at the clamp rather than by the current
+    `vertexZoomScale: 0`. That zero makes the whole question moot today, but
+    it is documented as a one-number change away from being re-enabled, and a
+    POSITIVE exponent grows handles as you zoom in -- unbounded, 512px at 64x.
+    So the test drives zoomScaledRadius with scaling deliberately switched on,
+    in both directions, and asserts the ceiling still holds. Scaling DOWN
+    stays available: the clamp is one-sided by design.
+    """
+    if not _node_available():
+        pytest.skip("node is not available on PATH")
+
+    import json
+    import subprocess
+
+    flags_url = (
+        "file:///"
+        + os.path.join(FRONTEND_JS_DIR, "feature-flags.js").replace("\\", "/")
+    )
+    # Exercise both signs of the exponent across the full zoom range. The
+    # positive case is the one the ceiling exists for.
+    script = (
+        f"import('{flags_url}').then(m => {{"
+        "  const base = m.annotationSettings.vertexHandleRadius;"
+        "  const zooms = [0.1, 0.25, 0.5, 1, 2, 4, 8, 64, 500];"
+        "  const out = {};"
+        "  for (const exp of [1, 0.5, -0.5, -1]) {"
+        "    m.annotationSettings.vertexZoomScale = exp;"
+        "    out[String(exp)] = zooms.map(z => m.zoomScaledRadius(base, z));"
+        "  }"
+        "  console.log(JSON.stringify({"
+        "    base,"
+        "    ratio: m.annotationSettings.vertexMaxRadiusBaseRatio,"
+        "    zooms,"
+        "    byExponent: out,"
+        "  }));"
+        "});"
+    )
+    result = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, f"node failed: {result.stderr}"
+    data = json.loads(result.stdout.strip())
+
+    # The ratio is the setting that encodes "never bigger than normal".
+    assert data["ratio"] == 1.0, (
+        f"vertexMaxRadiusBaseRatio is {data['ratio']}, which permits a handle "
+        f"{data['base'] * data['ratio']}px against a {data['base']}px base. "
+        f"It must be 1.0 so a vertex can never be drawn larger than normal."
+    )
+
+    # The invariant itself, under every exponent and zoom.
+    base = data["base"]
+    for exponent, radii in data["byExponent"].items():
+        for zoom, radius in zip(data["zooms"], radii):
+            assert radius <= base, (
+                f"With vertexZoomScale={exponent} at zoom {zoom}x the handle "
+                f"is {radius}px, larger than the {base}px base. The ceiling "
+                f"is not holding."
+            )
+
+    # And the clamp must be one-sided: shrinking is still reachable, or the
+    # ceiling has been implemented by freezing the size outright.
+    shrunk = [r for radii in data["byExponent"].values() for r in radii
+              if r < base]
+    assert shrunk, (
+        "No exponent/zoom combination produced a handle smaller than the "
+        "base, so scaling down is unreachable. The ceiling must bound growth "
+        "only, not pin the radius."
     )
 
 
@@ -458,18 +547,109 @@ def test_freehand_commits_a_point_at_a_corner():
         f"over-sampled."
     )
 
-    # The rule must be OR-ed into the spacing gate -- a corner commits whether
-    # or not the cursor has travelled far enough.
-    assert "travelled > threshold || isFreehandCorner(pts, end)" in source, (
+    # The rule must be OR-ed into the spacing gate, so a corner can commit
+    # inside the spacing threshold. It is NOT unconditional: `cornerOpen`
+    # carries its own, smaller separation floor, because a corner that commits
+    # at any distance fuses its handle with the previous one. See
+    # test_freehand_corner_floor_respects_the_grab_radius.
+    assert "travelled > threshold || cornerOpen" in source, (
         "the corner test must be OR-ed with the spacing gate, so a corner "
-        "commits a point regardless of distance travelled"
+        "can commit inside the spacing threshold"
     )
 
     # A near-zero-length step has no meaningful heading; committing on one
     # stacks a cluster of points at the moment of the turn.
-    assert "FREEHAND_CORNER_MIN_TRAVEL_PX" in source, (
+    assert "freehandCornerMinTravel" in source, (
         "a minimum-travel floor is required, or cursor jitter at the corner "
         "commits a burst of points"
+    )
+
+
+def test_freehand_corner_floor_respects_the_grab_radius():
+    """No two freehand vertices may land with overlapping grab areas.
+
+    This is the "two vertices overlapped at the corner" report. The corner
+    rule deliberately bypasses `freehandPointSpacing` -- that gate is what
+    rounds corners off -- but bypassing it without its own separation floor
+    lets a corner commit a vertex a few pixels from its neighbour. The two
+    handles fuse on screen and neither can be grabbed reliably.
+
+    Two things have to hold, and the first fix only got the first one:
+
+    1. The floor derives from the grab radius, so it follows the handle
+       across zoom instead of assuming a fixed pixel gap.
+    2. It is TWICE that radius, and it is measured from the last COMMITTED
+       point. Each vertex carries its own grab area, so centres must be
+       radius+radius apart for the areas to be disjoint. Gating only the
+       outgoing mouse step (`outMag`) does not do this: that step is the
+       pending sample, not the gap actually left behind.
+    """
+    interactions = os.path.join(FRONTEND_JS_DIR, "canvas", "interactions.js")
+    with open(interactions, "r", encoding="utf-8") as f:
+        source = f.read()
+
+    match = re.search(
+        r"function freehandCornerMinTravel\s*\(\s*\)\s*\{(.*?)\n\}",
+        source, re.S)
+    assert match, "freehandCornerMinTravel() is not defined"
+    body = match.group(1)
+
+    # (1) Tied to the grab radius, not a hardcoded pixel gap.
+    assert "vertexGrabScreenRadius" in body, (
+        "the corner floor must derive from vertexGrabScreenRadius, so it "
+        "follows the handle the annotator sees as zoom changes"
+    )
+
+    # (2a) Doubled -- one radius for each of the two handles.
+    assert re.search(r"2\s*\*\s*vertexGrabScreenRadius", body), (
+        "the corner floor must be TWICE the grab radius: each vertex has its "
+        "own grab area, so centres closer than radius+radius overlap"
+    )
+
+    # (2b) Applied to the distance from the last committed point, at the emit
+    # site. Gating outMag alone leaves the real neighbour gap unchecked.
+    assert re.search(
+        r"travelled\s*>\s*cornerFloor\s*&&\s*isFreehandCorner\(pts,\s*end\)",
+        source), (
+        "the corner must be gated on `travelled` (distance from the last "
+        "committed point), not only on the pending step inside "
+        "isFreehandCorner"
+    )
+
+    # The separation the corner path guarantees must be at least what the
+    # spacing gate guarantees, or corners reintroduce the overlap that
+    # freehandPointSpacing exists to prevent.
+    if not _node_available():
+        pytest.skip("node is not available for the numeric half")
+
+    import json
+    import subprocess
+
+    flags_url = (
+        "file:///"
+        + os.path.join(FRONTEND_JS_DIR, "feature-flags.js").replace("\\", "/")
+    )
+    script = (
+        f"import('{flags_url}').then(m => {{"
+        "  console.log(JSON.stringify({"
+        "    floor: 2 * m.vertexGrabScreenRadius("
+        "      m.annotationSettings.vertexGrabRadius, 1, 1),"
+        "    spacing: m.annotationSettings.freehandPointSpacing,"
+        "  }));"
+        "});"
+    )
+    result = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, f"node failed: {result.stderr}"
+    data = json.loads(result.stdout.strip())
+
+    assert data["floor"] >= data["spacing"], (
+        f"The corner floor is {data['floor']}px but freehandPointSpacing is "
+        f"{data['spacing']}px. A corner could commit a vertex closer than the "
+        f"spacing gate allows, reintroducing fused handles. Either raise the "
+        f"spacing or lower vertexGrabRadius."
     )
 
 
@@ -549,4 +729,96 @@ def test_sticky_class_hover_selects_last_polygon():
     )
     assert "clearStickyHover()" in source[source.index("export function deleteSelected"):], (
         "deleting the armed polygon must clear the arming"
+    )
+
+
+def test_hidden_objects_indicator_is_wired():
+    """The Objects pane header must show a closed-eye marker while anything is
+    hidden.
+
+    Hiding is otherwise invisible from the header: the count keeps reporting
+    every object, so an annotator who pressed H and scrolled away has no sign
+    that the canvas is showing less than the full list. The per-row eye icons
+    do not cover this -- the list is virtualized, so rows that are not on
+    screen are not in the DOM at all.
+
+    Checked structurally rather than by running the module: workspace.js
+    touches the DOM at import time and cannot be loaded under node.
+    """
+    root = os.path.dirname(os.path.dirname(__file__))
+    html_path = os.path.join(root, "frontend", "app.html")
+    dom_path = os.path.join(FRONTEND_JS_DIR, "dom.js")
+    workspace_path = os.path.join(FRONTEND_JS_DIR, "components", "workspace.js")
+    css_path = os.path.join(root, "frontend", "styles.css")
+
+    with open(html_path, encoding="utf-8") as fh:
+        html = fh.read()
+    with open(dom_path, encoding="utf-8") as fh:
+        dom = fh.read()
+    with open(workspace_path, encoding="utf-8") as fh:
+        workspace = fh.read()
+    with open(css_path, encoding="utf-8") as fh:
+        css = fh.read()
+
+    # The element exists in the Objects header, and starts hidden so an empty
+    # or fully-visible task shows no marker.
+    assert 'id="hiddenObjectsIndicator"' in html, (
+        "No hiddenObjectsIndicator element in app.html"
+    )
+    indicator_tag = re.search(r"<span[^>]*id=\"hiddenObjectsIndicator\"[^>]*>", html)
+    assert indicator_tag and "hidden" in indicator_tag.group(0), (
+        "hiddenObjectsIndicator must start hidden, or every task opens showing "
+        "a closed-eye marker with nothing actually hidden."
+    )
+
+    assert "hiddenObjectsIndicator" in dom, "Indicator not exported from dom.js"
+    assert "renderHiddenIndicator" in workspace, (
+        "workspace.js has no renderHiddenIndicator()"
+    )
+
+    # It must run on BOTH renderAnnotations() paths -- the empty-task early
+    # return as well as the normal one -- or the marker survives deleting the
+    # last annotation.
+    assert workspace.count("renderHiddenIndicator();") >= 2, (
+        "renderHiddenIndicator() must be called on both renderAnnotations() "
+        "paths, including the early return for a task with no annotations."
+    )
+
+    # Both ways of hiding must count, matching what the rows treat as hidden.
+    indicator_body = workspace[workspace.index("function renderHiddenIndicator"):]
+    indicator_body = indicator_body[:indicator_body.index("\nfunction ", 1)]
+    assert "hiddenAnnotationIds" in indicator_body, (
+        "Indicator ignores hiddenAnnotationIds (the H key / per-row eye)."
+    )
+    assert "hiddenLabelIds" in indicator_body, (
+        "Indicator ignores hiddenLabelIds, so hiding a whole class would leave "
+        "the header claiming nothing is hidden while rows show otherwise."
+    )
+
+    # display:grid beats the browser's default [hidden] rule, so the attribute
+    # needs an explicit override or the marker can never hide.
+    assert ".hidden-objects-indicator[hidden]" in css, (
+        "Missing a [hidden] override for .hidden-objects-indicator: its "
+        "display rule would beat the browser default and pin it visible."
+    )
+
+    # The marker sits immediately LEFT of the object count, on one row. It only
+    # lands there if .header-actions is a flex row: the sole rule for it used
+    # to be scoped to .accordion-header, and the Objects pane is not an
+    # accordion, so its children stacked and the eye appeared ABOVE the count.
+    assert re.search(r"^\.header-actions\s*\{[^}]*display:\s*flex", css, re.M), (
+        "No unscoped .header-actions flex rule: a plain .pane-header would "
+        "stack its actions vertically, putting the hidden marker above the "
+        "object count instead of beside it."
+    )
+
+    # Left-of-count is DOM order under a flex row, so the span must come first.
+    actions = re.search(
+        r"<div class=\"header-actions\">(.*?)</div>", html, re.S
+    )
+    assert actions, "Objects pane header has no .header-actions block"
+    body = actions.group(1)
+    assert body.index("hiddenObjectsIndicator") < body.index("annotationCount"), (
+        "The hidden marker must precede the count in the DOM, or it renders to "
+        "the right of the number."
     )
