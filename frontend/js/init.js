@@ -14,12 +14,12 @@ import {
   emptyState, drawMode, selectMode, boxMode, polygonMode, commentMode, magicWandMode,
   autoDetectButton, undoButton, redoButton, deleteButton, clearButton, unhideAllButton,
   assignTaskButton, saveButton
-} from "./dom.js?v=4";
+} from "./dom.js?v=5";
 import { drawAllLayers } from "./canvas/draw.js?v=8";
 import {
   setStatus, syncToBackend, save, loadSaved, saveDraft, restoreDraft,
   render, manualSaveWithUI, refreshSaveStatus, pruneStaleDrafts, unhideAllObjects
-} from "./components/workspace.js?v=26";
+} from "./components/workspace.js?v=27";
 import {
   configureQueue, startQueue, subscribe as subscribeQueue, drainQueue,
   enqueueWrite, retryablePendingCount, noteServerReachable, noteServerUnreachable,
@@ -33,7 +33,7 @@ import {
 } from "./components/timer.js?v=8";
 import {
   finalizePolygon, deleteSelected, undoAction, redoAction, setZoomChangeHandler
-} from "./canvas/interactions.js?v=19";
+} from "./canvas/interactions.js?v=20";
 import { initContextMenu } from "./canvas/context-menu.js?v=5";
 import { getCurrentUser } from "./session.js?v=2";
 import { initCanvasAssign, renderAssignButton } from "./canvas-assign.js?v=2";
@@ -47,7 +47,6 @@ import { isFrozenForRole } from "./task-status.js?v=3";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
 import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=4";
 import { claimTask, heartbeatTask, releaseTask } from "./task-lock.js?v=3";
-import { initFftControls } from "./fft-controls.js?v=4";
 
 if (!localStorage.getItem('logged_in')) {
   window.location.href = '/';
@@ -1596,5 +1595,3 @@ function closeTaskCompletedModal() {
 if (tcClose) tcClose.addEventListener('click', closeTaskCompletedModal);
 if (tcOk) tcOk.addEventListener('click', closeTaskCompletedModal);
 
-// Initialise FFT smoothing controls (Smooth button, slider, auto-smooth toggle).
-initFftControls();

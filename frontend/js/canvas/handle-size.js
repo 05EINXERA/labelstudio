@@ -12,7 +12,7 @@
  * than imageBox.scale are all documented in feature-flags.js.
  */
 
-import { annotationSettings } from "../feature-flags.js?v=2";
+import { annotationSettings } from "../feature-flags.js?v=3";
 
 /**
  * Drawn radius, in on-screen pixels, of a vertex handle at `viewZoom`.

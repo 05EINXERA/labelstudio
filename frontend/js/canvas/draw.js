@@ -1,6 +1,6 @@
-import { canvas, ctx, imageCanvas, imageCtx, staticCanvas, staticCtx } from "../dom.js?v=4";
+import { canvas, ctx, imageCanvas, imageCtx, staticCanvas, staticCtx } from "../dom.js?v=5";
 import { state, labelById, isAnnotationHidden } from "../state.js?v=11";
-import { annotationOpacity } from "../feature-flags.js?v=2";
+import { annotationOpacity } from "../feature-flags.js?v=3";
 import { view } from "./view.js?v=1";
 import { annotationPoints, hexToRgba } from "./geometry.js?v=1";
 import { vertexHandleRadius, vertexHandleLineWidth } from "./handle-size.js?v=1";

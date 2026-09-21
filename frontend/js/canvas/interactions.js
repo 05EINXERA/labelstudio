@@ -5,16 +5,15 @@ import { untangleRing } from "./untangle.js?v=2";
 import { unionAll } from "./merge.js?v=3";
 import { view } from "./view.js?v=1";
 import { draw, drawAllLayers } from "./draw.js?v=8";
-import { canvas, ctx, undoButton } from "../dom.js?v=4";
+import { canvas, ctx, undoButton } from "../dom.js?v=5";
 import { commentHitTest, commentScreenGeometry, COMMENT_FONT } from "./comment-geometry.js?v=2";
 import { normalizeRect, rectIsDegenerate, marqueeHits } from "./marquee.js?v=1";
 import { shouldCanvasClickBeBlocked } from "../comment-mode.js?v=1";
 import { commentOverlayRefs, openCommentEditor, anchorCommentOverlay } from "../comment-overlay.js?v=2";
-import { setStatus, save, render, activateLabel, toggleAnnotationsHidden, unhideAllObjects, editBlockReason } from "../components/workspace.js?v=26";
+import { setStatus, save, render, activateLabel, toggleAnnotationsHidden, unhideAllObjects, editBlockReason } from "../components/workspace.js?v=27";
 import { labelIndexForCode, hideTargetIdsWhileDrawing, shouldHide, hideKeyAction, drawHideKeyAction, DRAW_PEEK_MS } from "../shortcuts.js?v=4";
 import { performMagicWandSegmentation } from "../ai/detect.js?v=4";
-import { applyAutoSmooth } from "../fft-controls.js?v=4";
-import { annotationSettings } from "../feature-flags.js?v=2";
+import { annotationSettings } from "../feature-flags.js?v=3";
 
 export function canvasPoint(event) {
   const rect = canvas.getBoundingClientRect();
@@ -346,21 +345,14 @@ export function finalizePolygon() {
     save();
     return;
   }
-  // Resolve any self-crossing before smoothing. Freehand tracing is sampled on
+  // Resolve any self-crossing before committing. Freehand tracing is sampled on
   // pointermove, so a stroke that loops back over itself lays down a crossing
   // mid-drag; untangling there would collapse the ring under the moving cursor,
   // which then continues drawing into a re-indexed array. Deferring to finalize
   // keeps the stroke stable and resolves it once, at the moment the shape is
   // committed. No anchor: by this point no single vertex is "the one just
   // placed", so area alone decides.
-  //
-  // Must run before applyAutoSmooth — the FFT low-pass treats points as one
-  // ordered contour, and running it over a tangled ring smears the two loops
-  // into each other rather than filtering either.
   const untangled = untangleIfPolygon(annotation);
-  // Auto-smooth: apply FFT low-pass filter when the toggle is enabled.
-  // Called before updateAnnotationBounds so the bounds reflect the smoothed points.
-  applyAutoSmooth(annotation);
   updateAnnotationBounds(annotation);
   state.needsLabelSelection = true;
   state.justFinalized = true;

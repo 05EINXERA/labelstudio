@@ -8,7 +8,7 @@
 // or "150%" for a small image that is upscaled to fill the canvas.
 
 import { view } from "../canvas/view.js?v=1";
-import { setZoom } from "../canvas/interactions.js?v=19";
+import { setZoom } from "../canvas/interactions.js?v=20";
 import { drawAllLayers } from "../canvas/draw.js?v=8";
 
 // viewZoom bounds (multiplier over fit-scale).
