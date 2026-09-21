@@ -14,6 +14,7 @@ import { setStatus, save, render, activateLabel, toggleAnnotationsHidden, unhide
 import { labelIndexForCode, hideTargetIdsWhileDrawing, shouldHide, hideKeyAction, drawHideKeyAction, DRAW_PEEK_MS } from "../shortcuts.js?v=4";
 import { performMagicWandSegmentation } from "../ai/detect.js?v=4";
 import { annotationSettings } from "../feature-flags.js?v=4";
+import { isTypingTarget } from "../typing-target.js?v=1";
 
 export function canvasPoint(event) {
   const rect = canvas.getBoundingClientRect();
@@ -1834,7 +1835,7 @@ function applyHideAction(action) {
 
 window.addEventListener("keyup", (event) => {
   if (event.key?.toLowerCase() !== "h") return;
-  // No isTyping guard, deliberately: if focus moved into a field mid-hold, the
+  // No typing-target guard, deliberately: if focus moved into a field mid-hold, the
   // release still has to end the peek or the shapes stay hidden with no key
   // down to explain it.
   applyHideAction(hideActionFor("keyup", false));
@@ -1847,9 +1848,12 @@ window.addEventListener("blur", () => {
 });
 
 window.addEventListener("keydown", (event) => {
-  const target = event.target;
-  const isTyping = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
-  if (isTyping) return;
+  // Not `instanceof HTMLInputElement`: that treats a range slider like a text
+  // field, so clicking the opacity slider left it focused and silently killed
+  // every canvas shortcut (H, the class digits, Delete, Ctrl+Z) while the
+  // shape still looked selected. A slider consumes arrows, not letters.
+  // See typing-target.js.
+  if (isTypingTarget(event.target)) return;
 
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
     event.preventDefault();
@@ -1941,8 +1945,8 @@ window.addEventListener("keydown", (event) => {
 
   // "M" merges the selection into one shape. Modifiers excluded so Ctrl+M /
   // Cmd+M stay with the browser, following the "U" binding's precedent. The
-  // isTyping guard above already keeps this out of the comment editor, which
-  // is a real <textarea>.
+  // isTypingTarget guard above already keeps this out of the comment editor,
+  // which is a real <textarea>.
   if (event.key.toLowerCase() === "m" && !event.ctrlKey && !event.metaKey && !event.altKey) {
     event.preventDefault();
     mergeSelectedAnnotations();
