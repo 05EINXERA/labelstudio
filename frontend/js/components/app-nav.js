@@ -36,11 +36,16 @@ const LINKS = [
   // stale bundle that still draws this link lands on a page whose requests
   // 404 — a cosmetic bug, not a hole.
   { key: "attendance", label: "Attendance", href: "attendance.html", adminOnly: true },
+  // Everyone's own page: their attendance, and the account settings the
+  // header button also reaches. Not admin-gated -- the endpoint behind it is
+  // self-scoped by construction and takes no user parameter, so there is
+  // nothing here one person could use to see another.
+  { key: "profile", label: "My profile", href: "profile.html" },
 ];
 
 /**
  * @param {HTMLElement} container
- * @param {"projects"|"teams"|"attendance"} activeKey
+ * @param {"projects"|"teams"|"attendance"|"profile"} activeKey
  * @param {{isAdmin?: boolean}} [options] Admin-only links are omitted unless
  *   `isAdmin` is true. Defaults to false, so a caller that has not yet
  *   resolved identity draws the safe subset rather than flashing a tab the

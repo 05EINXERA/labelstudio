@@ -9,7 +9,7 @@
  * `team/router.js` know nothing about each other — and neither is loaded unless
  * its pane is the one being shown.
  */
-import { renderAppNav, revealAdminLinks, wireLogout } from "../components/app-nav.js?v=4";
+import { renderAppNav, revealAdminLinks, wireLogout } from "../components/app-nav.js?v=5";
 import { getCurrentUser } from "../session.js?v=2";
 
 const teamId = new URLSearchParams(window.location.search).get("id");

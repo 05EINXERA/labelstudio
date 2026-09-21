@@ -146,5 +146,27 @@ ok('attendance is an in-app link, not external',
    !linkFor(render('projects', { isAdmin: true }), 'Attendance')
      .includes('target="_blank"'));
 
+// --- My profile (R9) --------------------------------------------------------
+//
+// Unlike Attendance, this one is for everyone: the endpoint behind it is
+// self-scoped by construction and takes no user parameter, so there is
+// nothing on it one person could use to see another.
+
+ok('profile is visible to a non-admin',
+   render('projects').includes('profile.html'));
+
+ok('profile is visible to an admin too',
+   render('projects', { isAdmin: true }).includes('profile.html'));
+
+ok('profile goes active on its own page',
+   linkFor(render('profile'), 'My profile').includes('is-active'));
+
+ok('profile is an in-app link, not external',
+   !linkFor(render('projects'), 'My profile').includes('target="_blank"'));
+
+ok('profile sits after the admin tab, so the shared links lead',
+   render('projects', { isAdmin: true }).indexOf('profile.html') >
+   render('projects', { isAdmin: true }).indexOf('attendance.html'));
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

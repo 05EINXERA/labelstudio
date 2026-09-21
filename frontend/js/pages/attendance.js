@@ -22,7 +22,7 @@ import { apiFetch } from "../api.js?v=5";
 import { escapeHTML } from "../utils.js?v=2";
 import { createDataTable } from "../components/data-table.js?v=6";
 import { createModal } from "../components/modal.js?v=1";
-import { renderAppNav, revealAdminLinks, wireLogout } from "../components/app-nav.js?v=4";
+import { renderAppNav, revealAdminLinks, wireLogout } from "../components/app-nav.js?v=5";
 import { getCurrentUser } from "../session.js?v=2";
 
 const els = {
