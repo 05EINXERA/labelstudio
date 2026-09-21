@@ -1,6 +1,7 @@
 from sqlalchemy import (
     Boolean,
     Column,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -211,6 +212,12 @@ class User(Base):
     username = Column(String, unique=True, index=True)
     hashed_password = Column(String)
     created_at = Column(DateTime, server_default=func.now())
+    # Instance-level admin: gates the attendance dashboard/export. Writable
+    # only by scripts/grant_admin.py — there is no API path that sets it, so
+    # privilege escalation over HTTP is impossible (.devnotes/attendance-feature/
+    # 05-open-questions.md Q0, Q13). server_default keeps existing rows false
+    # on migration.
+    is_admin = Column(Boolean, nullable=False, server_default=false())
 
 
 # --- Teams -------------------------------------------------------------------
@@ -425,4 +432,143 @@ class Annotation(Base):
         # The comment-count and per-type aggregates filter on exactly this
         # pair; without it they degrade to a scan of every row for the task.
         Index("ix_annotations_task_id_type", "task_id", "type"),
+    )
+
+
+# --- Attendance --------------------------------------------------------------
+#
+# The daily attendance register (.devnotes/attendance-feature/). Presence is
+# captured as throttled observations on the already-authenticated request path
+# and flushed after the response; nothing here is written synchronously by a
+# normal request. See 04-decision-and-impl-plan.md § 3.
+
+
+class AttendanceObservation(Base):
+    """One "this user was seen at this moment" fact. Strictly append-only.
+
+    No UPDATE and no DELETE from application code at all, with the 31-day
+    retention prune (Q1) as the sole exception. That is stronger than the
+    convention `TaskReview` states above in this same file — here it holds
+    literally.
+
+    A retroactively entered break is a NEW row pair with a `*_manual` kind,
+    and nothing — observed or manual — is ever corrected afterwards
+    (Q24: "no correction"). That is what removes an edit endpoint, a delete
+    endpoint, and any question of which version of a fact is authoritative.
+
+    These rows are the *raw* record and do not survive retention. The
+    permanent one is `AttendanceDay`, so the rollup must always run ahead of
+    the prune.
+    """
+
+    __tablename__ = "attendance_observations"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    # SET NULL, not CASCADE (Q23: "keep"). Attendance is evidence about hours
+    # worked, and a departing employee's record is the one most likely to be
+    # needed after they leave. Mirrors TaskReview.reviewer_id, which keeps the
+    # audit line with a null actor rather than letting it vanish.
+    # No index=True: the composite ix_attendance_obs_user_seen below already
+    # serves a user_id-only lookup from its leading column, and a second index
+    # is pure write cost on the table that takes every observation.
+    user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    # The observed moment, UTC and tz-aware (CLAUDE.md rule 7). Bucketing into
+    # local days is a read-time concern and uses ZoneInfo("Asia/Kathmandu"),
+    # never a numeric offset — Nepal is +05:45 and any whole-hour assumption
+    # passes every UTC-written test while being 45 minutes wrong on real data.
+    seen_at = Column(DateTime(timezone=True), nullable=False)
+    # Which task was open, when that is known. SET NULL so deleting a task
+    # does not destroy the attendance fact that someone was working.
+    task_id = Column(
+        Integer, ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True
+    )
+    # Which deployment produced the row. The two instances are never merged
+    # (Q2); this exists so an exported file is self-identifying for the manual
+    # comparison that is the only cross-instance story.
+    instance_id = Column(String(64), nullable=False)
+    # seen | active | login | logout | break_start | break_end
+    #      | break_manual_start | break_manual_end
+    #
+    # `active` marks an observation originating from the timer ping, which
+    # fires only while the timer runs — that is what makes a per-day
+    # "Active (timer)" figure derivable without touching time_logs, which has
+    # no date column at all (Q18).
+    kind = Column(String(24), nullable=False, default="seen")
+    # When the ROW was written, as distinct from `seen_at` (when the observed
+    # moment was). Equal for observed rows; hours apart for a break entered
+    # from the profile page after the fact. That difference is the admin's
+    # signal that a break was reconstructed rather than declared (Q16) — with
+    # no mutable rows and no approval queue.
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    # Who entered a manual row, when that is not the subject themselves.
+    # Null for observed rows.
+    entered_by = Column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
+    __table_args__ = (
+        # The prune and the whole-instance day query filter on seen_at alone.
+        Index("ix_attendance_obs_seen_at", "seen_at"),
+        # user_id leads: sessionisation reads one user's ordered day.
+        Index("ix_attendance_obs_user_seen", "user_id", "seen_at"),
+    )
+
+
+class AttendanceDay(Base):
+    """The permanent daily record, one row per person per local day.
+
+    Raw observations are pruned at 31 days (Q1), so this — not
+    `attendance_observations` — is the historical store. The rollup is
+    re-runnable and UPSERTs on `uq_attendance_day`, which is what lets a day be
+    RE-rolled after a late manual break is added to it (Q25).
+    """
+
+    __tablename__ = "attendance_days"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    # SET NULL for the same reason as AttendanceObservation.user_id (Q23).
+    user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # Denormalised snapshot, so a kept row stays READABLE after the account is
+    # gone (Q30). Without it "keep" yields rows with a null user_id and no way
+    # to tell whose they were, which is storage without evidence. This
+    # deliberately retains a name past account deletion; Q22 confirms no
+    # data-protection regime constrains it.
+    username = Column(String, nullable=False)
+    # The local (Asia/Kathmandu) day this record covers.
+    local_date = Column(Date, nullable=False, index=True)
+    instance_id = Column(String(64), nullable=False)
+    first_seen = Column(DateTime(timezone=True), nullable=False)
+    last_seen = Column(DateTime(timezone=True), nullable=False)
+    # logout | timeout | open. Never rendered as a plain logout time when it is
+    # timeout-derived: that would overstate the precision of an attendance
+    # record (02-requirements-definitions.md § 2).
+    end_reason = Column(String(16), nullable=False)
+    session_count = Column(Integer, nullable=False, default=0)
+    # Present time EXCLUDES declared breaks.
+    present_seconds = Column(Integer, nullable=False, default=0)
+    break_seconds = Column(Integer, nullable=False, default=0)
+    # Breaks entered after the fact (Q16), counted separately so the admin can
+    # see how much of a day was reconstructed rather than observed.
+    manual_break_seconds = Column(Integer, nullable=False, default=0)
+    # Derived from `active`-kind observations, NOT from time_logs, which is a
+    # lifetime total with no date column (Q18).
+    active_seconds = Column(Integer, nullable=False, default=0)
+    # "Touched", never "completed": no author column exists on the annotation
+    # write path, so per-user completion is not derivable and no column may
+    # imply it (CLAUDE.md rule 11a; 02-requirements-definitions.md § 4).
+    tasks_touched = Column(Integer, nullable=False, default=0)
+    tasks_reviewed = Column(Integer, nullable=False, default=0)
+
+    __table_args__ = (
+        # One row per person per local day per instance. The rollup is
+        # re-runnable, so it must UPSERT rather than accumulate duplicates.
+        UniqueConstraint(
+            "user_id", "local_date", "instance_id", name="uq_attendance_day"
+        ),
     )
