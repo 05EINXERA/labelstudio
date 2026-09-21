@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>My profile - Label Studio</title>
   <link rel="icon" type="image/png" href="logo.png">
-  <link rel="stylesheet" href="styles.css?v=12">
+  <link rel="stylesheet" href="styles.css?v=13">
 </head>
 
 <body style="background: var(--bg);">
@@ -61,6 +61,43 @@
     <div id="tableMount"></div>
 
     <!--
+      Retroactive break entry (Q16). This is the one place a user asserts a
+      fact about themselves rather than the server observing one, so the copy
+      is explicit that it cannot be undone: nothing in the app can edit or
+      delete an entry once saved (Q24, Q31), and a mistyped one needs an
+      operator.
+    -->
+    <section class="manual-break" id="manualBreakSection">
+      <h3>Forgot to record a break?</h3>
+      <p class="field-hint">
+        Add one for today or yesterday. It is shown to administrators as
+        <em>entered later</em> rather than declared at the time — that is
+        provenance, not a mark against you.
+        <strong>Check the times before saving: an entry cannot be edited or
+        removed afterwards.</strong>
+      </p>
+
+      <div id="manualBreakError" class="mgmt-error" style="display: none;"></div>
+      <div id="manualBreakOk" class="mgmt-ok" style="display: none;"></div>
+
+      <form id="manualBreakForm" class="manual-break-form">
+        <div class="form-field">
+          <label for="breakDate">Date</label>
+          <input type="date" id="breakDate" required>
+        </div>
+        <div class="form-field">
+          <label for="breakStart">Started</label>
+          <input type="time" id="breakStart" required>
+        </div>
+        <div class="form-field">
+          <label for="breakEnd">Ended</label>
+          <input type="time" id="breakEnd" required>
+        </div>
+        <button type="submit" class="primary" id="manualBreakSubmit">Add break</button>
+      </form>
+    </section>
+
+    <!--
       The same qualifications the admin dashboard carries. An annotator
       checking their own hours needs them at least as much as an admin does:
       these are the numbers they would query.
@@ -76,7 +113,7 @@
     </p>
   </main>
 
-  <script type="module" src="js/pages/profile.js?v=1"></script>
+  <script type="module" src="js/pages/profile.js?v=2"></script>
 </body>
 
 </html>

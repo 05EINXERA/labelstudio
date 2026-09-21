@@ -38,6 +38,13 @@ const els = {
   mount: document.getElementById("tableMount"),
   currentUser: document.getElementById("currentUser"),
   settings: document.getElementById("settingsBtn"),
+  breakForm: document.getElementById("manualBreakForm"),
+  breakDate: document.getElementById("breakDate"),
+  breakStart: document.getElementById("breakStart"),
+  breakEnd: document.getElementById("breakEnd"),
+  breakSubmit: document.getElementById("manualBreakSubmit"),
+  breakError: document.getElementById("manualBreakError"),
+  breakOk: document.getElementById("manualBreakOk"),
 };
 
 let table = null;
@@ -198,6 +205,105 @@ function renderSummary(rows) {
     .join("");
 }
 
+// --- retroactive break entry (R10) -----------------------------------------
+
+/**
+ * A local date + wall time in the SITE zone, as a UTC ISO instant.
+ *
+ * This is the whole +05:45 problem in one function. The inputs give "2026-09-20"
+ * and "13:00" meaning Kathmandu wall time; `new Date("2026-09-20T13:00")` would
+ * read them in the *browser's* zone, which is wrong for anyone not sitting in
+ * the office and silently 45 minutes out even for someone who is.
+ *
+ * The offset is discovered from the zone database for that actual date rather
+ * than assumed, by formatting a probe instant in the site zone and measuring
+ * how far it moved. No hardcoded +5:45 anywhere.
+ */
+function siteWallTimeToUtc(dateStr, timeStr) {
+  if (!dateStr || !timeStr) return null;
+  const naive = new Date(`${dateStr}T${timeStr}:00Z`); // treat as UTC first
+  if (Number.isNaN(naive.getTime())) return null;
+  if (!siteTimezone) return naive;
+
+  // What does that instant read as in the site zone? The difference between
+  // that and the instant itself is the offset to subtract.
+  const asSite = new Date(
+    naive.toLocaleString("en-US", { timeZone: siteTimezone })
+  );
+  const asUtc = new Date(naive.toLocaleString("en-US", { timeZone: "UTC" }));
+  return new Date(naive.getTime() - (asSite.getTime() - asUtc.getTime()));
+}
+
+function showBreakError(message) {
+  els.breakOk.style.display = "none";
+  els.breakError.textContent = message;
+  els.breakError.style.display = "block";
+}
+
+function showBreakOk(message) {
+  els.breakError.style.display = "none";
+  els.breakOk.textContent = message;
+  els.breakOk.style.display = "block";
+}
+
+async function submitManualBreak(event) {
+  event.preventDefault();
+  els.breakError.style.display = "none";
+  els.breakOk.style.display = "none";
+
+  const started = siteWallTimeToUtc(els.breakDate.value, els.breakStart.value);
+  const ended = siteWallTimeToUtc(els.breakDate.value, els.breakEnd.value);
+  if (!started || !ended) {
+    showBreakError("Fill in the date and both times.");
+    return;
+  }
+  if (ended <= started) {
+    // Checked here too, so the obvious mistake does not need a round trip.
+    // The server checks it regardless -- this is convenience, not the rule.
+    showBreakError("The break must end after it starts.");
+    return;
+  }
+
+  els.breakSubmit.disabled = true;
+  try {
+    const res = await apiFetch("/api/attendance/break/manual", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        started_at: started.toISOString(),
+        ended_at: ended.toISOString(),
+      }),
+    });
+
+    if (!res.ok) {
+      let detail = `Could not add the break (${res.status}).`;
+      try {
+        const body = await res.json();
+        if (body?.detail) detail = body.detail;
+      } catch (err) {
+        /* the status alone is the message */
+      }
+      showBreakError(detail);
+      return;
+    }
+
+    const body = await res.json();
+    const minutes = Math.round(body.seconds / 60);
+    showBreakOk(
+      `Added a ${minutes}-minute break on ${body.local_date}. ` +
+      `It cannot be edited or removed.`
+    );
+    els.breakForm.reset();
+    els.breakDate.value = todayInSiteZone();
+    await load(); // so the table reflects it immediately
+  } catch (err) {
+    console.error("Could not add the break", err);
+    showBreakError("Could not reach the server.");
+  } finally {
+    els.breakSubmit.disabled = false;
+  }
+}
+
 function buildTable() {
   table = createDataTable({
     mount: els.mount,
@@ -242,11 +348,11 @@ function buildTable() {
   });
 }
 
-function setRange(days) {
+async function setRange(days) {
   const today = todayInSiteZone();
   els.to.value = today;
   els.from.value = shiftDate(today, -(days - 1));
-  load();
+  await load();
 }
 
 function wireControls() {
@@ -257,6 +363,7 @@ function wireControls() {
   // 30, not 31: the server's ceiling is 31 days and an off-by-one here would
   // answer 400 for a button the user just pressed.
   els.last30.addEventListener("click", () => setRange(30));
+  els.breakForm?.addEventListener("submit", submitManualBreak);
 }
 
 async function init() {
@@ -275,7 +382,15 @@ async function init() {
 
   buildTable();
   wireControls();
-  setRange(7);
+  await setRange(7);
+
+  // Defaulted after the first load, so `siteTimezone` is known and "today"
+  // means today in the office rather than in the viewer's zone.
+  els.breakDate.value = todayInSiteZone();
+  // The server allows today and yesterday (Q25); the picker says so too, so an
+  // out-of-range date is refused before a round trip rather than after one.
+  els.breakDate.max = todayInSiteZone();
+  els.breakDate.min = shiftDate(todayInSiteZone(), -1);
 }
 
 init();

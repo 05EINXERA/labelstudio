@@ -31,21 +31,27 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+import logging
+
 import config
 import models
 from api import attendance, attendance_export, attendance_report as report
 from api.auth import get_current_user, require_csrf
 from api.permissions import require_admin
-from database import get_db
+from database import commit_with_retry, get_db
 from logging_service import log_event
 from schemas import (
     AttendanceDayResponse,
+    ManualBreakRequest,
+    ManualBreakResponse,
     BreakEndResponse,
     BreakStartResponse,
     OpenBreak,
     AttendanceRangeResponse,
     AttendanceSessionsResponse,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/attendance",
@@ -586,4 +592,225 @@ def export_csv(
         content=content,
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# --- Retroactive break entry (R10) ------------------------------------------
+#
+# The one place in the feature where a user asserts a fact about themselves
+# rather than the server observing one. Attendance stops being purely observed
+# and becomes partly asserted, which is worth naming rather than absorbing
+# quietly: a declared break and a remembered one are not equally reliable, and
+# storing them identically would throw that distinction away.
+#
+# So a manual break is a NEW row pair with its own kind, never an UPDATE of an
+# observed row, and each row carries `created_at` (when it was entered)
+# distinct from `seen_at` (when the break was). Equal for observed rows, hours
+# apart for a remembered one -- and that gap is the admin's signal, with no
+# approval queue, no mutable state and no second source of truth.
+#
+# ANSWERED (Q26): no admin approval. The provenance is the mechanism.
+# ANSWERED (Q31): no correction. The UI says so before saving; a mistyped
+# entry is an operator repair, consistent with how this deployment already
+# handles exceptional data fixes (scripts/repair_*, scripts/reconcile_*).
+
+# How far back a break may be entered: the current local day plus the previous
+# one (Q25). Covers "I forgot yesterday" without leaving last month
+# rewritable, and is far shorter than the 31-day retention window -- which
+# matters, because past that window the rollup is the only surviving record.
+# One constant, not a schema decision, so the window is cheap to retune.
+MANUAL_BREAK_BACKDATE_DAYS = 1
+
+# A sanity ceiling, not a policy one. Q16 says breaks are not capped, and this
+# does not cap a real break: it rejects a *typo* -- a mistyped hour or a
+# swapped field -- that would otherwise be unfixable, because nothing can
+# correct it afterwards.
+MAX_MANUAL_BREAK_HOURS = 12
+
+
+def _clock(moment) -> str:
+    """A UTC instant as local clock time, for an error message."""
+    return report.as_utc(moment).astimezone(report.site_tz()).strftime("%H:%M")
+
+
+def _reroll(db: Session, user_id: int, local_date) -> bool:
+    """Re-roll a day, if THIS user's row for it is already rolled up.
+
+    Scoped to the caller deliberately. `rollup_day` rewrites every user's row
+    for the day, so an unscoped existence check would re-roll on the strength
+    of somebody else's row -- reporting `rerolled: true` to a user whose own
+    day had never been rolled, and doing work for no reason. The question this
+    answers is "is there a stored figure for *this person* that my new break
+    would now contradict".
+
+    Imported lazily: `scripts/` is operational tooling and the router should
+    not take a hard dependency on it at import time.
+
+    A failure here is logged, not raised. The observations are already
+    committed and are the source of truth, so a failed re-roll is a stale
+    rollup that the nightly job repairs -- not lost data. Raising would tell
+    the user their break was not saved when it was.
+    """
+    try:
+        from scripts.rollup_attendance import rollup_day
+
+        already_rolled = (
+            db.query(models.AttendanceDay)
+            .filter(
+                models.AttendanceDay.user_id == user_id,
+                models.AttendanceDay.local_date == local_date,
+            )
+            .first()
+        )
+        if already_rolled is None:
+            # Not rolled up yet, so there is nothing to diverge from. The
+            # nightly job will pick the day up with the manual break included.
+            return False
+        rollup_day(db, local_date)
+        return True
+    except Exception:
+        logger.warning(
+            "attendance re-roll failed for %s; the nightly rollup will repair "
+            "it. The observations are committed and are the source of truth.",
+            local_date, exc_info=True,
+        )
+        return False
+
+
+@router.post("/break/manual", response_model=ManualBreakResponse)
+def manual_break(
+    payload: ManualBreakRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+    _csrf: None = Depends(require_csrf),
+):
+    """Record a break that was not declared at the time, for the caller.
+
+    **Add-only.** No UPDATE, no DELETE, no correction (Q24) -- neither an
+    observed break nor a previously entered manual one may be edited. That is
+    what makes `attendance_observations` strictly append-only in application
+    code and removes an edit endpoint, a delete endpoint and any question of
+    which version of a fact is authoritative.
+
+    **Self only.** The payload has no user field, so this cannot be asked to
+    write for anyone else.
+
+    Written synchronously rather than through the buffer: it is a deliberate,
+    rare user action, the user expects to see the result immediately, and it
+    must re-roll a day -- so deferring it would buy nothing.
+    """
+    started_at = report.as_utc(payload.started_at)
+    ended_at = report.as_utc(payload.ended_at)
+    now = datetime.now(timezone.utc)
+
+    if ended_at <= started_at:
+        raise HTTPException(
+            status_code=400, detail="The break must end after it starts."
+        )
+    if started_at > now or ended_at > now:
+        raise HTTPException(
+            status_code=400, detail="A break cannot be in the future."
+        )
+
+    hours = (ended_at - started_at).total_seconds() / 3600
+    if hours > MAX_MANUAL_BREAK_HOURS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"That break is {hours:.1f} hours long. The maximum that can "
+                f"be entered is {MAX_MANUAL_BREAK_HOURS}; check the times."
+            ),
+        )
+
+    # Bucketing by the LOCAL day, not the UTC one: "yesterday" in Kathmandu is
+    # not "yesterday" in UTC, and a window computed in UTC would reject a
+    # legitimate entry for 45 minutes either side of midnight.
+    local_date = report.local_day(started_at)
+    today = datetime.now(report.site_tz()).date()
+    earliest = today - timedelta(days=MANUAL_BREAK_BACKDATE_DAYS)
+    if local_date < earliest:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"A break can only be entered for today or yesterday "
+                f"(from {earliest}). For anything older, ask an administrator."
+            ),
+        )
+    if report.local_day(ended_at) != local_date:
+        # Q7: no shifts cross midnight, so a pair that does is a typo rather
+        # than a real break, and splitting it would invent a fact.
+        raise HTTPException(
+            status_code=400,
+            detail="A break must start and end on the same day.",
+        )
+
+    # No overlap with anything already recorded for that day, observed or
+    # manual. An overlapping pair cannot be corrected afterwards (Q24), so it
+    # must be refused at the door rather than cleaned up later.
+    day_start, day_end = report.day_bounds(local_date)
+    existing = report.observation_dicts(
+        db.query(models.AttendanceObservation)
+        .filter(
+            models.AttendanceObservation.user_id == current_user.id,
+            models.AttendanceObservation.seen_at >= day_start,
+            models.AttendanceObservation.seen_at < day_end,
+        )
+        .order_by(models.AttendanceObservation.seen_at)
+        .all()
+    )
+    buffered = [
+        row for row in attendance.buffered_observations(user_ids={current_user.id})
+        if day_start <= row["seen_at"] < day_end
+    ]
+    for session in report.sessionise(existing + buffered, now=now):
+        for brk in session["breaks"]:
+            if started_at < brk["ended_at"] and brk["started_at"] < ended_at:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "That overlaps a break already recorded for this day "
+                        f"({_clock(brk['started_at'])} to "
+                        f"{_clock(brk['ended_at'])}). Breaks cannot be edited "
+                        "once entered, so this one was not saved."
+                    ),
+                )
+
+    # A NEW row pair, never an edit. `created_at` defaults to now, which is
+    # what makes the gap from `seen_at` visible to the admin.
+    db.add_all([
+        models.AttendanceObservation(
+            user_id=current_user.id,
+            seen_at=started_at,
+            kind=attendance.KIND_BREAK_MANUAL_START,
+            instance_id=config.ATTENDANCE_INSTANCE_ID,
+            entered_by=current_user.id,
+        ),
+        models.AttendanceObservation(
+            user_id=current_user.id,
+            seen_at=ended_at,
+            kind=attendance.KIND_BREAK_MANUAL_END,
+            instance_id=config.ATTENDANCE_INSTANCE_ID,
+            entered_by=current_user.id,
+        ),
+    ])
+    commit_with_retry(db)  # rule 10, never raw db.commit()
+
+    seconds = int((ended_at - started_at).total_seconds())
+    log_event(
+        "attendance.break_manual", level="WARN",
+        account=current_user.username, seconds=seconds, day=str(local_date),
+    )
+
+    # Re-roll the day. Without this the rollup and the raw rows disagree
+    # silently, and the divergence only surfaces once the raw rows prune and
+    # it is unrecoverable. The UPSERT on uq_attendance_day is what makes this
+    # safe and idempotent.
+    rerolled = _reroll(db, current_user.id, local_date)
+
+    return ManualBreakResponse(
+        started_at=started_at,
+        ended_at=ended_at,
+        seconds=seconds,
+        local_date=local_date,
+        rerolled=rerolled,
     )

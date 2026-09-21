@@ -984,3 +984,29 @@ class OpenBreak(BaseModel):
     """
     started_at: datetime
     seconds: int
+
+
+class ManualBreakRequest(BaseModel):
+    """A break entered after the fact, for the caller.
+
+    The only place in the feature where a user writes a fact about themselves
+    rather than the server observing one, so it carries constraints the
+    observed path does not need. Validated here where the shape allows and in
+    the endpoint where it needs the clock or the database.
+
+    Deliberately carries **no user field**. The endpoint writes for the caller
+    and cannot be asked to write for anyone else (Q16, § 4.1 point 3).
+    """
+    started_at: datetime
+    ended_at: datetime
+
+
+class ManualBreakResponse(BaseModel):
+    started_at: datetime
+    ended_at: datetime
+    seconds: int
+    # The local day the pair landed on, re-rolled as part of the write. Past
+    # the 31-day retention the rollup is the only record, so a manual break on
+    # an already-rolled day must re-roll it or the two diverge silently.
+    local_date: date
+    rerolled: bool = False

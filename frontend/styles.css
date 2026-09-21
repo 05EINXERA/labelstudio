@@ -3346,3 +3346,59 @@ body.is-read-only #deleteButton {
 .toolbar-spacer {
   flex: 1 1 auto;
 }
+
+/* --- Retroactive break entry (R10) ---------------------------------------- */
+
+/* The success counterpart to .mgmt-error, same shape and weight. */
+.mgmt-ok {
+  padding: 12px 14px; border-radius: 8px; margin-bottom: 14px;
+  background: rgba(45,164,78,.1); border: 1px solid rgba(45,164,78,.3);
+  color: #1e7e34; font-size: .9rem;
+}
+
+/* Set apart from the table above it: this is the one control on the page
+   that WRITES, and it cannot be undone. Visual separation is part of making
+   that obvious. */
+.manual-break {
+  margin-top: 32px;
+  padding: 20px 22px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  max-width: 720px;
+}
+
+.manual-break h3 {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.manual-break .field-hint {
+  margin: 0 0 16px;
+  max-width: 62ch;
+}
+
+.manual-break-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 14px;
+}
+
+.manual-break-form .form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.manual-break-form label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.manual-break-form button {
+  padding: 8px 20px;
+  border-radius: 8px;
+  font-weight: 600;
+}
