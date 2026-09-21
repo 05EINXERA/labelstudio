@@ -309,40 +309,26 @@
           </div>
         </div>
 
-        <!-- FFT Smooth tool group -->
-        <div class="tool-group fft-tool-group" role="group" aria-label="FFT noise filter">
-          <span class="tool-group-label">Smooth</span>
-          <div class="tool-group-buttons fft-group-buttons">
-            <button class="tool-button fft-smooth-btn" id="fftSmoothBtn" type="button"
-              title="FFT smooth selected polygon — removes jagged noise by low-pass filtering the vertex coordinates">
-              <span class="btn-icon">〰️</span><span class="btn-label">Smooth</span>
-            </button>
-
-            <div class="fft-slider-wrap" title="Frequency keep ratio: lower = smoother, higher = preserves detail">
-              <label class="tool-group-label fft-slider-label" for="fftStrengthSlider">
-                Keep: <span id="fftStrengthLabel">40%</span>
+        <!-- Annotation opacity tool group -->
+        <div class="tool-group opacity-tool-group" role="group" aria-label="Annotation opacity">
+          <span class="tool-group-label">Opacity</span>
+          <div class="tool-group-buttons opacity-group-buttons">
+            <div class="opacity-slider-wrap"
+              title="Fill opacity of the selected shape and the one being drawn. Lower it to see the pixels underneath while tracing. Resets on reload.">
+              <label class="tool-group-label opacity-slider-label" for="opacitySlider">
+                Fill: <span id="opacityValueLabel">60%</span>
               </label>
               <input
                 type="range"
-                id="fftStrengthSlider"
-                min="0.05"
-                max="1.0"
-                step="0.05"
-                value="0.40"
-                class="fft-slider"
-                aria-label="FFT smoothing strength"
+                id="opacitySlider"
+                min="0"
+                max="100"
+                step="1"
+                value="60"
+                class="opacity-slider"
+                aria-label="Annotation fill opacity"
               >
             </div>
-
-            <button
-              class="tool-button fft-auto-btn"
-              id="fftAutoSmoothToggle"
-              type="button"
-              role="switch"
-              aria-checked="false"
-              title="Auto-smooth: when ON, every finalized polygon is automatically FFT-smoothed using an optimal cutoff based on its point count">
-              <span class="btn-icon">🤖</span><span class="btn-label">Auto</span>
-            </button>
           </div>
         </div>
 
@@ -530,7 +516,7 @@
     </div>
   </div>
 
-  <script type="module" src="js/init.js?v=38"></script>
+  <script type="module" src="js/init.js?v=40"></script>
 
 </body>
 

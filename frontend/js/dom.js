@@ -30,8 +30,6 @@ export const autoDetectButton = document.querySelector("#autoDetectButton");
 export const aiSettingsMenuButton = document.querySelector("#aiSettingsMenuButton");
 export const aiSettingsDropdownContainer = document.querySelector("#aiSettingsDropdownContainer");
 export const autoTagButton = document.querySelector("#autoTagButton");
-// Smooth section — also gated by toolAvailability.smooth in renderControls()
-export const fftToolGroup = document.querySelector(".fft-tool-group");
 export const undoButton = document.querySelector("#undoButton");
 export const redoButton = document.querySelector("#redoButton");
 export const deleteButton = document.querySelector("#deleteButton");

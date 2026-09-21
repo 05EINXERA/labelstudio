@@ -16,17 +16,17 @@ import { view } from "../canvas/view.js?v=1";
 import { drainTaskTime, DRAIN_SKIPPED, refreshTimerDisplays } from "./timer.js?v=8";
 import { timerState } from "../timer-state.js?v=3";
 import { detectState } from "../ai/detect-state.js?v=3";
-import { draw, drawAllLayers } from "../canvas/draw.js?v=8";
+import { draw, drawAllLayers } from "../canvas/draw.js?v=9";
 import {
   emptyState, classesList, annotationList, annotationCount, selectedInfo,
   hiddenFilterButton, hiddenCount,
   drawMode, selectMode, boxMode, polygonMode, commentMode, magicWandMode,
-  autoDetectButton, aiSettingsMenuButton, autoTagButton, fftToolGroup,
+  autoDetectButton, aiSettingsMenuButton, autoTagButton,
   undoButton, redoButton, deleteButton, clearButton,
   shapeHint, saveStatus
-} from "../dom.js?v=4";
+} from "../dom.js?v=5";
 import { commentOverlayRefs, openCommentEditor } from "../comment-overlay.js?v=2";
-import { toolAvailability } from "../feature-flags.js?v=2";
+import { toolAvailability } from "../feature-flags.js?v=4";
 // Per-task write gating. `isReadOnly()` is project-role only, so it is false
 // for an annotator who simply is not assigned the open task — the sidepanel
 // needs the per-task answer, which is what taskWriteBlock() gives.
@@ -1372,16 +1372,6 @@ export function renderControls() {
   if (autoTagButton)        autoTagButton.disabled        = aiBlocked;
   // Magic Wand is in the Tools group but is AI-dependent — block it too.
   magicWandMode.disabled = aiBlocked;
-
-  // ── Smooth section ────────────────────────────────────────────────────────
-  // Disable every interactive control inside the FFT tool-group when
-  // toolAvailability.smooth is false.  The container itself is not hidden so
-  // the toolbar layout stays stable; the controls are just non-interactive.
-  if (fftToolGroup) {
-    fftToolGroup.querySelectorAll("button, input").forEach(el => {
-      el.disabled = !toolAvailability.smooth;
-    });
-  }
 
   // ── Edit section ──────────────────────────────────────────────────────────
   undoButton.disabled = state.history.length === 0;
