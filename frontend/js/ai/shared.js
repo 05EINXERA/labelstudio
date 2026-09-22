@@ -1,5 +1,5 @@
 import { state } from "../state.js?v=4";
-import { view } from "../canvas/view.js?v=2";
+import { view } from "../canvas/view.js?v=3";
 
 /**
  * Returns the image source suitable for the AI API.

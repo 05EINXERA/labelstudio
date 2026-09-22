@@ -7,7 +7,7 @@
  */
 import { generateUUID, round } from "../utils.js?v=3";
 import { state, snapshot, loadStickyClassPref, saveStickyClassPref } from "../state.js?v=4";
-import { view } from "../canvas/view.js?v=2";
+import { view } from "../canvas/view.js?v=3";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
 import {
   drawMode, selectMode, boxMode, polygonMode, commentMode, magicWandMode,
@@ -16,7 +16,7 @@ import {
 } from "../dom.js?v=2";
 import { setStatus, save, render, manualSaveWithUI } from "./workspace.js?v=11";
 import { autoDetectObjects, autoTagObjects, preloadMagicWand } from "../ai/detect.js?v=2";
-import { finalizePolygon, deleteSelected, undoAction, redoAction, clearStickyHover } from "../canvas/interactions.js?v=15";
+import { finalizePolygon, deleteSelected, undoAction, redoAction, clearStickyHover } from "../canvas/interactions.js?v=17";
 
 /**
  * Initializes Move Objects toggle button and dropdown menu.

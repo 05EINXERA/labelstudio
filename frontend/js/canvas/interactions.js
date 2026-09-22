@@ -13,7 +13,7 @@ import {
   unionPolygons,
   smoothUnionCusps
 } from "./geometry.js?v=6";
-import { view } from "./view.js?v=2";
+import { view } from "./view.js?v=3";
 import { draw, drawAllLayers } from "./draw.js?v=4";
 import { canvas, undoButton } from "../dom.js?v=2";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
@@ -305,6 +305,9 @@ export function finalizePolygon() {
   // to the class panel. Without it, re-arm the gate as before.
   state.needsLabelSelection = !state.stickyClass;
   state.justFinalized = true;
+  // Arm post-finalize vertex trimming: the next Ctrl+Z shaves this polygon's
+  // last vertex rather than deleting the shape outright (undoLastFinalizedPoint).
+  view.lastFinalizedPolygonId = annotation.id;
   // Closing a polygon drops into select mode with the finished shape selected,
   // so its vertices and label are immediately editable instead of the canvas
   // still being armed to draw. The next single click restores draw mode (see
@@ -376,10 +379,53 @@ export function redoLastPoint() {
   return false;
 }
 
+// Post-finalize vertex trimming. Closing a polygon used to mean the very next
+// Ctrl+Z threw the whole shape away, which is the wrong reading of "undo" right
+// after drawing: the annotator almost always means "that last vertex was
+// wrong", not "scrap the polygon". So while view.lastFinalizedPolygonId still
+// points at the polygon that was just closed, Ctrl+Z pops its last vertex.
+//
+// Unlike undoLastPoint (in-progress drawing, deliberately history-free because
+// it runs once per click and would flood the 50-entry stack), each trim here
+// DOES take a real snapshot: they are a handful of deliberate presses, and
+// routing them through history is what lets Ctrl+Shift+Z put the vertex back.
+//
+// Trimming stops at 3 points — below that it is no longer a polygon — so the
+// press that would take it to 2 falls through to ordinary history undo and
+// removes the shape, which is the behaviour the annotator is now asking for.
+function undoLastFinalizedPoint() {
+  if (!view.lastFinalizedPolygonId) return false;
+  if (view.drag?.type === "draw-polygon") return false;
+  const annotation = state.annotations.find((item) => item.id === view.lastFinalizedPolygonId);
+  if (!annotation || annotation.type !== "polygon") {
+    view.lastFinalizedPolygonId = null;
+    return false;
+  }
+  if (!annotation.points || annotation.points.length <= 3) return false;
+
+  snapshot();
+  annotation.points.pop();
+  updateAnnotationBounds(annotation);
+  // A trimmed vertex can invalidate a hovered/selected vertex or edge index.
+  view.hoveredPointIndex = -1;
+  view.hoveredLineIndex = -1;
+  view.selectedLineIndex = -1;
+  render();
+  save();
+  setStatus(`Vertex removed — ${annotation.points.length} points`);
+  return true;
+}
+
 export function undoAction() {
   if (undoLastPoint()) {
     return;
   }
+  if (undoLastFinalizedPoint()) {
+    return;
+  }
+  // Any undo that isn't a vertex trim means we've left the just-closed polygon
+  // behind; don't let a later press resume trimming it.
+  view.lastFinalizedPolygonId = null;
   // Falling through here means either there's no in-progress polygon, or its
   // last remaining vertex is about to be undone away (undoLastPoint requires
   // length > 1, so a 1-point polygon reaches this branch). That vertex, and
@@ -488,11 +534,14 @@ export function redoAction() {
 // 1.1, which is exactly the kind of pair that drifts apart and leaves the
 // buttons zooming at a different rate than the wheel.
 //
-// 1.05 is a ~5% change per notch. It was halved from 1.1 because a 10% step
-// overshoots when positioning a shape for fine vertex work -- the useful zoom
-// sits between two notches. The cost is twice as many notches to cross the
-// same range, which is the trade being made deliberately.
-export const ZOOM_STEP = 1.05;
+// 1.1 is a ~10% change per notch. This was briefly halved to 1.05 to make
+// fine positioning easier, and that was reverted: at 1.05 it takes roughly 28
+// notches to get from fit to 4x instead of 15, and annotators experience that
+// as the zoom being slow rather than as being precise. Getting to the region
+// of interest is the common action and it has to stay quick; fine adjustment
+// is the rare one. Do not lower this again without a way to keep the coarse
+// approach fast -- a modifier key for fine steps, or acceleration on repeat.
+export const ZOOM_STEP = 1.1;
 
 // The zoom readout subscribes here rather than being imported directly: the
 // component already imports setZoom, so a direct import would be circular.
@@ -533,6 +582,9 @@ export function setZoom(newZoom, mouseX, mouseY) {
 export function deleteSelected() {
   if (state.selectedIds.size === 0) return;
   snapshot();
+  // A delete is a new edit; the next Ctrl+Z must undo it, not resume trimming
+  // vertices off the polygon that was closed before it.
+  view.lastFinalizedPolygonId = null;
   // If deleting the polygon being drawn, clean up view.drag state
   if (view.drag?.type === "draw-polygon" && state.selectedIds.has(view.drag.annotationId)) {
     view.drag = null;
@@ -966,6 +1018,13 @@ canvas.addEventListener("pointerdown", (event) => {
   }
 
   const point = canvasPoint(event);
+
+  // Any click that isn't a pan means the annotator has moved on from the polygon
+  // they just closed — starting the next shape, or editing something. Post-
+  // finalize vertex trimming is a keyboard-only gesture (Ctrl+Z straight after
+  // closing), so disarming it here keeps a later Ctrl+Z undoing whatever this
+  // click does rather than quietly shaving a vertex off an older shape.
+  view.lastFinalizedPolygonId = null;
 
   // First click after finalizing a shape. The shape is still selected so a class
   // click can label it; this click releases that selection, so picking a class for
@@ -1941,6 +2000,9 @@ window.addEventListener("keydown", (event) => {
 
   if (event.key === "Delete" || event.key === "Backspace") {
     event.preventDefault();
+    // Covers all three branches below (vertex, edge, whole shape): each is a new
+    // edit, so the next Ctrl+Z belongs to it rather than to post-finalize trimming.
+    view.lastFinalizedPolygonId = null;
     if (state.mode === "select" && state.selectedId) {
       // If hovering over a vertex, delete just that vertex
       if (view.hoveredPointIndex !== -1) {

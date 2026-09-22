@@ -28,6 +28,12 @@ export const view = {
   // detected without re-deriving them from state.selectedId, which other code
   // (class panel, annotation list) also writes.
   stickyHoverInside: false,
+  // The polygon finalized most recently, kept so Ctrl+Z can keep trimming its
+  // last vertex instead of deleting the whole shape the moment it is closed
+  // (undoLastFinalizedPoint in interactions.js). Unlike stickyHoverId this is
+  // set for every finalized polygon, sticky class or not, and is nulled by any
+  // edit that isn't one of those trims (canvas pointerdown, delete, undo).
+  lastFinalizedPolygonId: null,
   hoveredLineIndex: -1,
   selectedLineIndex: -1,
   hoveredPointIndex: -1,
