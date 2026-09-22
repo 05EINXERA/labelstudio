@@ -188,6 +188,73 @@ class ProjectReviewer(Base):
     appointed_by = Column(String, nullable=True)
     created_at = Column(UTCDateTime, server_default=func.now(), nullable=False)
 
+class TaskAssignee(Base):
+    """One annotator assigned to one task. Several rows per task are expected.
+
+    An image is worked by different people at different times — and sometimes by
+    several at once — so assignment is a set, not a cell. This table is the
+    source of truth for that set.
+
+    `tasks.assignee` is kept as a **denormalized mirror of the primary row**
+    (the one with the lowest `position`), not as a second source of truth.
+    Every existing query reads it — project access (`Task.assignee.in_(names)`
+    in api/routers/projects.py), the `?assignee=` filter, the Teams per-member
+    task list, the exports, and browser tabs still running cached JS against a
+    live server. Dropping it would have broken all of those at once on a
+    deployment that cannot take downtime. Writes go through
+    `api.assignments.set_task_assignees`, which rewrites this table and
+    restamps the mirror in the same transaction; nothing else may write either
+    one, or the two drift apart.
+
+    `position` orders the set, so "primary assignee" is a stable concept rather
+    than whatever the database returns first. Position 0 is the primary and is
+    what the mirror carries.
+
+    Like `tasks.assignee` before it, this is advisory rather than a security
+    boundary: on a shared login any client can send any `X-Annotator-Name`. It
+    shapes the UI and the normal path; it does not withstand a forged header.
+
+    The full *history* of who held the task — including people since removed —
+    lives in `TaskAssignmentEvent`, because removing a row here must not erase
+    the record that the person once held the work.
+    """
+    __tablename__ = "task_assignees"
+    __table_args__ = (UniqueConstraint("task_id", "member_name", name="uq_task_assignee"),)
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    task_id = Column(Integer, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True)
+    # A team_members.name, the identity X-Annotator-Name carries — not a user
+    # account, since the deployment shares one login. Deliberately not an FK:
+    # tasks.assignee never was one, and a name that no longer matches a roster
+    # row must keep naming the person rather than block the write or vanish.
+    member_name = Column(String, nullable=False, index=True)
+    # 0 = primary; mirrored into tasks.assignee.
+    position = Column(Integer, nullable=False, default=0)
+    assigned_by = Column(String, nullable=True)
+    assigned_at = Column(UTCDateTime, server_default=func.now(), nullable=False)
+
+
+class TaskAssignmentEvent(Base):
+    """Append-only record of one assignment or unassignment of a task.
+
+    `TaskAssignee` answers "who holds this task now"; that row disappears when
+    someone is unassigned, which is exactly the fact the project owner asked to
+    be able to see. This table answers "who has *ever* held it, and when", and
+    is never deleted from, so reassigning an image away from someone leaves the
+    record that they had it intact.
+
+    `action` is 'assigned' or 'unassigned'. `actor_name` is the annotator who
+    made the change, so the owner can see who moved the work, not only that it
+    moved.
+    """
+    __tablename__ = "task_assignment_events"
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    task_id = Column(Integer, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True)
+    member_name = Column(String, nullable=False, index=True)
+    action = Column(String(16), nullable=False)
+    actor_name = Column(String, nullable=True)
+    created_at = Column(UTCDateTime, server_default=func.now(), nullable=False, index=True)
+
+
 class Label(Base):
     __tablename__ = "labels"
     id = Column(String, primary_key=True, index=True)

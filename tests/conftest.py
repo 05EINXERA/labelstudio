@@ -107,6 +107,11 @@ def clear_db():
     yield
     with SessionLocal() as db:
         db.execute(text("DELETE FROM annotations;"))
+        # Both reference tasks, so they go before it. ON DELETE CASCADE covers
+        # this in Postgres, but SQLite enforces foreign keys only when the
+        # pragma is on, so the order is what keeps the suite deterministic.
+        db.execute(text("DELETE FROM task_assignees;"))
+        db.execute(text("DELETE FROM task_assignment_events;"))
         db.execute(text("DELETE FROM tasks;"))
         db.execute(text("DELETE FROM labels;"))
         db.execute(text("DELETE FROM projects;"))

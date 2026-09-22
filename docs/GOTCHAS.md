@@ -316,3 +316,35 @@ a collision there corrupts every class index in the export.
 collisions across the whole class set and suffixes them (`AB`, `AB-2`) with a
 warning. Never re-derive a value inline with a local `.replace(...)` chain —
 that's the duplication this helper replaced, and it can't see collisions.
+
+---
+
+## 18. `tasks.assignee` is a mirror, not the assignment
+
+**Where:** `models.TaskAssignee` / `api/assignments.py`, vs the
+`tasks.assignee` column.
+
+**What happens:** an image can be assigned to several people, and to different
+people over time. The real assignment lives in `task_assignees` (a row per
+person) with every change recorded in `task_assignment_events`.
+`tasks.assignee` still exists and still holds the *primary* assignee, because
+a lot of code reads it — project access, the `?assignee=` filter, the Teams
+per-member list, the CSV/print exports, and any browser tab still running the
+previous build against the live server.
+
+So `task.assignee = name` looks like it assigns the task. It doesn't: it
+updates the mirror and leaves `task_assignees` untouched, so the task now
+reports one assignee to the exports and a different set to the permission
+checks — and the change is missing from the history entirely.
+
+**Do instead:** call `set_task_assignees(db, task, names, actor_name=...)`. It
+rewrites the rows, restamps the mirror and appends the history in one
+transaction, and returns the diff so the caller knows who is genuinely new and
+should be notified. It does not commit — the caller's `commit_with_retry`
+covers it, so assignment lands atomically with the rest of the write.
+
+**Also:** never decide "is this person allowed to edit this task" by comparing
+against `tasks.assignee`. That names only the primary, so the second assignee
+gets locked out of their own work. Read `get_assignees(db, task_id)` — this is
+what `_is_task_editor` does, and the gallery's read-only check on the frontend
+had exactly this bug against the single name.

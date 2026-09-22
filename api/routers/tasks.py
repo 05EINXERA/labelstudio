@@ -1,11 +1,14 @@
+import csv
+import io
 import json
 import logging
 import os
+import re
 import datetime
 import uuid
 from typing import Dict, Optional, List
 
-from fastapi import APIRouter, Depends, Query, HTTPException, Header
+from fastapi import APIRouter, Depends, Query, HTTPException, Header, Response
 from sqlalchemy import case, func, or_, distinct
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.orm.exc import StaleDataError
@@ -17,9 +20,13 @@ from config import IS_SQLITE
 from database import get_db, commit_with_retry, SessionLocal
 from schemas import (
     TaskUpdate, BulkDelete, BulkUpdate, TaskDetail, PaginatedTasks, TaskSequenceItem,
-    TaskMove, TaskMoveResult, TaskMoveSkip,
+    TaskMove, TaskMoveResult, TaskMoveSkip, TaskAssignmentHistory,
 )
 from api.auth import get_current_user, require_csrf, get_current_annotator
+from api.assignments import (
+    get_assignees, get_assignees_map, get_history, get_participants,
+    get_project_history, normalize_names, set_task_assignees,
+)
 from api.notifications import notify_task_assigned, notify_task_status_changed
 from api.routers.projects import (
     get_owned_project,
@@ -177,9 +184,14 @@ def _accessible_project_ids(user: models.User, db: Session, annotator: Optional[
     if team_ids:
         conditions.append(models.Project.team_id.in_(team_ids))
 
+    # task_assignees, not the tasks.assignee mirror: the mirror names only the
+    # primary assignee, so reading it would deny a second assignee access to
+    # the project holding the task they were given.
     task_pids = [
-        t[0] for t in db.query(models.Task.project_id).filter(
-            models.Task.assignee.in_(names)
+        t[0] for t in db.query(models.Task.project_id).join(
+            models.TaskAssignee, models.TaskAssignee.task_id == models.Task.id
+        ).filter(
+            models.TaskAssignee.member_name.in_(names)
         ).distinct().all()
     ]
     if task_pids:
@@ -221,14 +233,19 @@ def _creator_project_ids(user: models.User, db: Session, annotator: Optional[mod
 
 
 def _is_task_editor(task: models.Task, user: models.User, db: Session, annotator: Optional[models.TeamMember] = None) -> bool:
-    """True if the caller may edit `task` — its assignee, the owner, or a reviewer.
+    """True if the caller may edit `task` — any of its assignees, the owner, or a reviewer.
 
-    The three have equal authority over a task: the assignee owns the work
-    itself, the project owner owns everything in the project, and a reviewer is
-    appointed by the owner precisely to correct and sign off other people's
-    work. Every rule that restricts a task write is keyed on this, so an
-    unassigned task is editable by anyone with project access, and an assigned
-    one only by its assignee, the owner, or a reviewer.
+    All have equal authority over a task: an assignee owns the work itself, the
+    project owner owns everything in the project, and a reviewer is appointed by
+    the owner precisely to correct and sign off other people's work. Every rule
+    that restricts a task write is keyed on this, so an unassigned task is
+    editable by anyone with project access, and an assigned one only by its
+    assignees, the owner, or a reviewer.
+
+    A task may carry several assignees at once (see models.TaskAssignee), and
+    each one passes this check — an image handed to two people is worked by
+    both, so admitting only the primary would lock the second out of the task
+    they were given.
 
     Because the status lock also keys on this, a reviewer can move a task back
     out of a terminal status — sending finished work back for rework is the
@@ -238,8 +255,13 @@ def _is_task_editor(task: models.Task, user: models.User, db: Session, annotator
     This grants nothing destructive: deleting tasks, adding tasks and editing
     classes are gated on `is_project_creator` separately and stay owner-only.
     """
-    if annotator and task.assignee and task.assignee == annotator.name:
-        return True
+    # Any of the task's assignees, not only the primary one: a task can be held
+    # by several people at once, and each of them owns the work equally. Checked
+    # against task_assignees rather than the tasks.assignee mirror, which names
+    # only the primary and would lock every other assignee out of their own task.
+    if annotator and annotator.name:
+        if annotator.name in get_assignees(db, task.id):
+            return True
     project = db.query(models.Project).filter(models.Project.id == task.project_id).first()
     if not project:
         return False
@@ -394,11 +416,16 @@ def get_tasks(
             comment_counts[row_task_id] = comment_count
             class_counts[row_task_id] = class_count
 
+    # One query for the whole page's assignees rather than one per row: the
+    # list is already careful to stay off the N+1 path (CLAUDE.md rule 17).
+    assignees_by_task = get_assignees_map(db, task_ids)
+
     items = []
     for t in tasks:
         items.append({
-             "id": t.id, "description": t.description, "assignee": t.assignee, 
-             "image_path": t.image_path, "status": t.status, "time_spent": t.time_spent, 
+             "id": t.id, "description": t.description, "assignee": t.assignee,
+             "assignees": assignees_by_task.get(t.id, []),
+             "image_path": t.image_path, "status": t.status, "time_spent": t.time_spent,
              "updated_at": t.updated_at, "annotations": [],
              "comment_count": comment_counts.get(t.id, 0),
              "class_count": class_counts.get(t.id, 0),
@@ -443,11 +470,167 @@ def get_task(task_id: int, db: Session = Depends(get_db), user: models.User = De
         id=task.id,
         description=task.description,
         assignee=task.assignee,
+        assignees=get_assignees(db, task.id),
+        participants=get_participants(db, task.id),
         image_path=task.image_path,
         status=task.status,
         time_spent=task.time_spent,
         updated_at=task.updated_at,
         annotations=task.annotations,
+    )
+
+
+@router.get("/{task_id}/assignments", response_model=TaskAssignmentHistory)
+def get_task_assignment_history(
+    task_id: int,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+    annotator: Optional[models.TeamMember] = Depends(get_current_annotator),
+):
+    """Every assignment change on one task — who held it, when, and who moved it.
+
+    Restricted to the project owner and its appointed reviewers. The current
+    assignee set is on the task itself and everyone with project access can see
+    it; the *history* is management information — it says who was taken off a
+    task and by whom — so it follows the same authority line as the rest of the
+    owner/reviewer surface (models.ProjectReviewer).
+
+    Advisory, like every other check keyed on X-Annotator-Name: on a shared
+    login a forged header defeats it. It shapes the UI, it is not a boundary.
+    """
+    task = _get_owned_task(task_id, user, db, annotator, require_edit=False)
+    project = db.query(models.Project).filter(models.Project.id == task.project_id).first()
+    if not project or not (
+        is_project_creator(project, user, annotator)
+        or is_project_reviewer(project, user, db, annotator)
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Only the project owner or a reviewer can see assignment history.",
+        )
+    return TaskAssignmentHistory(
+        task_id=task.id,
+        assignees=get_assignees(db, task.id),
+        participants=get_participants(db, task.id),
+        events=get_history(db, task.id),
+    )
+
+
+def _assignment_csv(rows, project_name: Optional[str]) -> str:
+    """Render assignment rows as CSV text.
+
+    Built with the csv module rather than by joining strings: annotator display
+    names and image filenames are free text and do contain commas and quotes,
+    which hand-rolled quoting gets wrong. QUOTE_ALL keeps the output stable for
+    the spreadsheet software this lands in.
+    """
+    buf = io.StringIO()
+    writer = csv.writer(buf, quoting=csv.QUOTE_ALL, lineterminator="\r\n")
+    writer.writerow([
+        "Project", "Task ID", "Filename", "Annotator", "Action",
+        "Changed by", "When (UTC)", "Record type",
+    ])
+    for r in rows:
+        when = r.get("created_at")
+        writer.writerow([
+            project_name or "",
+            r.get("task_id") or "",
+            r.get("description") or "",
+            r.get("member_name") or "",
+            r.get("action") or "",
+            r.get("actor_name") or "",
+            when.isoformat() if when is not None else "",
+            r.get("source") or "event",
+        ])
+    return buf.getvalue()
+
+
+def _csv_filename(stem: str) -> str:
+    """A safe, quoted Content-Disposition filename.
+
+    Project names are free text and reach this from the database; a quote or a
+    newline in one would otherwise break out of the header. Non-ASCII is
+    dropped rather than escaped because this is only the fallback name — the
+    content is what matters.
+    """
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", stem).strip("_") or "assignments"
+    return cleaned[:80]
+
+
+@router.get("/{task_id}/assignments.csv")
+def export_task_assignment_history(
+    task_id: int,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+    annotator: Optional[models.TeamMember] = Depends(get_current_annotator),
+):
+    """One task's assignment history as a CSV download. Owner/reviewer only."""
+    task = _get_owned_task(task_id, user, db, annotator, require_edit=False)
+    project = db.query(models.Project).filter(models.Project.id == task.project_id).first()
+    if not project or not (
+        is_project_creator(project, user, annotator)
+        or is_project_reviewer(project, user, db, annotator)
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Only the project owner or a reviewer can see assignment history.",
+        )
+
+    rows = [
+        {**e, "task_id": task.id, "description": task.description, "source": "event"}
+        for e in get_history(db, task.id)
+    ]
+    if not rows:
+        # No recorded changes: fall back to who holds it now, so the file is
+        # never empty for a task that plainly has an assignee (the backfill
+        # recorded the holder but invented no events).
+        for name in get_assignees(db, task.id):
+            rows.append({
+                "task_id": task.id, "description": task.description,
+                "member_name": name, "action": "currently assigned",
+                "actor_name": None, "created_at": None, "source": "current",
+            })
+
+    csv_text = _assignment_csv(rows, project.name)
+    stem = _csv_filename(f"assignments_task_{task.id}")
+    return Response(
+        content=csv_text,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{stem}.csv"'},
+    )
+
+
+@router.get("/assignments/export.csv")
+def export_project_assignment_history(
+    projectId: int = Query(...),
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+    annotator: Optional[models.TeamMember] = Depends(get_current_annotator),
+):
+    """Every assignment change in one project as a CSV download.
+
+    Project-wide rather than per-task because that is the question the owner
+    actually asks — "who has worked on this dataset, and when did it move" —
+    and answering it one modal at a time across hundreds of images is not a
+    workflow. Owner/reviewer only, matching the per-task endpoint.
+    """
+    project = get_owned_project(projectId, user, db, annotator)
+    if not (
+        is_project_creator(project, user, annotator)
+        or is_project_reviewer(project, user, db, annotator)
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Only the project owner or a reviewer can export assignment history.",
+        )
+
+    rows = get_project_history(db, projectId)
+    csv_text = _assignment_csv(rows, project.name)
+    stem = _csv_filename(f"assignments_{project.name or projectId}")
+    return Response(
+        content=csv_text,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{stem}.csv"'},
     )
 
 
@@ -627,13 +810,43 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
             logger.info(f"Concurrent insert/update race detected on task {task.id or 'new'} (attempt {attempt+1}/5), retrying in {delay:.2f}s: {e.__class__.__name__}")
             time.sleep(delay)
 
+def _incoming_assignees(task: TaskUpdate) -> Optional[List[str]]:
+    """The assignee set this payload asks for, or None if it does not say.
+
+    Three shapes reach this, and the distinction between "empty" and "absent"
+    is what makes the feature safe to deploy to a live server:
+
+    - `assignees` present (new clients): that list, verbatim. `[]` means
+      unassign everyone, which is a real instruction.
+    - `assignees` absent but `assignee` present (older tabs running cached JS,
+      and every autosave): treated as a one-element set, or as unassign-all
+      when it is blank. Ignoring the scalar would make an old tab's assignment
+      changes silently do nothing; honouring it means the old UI keeps working
+      unchanged, at the cost of collapsing a multi-assignee task to one name —
+      which is exactly what that client believes it is doing, and it shows in
+      the history either way.
+    - Neither present: None, and assignment is left alone. This is the common
+      autosave, which must not disturb a set it knows nothing about.
+    """
+    assignees = getattr(task, "assignees", None)
+    if assignees is not None:
+        return normalize_names(assignees)
+    if task.assignee is not None:
+        name = str(task.assignee).strip()
+        return [name] if name else []
+    return None
+
+
 def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: Session, user: models.User, annotator: Optional[models.TeamMember]):
     # What actually changed in this write, for the notifications emitted after
     # the commit. Reset per attempt: the retry loop re-enters this function, and
     # a stale value here would announce a change the successful attempt did not
     # make.
     status_changed_to: Optional[str] = None
-    assigned_to: Optional[str] = None
+    # Names newly assigned by this write, not everyone the payload listed: every
+    # autosave resends the current assignee set (workspace.js syncToBackend), so
+    # only the diff is news and only the diff rings the bell.
+    assigned_to: List[str] = []
     notify_project: Optional[models.Project] = None
     # Whether this write creates a task rather than updating one. Read by the
     # project-rollup block near the end, which only needs to recompute when the
@@ -740,12 +953,22 @@ def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: 
         # every save resends the current status and assignee (workspace.js
         # syncToBackend), so comparing against the stored value is what stops
         # the bell firing on every 30s drain.
-        if task.assignee is not None and task.assignee != db_task.assignee:
-            assigned_to = task.assignee
+        #
+        # `assignees` (the list) wins over `assignee` (the legacy scalar) when
+        # both are sent. A client that knows about the list speaks it; older
+        # tabs still running cached JS send only the scalar, and on a live
+        # server those must keep working — so the scalar is read as a
+        # single-element list rather than ignored. Neither field present means
+        # the write does not touch assignment at all, which is the autosave case.
+        incoming_assignees = _incoming_assignees(task)
+        if incoming_assignees is not None:
+            result = set_task_assignees(
+                db, db_task, incoming_assignees,
+                actor_name=annotator.name if annotator else user.username,
+            )
+            assigned_to = result["added"]
         if incoming_status is not None and incoming_status != db_task.status:
             status_changed_to = incoming_status
-        if task.assignee is not None:
-            db_task.assignee = task.assignee
         if incoming_status is not None:
             db_task.status = incoming_status
         if task.description is not None:
@@ -905,17 +1128,15 @@ def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: 
             raise HTTPException(status_code=403, detail="Only the project creator can add tasks to this project.")
         db_task = models.Task(
             description=task.description,
-            assignee=task.assignee, 
-            project_id=projectId, 
-            status=task.status or "New", 
-            time_spent=task.time_spent_delta or 0, 
+            project_id=projectId,
+            status=task.status or "New",
+            time_spent=task.time_spent_delta or 0,
             updated_at=datetime.datetime.now(datetime.timezone.utc),
             last_client_id=task.client_id,
         )
-        # A task created already assigned notifies its assignee, same as one
-        # assigned later.
-        if task.assignee:
-            assigned_to = task.assignee
+        # assignee is deliberately not passed to the constructor: the mirror is
+        # written by set_task_assignees below, once the row has an id for the
+        # task_assignees rows to point at.
         if task.annotations is not None:
             try:
                 anns = json.loads(task.annotations)
@@ -967,9 +1188,19 @@ def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: 
         # durable while the retry loop re-ran the create from the top on a
         # later failure, inserting a duplicate.
         db.flush()
+        # After the flush: task_assignees.task_id is a foreign key, so the row
+        # must exist before its assignees can point at it. A task created
+        # already assigned notifies its assignees, same as one assigned later.
+        created_assignees = _incoming_assignees(task)
+        if created_assignees:
+            result = set_task_assignees(
+                db, db_task, created_assignees,
+                actor_name=annotator.name if annotator else user.username,
+            )
+            assigned_to = result["added"]
         task_id = db_task.id
         new_updated_at = db_task.updated_at
-        
+
     # Project status is derived from its tasks. It used to be written by the
     # GET /metrics endpoint; deriving it here keeps that read side-effect free
     # (CLAUDE.md rule 4 / docs/TIMER_AUDIT.md F13).
@@ -1025,10 +1256,10 @@ def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: 
             db, notify_project, db_task, status_changed_to,
             actor_name=annotator.name if annotator else user.username,
         )
-    if assigned_to:
+    for name in assigned_to:
         notify_task_assigned(
             db, db_task.id, db_task.description or f"Task {db_task.id}",
-            assigned_to, actor_name=annotator.name if annotator else user.username,
+            name, actor_name=annotator.name if annotator else user.username,
             project=notify_project,
         )
 
@@ -1094,33 +1325,58 @@ def bulk_update_tasks(payload: BulkUpdate, db: Session = Depends(get_db), user: 
 
     owned, skipped = _restrict_to_creator(payload.ids, user, db, annotator)
 
-    update_data = {}
-    if payload.assignee is not None:
-        update_data[models.Task.assignee] = payload.assignee
-    if payload.status is not None:
-        update_data[models.Task.status] = payload.status
+    # `assignees` (list) wins over `assignee` (legacy scalar) when both are
+    # sent, matching _incoming_assignees on the save path; `add_assignees` is
+    # the additive form, which is what "also give these images to X" needs and
+    # what a replacing assign cannot express.
+    incoming_assignees: Optional[List[str]] = None
+    if payload.assignees is not None:
+        incoming_assignees = normalize_names(payload.assignees)
+    elif payload.assignee is not None:
+        name = str(payload.assignee).strip()
+        incoming_assignees = [name] if name else []
+    add_assignees = normalize_names(payload.add_assignees) if payload.add_assignees else []
 
-    if update_data and owned:
-        # Read the rows the assign notification needs before the UPDATE, so the
-        # message can name each task and so tasks already assigned to this
-        # person are skipped (a re-assign to the same name is not news).
-        newly_assigned = []
-        if payload.assignee:
-            newly_assigned = [
-                (tid, desc) for (tid, desc) in db.query(models.Task.id, models.Task.description)
-                .filter(
-                    models.Task.id.in_(owned),
-                    or_(models.Task.assignee.is_(None), models.Task.assignee != payload.assignee),
-                ).all()
-            ]
+    touches_assignment = incoming_assignees is not None or bool(add_assignees)
+    changed = touches_assignment or payload.status is not None
 
-        update_data[models.Task.updated_at] = datetime.datetime.now(datetime.timezone.utc)
-        db.query(models.Task).filter(models.Task.id.in_(owned)).update(update_data, synchronize_session=False)
+    actor = annotator.name if annotator else user.username
+    newly_assigned: List[tuple] = []
+
+    if changed and owned:
+        now = datetime.datetime.now(datetime.timezone.utc)
+
+        if touches_assignment:
+            # Row by row rather than one bulk UPDATE: assignment now spans two
+            # tables (task_assignees plus the tasks.assignee mirror) and
+            # set_task_assignees has to diff each task's existing set to know
+            # what is genuinely new. A bulk UPDATE cannot do either, and
+            # splitting the write across a bulk statement and a loop would let
+            # the mirror and the table disagree. Bulk assigns are a page of
+            # tasks at a time, so the loop is bounded by what the owner
+            # selected.
+            tasks = db.query(models.Task).filter(models.Task.id.in_(owned)).all()
+            for db_task in tasks:
+                if add_assignees:
+                    target = get_assignees(db, db_task.id) + add_assignees
+                else:
+                    target = incoming_assignees
+                result = set_task_assignees(db, db_task, target, actor_name=actor)
+                for name in result["added"]:
+                    newly_assigned.append((db_task.id, db_task.description, name))
+                db_task.updated_at = now
+                if payload.status is not None:
+                    db_task.status = payload.status
+        else:
+            db.query(models.Task).filter(models.Task.id.in_(owned)).update(
+                {models.Task.status: payload.status, models.Task.updated_at: now},
+                synchronize_session=False,
+            )
+
         commit_with_retry(db)
 
         # After the commit (see api/notifications.py): the assignment is durable
         # before anyone is told about it.
-        actor = annotator.name if annotator else user.username
         # Resolved once outside the loop rather than per task: a bulk assign is
         # always within one project, and the message names it.
         notify_project = None
@@ -1131,13 +1387,13 @@ def bulk_update_tasks(payload: BulkUpdate, db: Session = Depends(get_db), user: 
                 .filter(models.Task.id == newly_assigned[0][0])
                 .first()
             )
-        for task_id, description in newly_assigned:
+        for task_id, description, name in newly_assigned:
             notify_task_assigned(
-                db, task_id, description or f"Task {task_id}", payload.assignee,
+                db, task_id, description or f"Task {task_id}", name,
                 actor_name=actor, project=notify_project,
             )
 
-    return {"status": "ok", "updated": len(owned) if update_data else 0, "skipped": skipped}
+    return {"status": "ok", "updated": len(owned) if changed else 0, "skipped": skipped}
 
 
 def _remap_labels_by_name(task_ids, target_project_id: int, db: Session):

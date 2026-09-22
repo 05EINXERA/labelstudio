@@ -13,7 +13,7 @@ import {
   canvas, ctx, backgroundImage, staticCanvas, staticCtx, stageWrap, emptyState
 } from "../dom.js?v=2";
 import { drawAllLayers } from "../canvas/draw.js?v=4";
-import { setStatus, render, restoreDraft, clearStatusHold } from "./workspace.js?v=11";
+import { setStatus, render, restoreDraft, clearStatusHold } from "./workspace.js?v=12";
 import { autoDetectObjects, preloadMagicWand, preloadDetectAndTag } from "../ai/detect.js?v=2";
 import { syncTaskTime, resetSessionForTask, refreshTimerDisplays } from "./timer.js?v=4";
 import { updateZoomDisplay } from "./zoom-control.js?v=2";
@@ -198,6 +198,7 @@ export async function switchImage(index) {
           if (detail.updated_at) item.updated_at = detail.updated_at;
           if (detail.time_spent != null) item.time_spent = detail.time_spent;
           if (detail.assignee !== undefined) item.assignee = detail.assignee;
+          if (detail.assignees !== undefined) item.assignees = detail.assignees;
           if (detail.status !== undefined) item.status = detail.status;
 
           // Mirrors _is_task_editor in api/routers/tasks.py: the assignee, the
@@ -208,8 +209,15 @@ export async function switchImage(index) {
           // same bug, since reviewing is by definition work on someone else's
           // task.
           const currentUsername = localStorage.getItem("dataset_username") || "";
-          state.isTaskAssignee = Boolean(item.assignee && item.assignee === currentUsername);
-          const readOnly = Boolean(item.assignee) &&
+          // Every assignee, not only the primary: a task can be held by several
+          // people and _is_task_editor admits all of them, so keying this on
+          // the single mirrored name would open the canvas read-only for a
+          // second assignee editing the task they were actually given.
+          const taskAssignees = Array.isArray(item.assignees) && item.assignees.length
+            ? item.assignees
+            : (item.assignee ? [item.assignee] : []);
+          state.isTaskAssignee = taskAssignees.includes(currentUsername);
+          const readOnly = taskAssignees.length > 0 &&
             !state.isTaskAssignee && !state.isProjectOwner && !state.isProjectReviewer;
           if (readOnly) {
             setStatus("⚠ Task is assigned to another user (Read-only)");

@@ -10,7 +10,7 @@ import { smoothPolygon, autoTolerance } from "../canvas/fft-smooth.js?v=2";
 import { toolAvailability } from "../feature-flags.js?v=9";
 import {
   setStatus, ensureLabel, save, render
-} from "../components/workspace.js?v=11";
+} from "../components/workspace.js?v=12";
 
 export function setDetectionBusy(isBusy) {
   detectState.detectionBusy = isBusy;

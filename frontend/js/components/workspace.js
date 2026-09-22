@@ -1059,7 +1059,21 @@ export function renderAssignee() {
   const selectEl = document.getElementById("workspaceAssignee");
   if (!selectEl) return;
   const task = currentTask();
-  const currentAssignee = task ? task.assignee : "";
+  // A task can be held by several people (see models.TaskAssignee). This
+  // control is a single select and only ever sets the *primary* assignee, so
+  // the co-assignees are surfaced beside it rather than hidden — otherwise the
+  // canvas would report an image as one person's work when two hold it.
+  const assignees = Array.isArray(task?.assignees) && task.assignees.length
+    ? task.assignees
+    : (task?.assignee ? [task.assignee] : []);
+  const currentAssignee = assignees[0] || "";
+
+  const coEl = document.getElementById("workspaceCoAssignees");
+  if (coEl) {
+    const others = assignees.slice(1);
+    coEl.textContent = others.length ? `also: ${others.join(", ")}` : "";
+    coEl.style.display = others.length ? "" : "none";
+  }
 
   // Ensure the task's current assignee is an option
   if (currentAssignee) {
@@ -1158,14 +1172,25 @@ export async function loadTeamForWorkspace(projectId) {
       if (!task || !task.id) return;
       
       const newAssignee = e.target.value;
-      task.assignee = newAssignee;
-      
+      // Replace the primary but keep the co-assignees: this control changes who
+      // leads the image, not who else is on it. Sending the scalar alone would
+      // make the server collapse the set to one name and quietly drop everybody
+      // else from a task they are still working.
+      const previous = Array.isArray(task.assignees) && task.assignees.length
+        ? task.assignees
+        : (task.assignee ? [task.assignee] : []);
+      const others = previous.slice(1).filter((n) => n !== newAssignee);
+      const nextAssignees = newAssignee ? [newAssignee, ...others] : others;
+      task.assignees = nextAssignees;
+      task.assignee = nextAssignees[0] || "";
+      renderAssignee();
+
       try {
         setStatus("Saving…");
         const res = await apiFetch(`/api/tasks/${task.id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ assignee: newAssignee })
+          body: JSON.stringify({ assignees: nextAssignees, assignee: nextAssignees[0] || "" })
         });
         if (res && res.ok) {
           setStatus("Saved");

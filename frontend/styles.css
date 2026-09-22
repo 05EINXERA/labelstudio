@@ -1394,7 +1394,7 @@ canvas {
   /* Modal */
   .modal-content {
     width: 95%;
-    max-height: 85vh;
+    max-height: 90vh;
     border-radius: 10px;
   }
 
@@ -1718,6 +1718,13 @@ canvas {
 .modal-body {
   padding: 24px;
   overflow-y: auto;
+  /* min-height:0 is what makes overflow-y actually scroll here. .modal-content
+     is a flex column capped at max-height, and a flex child defaults to
+     min-height:auto — it refuses to shrink below its content, so the body grew
+     past the cap instead of scrolling and pushed the footer (with the Save
+     button) off the bottom of the screen. Only visible on shorter viewports,
+     or once a modal gained enough content to exceed the cap. */
+  min-height: 0;
 }
 
 .modal-footer {
@@ -2946,5 +2953,38 @@ button.switch[aria-checked="true"] .switch-knob {
   }
   .sidebar .notification-wrap {
     display: block;
+  }
+}
+
+/* ─── Edit task modal on short viewports ───────────────────────────────
+   Keyed on viewport *height*, not width: the problem is vertical room, and a
+   laptop at 1366x768 hits it while a narrow tall phone does not. The image
+   preview and the two scrolling panes are the tall parts, so they give up
+   height first and the Save button stays reachable without scrolling. */
+@media (max-height: 800px) {
+  #editPreview {
+    max-height: 110px !important;
+  }
+  #editAssignee {
+    max-height: 96px;
+  }
+  #editHistory {
+    max-height: 96px !important;
+  }
+  #editModal .modal-body {
+    gap: 10px !important;
+    padding: 16px 24px;
+  }
+}
+
+@media (max-height: 620px) {
+  /* Very short: the preview is the least load-bearing thing here — the
+     filename above it already identifies the image. */
+  #editPreview {
+    display: none !important;
+  }
+  #editAssignee,
+  #editHistory {
+    max-height: 76px !important;
   }
 }

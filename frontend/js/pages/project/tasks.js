@@ -116,6 +116,7 @@ function template(isCreator) {
           <button type="button" id="exportCsvBtn" class="dropdown-item" style="background: none; border: none; padding: 10px 16px; text-align: left; width: 100%; cursor: pointer; border-top: 1px solid var(--line); color: var(--ink);">CSV File</button>
           <button type="button" id="exportXlsBtn" class="dropdown-item" style="background: none; border: none; padding: 10px 16px; text-align: left; width: 100%; cursor: pointer; border-top: 1px solid var(--line); color: var(--ink);">Excel File</button>
           <button type="button" id="exportDocBtn" class="dropdown-item" style="background: none; border: none; padding: 10px 16px; text-align: left; width: 100%; cursor: pointer; border-top: 1px solid var(--line); color: var(--ink);">DOC File</button>
+          <button type="button" id="exportAssignmentsBtn" class="dropdown-item" style="background: none; border: none; padding: 10px 16px; text-align: left; width: 100%; cursor: pointer; border-top: 1px solid var(--line); color: var(--ink);">Assignment history (CSV)</button>
         </div>
       </div>
     </div>
@@ -137,11 +138,18 @@ function template(isCreator) {
               <input type="text" id="editDescription" required style="padding:9px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink);">
             </label>
             <label style="display:grid;gap:6px;">
-              <span style="font-size:.85rem;color:var(--muted);">Assignee <span style="font-weight:400;font-style:italic;">(optional, advisory only)</span></span>
-              <select id="editAssignee" style="padding:9px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink);">
-                <option value="">Unassigned</option>
+              <span style="font-size:.85rem;color:var(--muted);">Assignees <span style="font-weight:400;font-style:italic;">(optional, advisory only — hold Ctrl to pick several)</span></span>
+              <select id="editAssignee" multiple size="5" style="padding:9px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink);">
               </select>
+              <span style="font-size:.75rem;color:var(--muted);">Select none to leave the image unassigned. The first name selected is the primary assignee.</span>
             </label>
+            <div id="editHistoryWrap" style="display:none;gap:6px;">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+                <span style="font-size:.85rem;color:var(--muted);">Assignment history</span>
+                <button type="button" id="editHistoryCsv" class="tool-button" style="padding:4px 10px;font-size:.75rem;">Download CSV</button>
+              </div>
+              <div id="editHistory" style="max-height:150px;overflow:auto;border:1px solid var(--line);border-radius:6px;padding:8px;background:var(--panel);font-size:.8rem;"></div>
+            </div>
             <label style="display:grid;gap:6px;">
               <span style="font-size:.85rem;color:var(--muted);">Status</span>
               <select id="editStatus" style="padding:9px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink);">
@@ -166,11 +174,20 @@ function template(isCreator) {
         <form id="assignForm">
           <div class="modal-body">
             <label style="display:grid;gap:6px;">
-              <span style="font-size:.85rem;color:var(--muted);">Assignee <span style="font-weight:400;font-style:italic;">(optional, advisory only)</span></span>
-              <select id="assignInput" style="padding:9px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink);">
-                <option value="">Unassigned</option>
+              <span style="font-size:.85rem;color:var(--muted);">Assignees <span style="font-weight:400;font-style:italic;">(optional, advisory only — hold Ctrl to pick several)</span></span>
+              <select id="assignInput" multiple size="5" style="padding:9px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink);">
               </select>
             </label>
+            <div style="display:grid;gap:6px;margin-top:12px;font-size:.85rem;">
+              <label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer;">
+                <input type="radio" name="assignMode" value="replace" checked style="margin-top:3px;">
+                <span>Replace — these people become the only assignees. Selecting nobody unassigns the images.</span>
+              </label>
+              <label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer;">
+                <input type="radio" name="assignMode" value="add" style="margin-top:3px;">
+                <span>Add — keep whoever is already assigned and add these people too.</span>
+              </label>
+            </div>
           </div>
           <div style="display:flex;gap:10px;justify-content:flex-end;padding:16px;">
             <button type="button" class="tool-button" id="assignCancel">Cancel</button>
@@ -545,7 +562,9 @@ async function loadTeamForTasks() {
     });
     
     const populate = (selectEl) => {
-      selectEl.innerHTML = '<option value="">Unassigned</option>';
+      // No "Unassigned" placeholder option: these are multi-selects now, and
+      // unassigned is expressed by selecting nothing rather than by a value.
+      selectEl.innerHTML = "";
       for (const [teamName, members] of Object.entries(byTeam)) {
         const group = document.createElement("optgroup");
         group.label = teamName;
@@ -577,10 +596,56 @@ async function loadTeamForTasks() {
   }
 }
 
+/** Selected values of a multi-select, in the order the options are listed.
+ *
+ * Selection order is not recorded by the DOM, so "first selected" means first
+ * in the list. The server treats index 0 as the primary assignee, so this is
+ * what decides which name the tasks.assignee mirror carries.
+ */
+function selectedNames(selectEl) {
+  if (!selectEl) return [];
+  return Array.from(selectEl.selectedOptions)
+    .map((o) => o.value)
+    .filter(Boolean);
+}
+
+/** The task's assignee set, tolerating a row that predates multi-assignment.
+ *
+ * The list endpoint sends `assignees`, but a cached page or a response served
+ * mid-deploy may carry only the legacy scalar. Falling back keeps the modal
+ * correct rather than showing an image as unassigned because one field is
+ * missing.
+ */
+function assigneesOf(task) {
+  if (Array.isArray(task?.assignees) && task.assignees.length) return task.assignees;
+  return task?.assignee ? [task.assignee] : [];
+}
+
 function openEditModal(task) {
   el("editId").value = task.id;
   el("editDescription").value = task.description || "";
-  el("editAssignee").value = task.assignee || "";
+
+  const current = assigneesOf(task);
+  const assigneeSelect = el("editAssignee");
+  // A name still on the task but no longer on the roster (member removed, or a
+  // project reassigned to another team) has no option to select, so it would
+  // silently drop off the task on the next save. Re-adding it keeps the save
+  // non-destructive and shows the owner who is actually on the image.
+  current.forEach((name) => {
+    if (!assigneeSelect.querySelector(`option[value="${CSS.escape(name)}"]`)) {
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = `${name} (not on this team)`;
+      assigneeSelect.appendChild(opt);
+    }
+  });
+  const selected = new Set(current);
+  Array.from(assigneeSelect.options).forEach((opt) => {
+    opt.selected = selected.has(opt.value);
+  });
+
+  loadAssignmentHistory(task.id);
+
   const statusSelect = el("editStatus");
   statusSelect.value = task.status || "New";
 
@@ -592,13 +657,15 @@ function openEditModal(task) {
   // status frozen.
   const isOwner = Boolean(ctx?.project?.is_owner);
   const isReviewer = Boolean(ctx?.project?.is_reviewer);
-  const isAssignee = Boolean(task.assignee) &&
-    task.assignee === (localStorage.getItem("dataset_username") || "");
+  // Any assignee, not just the primary: a task held by two people is worked by
+  // both, and _is_task_editor on the backend admits all of them.
+  const me = localStorage.getItem("dataset_username") || "";
+  const isAssignee = current.includes(me);
   const statusIsLocked =
     LOCKED_STATUSES.has(task.status) && !isOwner && !isReviewer && !isAssignee;
   statusSelect.disabled = statusIsLocked;
   statusSelect.title = statusIsLocked
-    ? `Only ${task.assignee}, the project owner or a reviewer can change the status of a ${task.status} task.`
+    ? `Only ${current.join(", ") || "an assignee"}, the project owner or a reviewer can change the status of a ${task.status} task.`
     : "";
 
   const preview = el("editPreview");
@@ -611,11 +678,125 @@ function openEditModal(task) {
   el("editModal").classList.add("is-active");
 }
 
+/** Fill the assignment-history panel, or hide it if this caller may not see it.
+ *
+ * The endpoint is owner/reviewer-only and answers 403 to everyone else, which
+ * is the normal case for an annotator rather than an error — so a 403 hides
+ * the panel silently instead of raising. Rendered from the response only, so
+ * an annotator who forges their way to the markup still gets no data.
+ */
+async function loadAssignmentHistory(taskId) {
+  const wrap = el("editHistoryWrap");
+  const body = el("editHistory");
+  if (!wrap || !body) return;
+  wrap.style.display = "none";
+  body.innerHTML = "";
+  try {
+    const res = await apiFetch(`/api/tasks/${encodeURIComponent(taskId)}/assignments`);
+    if (!res || !res.ok) return;
+    const data = await res.json();
+
+    const rows = [];
+    if (data.participants?.length) {
+      rows.push(
+        `<div style="margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--line);">` +
+        `<span style="color:var(--muted);">Everyone who has worked on this image: </span>` +
+        data.participants.map((n) => escapeHTML(n)).join(", ") +
+        `</div>`
+      );
+    }
+    if (!data.events?.length) {
+      // Backfilled tasks have a current assignee but no recorded events
+      // (migration d7a1b93c5e42 invents none). Saying so is honest; an empty
+      // panel would read as "nobody was ever assigned".
+      rows.push(
+        `<div style="color:var(--muted);">No assignment changes recorded yet.</div>`
+      );
+    } else {
+      data.events.forEach((e) => {
+        const when = e.created_at ? new Date(e.created_at).toLocaleString() : "";
+        const verb = e.action === "assigned" ? "assigned to" : "removed from";
+        const colour = e.action === "assigned" ? "var(--accent)" : "#ef4444";
+        const by = e.actor_name ? ` by ${escapeHTML(e.actor_name)}` : "";
+        rows.push(
+          `<div style="display:flex;justify-content:space-between;gap:10px;padding:3px 0;">` +
+          `<span><span style="color:${colour};">${verb}</span> ` +
+          `<strong>${escapeHTML(e.member_name)}</strong>${by}</span>` +
+          `<span style="color:var(--muted);white-space:nowrap;">${escapeHTML(when)}</span>` +
+          `</div>`
+        );
+      });
+    }
+    body.innerHTML = rows.join("");
+    wrap.style.display = "grid";
+  } catch (err) {
+    // A failed history read must not stop the owner editing the task.
+    console.error("Failed to load assignment history", err);
+  }
+}
+
+/** Download an authenticated CSV endpoint as a file.
+ *
+ * Fetched through apiFetch and saved as a blob rather than pointed at with a
+ * plain <a href>: these endpoints require the session cookie *and* fail with a
+ * JSON 403 for a non-owner. A bare link would hand the browser that JSON and
+ * save it as a ".csv", so the error would arrive as a corrupt download rather
+ * than a message.
+ */
+async function downloadCsv(url, fallbackName, btn) {
+  const original = btn ? btn.textContent : null;
+  if (btn) { btn.textContent = "Preparing…"; btn.disabled = true; }
+  try {
+    const res = await apiFetch(url);
+    if (!res) return;
+    if (!res.ok) {
+      showError(
+        res.status === 403
+          ? "Only the project owner or a reviewer can export assignment history."
+          : `Could not export the assignment history (${res.status}).`
+      );
+      return;
+    }
+    // Prefer the filename the server chose; it names the project.
+    let name = fallbackName;
+    const disposition = res.headers.get("Content-Disposition") || "";
+    const match = /filename="?([^";]+)"?/i.exec(disposition);
+    if (match) name = match[1];
+
+    const blob = await res.blob();
+    const href = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = href;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(href);
+  } catch (err) {
+    console.error("CSV export failed", err);
+    showError("Could not export the assignment history.");
+  } finally {
+    if (btn) { btn.textContent = original; btn.disabled = false; }
+  }
+}
+
 function closeEditModal() {
   el("editModal").classList.remove("is-active");
 }
 
 function bindEditModal() {
+  const csvBtn = el("editHistoryCsv");
+  if (csvBtn) {
+    csvBtn.addEventListener("click", () => {
+      const id = el("editId").value;
+      if (!id) return;
+      downloadCsv(
+        `/api/tasks/${encodeURIComponent(id)}/assignments.csv`,
+        `assignments_task_${id}.csv`,
+        csvBtn
+      );
+    });
+  }
   el("editClose").addEventListener("click", closeEditModal);
   el("editCancel").addEventListener("click", closeEditModal);
   el("editModal").addEventListener("click", (e) => { if (e.target === el("editModal")) closeEditModal(); });
@@ -629,7 +810,11 @@ function bindEditModal() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           description: el("editDescription").value,
-          assignee: el("editAssignee").value,
+          // `assignees` (the list) is what the server reads; the scalar is sent
+          // alongside only so a mid-deploy server still running the previous
+          // build applies the primary rather than ignoring the change.
+          assignees: selectedNames(el("editAssignee")),
+          assignee: selectedNames(el("editAssignee"))[0] || "",
           status: el("editStatus").value,
         }),
       });
@@ -800,7 +985,9 @@ function bindBulkActions() {
 
   assignBtn.addEventListener("click", () => {
     if (table.getSelection().size === 0) return;
-    el("assignInput").value = "";
+    Array.from(el("assignInput").options).forEach((o) => { o.selected = false; });
+    const replaceRadio = document.querySelector('input[name="assignMode"][value="replace"]');
+    if (replaceRadio) replaceRadio.checked = true;
     el("assignModal").classList.add("is-active");
   });
   el("assignClose").addEventListener("click", () => el("assignModal").classList.remove("is-active"));
@@ -813,11 +1000,25 @@ function bindBulkActions() {
     e.preventDefault();
     const ids = [...table.getSelection()];
     if (!ids.length) return;
+    const names = selectedNames(el("assignInput"));
+    const mode = document.querySelector('input[name="assignMode"]:checked')?.value || "replace";
+    if (mode === "add" && !names.length) {
+      showError("Pick at least one person to add, or switch to Replace to unassign.");
+      return;
+    }
     try {
       const res = await apiFetch("/api/tasks/bulk-update", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids, assignee: el("assignInput").value.trim() }),
+        // "add" keeps whoever is already on each image and appends; "replace"
+        // makes this the whole set, so selecting nobody unassigns. The two
+        // cannot be expressed by one field, and doing the add as a
+        // read-modify-write here would race anyone else assigning concurrently.
+        body: JSON.stringify(
+          mode === "add"
+            ? { ids, add_assignees: names }
+            : { ids, assignees: names, assignee: names[0] || "" }
+        ),
       });
       if (!res) return;
       if (!res.ok) {
@@ -882,17 +1083,29 @@ export async function mount(hostRoot, hostCtx) {
       },
       { key: "description", label: "Filename", render: (r) => `<a href="app.html?projectId=${encodeURIComponent(ctx.projectId)}&taskId=${encodeURIComponent(r.id)}" style="max-width:320px;display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle;color:var(--accent);text-decoration:none;cursor:pointer;transition:color 0.2s ease;" onmouseover="this.style.color='var(--accent-dark)';this.style.textDecoration='underline'" onmouseout="this.style.color='var(--accent)';this.style.textDecoration='none'" title="${escapeHTML(r.description || '')}">${escapeHTML(r.description || "")}</a>` },
       {
-        key: "assignee", label: "Assignee",
+        key: "assignee", label: "Assignees",
         render: (r) => {
-          if (!r.assignee) return `<span style="color:var(--muted);">—</span>`;
+          // An image can be held by several people at once, so every name is
+          // listed rather than just the primary — the owner asked to see all
+          // of them, and showing one would misreport who is on the work.
+          const names = assigneesOf(r);
+          if (!names.length) return `<span style="color:var(--muted);">—</span>`;
           // A reviewer badge here answers "can this person sign off my work"
           // on the row where the question comes up. Reviewers are per-project,
           // so the list comes from the project rather than the team member.
           const reviewers = ctx?.project?.reviewers || [];
-          const badge = reviewers.includes(r.assignee)
-            ? ` <span title="Appointed reviewer for this project" style="font-size:.7rem;padding:1px 6px;border-radius:10px;background:rgba(15,139,141,.15);color:var(--accent);white-space:nowrap;vertical-align:middle;">Reviewer</span>`
-            : "";
-          return escapeHTML(r.assignee) + badge;
+          return names.map((name, i) => {
+            const badge = reviewers.includes(name)
+              ? ` <span title="Appointed reviewer for this project" style="font-size:.7rem;padding:1px 6px;border-radius:10px;background:rgba(15,139,141,.15);color:var(--accent);white-space:nowrap;vertical-align:middle;">Reviewer</span>`
+              : "";
+            // The primary is the one the rest of the app still keys on (the
+            // tasks.assignee mirror), so it is marked rather than left
+            // indistinguishable from the others.
+            const primary = i === 0 && names.length > 1
+              ? ` <span title="Primary assignee" style="color:var(--muted);font-size:.7rem;">(primary)</span>`
+              : "";
+            return escapeHTML(name) + badge + primary;
+          }).join(`<span style="color:var(--muted);">, </span>`);
         },
       },
       {
@@ -991,6 +1204,17 @@ export async function mount(hostRoot, hostCtx) {
       return data.items;
     }
 
+    el("exportAssignmentsBtn").addEventListener("click", () => {
+      const btn = el("exportAssignmentsBtn");
+      const menu = el("exportMenuContent");
+      if (menu) menu.style.display = "none";
+      downloadCsv(
+        `/api/tasks/assignments/export.csv?projectId=${encodeURIComponent(ctx.projectId)}`,
+        `assignments_${ctx.projectId}.csv`,
+        btn
+      );
+    });
+
     el("exportCsvBtn").addEventListener("click", async () => {
       try {
         const btn = el("exportCsvBtn");
@@ -1004,7 +1228,7 @@ export async function mount(hostRoot, hostCtx) {
           const c = countAnnotations(t);
           return [
             t.description || "",
-            t.assignee || "",
+            assigneesOf(t).join(", "),
             t.status || "",
             t.updated_at || "",
             c.classes,
@@ -1040,7 +1264,7 @@ export async function mount(hostRoot, hostCtx) {
         const headers = ["Filename", "Assignee", "Status", "Updated", "Classes", "Comments"];
         const rows = tasks.map(t => {
           const c = countAnnotations(t);
-          return `<tr><td>${escapeHTML(t.description || "")}</td><td>${escapeHTML(t.assignee || "")}</td><td>${escapeHTML(t.status || "")}</td><td>${escapeHTML(t.updated_at || "")}</td><td>${c.classes}</td><td>${c.comments}</td></tr>`;
+          return `<tr><td>${escapeHTML(t.description || "")}</td><td>${escapeHTML(assigneesOf(t).join(", "))}</td><td>${escapeHTML(t.status || "")}</td><td>${escapeHTML(t.updated_at || "")}</td><td>${c.classes}</td><td>${c.comments}</td></tr>`;
         });
         
         const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
@@ -1074,7 +1298,7 @@ export async function mount(hostRoot, hostCtx) {
         const headers = ["Filename", "Assignee", "Status", "Updated", "Classes", "Comments"];
         const rows = tasks.map(t => {
           const c = countAnnotations(t);
-          return `<tr><td>${escapeHTML(t.description || "")}</td><td>${escapeHTML(t.assignee || "")}</td><td>${escapeHTML(t.status || "")}</td><td>${escapeHTML(t.updated_at || "")}</td><td>${c.classes}</td><td>${c.comments}</td></tr>`;
+          return `<tr><td>${escapeHTML(t.description || "")}</td><td>${escapeHTML(assigneesOf(t).join(", "))}</td><td>${escapeHTML(t.status || "")}</td><td>${escapeHTML(t.updated_at || "")}</td><td>${c.classes}</td><td>${c.comments}</td></tr>`;
         });
         
         const html = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>

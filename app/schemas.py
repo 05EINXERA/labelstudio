@@ -75,7 +75,15 @@ class ProjectTransferOwnership(BaseModel):
 
 class TaskUpdate(BaseModel):
     id: Optional[int] = None
+    # The primary assignee, kept for clients that predate multi-assignment
+    # (older tabs running cached JS against the live server still send only
+    # this). `assignees` wins when both are present; see _incoming_assignees in
+    # api/routers/tasks.py.
     assignee: Optional[str] = None
+    # The full assignee set. An empty list means unassign everyone, which is a
+    # real instruction; omitting the field entirely leaves assignment alone,
+    # which is what an autosave does.
+    assignees: Optional[List[str]] = None
     status: Optional[str] = None
     description: Optional[str] = None
     time_spent_delta: Optional[int] = Field(0, ge=0, le=MAX_TIME_DELTA_SECONDS)
@@ -139,7 +147,14 @@ class BulkDelete(BaseModel):
 
 class BulkUpdate(BaseModel):
     ids: List[int]
+    # Legacy single-assignee form: replaces the whole set with this one name.
     assignee: Optional[str] = None
+    # Replace each task's assignee set with exactly these names.
+    assignees: Optional[List[str]] = None
+    # Add these names to each task's existing set, keeping who is already on it.
+    # "Also give these images to X" cannot be expressed by a replacing assign,
+    # and doing it as a read-modify-write in the client would race other writers.
+    add_assignees: Optional[List[str]] = None
     status: Optional[str] = None
 
 class TaskMoveSkip(BaseModel):
@@ -463,6 +478,31 @@ class ExportJobStatus(BaseModel):
     task_count: Optional[int] = None
 
 
+class AssignmentEvent(BaseModel):
+    """One entry in a task's assignment history."""
+    model_config = {"from_attributes": True}
+    member_name: str
+    # 'assigned' | 'unassigned'
+    action: str
+    # Who made the change; None for rows whose actor was not recorded.
+    actor_name: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+
+class TaskAssignmentHistory(BaseModel):
+    """Who holds a task now, who has ever held it, and every change between.
+
+    `events` is empty for a task assigned before the history table shipped and
+    never reassigned since (migration d7a1b93c5e42 backfills the assignee but
+    deliberately invents no event). The UI distinguishes that from "never
+    assigned" rather than showing a misleading blank.
+    """
+    task_id: int
+    assignees: List[str] = Field(default_factory=list)
+    participants: List[str] = Field(default_factory=list)
+    events: List[AssignmentEvent] = Field(default_factory=list)
+
+
 class TaskDetail(BaseModel):
     """Single-task response for GET /api/tasks/{id} — includes annotations.
 
@@ -474,7 +514,13 @@ class TaskDetail(BaseModel):
 
     id: int
     description: Optional[str] = None
+    # Primary assignee; mirrors assignees[0]. Kept so older clients keep working.
     assignee: Optional[str] = None
+    # Everyone currently assigned, primary first.
+    assignees: List[str] = Field(default_factory=list)
+    # Everyone who has ever held this task, current assignees first. This is
+    # what answers "who has worked on this image" for the project owner.
+    participants: List[str] = Field(default_factory=list)
     image_path: Optional[str] = None
     status: Optional[str] = None
     time_spent: Optional[int] = None
@@ -525,7 +571,10 @@ class TaskListItem(BaseModel):
     model_config = {"from_attributes": True}
     id: int
     description: Optional[str] = None
+    # Primary assignee; mirrors assignees[0]. Kept so older clients keep working.
     assignee: Optional[str] = None
+    # Everyone currently assigned, primary first.
+    assignees: List[str] = Field(default_factory=list)
     image_path: Optional[str] = None
     status: Optional[str] = None
     time_spent: Optional[int] = None

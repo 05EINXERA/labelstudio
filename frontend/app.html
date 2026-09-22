@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Image Annotation</title>
   <link rel="icon" type="image/png" href="logo.png">
-  <link rel="stylesheet" href="styles.css?v=29">
+  <link rel="stylesheet" href="styles.css?v=30">
   <link rel="modulepreload" href="js/init.js?v=12">
   <!-- sync.js (legacy global annotation-slot sync to /api/data) removed in T3.1.
        Under a shared account the 'image-annotation-mvp-v1' row was last-writer-wins
@@ -87,9 +87,13 @@
     <div class="top-nav-right">
       <div class="image-nav" style="display: flex; align-items: center; gap: 12px;">
         <span class="status-pill" id="saveStatus" style="margin: 0 8px;">Saved</span>
-        <select id="workspaceAssignee" style="border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 2px 4px; border-radius: 6px; font-size: 12px; cursor: pointer; max-width: 120px; text-overflow: ellipsis;" title="Task Assignee">
+        <select id="workspaceAssignee" style="border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 2px 4px; border-radius: 6px; font-size: 12px; cursor: pointer; max-width: 120px; text-overflow: ellipsis;" title="Primary assignee — this image may also be assigned to others">
           <option value="">Unassigned</option>
         </select>
+        <!-- The select above sets only the primary assignee. An image can be
+             held by several people, so the rest are named here rather than
+             left invisible. Filled by renderAssignee() in workspace.js. -->
+        <span id="workspaceCoAssignees" style="display: none; font-size: 11px; color: var(--muted); white-space: nowrap; max-width: 160px; overflow: hidden; text-overflow: ellipsis;" title="Also assigned to this image"></span>
         <div style="display: flex; align-items: center; gap: 8px;">
           <button class="icon-button" id="prevImageButton" type="button" disabled title="Previous image">&lt;</button>
           <span id="galleryPosition" class="gallery-position">0 / 0</span>

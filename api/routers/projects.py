@@ -30,6 +30,7 @@ from schemas import (
     ProjectTransferOwnership,
 )
 from api.auth import get_current_user, require_csrf, get_current_annotator
+from api.assignments import set_task_assignees
 from app import image_inventory, image_inventory_xlsx
 from formats.common import measure_image
 
@@ -69,11 +70,17 @@ def get_owned_project(project_id: int, user: models.User, db: Session, annotator
     if team_ids:
         conditions.append(models.Project.team_id.in_(team_ids))
 
-    # Also allow access if the user has an assigned task in this project
+    # Also allow access if the user has an assigned task in this project.
+    # Joined against task_assignees, not the tasks.assignee mirror: a task can
+    # carry several assignees and the mirror names only the primary, so reading
+    # the mirror would lock every non-primary assignee out of the project their
+    # own task lives in.
     task_pids = [
-        t[0] for t in db.query(models.Task.project_id).filter(
+        t[0] for t in db.query(models.Task.project_id).join(
+            models.TaskAssignee, models.TaskAssignee.task_id == models.Task.id
+        ).filter(
             models.Task.project_id == project_id,
-            models.Task.assignee.in_(names)
+            models.TaskAssignee.member_name.in_(names)
         ).all()
     ]
     if task_pids:
@@ -279,10 +286,13 @@ def get_projects(db: Session = Depends(get_db), user: models.User = Depends(get_
     if team_ids:
         conditions.append(models.Project.team_id.in_(team_ids))
 
+    # task_assignees, not the mirror: see the comment in get_owned_project.
     task_pids = [
-        t[0] for t in db.query(models.Task.project_id).filter(
-            models.Task.assignee.in_(names)
-        ).all()
+        t[0] for t in db.query(models.Task.project_id).join(
+            models.TaskAssignee, models.TaskAssignee.task_id == models.Task.id
+        ).filter(
+            models.TaskAssignee.member_name.in_(names)
+        ).distinct().all()
     ]
     if task_pids:
         conditions.append(models.Project.id.in_(task_pids))
@@ -642,6 +652,8 @@ def upload_files(
     uploaded = []
     failed = []
     skipped = []
+    # Held so the assignee rows can be written after one flush gives them ids.
+    created_tasks = []
     seen_in_batch = set()
 
     for f in file:
@@ -667,12 +679,26 @@ def upload_files(
         # already wrote the file.
         width, height = measure_image(os.path.join(DATA_DIR, *db_filepath.split("/")))
 
-        db.add(models.Task(
+        new_task = models.Task(
             project_id=project_id, image_path=db_filepath,
-            description=f.filename, status='New', assignee=assignee,
+            description=f.filename, status='New',
             image_width=width, image_height=height,
-        ))
+        )
+        # assignee is not passed to the constructor: set_task_assignees writes
+        # both the task_assignees rows and the tasks.assignee mirror, and it is
+        # the only thing allowed to write either (see api/assignments.py).
+        db.add(new_task)
+        created_tasks.append(new_task)
         uploaded.append({"filename": f.filename, "path": db_filepath})
+
+    # One flush for the whole batch, before the assignee rows that reference
+    # these ids by foreign key. An upload of several hundred images is a single
+    # transaction, so this stays one round trip rather than one per file.
+    if created_tasks and assignee and assignee.strip():
+        db.flush()
+        actor = annotator.name if annotator else user.username
+        for new_task in created_tasks:
+            set_task_assignees(db, new_task, [assignee], actor_name=actor)
 
     commit_with_retry(db)
     return {
