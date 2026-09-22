@@ -92,7 +92,13 @@ function lastSeenCell(row) {
     return `${time} <span class="muted">logged out</span>`;
   }
   if (row.last_seen_reason === "open") {
-    return `${time} <span class="badge badge-live">still here</span>`;
+    // Mirrors pages/attendance.js, per the note above: your own row and the
+    // admin's view of it must not describe the same moment differently. It
+    // doubles as the reminder to press End Break.
+    const onBreak = row.break_in_progress
+      ? ` <span class="badge badge-break" title="You are on a declared break right now. Press End Break when you get back.">on break</span>`
+      : "";
+    return `${time} <span class="badge badge-live">still here</span>${onBreak}`;
   }
   return `${time} <span class="muted" title="The tab was closed without logging out. This is the last moment you were seen, not when you left.">ended by timeout</span>`;
 }

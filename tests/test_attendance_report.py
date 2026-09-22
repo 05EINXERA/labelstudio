@@ -545,6 +545,76 @@ def test_summarise_day_surfaces_an_unended_break():
     assert day["has_unended_break"] is True
 
 
+def test_break_in_progress_is_true_only_while_a_break_is_running():
+    """Drives the "on break" pill beside "still here".
+
+    Distinct from `has_unended_break`, which stays true all day for a break
+    nobody ended. This one is a claim about *right now*.
+    """
+    rows = [obs(0), obs(2), obs(5, kind=KIND_BREAK_START), obs(6)]
+    now = datetime(2026, 9, 1, 9, 8, tzinfo=timezone.utc)
+    day = report.summarise_day(rows, date(2026, 9, 1), now=now)
+    assert day["break_in_progress"] is True
+    assert day["end_reason"] == report.END_OPEN
+
+
+def test_break_in_progress_is_false_once_the_break_is_ended():
+    rows = [
+        obs(0),
+        obs(5, kind=KIND_BREAK_START),
+        obs(12, kind=KIND_BREAK_END),
+        obs(13),
+    ]
+    now = datetime(2026, 9, 1, 9, 14, tzinfo=timezone.utc)
+    day = report.summarise_day(rows, date(2026, 9, 1), now=now)
+    assert day["break_in_progress"] is False
+    assert day["break_seconds"] == 7 * 60
+
+
+def test_break_in_progress_is_false_for_a_finished_day():
+    """A past day can never be "on break": nobody is on it now."""
+    rows = [obs(0), obs(2), obs(5, kind=KIND_BREAK_START)]
+    much_later = datetime(2026, 9, 1, 18, 0, tzinfo=timezone.utc)
+    day = report.summarise_day(rows, date(2026, 9, 1), now=much_later)
+    assert day["break_in_progress"] is False
+    assert day["has_unended_break"] is True, (
+        "the break is still unended — only the live claim is dropped"
+    )
+
+
+def test_break_in_progress_is_dropped_after_break_live_max():
+    """A break nobody has confirmed for hours stops claiming they are on it.
+
+    The accounting keeps counting it (that is the honest record of an interval
+    nobody closed), but the present-tense pill stops asserting the annotator is
+    sitting there when they may have gone home.
+    """
+    rows = [obs(0), obs(2), obs(5, kind=KIND_BREAK_START), obs(6)]
+    over = report.BREAK_LIVE_MAX + timedelta(minutes=10)
+    now = rows[2]["seen_at"] + over
+
+    day = report.summarise_day(rows, date(2026, 9, 1), now=now)
+    assert day["break_in_progress"] is False
+    assert day["break_seconds"] >= int(over.total_seconds()) - 60, (
+        "the break must still accrue; only the live claim is bounded"
+    )
+
+    # Just inside the window it is still live.
+    still_live = rows[2]["seen_at"] + report.BREAK_LIVE_MAX - timedelta(minutes=1)
+    assert report.summarise_day(
+        rows, date(2026, 9, 1), now=still_live
+    )["break_in_progress"] is True
+
+
+def test_break_in_progress_is_false_when_they_logged_out_on_a_break():
+    """A stated end wins: they are gone, whatever the break says."""
+    rows = [obs(0), obs(5, kind=KIND_BREAK_START), obs(7, kind=KIND_LOGOUT)]
+    now = datetime(2026, 9, 1, 9, 9, tzinfo=timezone.utc)
+    day = report.summarise_day(rows, date(2026, 9, 1), now=now)
+    assert day["break_in_progress"] is False
+    assert day["end_reason"] == report.END_LOGOUT
+
+
 def test_a_day_summary_is_unaffected_by_input_order():
     """Rows arrive from two sources (the table and the live buffer)."""
     rows = [obs(0), obs(1, task_id=1), obs(2, kind=KIND_LOGOUT)]

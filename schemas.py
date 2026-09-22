@@ -930,6 +930,11 @@ class AttendanceRow(BaseModel):
     tasks_touched: int
     tasks_reviewed: int
     has_unended_break: bool = False
+    # True only while a declared break is running *right now*, which is why it
+    # is distinct from `has_unended_break`: that one stays true all day for a
+    # break nobody ended. Meaningful only when `last_seen_reason == "open"`,
+    # and always false for a past date.
+    break_in_progress: bool = False
 
 
 class AttendanceDayResponse(BaseModel):

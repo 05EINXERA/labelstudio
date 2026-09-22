@@ -85,6 +85,21 @@ IDLE_GAP = timedelta(minutes=5)
 # closed at the break start, the last moment there is evidence of presence.
 MAX_BREAK = timedelta(hours=4)
 
+# How long a running break may go unconfirmed before the live "on break" pill
+# stops claiming the annotator is on it.
+#
+# This bounds a *display* claim, not the accounting, and the two want different
+# answers. The break keeps accruing up to MAX_BREAK either way — that is the
+# honest record of an interval nobody closed. But "on break" in the present
+# tense is a statement about right now, and after a long silence the only
+# truthful thing to say is that we do not know: they may be at lunch, or they
+# may have shut the laptop an hour ago. The pill drops off and the row reads as
+# an ordinary unended break, which is what the evidence actually supports.
+#
+# 45 minutes covers a meal with room to spare while keeping a stale claim off
+# the admin's screen for the rest of the afternoon.
+BREAK_LIVE_MAX = timedelta(minutes=45)
+
 # How a session ended. `open` is not a state a stored row keeps — it is what a
 # session looks like when read while still running.
 END_LOGOUT = "logout"
@@ -326,6 +341,15 @@ def _close_break(open_break: dict, ended_at: datetime) -> dict:
 
 def _close_session(session: dict, ended_at: datetime, end_reason: str) -> dict:
     breaks = list(session["breaks"])
+    # Whether a break was still running when we read. Captured before the
+    # open break is folded into `breaks` below, because afterwards an
+    # in-progress break and one abandoned hours ago look identical — both are
+    # flagged `ended: False`. Only a session that is itself still open can
+    # carry a break that is still running; on any other session the break is
+    # over, whatever it says, because the person is gone.
+    break_in_progress = (
+        session["open_break"] is not None and end_reason == END_OPEN
+    )
 
     if session["open_break"] is not None:
         # An unended break — the feature's founding problem reappearing inside
@@ -358,6 +382,7 @@ def _close_session(session: dict, ended_at: datetime, end_reason: str) -> dict:
         "observations": session["observations"],
         "active_observations": session["active_observations"],
         "has_unended_break": any(not b["ended"] for b in breaks),
+        "break_in_progress": break_in_progress,
     }
 
 
@@ -381,6 +406,24 @@ def active_seconds(sessions, throttle_seconds=None) -> int:
         # Never credit more active time than the session actually spans.
         total += min(session["active_observations"] * window, session["span_seconds"])
     return total
+
+
+def _break_is_live(session: dict, now=None) -> bool:
+    """Whether to claim, in the present tense, that this session is on a break.
+
+    Narrower than `session["break_in_progress"]`, which only says a break was
+    open when the session was closed. A break nobody has confirmed for longer
+    than BREAK_LIVE_MAX stops being a live claim: the accounting still counts
+    it, but the pill no longer asserts the annotator is sitting there.
+    """
+    if not session.get("break_in_progress"):
+        return False
+    running = [b for b in session["breaks"] if not b["ended"]]
+    if not running:
+        return False
+    started_at = min(b["started_at"] for b in running)
+    now = now or datetime.now(timezone.utc)
+    return now - started_at < BREAK_LIVE_MAX
 
 
 def summarise_day(observations, local_date, now=None, reviews=0) -> dict:
@@ -413,6 +456,11 @@ def summarise_day(observations, local_date, now=None, reviews=0) -> dict:
         "tasks_touched": len(task_ids),
         "tasks_reviewed": reviews,
         "has_unended_break": any(s["has_unended_break"] for s in sessions),
+        # Read from the last session only: an earlier one cannot still be on a
+        # break, because something was observed after it. Drives the "on break"
+        # pill beside "still here", and is dropped once the break has run
+        # longer than BREAK_LIVE_MAX without confirmation — see the constant.
+        "break_in_progress": _break_is_live(last, now),
         "sessions": sessions,
     }
 

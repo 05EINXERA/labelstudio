@@ -3223,8 +3223,8 @@ body.is-read-only #deleteButton {
 }
 
 /* "still here" — an open session, i.e. the person was seen within IDLE_GAP.
-   Deliberately the only badge on the page with a colour: everything else is a
-   fact about the past, this is the one live state. */
+   Colour is reserved for live state on this page: everything else in the table
+   is a fact about the past, and only these two badges describe right now. */
 .badge-live {
   padding: 2px 8px;
   border-radius: 999px;
@@ -3232,6 +3232,20 @@ body.is-read-only #deleteButton {
   font-weight: 600;
   background: var(--ok-bg, #14532d);
   color: var(--ok-fg, #bbf7d0);
+}
+
+/* "on break" — a declared break running right now, shown beside "still here"
+   rather than instead of it: the annotator is still present, and the break is
+   a qualifier on that presence, not a different state. Amber so the two read
+   as distinct at a glance without either looking like an error. */
+.badge-break {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  margin-left: 4px;
+  background: var(--warn-bg, #78350f);
+  color: var(--warn-fg, #fde68a);
 }
 
 /* The session breakdown inside the popup. */

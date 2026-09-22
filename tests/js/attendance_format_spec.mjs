@@ -101,6 +101,42 @@ ok('both markers can appear together',
 ok('the manual marker is provenance, not an accusation',
    !breakMarkers({ manual_break_seconds: 900 }).join(' ').match(/suspect|invalid|unverified/i));
 
+// --- the live-state pills ----------------------------------------------------
+//
+// "on break" sits BESIDE "still here", never instead of it: a declared break
+// does not end the session, so the annotator is still present and the break
+// qualifies that presence rather than replacing it. Rendering them as
+// alternatives would say someone on a break had left.
+
+function livePills(row) {
+  const pills = [];
+  if (row.last_seen_reason === 'open') {
+    pills.push('still here');
+    if (row.break_in_progress) pills.push('on break');
+  }
+  return pills;
+}
+
+ok('an open session with no break shows only "still here"',
+   JSON.stringify(livePills({ last_seen_reason: 'open' })) ===
+   JSON.stringify(['still here']));
+
+ok('a live break shows BOTH pills, side by side',
+   JSON.stringify(livePills({ last_seen_reason: 'open', break_in_progress: true })) ===
+   JSON.stringify(['still here', 'on break']));
+
+ok('"on break" never replaces "still here"',
+   livePills({ last_seen_reason: 'open', break_in_progress: true })
+     .includes('still here'));
+
+ok('a closed session shows no live pill even if a break flag lingers',
+   livePills({ last_seen_reason: 'timeout', break_in_progress: true }).length === 0 &&
+   livePills({ last_seen_reason: 'logout', break_in_progress: true }).length === 0);
+
+ok('break_in_progress is independent of has_unended_break',
+   livePills({ last_seen_reason: 'open', has_unended_break: true }).length === 1,
+   );
+
 // --- column labelling --------------------------------------------------------
 //
 // Guards the one wording mistake that would misrepresent the data: per-user

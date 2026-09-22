@@ -110,7 +110,18 @@ function lastSeenCell(row) {
     return `${time} <span class="muted">logged out</span>`;
   }
   if (row.last_seen_reason === "open") {
-    return `${time} <span class="badge badge-live">still here</span>`;
+    // "on break" sits beside "still here", not instead of it: a declared break
+    // does not end the session, so the annotator is still present and the
+    // break qualifies that rather than replacing it.
+    //
+    // Only ever shown for a break the server still considers live — it stops
+    // claiming so after BREAK_LIVE_MAX, so a break nobody confirmed for hours
+    // does not leave a stale "on break" on screen all afternoon. The break
+    // time itself keeps accruing in the Breaks column either way.
+    const onBreak = row.break_in_progress
+      ? ` <span class="badge badge-break" title="On a declared break right now. The session is still open — a break does not end it.">on break</span>`
+      : "";
+    return `${time} <span class="badge badge-live">still here</span>${onBreak}`;
   }
   return `${time} <span class="muted" title="The tab was closed without logging out. This is the last moment they were seen — a lower bound, not a logout time.">ended by timeout</span>`;
 }

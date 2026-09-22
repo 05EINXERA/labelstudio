@@ -486,3 +486,44 @@ def test_a_declared_break_reaches_the_dashboard(client, admin):
     assert mine[0]["manual_break_seconds"] == 0, (
         "a declared break must not be counted as manually entered"
     )
+
+
+def test_break_in_progress_reaches_the_dashboard(client, admin):
+    """The "on break" pill's data: a live break must be visible to the admin.
+
+    Declared but not ended, so the row should say the break is running *and*
+    that the session is still open — the pill sits beside "still here" rather
+    than replacing it.
+    """
+    user_id = _user_id(client, admin)
+    _seed(user_id, minutes_ago=10)
+    assert client.post("/api/attendance/break/start", headers=admin).status_code == 200
+
+    rows = client.get(f"/api/attendance/days/{_today()}", headers=admin).json()["rows"]
+    mine = [r for r in rows if r["user_id"] == user_id]
+    assert mine, "the admin's own day should be present"
+    assert mine[0]["break_in_progress"] is True
+    assert mine[0]["last_seen_reason"] == "open", (
+        "a declared break must not end the session — the pill pairs with "
+        "'still here', so the session has to still be open"
+    )
+
+
+def test_break_in_progress_clears_once_the_break_ends(client, admin):
+    user_id = _user_id(client, admin)
+    _seed(user_id, minutes_ago=10)
+    client.post("/api/attendance/break/start", headers=admin)
+    client.post("/api/attendance/break/end", headers=admin)
+
+    rows = client.get(f"/api/attendance/days/{_today()}", headers=admin).json()["rows"]
+    mine = [r for r in rows if r["user_id"] == user_id]
+    assert mine and mine[0]["break_in_progress"] is False
+
+
+def test_break_in_progress_is_absent_for_someone_not_on_a_break(client, admin):
+    user_id = _user_id(client, admin)
+    _seed(user_id, minutes_ago=3)
+
+    rows = client.get(f"/api/attendance/days/{_today()}", headers=admin).json()["rows"]
+    mine = [r for r in rows if r["user_id"] == user_id]
+    assert mine and mine[0]["break_in_progress"] is False

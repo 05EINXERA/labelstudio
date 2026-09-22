@@ -169,6 +169,7 @@ def _collect(db: Session, start_date: date, end_date: date, user_ids=None) -> li
             "tasks_touched": summary["tasks_touched"],
             "tasks_reviewed": summary["tasks_reviewed"],
             "has_unended_break": summary["has_unended_break"],
+            "break_in_progress": summary["break_in_progress"],
         })
 
     rows.sort(key=lambda r: (r["local_date"], -r["present_seconds"], r["username"]))
