@@ -137,19 +137,30 @@ function template(isCreator) {
               <span style="font-size:.85rem;color:var(--muted);">Filename</span>
               <input type="text" id="editDescription" required style="padding:9px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink);">
             </label>
-            <label style="display:grid;gap:6px;">
-              <span style="font-size:.85rem;color:var(--muted);">Assignees <span style="font-weight:400;font-style:italic;">(optional, advisory only — hold Ctrl to pick several)</span></span>
-              <select id="editAssignee" multiple size="5" style="padding:9px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink);">
-              </select>
-              <span style="font-size:.75rem;color:var(--muted);">Select none to leave the image unassigned. The first name selected is the primary assignee.</span>
-            </label>
-            <div id="editHistoryWrap" style="display:none;gap:6px;">
-              <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
-                <span style="font-size:.85rem;color:var(--muted);">Assignment history</span>
-                <button type="button" id="editHistoryCsv" class="tool-button" style="padding:4px 10px;font-size:.75rem;">Download CSV</button>
+            <details class="modal-section" id="editAssigneeSection">
+              <summary>
+                Assignees
+                <span class="section-hint" id="editAssigneeHint">Unassigned</span>
+              </summary>
+              <div class="section-content">
+                <span style="font-size:.75rem;color:var(--muted);font-style:italic;">Optional, advisory only — hold Ctrl to pick several.</span>
+                <select id="editAssignee" multiple size="5" style="padding:9px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink);">
+                </select>
+                <span style="font-size:.75rem;color:var(--muted);">Select none to leave the image unassigned. The first name selected is the primary assignee.</span>
               </div>
-              <div id="editHistory" style="max-height:150px;overflow:auto;border:1px solid var(--line);border-radius:6px;padding:8px;background:var(--panel);font-size:.8rem;"></div>
-            </div>
+            </details>
+            <details class="modal-section" id="editHistoryWrap" style="display:none;">
+              <summary>
+                Assignment history
+                <span class="section-hint" id="editHistoryHint"></span>
+              </summary>
+              <div class="section-content">
+                <div style="display:flex;align-items:center;justify-content:flex-end;">
+                  <button type="button" id="editHistoryCsv" class="tool-button" style="padding:4px 10px;font-size:.75rem;">Download CSV</button>
+                </div>
+                <div id="editHistory" style="max-height:150px;overflow:auto;border:1px solid var(--line);border-radius:6px;padding:8px;background:var(--panel);font-size:.8rem;"></div>
+              </div>
+            </details>
             <label style="display:grid;gap:6px;">
               <span style="font-size:.85rem;color:var(--muted);">Status</span>
               <select id="editStatus" style="padding:9px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink);">
@@ -621,6 +632,29 @@ function assigneesOf(task) {
   return task?.assignee ? [task.assignee] : [];
 }
 
+/** Restate the assignee selection in the collapsed section's summary.
+ *
+ * The point of collapsing a section is that it can be left shut, which is only
+ * true if its heading says what is inside. Without this the owner has to open
+ * the section to answer "who is on this image?" — the question they most often
+ * opened the modal for — and the collapse costs a click instead of saving one.
+ */
+function syncAssigneeHint() {
+  const hint = el("editAssigneeHint");
+  const select = el("editAssignee");
+  if (!hint || !select) return;
+  const names = selectedNames(select);
+  if (!names.length) {
+    hint.textContent = "Unassigned";
+    return;
+  }
+  // Two names fit; beyond that the count is more legible than a truncated
+  // list, and CSS ellipsis would otherwise cut a name mid-word.
+  hint.textContent = names.length <= 2
+    ? names.join(", ")
+    : `${names[0]} +${names.length - 1} more`;
+}
+
 function openEditModal(task) {
   el("editId").value = task.id;
   el("editDescription").value = task.description || "";
@@ -643,6 +677,14 @@ function openEditModal(task) {
   Array.from(assigneeSelect.options).forEach((opt) => {
     opt.selected = selected.has(opt.value);
   });
+  syncAssigneeHint();
+
+  // Collapsed by default: the section is optional ("advisory only"), and its
+  // 5-row list is one of the two things that pushed the footer off screen.
+  // Opened when the task already has assignees, since then its contents are
+  // the answer to the question the owner opened the modal to ask.
+  const assigneeSection = el("editAssigneeSection");
+  if (assigneeSection) assigneeSection.open = current.length > 0;
 
   loadAssignmentHistory(task.id);
 
@@ -728,7 +770,20 @@ async function loadAssignmentHistory(taskId) {
       });
     }
     body.innerHTML = rows.join("");
-    wrap.style.display = "grid";
+    // "block", not "grid": <details> relies on its own box to lay the summary
+    // and the disclosed content out, and a grid container makes the two
+    // siblings grid items, which breaks the collapse.
+    wrap.style.display = "block";
+
+    // Summarise the section while it is shut, so the common case — checking
+    // who is on an image — does not require opening it.
+    const hint = el("editHistoryHint");
+    if (hint) {
+      const count = data.events?.length || 0;
+      hint.textContent = count
+        ? `${count} change${count === 1 ? "" : "s"}`
+        : "No changes recorded";
+    }
   } catch (err) {
     // A failed history read must not stop the owner editing the task.
     console.error("Failed to load assignment history", err);
@@ -799,6 +854,10 @@ function bindEditModal() {
   }
   el("editClose").addEventListener("click", closeEditModal);
   el("editCancel").addEventListener("click", closeEditModal);
+  // Keeps the collapsed summary honest while the section is open: without it
+  // the hint still shows the selection the modal was opened with, and reads as
+  // stale the moment the section is shut again.
+  el("editAssignee").addEventListener("change", syncAssigneeHint);
   el("editModal").addEventListener("click", (e) => { if (e.target === el("editModal")) closeEditModal(); });
 
   el("editForm").addEventListener("submit", async (e) => {

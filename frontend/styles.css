@@ -2960,7 +2960,12 @@ button.switch[aria-checked="true"] .switch-knob {
    Keyed on viewport *height*, not width: the problem is vertical room, and a
    laptop at 1366x768 hits it while a narrow tall phone does not. The image
    preview and the two scrolling panes are the tall parts, so they give up
-   height first and the Save button stays reachable without scrolling. */
+   height first and the Save button stays reachable without scrolling.
+
+   Secondary to the collapsible sections above, which are what actually bound
+   the modal's height. These caps still matter for the case those cannot help
+   with — every section expanded at once on a short screen — but they are no
+   longer carrying the fix on their own. */
 @media (max-height: 800px) {
   #editPreview {
     max-height: 110px !important;
@@ -2987,4 +2992,99 @@ button.switch[aria-checked="true"] .switch-knob {
   #editHistory {
     max-height: 76px !important;
   }
+}
+
+/* ─── Collapsible modal sections ──────────────────────────────────────────
+   A disclosure section for the tall, optional parts of a modal form, so the
+   fields that are always needed — and the footer buttons — fit without
+   scrolling.
+
+   This is the structural fix for the Save button being pushed off screen.
+   Capping heights (above) only slows that down: the modal's content is the sum
+   of its sections, so on a short viewport enough of them together still exceed
+   the cap however small each one is made, and the previous rounds of shrinking
+   preview/pane heights were treating the symptom. Collapsing takes a section
+   out of the height budget entirely rather than making it smaller.
+
+   Built on native <details>/<summary>: open/closed state, the click target and
+   keyboard activation all come from the element, so there is no JS state to
+   keep in sync and no way for the two to disagree. */
+.modal-section {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.modal-section > summary {
+  padding: 9px 12px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 6px;
+  /* The default marker sits outside the padding box and misaligns with the
+     flex row; a rotating caret below replaces it. */
+  list-style: none;
+  user-select: none;
+}
+
+/* Safari/Chrome render the marker through a pseudo-element the shorthand above
+   does not reach. */
+.modal-section > summary::-webkit-details-marker {
+  display: none;
+}
+
+.modal-section > summary:hover {
+  color: var(--ink);
+}
+
+.modal-section > summary:focus-visible {
+  outline: 2px solid var(--accent, #0d9488);
+  outline-offset: -2px;
+}
+
+/* The caret. Drawn as a rotating glyph rather than swapped between two
+   characters so the transition has something continuous to animate. */
+.modal-section > summary::before {
+  content: "›";
+  display: inline-block;
+  font-size: 1.1rem;
+  line-height: 1;
+  transition: transform 0.15s ease;
+  transform: rotate(90deg);
+}
+
+.modal-section:not([open]) > summary::before {
+  transform: rotate(0deg);
+}
+
+/* A short summary of what is inside, shown while collapsed, so the section can
+   be skipped without opening it. Hidden when open, where the real content
+   states the same thing in full. */
+.modal-section > summary .section-hint {
+  margin-left: auto;
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 55%;
+}
+
+.modal-section[open] > summary .section-hint {
+  display: none;
+}
+
+.modal-section[open] > summary {
+  border-bottom: 1px solid var(--line);
+  border-radius: 6px 6px 0 0;
+}
+
+.modal-section .section-content {
+  padding: 12px;
+  display: grid;
+  gap: 6px;
 }

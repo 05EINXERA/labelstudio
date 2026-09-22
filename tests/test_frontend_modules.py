@@ -921,3 +921,100 @@ def test_freehand_spacing_is_uniform_regardless_of_cursor_speed():
         "The per-event vertex cap is not holding; a pathological jump could "
         "emit unbounded points inside one event handler and stall the drag."
     )
+
+
+def test_edit_task_modal_sections_are_collapsible():
+    """The tall optional sections of the Edit task modal collapse.
+
+    This is the "Save button is off the bottom of the screen" report. Capping
+    the heights of the preview and the two panes -- the previous fix, still
+    present under a max-height media query -- only slows the overflow down:
+    the modal's height is the sum of its sections, so on a short viewport
+    enough sections together still exceed the cap however small each is made.
+    Collapsing removes a section from the height budget outright.
+
+    Asserted structurally rather than by rendering, since there is no browser
+    in the test environment: what can be checked here is that the sections are
+    real <details> disclosures, that each carries a summary the owner can read
+    while it is shut, and that the JS toggling visibility does not reintroduce
+    the `display:grid` that breaks a <details> element's own layout.
+    """
+    tasks_js = os.path.join(FRONTEND_JS_DIR, "pages", "project", "tasks.js")
+    with open(tasks_js, "r", encoding="utf-8") as f:
+        source = f.read()
+
+    edit_modal = re.search(
+        r'<div class="modal-overlay" id="editModal">(.*?)\n    </div>',
+        source, re.S)
+    assert edit_modal, "the Edit task modal markup could not be located"
+    markup = edit_modal.group(1)
+
+    # Both tall sections are disclosures, not always-open blocks.
+    for section_id in ("editAssigneeSection", "editHistoryWrap"):
+        assert re.search(
+            rf'<details[^>]*id="{section_id}"', markup), (
+            f"{section_id} must be a <details> element so it can be collapsed; "
+            f"an always-open block puts its full height back into the modal."
+        )
+
+    assert markup.count("<summary>") == 2, (
+        "each collapsible section needs a <summary>, or it cannot be opened"
+    )
+
+    # A collapsed section has to say what is inside it, or collapsing costs a
+    # click rather than saving one.
+    for hint_id in ("editAssigneeHint", "editHistoryHint"):
+        assert f'id="{hint_id}"' in markup, (
+            f"{hint_id} is missing: a shut section with no summary of its "
+            f"contents has to be opened to be read."
+        )
+
+    # `display:grid` on a <details> makes the summary and the disclosed content
+    # grid items and breaks the collapse, so the show path must not use it.
+    wrap_shows = re.findall(r'wrap\.style\.display\s*=\s*"(\w+)"', source)
+    assert wrap_shows, "the history section's visibility toggle disappeared"
+    assert "grid" not in wrap_shows, (
+        f"the history section is shown with display:{wrap_shows}; a <details> "
+        f"must be block-level or its open/closed state stops working."
+    )
+
+    # The hint must track the live selection, not just the value the modal
+    # opened with, or it reads as stale as soon as the section is shut again.
+    assert re.search(
+        r'el\("editAssignee"\)\.addEventListener\("change",\s*syncAssigneeHint\)',
+        source), (
+        "the assignee hint must be refreshed on change, or the collapsed "
+        "summary contradicts the selection inside."
+    )
+
+
+def test_collapsible_modal_section_styles_exist():
+    """The disclosure styling the Edit task modal depends on is defined."""
+    css_path = os.path.join(
+        os.path.dirname(FRONTEND_JS_DIR), "styles.css")
+    with open(css_path, "r", encoding="utf-8") as f:
+        css = f.read()
+
+    assert ".modal-section" in css, (
+        "no .modal-section rules: the collapsible sections would fall back to "
+        "unstyled <details> markup"
+    )
+
+    # The default triangle is replaced by a caret drawn on ::before. Both the
+    # standard property and the WebKit pseudo-element are needed -- hiding only
+    # one leaves a stray marker in the other engine.
+    assert re.search(r"\.modal-section\s*>\s*summary\s*\{[^}]*list-style:\s*none",
+                     css, re.S), (
+        "summary list-style is not cleared, so the default marker sits "
+        "alongside the custom caret"
+    )
+    assert "::-webkit-details-marker" in css, (
+        "the WebKit marker pseudo-element is not hidden, so Chrome and Safari "
+        "still draw the default triangle next to the custom caret"
+    )
+
+    # Keyboard users need to see which section has focus.
+    assert re.search(r"\.modal-section\s*>\s*summary:focus-visible", css), (
+        "no focus-visible style on the summary: the section is keyboard "
+        "operable, so its focus state has to be visible"
+    )
