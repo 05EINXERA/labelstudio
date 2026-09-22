@@ -1,8 +1,8 @@
 import { canvas, ctx, backgroundImage, staticCanvas, staticCtx } from "../dom.js?v=2";
 import { state, labelById, isAnnotationHidden } from "../state.js?v=4";
-import { annotationSettings, annotationOpacity, zoomScaledRadius } from "../feature-flags.js?v=9";
+import { annotationSettings, annotationOpacity, zoomScaledRadius } from "../feature-flags.js?v=10";
 import { view } from "./view.js?v=3";
-import { annotationPoints, hexToRgba, isPointInsideOtherGroupPolygons } from "./geometry.js?v=6";
+import { annotationPoints, hexToRgba, isPointInsideOtherGroupPolygons } from "./geometry.js?v=7";
 
 let compositeFillCanvas = null;
 let compositeFillCtx = null;

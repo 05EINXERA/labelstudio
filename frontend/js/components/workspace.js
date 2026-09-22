@@ -5,7 +5,7 @@ import {
   state, storageKey, draftKey, colorForName, labelByName, labelById,
   labelDisplayName, snapshot, selectedAnnotation
 } from "../state.js?v=4";
-import { annotationPoints, updateAnnotationBounds } from "../canvas/geometry.js?v=6";
+import { annotationPoints, updateAnnotationBounds } from "../canvas/geometry.js?v=7";
 import { view } from "../canvas/view.js?v=3";
 import { drainTaskTime } from "./timer.js?v=4";
 import { detectState } from "../ai/detect-state.js?v=1";
@@ -18,7 +18,7 @@ import {
   shapeHint, saveStatus
 } from "../dom.js?v=2";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
-import { toolAvailability } from "../feature-flags.js?v=9";
+import { toolAvailability } from "../feature-flags.js?v=10";
 
 
 export function setStatus(text, { sticky = false } = {}) {

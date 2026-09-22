@@ -1,13 +1,13 @@
 import { generateUUID, round } from "../utils.js?v=3";
 import { apiFetch, pollJob } from "../api.js?v=3";
 import { state, colorForName, labelByName, snapshot, selectedAnnotation } from "../state.js?v=4";
-import { updateAnnotationBounds } from "../canvas/geometry.js?v=6";
+import { updateAnnotationBounds } from "../canvas/geometry.js?v=7";
 import { view } from "../canvas/view.js?v=3";
 import { detectState } from "./detect-state.js?v=1";
 import { getImageSrcForAPI } from "./shared.js?v=1";
 import { autoDetectButton } from "../dom.js?v=2";
 import { smoothPolygon, autoTolerance } from "../canvas/fft-smooth.js?v=2";
-import { toolAvailability } from "../feature-flags.js?v=9";
+import { toolAvailability } from "../feature-flags.js?v=10";
 import {
   setStatus, ensureLabel, save, render
 } from "../components/workspace.js?v=12";

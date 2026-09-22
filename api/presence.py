@@ -67,7 +67,7 @@ def close_stale_sessions(db: Session, now: datetime | None = None) -> int:
         return 0
 
     for session in stale:
-        # The logout time is the last beat we heard, not "now" — the person
+        # The logout time is the last beat we heard, not "now" — the perswhen drawing on
         # stopped then; we are only noticing late.
         session.logout_at = session.last_seen_at
         session.ended_reason = "inactive"

@@ -10,7 +10,7 @@
  *  - Persistence to localStorage
  */
 
-import { annotationOpacity } from "../feature-flags.js?v=9";
+import { annotationOpacity } from "../feature-flags.js?v=10";
 import { drawAllLayers } from "../canvas/draw.js?v=4";
 import { setStatus } from "./workspace.js?v=12";
 

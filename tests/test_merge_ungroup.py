@@ -445,10 +445,34 @@ def test_a_split_clears_the_stale_merge_record():
 
 
 def test_changed_modules_are_version_bumped():
-    """Module imports are version-pinned; clients need a new pin to pick this up."""
-    for importer in ("init.js",):
-        source = _read(importer)
-        assert "interactions.js?v=12" in source or "workspace.js?v=10" in source
+    """Module imports are version-pinned; clients need a new pin to pick this up.
+
+    Asserts the pins are CONSISTENT across importers rather than equal to a
+    particular number. Pinning the literal version this feature happened to
+    ship at (it was `interactions.js?v=12`) made the test fail on every later
+    bump by an unrelated change, which is noise rather than signal: the
+    invariant that actually matters is that no importer is left on an older
+    pin than its siblings, because that is what serves a client a stale module.
+    """
+    pin = re.compile(r"(\w[\w-]*)\.js\?v=(\d+)")
+    seen = {}
+    for root, _, files in os.walk(FRONTEND_JS_DIR):
+        for name in files:
+            if not name.endswith(".js"):
+                continue
+            with open(os.path.join(root, name), "r", encoding="utf-8") as f:
+                content = f.read()
+            for module, version in pin.findall(content):
+                seen.setdefault(module, {}).setdefault(int(version), []).append(name)
+
+    for module, versions in seen.items():
+        assert len(versions) == 1, (
+            f"{module}.js is imported at more than one version: "
+            + "; ".join(f"v={v} from {', '.join(sorted(f))}"
+                        for v, f in sorted(versions.items()))
+            + ". Every importer must be bumped together, or whichever page "
+            "loads the lower pin keeps a cached, stale copy of the module."
+        )
 
     # No stale pins left behind anywhere.
     for root, _, files in os.walk(FRONTEND_JS_DIR):

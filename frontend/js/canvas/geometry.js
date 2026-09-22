@@ -672,6 +672,81 @@ export function addPolygonPointResolvingIntersections(points, newPoint) {
   return result;
 }
 
+/**
+ * Appends evenly spaced points along the straight run from the polygon's last
+ * vertex to `newPoint`, one every `spacing` units, and returns the new array.
+ *
+ * This is what makes freehand vertex spacing UNIFORM rather than merely
+ * bounded below. Committing the cursor's current position the moment it passes
+ * the spacing threshold -- the obvious implementation, and the one this
+ * replaces -- makes the gap between vertices depend on where pointer events
+ * happen to land, which is a function of cursor speed, event rate and CPU
+ * load, none of which the annotator is thinking about. Trace slowly and events
+ * arrive every couple of pixels, so the first one past the threshold commits
+ * at roughly the threshold and the spacing looks right. Sweep quickly and a
+ * single event can jump forty pixels; the gate opens, and the vertex lands at
+ * the far end. The threshold is a floor that nothing bounds from above, so one
+ * stroke yields tight clusters through the slow curves and long bare runs
+ * along the fast ones. That unevenness is the reported symptom, and lowering
+ * the threshold cannot fix it -- it lowers the floor while leaving the
+ * overshoot untouched.
+ *
+ * So subdivide the step instead of collapsing it: walk the segment from the
+ * last committed vertex to the pending sample, dropping a vertex every
+ * `spacing` units. A slow stroke emits one point and behaves exactly as
+ * before; a fast one emits several, evenly, along the path the cursor actually
+ * travelled. Spacing then follows from the setting alone.
+ *
+ * Interpolating along a straight chord is what makes this safe to do after the
+ * fact: the cursor's real path between two samples is unknown, and the
+ * straight line between them is the only reconstruction that adds no curvature
+ * that was never drawn. It is also exactly the shape the old code committed --
+ * a single long segment -- so this subdivides that segment without moving the
+ * outline off it.
+ *
+ * The remainder is deliberately NOT emitted. Stopping at the last whole
+ * interval leaves the leftover distance to be carried by the next event, which
+ * is what keeps the spacing uniform ACROSS events rather than resetting the
+ * measurement at each one; emitting the remainder too would put a short
+ * segment at every event boundary and restore the very unevenness this exists
+ * to remove. The final vertex is placed by the caller on mouse-up.
+ *
+ * `spacing` is in the same units as the points (image space at the call site).
+ * A non-finite or non-positive spacing would make the step count infinite, so
+ * it falls back to appending the single point.
+ */
+export function appendEvenlySpacedPoints(points, newPoint, spacing, maxPoints = 512) {
+  if (!Array.isArray(points) || points.length === 0) {
+    return addPolygonPointResolvingIntersections(points, newPoint);
+  }
+  if (!Number.isFinite(spacing) || spacing <= 0) {
+    return addPolygonPointResolvingIntersections(points, newPoint);
+  }
+
+  const last = points[points.length - 1];
+  const dx = newPoint.x - last.x;
+  const dy = newPoint.y - last.y;
+  const distance = Math.hypot(dx, dy);
+  if (!Number.isFinite(distance) || distance < spacing) return points;
+
+  // Whole intervals only -- the remainder carries over to the next event.
+  // Capped so a pathological jump (a huge zoom-out mid-drag, say) cannot emit
+  // thousands of vertices in one handler and stall the drag.
+  const steps = Math.min(Math.floor(distance / spacing), maxPoints);
+  const ux = dx / distance;
+  const uy = dy / distance;
+
+  let result = points;
+  for (let i = 1; i <= steps; i++) {
+    const t = i * spacing;
+    result = addPolygonPointResolvingIntersections(result, {
+      x: last.x + ux * t,
+      y: last.y + uy * t,
+    });
+  }
+  return result;
+}
+
 // How sharp a turn has to be, in degrees, before the vertex is treated as a
 // hairpin rather than a corner an annotator meant to draw. A genuine acute
 // corner on a traced object is rarely tighter than this; a doubled-back sliver

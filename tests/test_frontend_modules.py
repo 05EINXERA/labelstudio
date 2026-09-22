@@ -822,3 +822,102 @@ def test_hidden_objects_indicator_is_wired():
         "The hidden marker must precede the count in the DOM, or it renders to "
         "the right of the number."
     )
+
+
+def test_freehand_spacing_is_uniform_regardless_of_cursor_speed():
+    """Freehand vertices land at even intervals however fast the cursor moves.
+
+    This is the "vertices should be uniform" report. The spacing threshold is a
+    floor and nothing bounds it from above, so committing the cursor's current
+    position the moment it passes that floor makes the real gap depend on where
+    pointer events happen to land -- a function of cursor speed and event rate,
+    not of any setting. A slow trace samples every few pixels and commits near
+    the threshold; a fast sweep delivers one event forty pixels along and
+    commits there. One stroke then carries tight clusters through the slow
+    curves and long bare runs through the fast ones.
+
+    `appendEvenlySpacedPoints` subdivides the step instead, so the gap follows
+    from `freehandPointSpacing` alone. Exercised by running the real module
+    against a synthetic event stream, because the property under test is
+    numeric and a source-text assertion cannot see it.
+    """
+    if not _node_available():
+        pytest.skip("node is not available on PATH")
+
+    import json
+    import subprocess
+
+    geometry_url = (
+        "file:///"
+        + os.path.join(FRONTEND_JS_DIR, "canvas", "geometry.js").replace("\\", "/")
+    )
+    script = (
+        f"import('{geometry_url}').then(m => {{"
+        "  const emit = m.appendEvenlySpacedPoints;"
+        "  const SP = 10;"
+        "  const gaps = (p) => p.slice(1).map((q, i) =>"
+        "    Math.hypot(q.x - p[i].x, q.y - p[i].y));"
+        # A cursor that crawls, then sweeps, then crawls again -- the stroke
+        # that produced the report. Every x is one pointer event.
+        "  let mixed = [{x: 0, y: 0}];"
+        "  for (const x of [3, 6, 9, 12, 60, 63, 66, 110])"
+        "    mixed = emit(mixed, {x, y: 0}, SP);"
+        # One event that jumps far past the threshold: the old code committed a
+        # single vertex at the far end of this.
+        "  let sweep = [{x: 0, y: 0}];"
+        "  sweep = emit(sweep, {x: 47, y: 0}, SP);"
+        # Sub-threshold movement must still commit nothing.
+        "  const short = emit([{x: 0, y: 0}], {x: 4, y: 0}, SP);"
+        "  console.log(JSON.stringify({"
+        "    mixedGaps: gaps(mixed),"
+        "    sweepGaps: gaps(sweep),"
+        "    shortCount: short.length,"
+        # A degenerate spacing must not attempt an infinite subdivision.
+        "    zeroSpacing: emit([{x: 0, y: 0}], {x: 5, y: 0}, 0).length,"
+        "    nanSpacing: emit([{x: 0, y: 0}], {x: 5, y: 0}, NaN).length,"
+        "    capped: emit([{x: 0, y: 0}], {x: 99999, y: 0}, SP, 512).length - 1,"
+        "  }));"
+        "});"
+    )
+    result = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, f"node failed: {result.stderr}"
+    data = json.loads(result.stdout.strip())
+
+    # The point of the whole exercise: one tolerance, every gap, both speeds.
+    # Rounding to whole image pixels is what the 1.5 allows for.
+    for label in ("mixedGaps", "sweepGaps"):
+        gaps = data[label]
+        assert gaps, f"{label}: no vertices were emitted at all"
+        uneven = [g for g in gaps if abs(g - 10) > 1.5]
+        assert not uneven, (
+            f"{label}: gaps {uneven} deviate from the 10px spacing. Vertex "
+            f"spacing is tracking cursor speed again, which means a fast "
+            f"stroke is committing one point at the end of the step instead "
+            f"of subdividing it."
+        )
+
+    # A fast sweep must yield MANY vertices, not one at the far end. Without
+    # this the test above passes trivially on a single-vertex result.
+    assert len(data["sweepGaps"]) == 4, (
+        f"A 47px step emitted {len(data['sweepGaps'])} gaps; expected 4 whole "
+        f"10px intervals with the remainder carried to the next event."
+    )
+
+    # Movement under the threshold still commits nothing, or slow tracing would
+    # emit a vertex per pointer event.
+    assert data["shortCount"] == 1, (
+        "A sub-threshold step committed a vertex; the spacing floor is gone."
+    )
+
+    # Guards: a spacing of 0 or NaN would make the interval count infinite.
+    assert data["zeroSpacing"] == 2 and data["nanSpacing"] == 2, (
+        "A degenerate spacing must fall back to appending the single point, "
+        "not attempt an unbounded subdivision."
+    )
+    assert data["capped"] == 512, (
+        "The per-event vertex cap is not holding; a pathological jump could "
+        "emit unbounded points inside one event handler and stall the drag."
+    )
