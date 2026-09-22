@@ -27,7 +27,15 @@ from api import attendance_report as report
 
 
 def obs(minute, kind=KIND_SEEN, task_id=None, day=1, hour=9, created_at=None):
-    """An observation at a given wall time, UTC."""
+    """An observation `minute` MINUTES into the fixture day, UTC.
+
+    The unit is deliberately minutes rather than something finer: these tests
+    are about session boundaries, and a reader comparing `obs(0)` with
+    `obs(40)` should be able to see at a glance whether that gap crosses
+    `IDLE_GAP` (5 minutes). Tests that are *about* the threshold derive their
+    spacing from `report.IDLE_GAP` rather than hardcoding a number, so
+    retuning the constant cannot silently invert them.
+    """
     return {
         "user_id": 1,
         "seen_at": datetime(2026, 9, day, hour, minute, tzinfo=timezone.utc),
@@ -116,36 +124,74 @@ def test_no_observations_yields_no_sessions():
 
 
 def test_a_continuous_run_is_one_session():
-    rows = [obs(0), obs(5), obs(10), obs(15)]
-    sessions = report.sessionise(rows, now=obs(15)["seen_at"])
+    rows = [obs(0), obs(1), obs(2), obs(3)]
+    sessions = report.sessionise(rows, now=obs(3)["seen_at"])
     assert len(sessions) == 1
     assert sessions[0]["started_at"] == rows[0]["seen_at"]
 
 
 def test_a_gap_longer_than_idle_gap_splits_the_session():
-    rows = [obs(0), obs(5), obs(30), obs(35)]
-    sessions = report.sessionise(rows, now=obs(35)["seen_at"])
+    rows = [obs(0), obs(1), obs(30), obs(31)]
+    sessions = report.sessionise(rows, now=obs(31)["seen_at"])
     assert len(sessions) == 2
     assert sessions[0]["end_reason"] == report.END_TIMEOUT
 
 
-def test_gap_exactly_at_idle_gap_does_not_split():
-    """The boundary is inclusive: a gap *greater than* IDLE_GAP splits."""
-    rows = [obs(0), obs(10)]  # exactly 10 minutes
-    assert len(report.sessionise(rows, now=obs(10)["seen_at"])) == 1
+def test_gap_exactly_at_idle_gap_splits():
+    """A gap of EXACTLY IDLE_GAP ends the session.
 
-
-def test_gap_one_second_over_idle_gap_splits():
+    This assertion was inverted until a real case exposed it. An
+    annotator closed her tab at 10:50 and logged back in at 11:00 — a
+    gap of exactly the then-10-minute threshold — and with a `>`
+    comparison the two sessions merged into one 25-minute stretch. The
+    single duration the threshold is named for was the one value it let
+    through.
+    """
     first = obs(0)
-    second = {**obs(0), "seen_at": first["seen_at"] + report.IDLE_GAP + timedelta(seconds=1)}
-    assert len(report.sessionise([first, second], now=second["seen_at"])) == 2
+    second = {**obs(0), "seen_at": first["seen_at"] + report.IDLE_GAP}
+    sessions = report.sessionise([first, second], now=second["seen_at"])
+    assert len(sessions) == 2, (
+        "a gap of exactly IDLE_GAP merged; the boundary must include the "
+        "threshold itself"
+    )
+
+
+def test_gap_just_under_idle_gap_does_not_split():
+    first = obs(0)
+    second = {
+        **obs(0),
+        "seen_at": first["seen_at"] + report.IDLE_GAP - timedelta(seconds=1),
+    }
+    assert len(report.sessionise([first, second], now=second["seen_at"])) == 1
+
+
+def test_a_closed_tab_and_a_later_login_are_two_sessions():
+    """The production case, with the timings as reported.
+
+    Login 10:40, observations to 10:50, tab closed. Back at 11:00, still
+    working at 11:05. That must read as two sessions totalling 15
+    minutes, never as one 25-minute stretch.
+    """
+    rows = [obs(m, hour=10) for m in range(40, 51)]
+    rows += [obs(m, hour=11) for m in range(0, 6)]
+    now = datetime(2026, 9, 1, 11, 5, tzinfo=timezone.utc)
+
+    sessions = report.sessionise(rows, now=now)
+    assert len(sessions) == 2, (
+        f"expected two sessions, got {len(sessions)}: a ten-minute "
+        "absence was absorbed into one"
+    )
+    assert sessions[0]["end_reason"] == report.END_TIMEOUT
+    assert sessions[0]["seconds"] == 10 * 60
+    assert sessions[1]["seconds"] == 5 * 60
+    assert sum(s["seconds"] for s in sessions) == 15 * 60
 
 
 def test_observations_are_sorted_before_sessionising():
     """The buffer merge concatenates stored and live rows, which are not
     ordered relative to each other."""
-    rows = [obs(15), obs(0), obs(10), obs(5)]
-    sessions = report.sessionise(rows, now=obs(15)["seen_at"])
+    rows = [obs(3), obs(0), obs(2), obs(1)]
+    sessions = report.sessionise(rows, now=obs(3)["seen_at"])
     assert len(sessions) == 1
 
 
@@ -163,7 +209,7 @@ def test_two_tabs_interleaved_collapse_into_one_session():
 def test_an_unclosed_session_is_reported_as_timeout_never_logout():
     """A timeout end is a lower bound. Rendering it as a logout time overstates
     the precision of an attendance record."""
-    rows = [obs(0), obs(5)]
+    rows = [obs(0), obs(1)]
     long_after = datetime(2026, 9, 1, 18, 0, tzinfo=timezone.utc)
     sessions = report.sessionise(rows, now=long_after)
     assert sessions[0]["end_reason"] == report.END_TIMEOUT
@@ -171,22 +217,22 @@ def test_an_unclosed_session_is_reported_as_timeout_never_logout():
 
 
 def test_a_recent_session_is_open():
-    rows = [obs(0), obs(5)]
-    sessions = report.sessionise(rows, now=obs(5)["seen_at"] + timedelta(minutes=1))
+    rows = [obs(0), obs(1)]
+    sessions = report.sessionise(rows, now=obs(1)["seen_at"] + timedelta(minutes=1))
     assert sessions[0]["end_reason"] == report.END_OPEN
 
 
 def test_a_logout_closes_the_session_at_the_logout_time():
-    rows = [obs(0), obs(5), obs(7, kind=KIND_LOGOUT)]
-    sessions = report.sessionise(rows, now=obs(7)["seen_at"])
+    rows = [obs(0), obs(1), obs(2, kind=KIND_LOGOUT)]
+    sessions = report.sessionise(rows, now=obs(2)["seen_at"])
     assert len(sessions) == 1
     assert sessions[0]["end_reason"] == report.END_LOGOUT
     assert sessions[0]["ended_at"] == rows[-1]["seen_at"]
 
 
 def test_activity_after_a_logout_starts_a_new_session():
-    rows = [obs(0), obs(5, kind=KIND_LOGOUT), obs(6), obs(8)]
-    sessions = report.sessionise(rows, now=obs(8)["seen_at"])
+    rows = [obs(0), obs(1, kind=KIND_LOGOUT), obs(2), obs(3)]
+    sessions = report.sessionise(rows, now=obs(3)["seen_at"])
     assert len(sessions) == 2
     assert sessions[0]["end_reason"] == report.END_LOGOUT
 
@@ -195,28 +241,29 @@ def test_activity_after_a_logout_starts_a_new_session():
 
 
 def test_a_declared_break_does_not_split_the_session():
-    """A break is a marked interval *inside* a session (§ 1.1), and its span
-    would otherwise exceed IDLE_GAP and split it."""
-    rows = [obs(0), obs(5, kind=KIND_BREAK_START), obs(40, kind=KIND_BREAK_END), obs(45)]
-    sessions = report.sessionise(rows, now=obs(45)["seen_at"])
+    """A break is a marked interval *inside* a session (§ 1.1), and its
+    span (39 min here, far over the 5-minute IDLE_GAP) would otherwise
+    split it."""
+    rows = [obs(0), obs(1, kind=KIND_BREAK_START), obs(40, kind=KIND_BREAK_END), obs(41)]
+    sessions = report.sessionise(rows, now=obs(41)["seen_at"])
     assert len(sessions) == 1
     assert len(sessions[0]["breaks"]) == 1
 
 
 def test_present_time_excludes_the_break():
-    rows = [obs(0), obs(10, kind=KIND_BREAK_START), obs(40, kind=KIND_BREAK_END), obs(45)]
-    session = report.sessionise(rows, now=obs(45)["seen_at"])[0]
-    assert session["span_seconds"] == 45 * 60
+    rows = [obs(0), obs(1, kind=KIND_BREAK_START), obs(31, kind=KIND_BREAK_END), obs(32)]
+    session = report.sessionise(rows, now=obs(32)["seen_at"])[0]
+    assert session["span_seconds"] == 32 * 60
     assert session["break_seconds"] == 30 * 60
-    assert session["seconds"] == 15 * 60, (
+    assert session["seconds"] == 2 * 60, (
         "present time still includes the declared break"
     )
 
 
 def test_an_unended_break_is_reported_not_dropped():
     """Q17. A break that vanishes silently inflates present time."""
-    rows = [obs(0), obs(10, kind=KIND_BREAK_START), obs(15)]
-    session = report.sessionise(rows, now=obs(15)["seen_at"])[0]
+    rows = [obs(0), obs(1, kind=KIND_BREAK_START), obs(2)]
+    session = report.sessionise(rows, now=obs(2)["seen_at"])[0]
     assert session["has_unended_break"] is True
     assert len(session["breaks"]) == 1
     assert session["breaks"][0]["ended"] is False
@@ -250,19 +297,19 @@ def test_a_manual_break_is_distinguishable_from_a_declared_one():
     entered = datetime(2026, 9, 1, 20, 0, tzinfo=timezone.utc)
     rows = [
         obs(0),
-        obs(10, kind=KIND_BREAK_MANUAL_START, created_at=entered),
-        obs(40, kind=KIND_BREAK_MANUAL_END, created_at=entered),
-        obs(45),
+        obs(1, kind=KIND_BREAK_MANUAL_START, created_at=entered),
+        obs(31, kind=KIND_BREAK_MANUAL_END, created_at=entered),
+        obs(32),
     ]
-    session = report.sessionise(rows, now=obs(45)["seen_at"])[0]
+    session = report.sessionise(rows, now=obs(32)["seen_at"])[0]
     assert session["breaks"][0]["source"] == "manual"
     assert session["manual_break_seconds"] == 30 * 60
     assert session["break_seconds"] == 30 * 60
 
 
 def test_declared_breaks_are_not_counted_as_manual():
-    rows = [obs(0), obs(10, kind=KIND_BREAK_START), obs(20, kind=KIND_BREAK_END)]
-    session = report.sessionise(rows, now=obs(20)["seen_at"])[0]
+    rows = [obs(0), obs(1, kind=KIND_BREAK_START), obs(11, kind=KIND_BREAK_END)]
+    session = report.sessionise(rows, now=obs(11)["seen_at"])[0]
     assert session["manual_break_seconds"] == 0
     assert session["break_seconds"] == 10 * 60
 
@@ -303,8 +350,8 @@ def test_active_seconds_never_exceed_the_session_span():
 
 
 def test_ordinary_observations_contribute_no_active_time():
-    rows = [obs(0), obs(5)]
-    sessions = report.sessionise(rows, now=obs(5)["seen_at"])
+    rows = [obs(0), obs(1)]
+    sessions = report.sessionise(rows, now=obs(1)["seen_at"])
     assert report.active_seconds(sessions) == 0
 
 
@@ -313,10 +360,10 @@ def test_ordinary_observations_contribute_no_active_time():
 
 def test_summarise_day_aggregates_across_sessions():
     rows = [
-        obs(0, kind=KIND_LOGIN), obs(5, task_id=1),
-        obs(40, task_id=2), obs(45, kind=KIND_LOGOUT),
+        obs(0, kind=KIND_LOGIN), obs(1, task_id=1),
+        obs(40, task_id=2), obs(41, kind=KIND_LOGOUT),
     ]
-    day = report.summarise_day(rows, date(2026, 9, 1), now=obs(45)["seen_at"], reviews=3)
+    day = report.summarise_day(rows, date(2026, 9, 1), now=obs(41)["seen_at"], reviews=3)
     assert day["session_count"] == 2
     assert day["tasks_touched"] == 2
     assert day["tasks_reviewed"] == 3
@@ -331,23 +378,23 @@ def test_summarise_day_returns_none_for_no_observations():
 
 
 def test_summarise_day_present_time_is_the_sum_of_sessions():
-    rows = [obs(0), obs(5), obs(40), obs(50)]
-    day = report.summarise_day(rows, date(2026, 9, 1), now=obs(50)["seen_at"])
+    rows = [obs(0), obs(2), obs(40), obs(44)]
+    day = report.summarise_day(rows, date(2026, 9, 1), now=obs(44)["seen_at"])
     assert day["present_seconds"] == sum(s["seconds"] for s in day["sessions"])
-    assert day["present_seconds"] == (5 * 60) + (10 * 60)
+    assert day["present_seconds"] == (2 * 60) + (4 * 60)
 
 
 def test_summarise_day_surfaces_an_unended_break():
-    rows = [obs(0), obs(5, kind=KIND_BREAK_START), obs(8)]
-    day = report.summarise_day(rows, date(2026, 9, 1), now=obs(8)["seen_at"])
+    rows = [obs(0), obs(1, kind=KIND_BREAK_START), obs(2)]
+    day = report.summarise_day(rows, date(2026, 9, 1), now=obs(2)["seen_at"])
     assert day["has_unended_break"] is True
 
 
 def test_a_day_summary_is_unaffected_by_input_order():
     """Rows arrive from two sources (the table and the live buffer)."""
-    rows = [obs(0), obs(5, task_id=1), obs(9, kind=KIND_LOGOUT)]
-    forward = report.summarise_day(rows, date(2026, 9, 1), now=obs(9)["seen_at"])
-    reverse = report.summarise_day(list(reversed(rows)), date(2026, 9, 1), now=obs(9)["seen_at"])
+    rows = [obs(0), obs(1, task_id=1), obs(2, kind=KIND_LOGOUT)]
+    forward = report.summarise_day(rows, date(2026, 9, 1), now=obs(2)["seen_at"])
+    reverse = report.summarise_day(list(reversed(rows)), date(2026, 9, 1), now=obs(2)["seen_at"])
     assert forward["present_seconds"] == reverse["present_seconds"]
     assert forward["session_count"] == reverse["session_count"]
     assert forward["end_reason"] == reverse["end_reason"]
@@ -370,11 +417,11 @@ def test_naive_stored_datetimes_do_not_crash_the_aggregation():
     }
     aware = {
         "user_id": 1, "kind": KIND_SEEN, "task_id": None, "instance_id": "t",
-        "seen_at": datetime(2026, 9, 21, 9, 5, tzinfo=timezone.utc),  # buffered
+        "seen_at": datetime(2026, 9, 21, 9, 1, tzinfo=timezone.utc),  # buffered
         "created_at": None,
     }
     sessions = report.sessionise(
-        [naive, aware], now=datetime(2026, 9, 21, 9, 6, tzinfo=timezone.utc)
+        [naive, aware], now=datetime(2026, 9, 21, 9, 2, tzinfo=timezone.utc)
     )
     assert len(sessions) == 1
     assert sessions[0]["started_at"].tzinfo is not None

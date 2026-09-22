@@ -274,9 +274,97 @@ def maybe_flush(background_tasks) -> None:
         logger.warning("attendance maybe_flush failed", exc_info=True)
 
 
+# --- The periodic drain -----------------------------------------------------
+#
+# WHY THIS EXISTS, and it is not an optimisation.
+#
+# The flush originally rode POST traffic alone, from the timer ping. That was
+# wrong, and the failure mode is the one this feature is meant to record: an
+# annotator closes the tab, so the pings stop, so the buffer that holds their
+# last observations is never written. Their final ten minutes sat in memory
+# until some *other* request happened to drain them -- and if nobody else had
+# a task open, nothing drained at all, and a restart lost them.
+#
+# Riding request traffic cannot fix that, because the very event we need to
+# record (someone leaving) is the event that stops the traffic. So the drain
+# runs on the app's own clock instead.
+#
+# The task is still bound to the single worker (CLAUDE.md rule 9): it touches
+# the same in-process buffer as everything else here.
+
+_DRAIN_TASK = None
+
+
+async def _drain_loop() -> None:
+    """Flush the buffer on a fixed interval, regardless of request traffic."""
+    import asyncio
+
+    while True:
+        try:
+            await asyncio.sleep(config.ATTENDANCE_FLUSH_SECONDS)
+            if not config.ATTENDANCE_ENABLED:
+                continue
+            if not _PENDING:
+                continue
+            # to_thread, because flush() is blocking DB work and this is the
+            # event loop. Running it inline would stall every request for the
+            # duration of the INSERT.
+            await asyncio.to_thread(flush)
+        except asyncio.CancelledError:
+            # Shutdown. Drain what is left rather than discarding it: these are
+            # the observations of whoever was working when the server stopped.
+            try:
+                flush()
+            except Exception:
+                logger.warning(
+                    "attendance final flush failed during shutdown", exc_info=True
+                )
+            raise
+        except Exception:
+            # Never let the loop die: a loop that exits on one bad flush stops
+            # draining forever, which is the bug this exists to fix.
+            logger.warning("attendance drain loop iteration failed", exc_info=True)
+
+
+def start_drain(loop=None) -> None:
+    """Start the periodic drain. Idempotent; safe to call from startup."""
+    global _DRAIN_TASK
+    import asyncio
+
+    if _DRAIN_TASK is not None and not _DRAIN_TASK.done():
+        return
+    try:
+        _DRAIN_TASK = asyncio.get_running_loop().create_task(_drain_loop())
+        logger.info(
+            "Attendance drain started (every %ds)", config.ATTENDANCE_FLUSH_SECONDS
+        )
+    except RuntimeError:
+        # No running loop (a script, a test). Not an error: the drain is only
+        # meaningful inside the served app.
+        logger.debug("No running loop; attendance drain not started")
+
+
+async def stop_drain() -> None:
+    """Cancel the drain and flush what is buffered. For shutdown."""
+    global _DRAIN_TASK
+    import asyncio
+
+    task, _DRAIN_TASK = _DRAIN_TASK, None
+    if task is None or task.done():
+        # Still flush: the task may never have started, and the rows are real.
+        flush()
+        return
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+
 def reset_for_tests() -> None:
     """Clear all in-process state. Tests only."""
-    global _LAST_FLUSH
+    global _LAST_FLUSH, _DRAIN_TASK
     _LAST_SEEN.clear()
     del _PENDING[:]
     _LAST_FLUSH = 0.0
+    _DRAIN_TASK = None

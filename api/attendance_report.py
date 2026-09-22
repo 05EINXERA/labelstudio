@@ -44,14 +44,24 @@ from api.attendance import (
 # How long a gap may be before it ends a session, rather than being ordinary
 # jitter inside one.
 #
-# 10 minutes, from measured properties of this app rather than preference: the
-# two existing periodic signals both fire at 30s, so this is 20x the cadence
-# and cannot be split by jitter; and the timer's own idle threshold is 5 min,
-# so a user who pauses to think (and whose timer therefore stops pinging) does
-# not get a spurious session break. Since Q4 this is the *fallback* that closes
-# a session when someone simply closes the tab — declared breaks are the
-# primary mechanism.
-IDLE_GAP = timedelta(minutes=10)
+# 5 minutes, matching the annotation timer's own idle threshold
+# (`IDLE_TIMEOUT_MS` in frontend/js/components/timer.js). Two mechanisms that
+# both decide "this person stopped working" should agree on when, or the
+# register and the timer tell different stories about the same gap. It is 10x
+# the 30s signal cadence, so jitter or a brief network drop cannot split a
+# session.
+#
+# WAS 10 minutes, and a real case showed that was too long in a specific way:
+# an annotator closed her tab at 10:50 and logged back in at 11:00, and the
+# two sessions merged into one 25-minute stretch instead of 10 + 5. The gap
+# was *exactly* IDLE_GAP, and the comparison below was `>`, so the single
+# duration the threshold is named for was the one value it let through. Both
+# halves are fixed: the threshold is lower, and the comparison is now `>=`.
+#
+# Since Q4 this is the *fallback* that closes a session when someone simply
+# closes the tab; declared breaks are the primary mechanism, and a declared
+# break suspends this rule entirely.
+IDLE_GAP = timedelta(minutes=5)
 
 # How a session ended. `open` is not a state a stored row keeps — it is what a
 # session looks like when read while still running.
@@ -159,7 +169,7 @@ def sessionise(observations, now=None, idle_gap=IDLE_GAP) -> list:
             # break as absence, which is precisely what declaring it is meant
             # to prevent (§ 1.1: "a break does not end the session").
             pass
-        elif seen_at - current["last_at"] > idle_gap:
+        elif seen_at - current["last_at"] >= idle_gap:
             # The gap is too long to be jitter: close the run and start a new
             # one. The end is the last thing we *saw*, not the start of the
             # gap — a lower bound, which is why it is reported as a timeout.
@@ -197,7 +207,9 @@ def sessionise(observations, now=None, idle_gap=IDLE_GAP) -> list:
     if current is not None:
         # The final run is open if we saw it recently enough, otherwise it
         # timed out at its last observation.
-        if now - current["last_at"] <= idle_gap:
+        # `<`, matching the split rule: a session whose last observation
+        # is exactly IDLE_GAP old has timed out, not still open.
+        if now - current["last_at"] < idle_gap:
             sessions.append(_close_session(current, current["last_at"], END_OPEN))
         else:
             sessions.append(_close_session(current, current["last_at"], END_TIMEOUT))

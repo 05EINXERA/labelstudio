@@ -63,6 +63,34 @@ async def _set_threadpool_capacity() -> None:
     except Exception as exc:  # pragma: no cover - never worth failing startup
         logger.warning("Could not set threadpool cap (%s); using anyio default", exc)
 
+    # Start the attendance drain.
+    #
+    # It runs on the app's own clock rather than riding request traffic,
+    # because the event attendance most needs to record -- someone closing
+    # their tab and leaving -- is precisely the event that stops the traffic
+    # a traffic-driven flush depends on. See api/attendance.py.
+    try:
+        from api import attendance
+        attendance.start_drain()
+    except Exception as exc:  # pragma: no cover - attendance never breaks startup
+        logger.warning("Could not start the attendance drain (%s)", exc)
+
+
+@app.on_event("shutdown")
+async def _flush_attendance() -> None:
+    """Write whatever is still buffered before the process exits.
+
+    These are the observations of whoever was working when the server stopped,
+    which is exactly the stretch an annotator would query. Losing them was
+    accepted in the original design as "at most one flush window"; it costs
+    one INSERT to not lose them.
+    """
+    try:
+        from api import attendance
+        await attendance.stop_drain()
+    except Exception as exc:  # pragma: no cover - never worth failing shutdown
+        logger.warning("Attendance shutdown flush failed (%s)", exc)
+
 
 @app.middleware("http")
 async def add_security_and_cache_headers(request, call_next):

@@ -67,15 +67,22 @@ def _observe(db, user_id, hour, minute, kind="seen", task_id=None, day=LOCAL_DAY
 
 
 def _seed_ordinary_day(db, user_id, day=LOCAL_DAY):
-    """09:00 to 17:00 with a 30-minute declared break, ending in a logout."""
+    """09:00 to 12:00 with a 30-minute declared break, ending in a logout.
+
+    Observations are 2 minutes apart, not 5. A real client emits one per
+    throttle window (60s), and the spacing has to stay clear of `IDLE_GAP`
+    (5 min) or the day fragments into one session per observation and present
+    time collapses to zero — which is what happened when the gap dropped from
+    10 minutes to 5.
+    """
     _observe(db, user_id, 9, 0, kind="login", day=day)
-    for minute in range(0, 60, 5):
+    for minute in range(0, 60, 2):
         _observe(db, user_id, 9, minute, day=day)
-    for minute in range(0, 60, 5):
+    for minute in range(0, 60, 2):
         _observe(db, user_id, 10, minute, day=day)
     _observe(db, user_id, 11, 0, kind="break_start", day=day)
     _observe(db, user_id, 11, 30, kind="break_end", day=day)
-    for minute in range(30, 60, 5):
+    for minute in range(30, 60, 2):
         _observe(db, user_id, 11, minute, day=day)
     _observe(db, user_id, 12, 0, kind="logout", day=day)
     db.commit()
