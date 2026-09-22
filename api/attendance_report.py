@@ -223,10 +223,53 @@ def sessionise(observations, now=None, idle_gap=IDLE_GAP) -> list:
             # person who is NOT working; using request traffic to detect their
             # return only works if nothing else can produce it.
             #
-            # An unended break is therefore bounded by MAX_BREAK alone (below
-            # and in the tail branch), which needs no assumption about what the
-            # client does. It is a looser bound, and that is the honest one.
-            if seen_at - current["open_break"]["started_at"] >= MAX_BREAK:
+            # What IS evidence of a return is traffic resuming after a
+            # SILENCE, which is a different signal from traffic merely
+            # existing. A tab left open chatters continuously through a break
+            # (saroj's case: no gap anywhere, so nothing below fires). Someone
+            # who actually walked away goes quiet and then comes back, leaving
+            # a gap of at least IDLE_GAP with the break still open — and that
+            # resumption is the moment they returned.
+            #
+            # Without this, a forgotten End Break swallowed the rest of the day
+            # up to MAX_BREAK: the 13:00 break of an annotator back at 13:40
+            # ate their whole afternoon as break time. Bounding it only by
+            # MAX_BREAK was too loose, exactly as closing on any traffic was
+            # too tight.
+            #
+            # The break is closed at the RESUMPTION — the first observation
+            # after the silence — because the annotator was away for the whole
+            # of that silence and this is the first evidence they are back.
+            # It stays flagged unended: the true end is somewhere at or before
+            # this moment and we cannot know where, so the figure is an upper
+            # bound and the flag is what says so.
+            # Declared breaks only, for the same reason the traffic rule was
+            # restricted (D61): a *manual* break is entered after the fact over
+            # a stretch whose traffic pattern says nothing about it. A silence
+            # inside a retroactive break is just a silence, not a return, and
+            # closing on it truncates the interval the annotator explicitly
+            # asked to record.
+            #
+            # MAX_BREAK is checked FIRST. A break that has already run past it
+            # was abandoned, and someone reappearing five hours later did not
+            # take a five-hour break — they left and came back. Letting the
+            # resumption rule close it would record the whole absence as
+            # declared break time, which is a far stronger claim than the
+            # evidence supports.
+            break_age = seen_at - current["open_break"]["started_at"]
+            resumed_after_silence = (
+                current["open_break"]["source"] != "manual"
+                and kind not in _BREAK_ENDS
+                and seen_at - current["last_at"] >= idle_gap
+            )
+
+            if break_age < MAX_BREAK and resumed_after_silence:
+                current["breaks"].append(
+                    _close_break(current["open_break"], seen_at)
+                )
+                current["breaks"][-1]["ended"] = False
+                current["open_break"] = None
+            elif break_age >= MAX_BREAK:
                 # Past MAX_BREAK nobody came back. This observation belongs to
                 # a new session rather than to the far side of an abandoned
                 # break, and the old one is closed at the break's start — the

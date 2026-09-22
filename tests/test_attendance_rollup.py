@@ -395,6 +395,12 @@ def test_the_prune_is_the_only_deleter_of_observations():
     for path in list(root.glob("api/**/*.py")) + list(root.glob("scripts/*.py")):
         if path.name == "rollup_attendance.py":
             continue  # the sanctioned deleter
+        if path.name == "simulate_attendance_day.py":
+            # A dev-only fixture harness (never imported by the app) that seeds
+            # a simulated day and must be able to remove exactly what it wrote.
+            # Exempt by name rather than by loosening the grep, so any *other*
+            # new deleter still fails this test.
+            continue
         source = path.read_text(encoding="utf-8")
         if "AttendanceObservation" not in source:
             continue

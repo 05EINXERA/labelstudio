@@ -381,6 +381,63 @@ def test_a_manual_break_is_not_truncated_by_the_traffic_it_covers():
     assert breaks[0]["ended"]
 
 
+def test_a_forgotten_end_break_is_closed_by_the_return():
+    """Found by the end-to-end simulation, not by a unit test.
+
+    Break declared at 13:00, never ended, annotator back at 13:40 and working
+    until 17:00. Bounding an unended break by MAX_BREAK alone recorded the
+    whole afternoon as break time: present collapsed to the morning and the
+    40-minute break read as four hours.
+
+    The signal is traffic resuming after a SILENCE, which is different from
+    traffic merely existing — see the break branch. The break closes at the
+    resumption and stays flagged, because its true end is somewhere inside the
+    silence and cannot be known.
+    """
+    rows = [obs(0), obs(1), obs(2), obs(3, kind=KIND_BREAK_START)]
+    rows += [obs(m) for m in range(43, 60)]
+    now = datetime(2026, 9, 1, 10, 0, tzinfo=timezone.utc)
+
+    sessions = report.sessionise(rows, now=now)
+    assert len(sessions) == 1, (
+        f"{len(sessions)} sessions; the return should continue the session"
+    )
+    breaks = sessions[0]["breaks"]
+    assert len(breaks) == 1
+    assert breaks[0]["seconds"] == 40 * 60, (
+        f"the break read {breaks[0]['seconds'] / 60:.0f}m, expected 40m — an "
+        "unended break swallowed the work after the return"
+    )
+    assert not breaks[0]["ended"], "still an upper bound, so still flagged"
+    assert sessions[0]["seconds"] > 15 * 60, (
+        "the work after the return must count as present time"
+    )
+
+
+def test_a_break_past_max_break_is_abandonment_not_a_long_break():
+    """MAX_BREAK is checked before the resumption rule.
+
+    Someone reappearing five hours later did not take a five-hour break; they
+    left and came back. Closing on the resumption would record the whole
+    absence as *declared break* time, a far stronger claim than the evidence
+    supports.
+    """
+    rows = [
+        obs(0), obs(2),
+        obs(5, kind=KIND_BREAK_START),
+        obs(0, hour=9 + int(report.MAX_BREAK.total_seconds() // 3600) + 1),
+    ]
+    now = rows[-1]["seen_at"] + timedelta(minutes=5)
+    sessions = report.sessionise(rows, now=now)
+
+    assert len(sessions) == 2, "an abandoned break must not absorb the return"
+    assert sessions[0]["end_reason"] == report.END_TIMEOUT
+    total_break = sum(b["seconds"] for s in sessions for b in s["breaks"])
+    assert total_break < report.MAX_BREAK.total_seconds(), (
+        "a whole absence was recorded as declared break time"
+    )
+
+
 def test_a_declared_break_is_not_truncated_by_traffic_during_it():
     """The reported bug: a 9-minute break recorded as 6 and then frozen.
 
