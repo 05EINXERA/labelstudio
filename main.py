@@ -298,10 +298,25 @@ def health():
         db_ok = False
         logger.error("Health check database probe failed: %s", exc)
 
+    # Attendance is reported as its own field rather than folded into
+    # `status`. A dead drain does not stop the app serving annotation work, so
+    # it must not make the supervisor restart a healthy process — but it is
+    # invisible everywhere else: the process serves and the database answers
+    # while observations pile up in memory and are lost on the next restart.
+    # This is the only place that says so.
+    attendance_health = {"enabled": False}
+    try:
+        from api import attendance
+        attendance_health = attendance.drain_status()
+    except Exception as exc:  # pragma: no cover - health must never 500
+        logger.warning("Could not read attendance drain status (%s)", exc)
+        attendance_health = {"enabled": None, "healthy": None, "error": str(exc)}
+
     return {
         "status": "ok" if db_ok else "degraded",
         "database": "up" if db_ok else "down",
         "environment": "production" if IS_PRODUCTION else "development",
+        "attendance": attendance_health,
     }
 
 

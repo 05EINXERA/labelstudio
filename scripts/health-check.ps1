@@ -43,6 +43,28 @@ try {
     $response = Invoke-RestMethod -Uri $Url -Method Get -TimeoutSec 10
     $ok = $response.status -eq "ok"
     $detail = "status=$($response.status) database=$($response.database)"
+
+    # Attendance drain, reported separately from $ok on purpose.
+    #
+    # A dead drain does not stop the app serving annotation work, so it must
+    # not look like an outage or prompt a restart of a healthy process. But it
+    # is invisible everywhere else: /health would say "ok" and the database
+    # "up" while observations piled up in memory and were lost on the next
+    # restart, with the day's attendance simply missing afterwards. Same
+    # reasoning as the destructive-save scan below - the failure is silent by
+    # nature, so reading it on every health check bounds how long it can go
+    # unseen.
+    $att = $response.attendance
+    if ($att -and $att.enabled -eq $true) {
+        $detail += " attendance=$(if ($att.healthy) { 'ok' } else { 'DEGRADED' })"
+        $detail += " drain=$($att.drain_running) buffered=$($att.buffered)"
+        if (-not $att.healthy) {
+            Write-Warning "Attendance is not being written: drain_running=$($att.drain_running), buffered=$($att.buffered) rows. Observations are accumulating in memory and will be LOST if the app restarts. Restart the app to recover the drain."
+        }
+        if ($att.buffered -gt ($att.buffer_max * 0.5)) {
+            Write-Warning "Attendance buffer is over half full ($($att.buffered)/$($att.buffer_max)). The oldest observations are dropped at the cap."
+        }
+    }
 } catch {
     $ok = $false
     $detail = "request failed: $($_.Exception.Message)"

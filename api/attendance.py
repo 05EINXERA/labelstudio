@@ -361,6 +361,47 @@ async def stop_drain() -> None:
         pass
 
 
+def drain_status() -> dict:
+    """Whether attendance is actually being written, for /health.
+
+    The one failure mode the rest of the app cannot see. `/health` reports
+    that the process serves and the database answers, and both stay true while
+    the drain is dead — observations would pile up in memory, be capped at
+    ATTENDANCE_BUFFER_MAX, and vanish on the next restart, with nothing
+    anywhere saying so.
+
+    `buffered` is the number worth watching: it should sit near zero and fall
+    back to it every flush interval. A number that only grows means the writes
+    are not happening, whatever the task says about itself.
+    """
+    running = _DRAIN_TASK is not None and not _DRAIN_TASK.done()
+
+    last_flush_age = None
+    if _LAST_FLUSH:
+        last_flush_age = int(
+            datetime.now(timezone.utc).timestamp() - _LAST_FLUSH
+        )
+
+    # Stale only counts once there is something waiting: an idle instance with
+    # an empty buffer legitimately never flushes, and calling that unhealthy
+    # would cry wolf every night and every quiet lunchtime.
+    stale = bool(
+        _PENDING
+        and last_flush_age is not None
+        and last_flush_age > config.ATTENDANCE_FLUSH_SECONDS * 5
+    )
+
+    return {
+        "enabled": bool(config.ATTENDANCE_ENABLED),
+        "drain_running": running,
+        "buffered": len(_PENDING),
+        "buffer_max": config.ATTENDANCE_BUFFER_MAX,
+        "last_flush_age_seconds": last_flush_age,
+        # The single answer a supervisor or a human should read.
+        "healthy": (not config.ATTENDANCE_ENABLED) or (running and not stale),
+    }
+
+
 def reset_for_tests() -> None:
     """Clear all in-process state. Tests only."""
     global _LAST_FLUSH, _DRAIN_TASK

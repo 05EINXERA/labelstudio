@@ -9,6 +9,7 @@ is added later (.devnotes/attendance-feature/00-IMPLEMENTATION-PROMPT.md):
 The rest cover the throttle, the batching, and the logout behaviour change.
 """
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -379,3 +380,79 @@ def test_an_unauthenticated_request_observes_nothing(client):
     attendance.reset_for_tests()
     client.get("/api/projects")
     assert attendance.buffered_observations() == []
+
+
+# --- The drain's own health (the one failure mode nothing else can see) ------
+
+
+def test_health_reports_the_attendance_drain():
+    """`/health` must say whether attendance is actually being written.
+
+    Process liveness and database reachability both stay true while the drain
+    is dead, so without this the day's attendance can be silently lost: rows
+    accumulate in memory, hit the cap, and vanish on the next restart with
+    nothing anywhere reporting it.
+    """
+    from fastapi.testclient import TestClient
+    import main as app_main
+
+    with TestClient(app_main.app) as client:
+        body = client.get("/health").json()
+        assert "attendance" in body, "/health says nothing about attendance"
+        att = body["attendance"]
+        assert att["drain_running"] is True
+        assert att["healthy"] is True
+
+
+def test_health_reports_a_dead_drain_without_failing_the_app():
+    """A dead drain is degraded attendance, NOT a degraded app.
+
+    It must be visible, but it must not make a supervisor restart a process
+    that is serving annotation work perfectly well.
+    """
+    from fastapi.testclient import TestClient
+    import main as app_main
+    from api import attendance
+
+    with TestClient(app_main.app) as client:
+        assert client.get("/health").json()["attendance"]["healthy"] is True
+
+        attendance._DRAIN_TASK.cancel()
+        time.sleep(0.3)
+
+        body = client.get("/health").json()
+        assert body["attendance"]["drain_running"] is False
+        assert body["attendance"]["healthy"] is False
+        assert body["status"] == "ok", (
+            "a dead drain must not report the whole app as degraded"
+        )
+
+
+def test_drain_status_does_not_cry_wolf_on_an_idle_instance():
+    """An empty buffer legitimately never flushes.
+
+    Overnight, and at every quiet lunchtime, nothing is buffered and no flush
+    happens. Calling that unhealthy would make the signal worthless.
+    """
+    from api import attendance
+
+    attendance.reset_for_tests()
+    status = attendance.drain_status()
+    assert status["buffered"] == 0
+    # No drain task in this context, but the staleness rule must not fire.
+    attendance._LAST_FLUSH = 1.0  # ancient, and irrelevant with nothing waiting
+    assert attendance.drain_status()["buffered"] == 0
+
+
+def test_drain_status_flags_a_buffer_that_is_not_draining():
+    """Rows waiting long past the flush interval is the real symptom."""
+    from api import attendance
+
+    attendance.reset_for_tests()
+    attendance.note_seen(1)
+    attendance._LAST_FLUSH = 1.0  # a flush that never happened since
+    status = attendance.drain_status()
+    assert status["buffered"] >= 1
+    assert status["healthy"] is False, (
+        "rows sitting unflushed far past the interval must not read healthy"
+    )
