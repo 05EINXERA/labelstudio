@@ -699,7 +699,10 @@ def test_sticky_class_hover_selects_last_polygon():
     # Re-evaluated on every pointer move, before the cursor is chosen, so the
     # cursor agrees with the mode the move just produced.
     move_handler = source[source.index('canvas.addEventListener("pointermove"'):]
-    assert move_handler.index("updateStickyHover(point)") < move_handler.index("updateCanvasCursor(point)"), (
+    # Matched on the call name, not its full argument list: updateCanvasCursor
+    # also takes the Shift-select flag, and pinning the exact arguments here
+    # made an unrelated signature change fail this ordering check.
+    assert move_handler.index("updateStickyHover(point)") < move_handler.index("updateCanvasCursor("), (
         "the hover state must be updated before the cursor is derived from it"
     )
 
@@ -1017,4 +1020,93 @@ def test_collapsible_modal_section_styles_exist():
     assert re.search(r"\.modal-section\s*>\s*summary:focus-visible", css), (
         "no focus-visible style on the summary: the section is keyboard "
         "operable, so its focus state has to be visible"
+    )
+
+
+def _interactions_source():
+    path = os.path.join(FRONTEND_JS_DIR, "canvas", "interactions.js")
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
+
+
+def test_shift_multi_select_reachable_in_draw_mode():
+    """Shift+click selects shapes even while the canvas is parked in draw mode.
+
+    Sticky class deliberately leaves state.mode === "draw" after every finished
+    shape, so a gate of the form `state.mode !== "draw"` makes the Shift
+    multi-select branch unreachable for sticky-class users: their Shift+click
+    falls through to the drawing code and drops a vertex instead.
+    """
+    source = _interactions_source()
+
+    assert re.search(
+        r'const shiftSelect = event\.shiftKey && !event\.altKey', source), (
+        "no shiftSelect flag in pointerdown: Shift+click in draw mode will be "
+        "treated as a drawing click"
+    )
+
+    # The hit-test/selection gate must admit the Shift gesture.
+    assert re.search(
+        r'if \(\(state\.mode !== "draw" \|\| state\.needsLabelSelection \|\| '
+        r'shiftSelect\) && view\.drag\?\.type !== "draw-polygon"\)', source), (
+        "the selection gate no longer admits shiftSelect, so sticky-class "
+        "users cannot Shift+click to multi-select"
+    )
+
+    # Shift+drag on empty canvas must rubber-band rather than start a shape.
+    assert re.search(
+        r'if \(\(state\.mode === "select" \|\| shiftSelect\) && '
+        r'view\.drag\?\.type !== "draw-polygon"\)', source), (
+        "the marquee gate no longer admits shiftSelect, so a Shift+drag over "
+        "blank canvas in draw mode starts a shape instead of selecting"
+    )
+
+
+def test_shift_click_after_finalize_keeps_selection():
+    """The post-finalize cleanup must not wipe an additive Shift selection.
+
+    Sticky class clears the just-finished shape's selection on the next click.
+    When that click is a Shift+click the annotator is building a multi-selection
+    starting from that very shape, so clearing it defeats the gesture.
+    """
+    source = _interactions_source()
+    assert re.search(
+        r'if \(!\(event\.shiftKey && !event\.altKey\)\) '
+        r'clearSelectionAfterFinalize\(\);', source), (
+        "clearSelectionAfterFinalize is called unconditionally after a sticky "
+        "finalize, so Shift+click drops the shape it should be adding"
+    )
+
+
+def test_module_version_pins_are_consistent():
+    """Every importer of a module pins the same ?v= version.
+
+    Module imports are version-pinned by hand (CLAUDE.md rule 13). Bumping the
+    pin in some importers but not all serves two copies of the same module to
+    the browser, and the stale one silently wins wherever it was imported.
+    """
+    pin_regex = re.compile(r'from\s+[\'"]([^\'"]+\.js)\?v=(\d+)[\'"]')
+    pins = {}
+
+    for root, _, files in os.walk(FRONTEND_JS_DIR):
+        for file in files:
+            if not file.endswith(".js"):
+                continue
+            file_path = os.path.join(root, file)
+            with open(file_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            for match in pin_regex.finditer(content):
+                target = os.path.normpath(os.path.join(root, match.group(1)))
+                pins.setdefault(target, {}).setdefault(
+                    match.group(2), []).append(file_path)
+
+    mismatched = {t: v for t, v in pins.items() if len(v) > 1}
+    assert not mismatched, (
+        "these modules are imported at more than one ?v= version: "
+        + "; ".join(
+            f"{os.path.basename(t)} -> "
+            + ", ".join(f"v={ver} in {[os.path.basename(p) for p in files]}"
+                        for ver, files in sorted(versions.items()))
+            for t, versions in sorted(mismatched.items())
+        )
     )

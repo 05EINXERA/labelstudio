@@ -130,7 +130,10 @@ export function setCanvasCursor(cursor) {
   }
 }
 
-export function updateCanvasCursor(point) {
+// `shiftSelect` mirrors the pointerdown gate: Shift (without Alt, which is the
+// pan gesture) turns a draw-mode click into a selection, so the cursor has to
+// say "pointer" over a shape rather than promise a crosshair that will not draw.
+export function updateCanvasCursor(point, shiftSelect = false) {
   if (!view.imageLoaded) {
     setCanvasCursor("default");
     return;
@@ -176,7 +179,7 @@ export function updateCanvasCursor(point) {
   }
 
   if (state.mode === "draw") {
-    if (state.needsLabelSelection) {
+    if (state.needsLabelSelection || shiftSelect) {
       const hoverId = hitTest(point);
       setCanvasCursor(hoverId ? "pointer" : "default");
       return;
@@ -1044,7 +1047,11 @@ canvas.addEventListener("pointerdown", (event) => {
     // spent and this click is the first vertex of the next shape.
     clearStickyHover();
     state.justFinalized = false;
-    clearSelectionAfterFinalize();
+    // ...unless Shift is held, which makes this a multi-select click. The shape
+    // just finished is the one an annotator most often wants as the first member
+    // of the group, so dropping its selection here would defeat the gesture
+    // before it started. Shift is additive everywhere else; keep it additive here.
+    if (!(event.shiftKey && !event.altKey)) clearSelectionAfterFinalize();
   } else if (state.justFinalized) {
     clearStickyHover();
     state.justFinalized = false;
@@ -1176,7 +1183,15 @@ canvas.addEventListener("pointerdown", (event) => {
   // The inert post-finalize state is included even though state.mode is still
   // "draw": no new shape can be started until a class is picked, so a click on an
   // existing annotation should select it rather than do nothing.
-  if ((state.mode !== "draw" || state.needsLabelSelection) && view.drag?.type !== "draw-polygon") {
+  //
+  // Shift+click is included for the same reason. Sticky class keeps the canvas
+  // in "draw" indefinitely — that is the whole point of it — so without this the
+  // multi-select gesture below is unreachable for exactly the annotators who
+  // draw the most shapes, and a Shift+click silently drops another vertex
+  // instead. Shift is unambiguous here: plain clicks still draw, and the
+  // Shift+Alt pan gesture was already consumed at the top of this handler.
+  const shiftSelect = event.shiftKey && !event.altKey;
+  if ((state.mode !== "draw" || state.needsLabelSelection || shiftSelect) && view.drag?.type !== "draw-polygon") {
     const hitId = hitTest(point);
     if (hitId) {
       // Move Objects unlocked: clicking an already-selected annotation (without
@@ -1241,8 +1256,13 @@ canvas.addEventListener("pointerdown", (event) => {
     }
   }
 
-  // Clicking empty space clears the selection (unless Shift is held)
-  if (state.mode === "select" && view.drag?.type !== "draw-polygon") {
+  // Clicking empty space clears the selection (unless Shift is held).
+  // Shift in draw mode lands here too (shiftSelect above), so a Shift+drag over
+  // blank canvas rubber-bands a group the same way it does in select mode
+  // instead of starting a shape. The `!event.shiftKey` guard below then never
+  // fires on that path, which is correct: Shift is the additive gesture and
+  // must not wipe what is already selected.
+  if ((state.mode === "select" || shiftSelect) && view.drag?.type !== "draw-polygon") {
     if (!event.shiftKey) {
       state.selectedId = null;
       state.selectedIds.clear();
@@ -1462,7 +1482,7 @@ canvas.addEventListener("pointermove", (event) => {
   // Runs before updateCanvasCursor so the cursor reflects the mode this move
   // just produced (crosshair outside the hover-armed polygon, pointer inside).
   const stickyChanged = updateStickyHover(point);
-  updateCanvasCursor(point);
+  updateCanvasCursor(point, event.shiftKey && !event.altKey);
   if (stickyChanged) render();
 
   // Detect line & point hover on selected polygon (select mode only, even when no view.drag)
