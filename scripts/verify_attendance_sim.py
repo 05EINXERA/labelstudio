@@ -65,6 +65,7 @@ def ensure_admin(db):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--md", help="write a markdown report here")
+    ap.add_argument("--out-dir", help="save the exported xlsx and CSV here")
     args = ap.parse_args()
 
     db = SessionLocal()
@@ -177,6 +178,15 @@ def main():
     check("xlsx is sent as an attachment",
           "attachment" in xres.headers.get("content-disposition", ""), True)
 
+    # Save the bytes exactly as the browser would receive them, so the file on
+    # disk IS the artifact under test rather than a re-render of it.
+    if args.out_dir:
+        os.makedirs(args.out_dir, exist_ok=True)
+        xlsx_path = os.path.join(args.out_dir, f"attendance-{day}.xlsx")
+        with open(xlsx_path, "wb") as fh:
+            fh.write(xres.content)
+        print(f"  saved {xlsx_path} ({len(xres.content):,} bytes)")
+
     xlsx_report = {}
     try:
         import openpyxl
@@ -225,6 +235,11 @@ def main():
     check("csv export answers 200", cres.status_code, 200)
     csv_text = cres.text
     check("csv is not empty", len(csv_text.splitlines()) > 1, True)
+    if args.out_dir:
+        csv_path = os.path.join(args.out_dir, f"attendance-{day}.csv")
+        with open(csv_path, "w", encoding="utf-8", newline="") as fh:
+            fh.write(csv_text)
+        print(f"  saved {csv_path} ({len(csv_text):,} bytes)")
     csv_header = csv_text.splitlines()[0] if csv_text else ""
 
     # --- profile (the annotator's own view) ----------------------------------
