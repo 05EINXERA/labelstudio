@@ -317,20 +317,36 @@ def test_an_abandoned_break_does_not_swallow_later_work():
     Reported shape: break at 10:05, tab closed, working again at 13:00. That
     used to read as one session to 13:02 with a 175-minute declared break and
     almost no present time.
+
+    The bound is MAX_BREAK, deliberately not request traffic: see the comment
+    in the break branch. The return here is therefore past MAX_BREAK.
     """
+    start_hour = 9
+    back_hour = start_hour + int(report.MAX_BREAK.total_seconds() // 3600) + 1
     rows = [
         obs(0), obs(2),
         obs(5, kind=KIND_BREAK_START),
-        obs(0, hour=13), obs(2, hour=13),
+        obs(0, hour=back_hour), obs(2, hour=back_hour),
     ]
-    now = datetime(2026, 9, 1, 13, 5, tzinfo=timezone.utc)
+    now = datetime(2026, 9, 1, back_hour, 5, tzinfo=timezone.utc)
     sessions = report.sessionise(rows, now=now)
 
-    # The break is bounded by the return, not left running to the session end.
+    # Two sessions: the abandoned one and the one they came back to. The
+    # afternoon's work must not land on the far side of the morning's break.
+    assert len(sessions) == 2, (
+        f"{len(sessions)} session(s); an abandoned break absorbed the return"
+    )
+
     breaks = [b for s in sessions for b in s["breaks"]]
     assert len(breaks) == 1
-    assert breaks[0]["ended_at"] <= datetime(2026, 9, 1, 13, 0, tzinfo=timezone.utc)
     assert not breaks[0]["ended"], "a break nobody ended must stay flagged"
+
+    # The abandoned interval counts as neither present nor break: the session
+    # closes at the break start, the last moment with evidence of presence.
+    assert sessions[0]["ended_at"] == datetime(
+        2026, 9, 1, start_hour, 5, tzinfo=timezone.utc
+    )
+    assert sessions[0]["end_reason"] == report.END_TIMEOUT
 
     # The work either side of it is present time, not break time.
     total_present = sum(s["seconds"] for s in sessions)
@@ -363,6 +379,50 @@ def test_a_manual_break_is_not_truncated_by_the_traffic_it_covers():
         "600s that was entered"
     )
     assert breaks[0]["ended"]
+
+
+def test_a_declared_break_is_not_truncated_by_traffic_during_it():
+    """The reported bug: a 9-minute break recorded as 6 and then frozen.
+
+    The overlay pauses the annotation *timer*, but it does not stop the page
+    making authenticated requests, and every one records a `seen` observation
+    in `get_current_user`. A second tab on the same login does it too. So a
+    declared break is NOT a period of client silence, and nothing may infer
+    the annotator's return from request traffic.
+    """
+    rows = [obs(m) for m in range(0, 5)]
+    rows.append(obs(5, kind=KIND_BREAK_START))
+    rows += [obs(m) for m in range(6, 15)]  # the tab stays open throughout
+    rows.append(obs(14, kind=KIND_BREAK_END))
+    rows += [obs(15), obs(16)]
+    now = datetime(2026, 9, 1, 9, 17, tzinfo=timezone.utc)
+
+    breaks = [b for s in report.sessionise(rows, now=now) for b in s["breaks"]]
+    assert len(breaks) == 1
+    assert breaks[0]["ended"]
+    assert breaks[0]["seconds"] == 9 * 60, (
+        f"the 9-minute break was recorded as {breaks[0]['seconds'] / 60:.1f} "
+        "minutes; traffic during a break must not close it"
+    )
+
+
+def test_a_break_in_progress_accrues_up_to_now():
+    """A running break must keep growing between observations.
+
+    Closing the session at the last `seen` row froze a live break at whatever
+    moment traffic last happened to land on, so the dashboard showed it
+    ticking up and then stopping while the annotator was still away.
+    """
+    rows = [obs(0), obs(2), obs(4), obs(5, kind=KIND_BREAK_START), obs(6)]
+
+    for elapsed in (8, 10, 12, 14):
+        now = datetime(2026, 9, 1, 9, elapsed, tzinfo=timezone.utc)
+        breaks = [b for s in report.sessionise(rows, now=now) for b in s["breaks"]]
+        assert len(breaks) == 1
+        assert breaks[0]["seconds"] == (elapsed - 5) * 60, (
+            f"at {elapsed}m the break read "
+            f"{breaks[0]['seconds'] / 60:.1f}m, expected {elapsed - 5}m"
+        )
 
 
 def test_a_break_start_does_not_split_the_session_it_interrupts():

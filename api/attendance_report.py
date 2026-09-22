@@ -191,37 +191,36 @@ def sessionise(observations, now=None, idle_gap=IDLE_GAP) -> list:
             # what declaring it is meant to prevent (§ 1.1: "a break does not
             # end the session").
             #
-            # Ordinary traffic during an open break is positive evidence that
-            # the break is over and End Break was simply never pressed: a
-            # client on a declared break is silent by design, so a `seen` row
-            # means somebody is back at the keyboard. That is a stronger and
-            # much earlier signal than waiting out MAX_BREAK, so it is checked
-            # first — otherwise a forgotten End Break swallows the rest of the
-            # morning as "break".
+            # Only an explicit `break_end` or MAX_BREAK closes a break.
+            # Ambient traffic must NOT, and this was got wrong once:
             #
-            # The break is closed at this observation, not at the session end,
-            # and stays flagged unended: its length is an upper bound (the
-            # annotator may have returned at any point during the silence) and
-            # the flag is what says so. Q16's retroactive entry is how a user
-            # corrects it to the real interval.
+            # A rule was added here treating any `seen` row during an open
+            # break as evidence the annotator was back, on the premise that "a
+            # client on a declared break is silent by design". That premise is
+            # false. The overlay pauses the annotation *timer*, but it does not
+            # stop the page making authenticated requests, and every one of
+            # them records a `seen` observation in `get_current_user`
+            # (api/auth.py). A second tab on the same login does it too.
             #
-            # Declared breaks only. A *manual* break is entered after the fact
-            # for a stretch the annotator sat through with the tab open, so it
-            # is covered by ordinary `seen` traffic by construction — applying
-            # this rule to one truncates it to a single idle gap, which is the
-            # opposite of what Q16's retroactive entry is for. Only a declared
-            # break carries the guarantee of client silence that makes traffic
-            # meaningful evidence.
-            if (
-                current["open_break"]["source"] != "manual"
-                and kind not in _BREAK_ENDS
-                and seen_at - current["open_break"]["started_at"] >= idle_gap
-            ):
-                current["breaks"].append(
-                    _close_break(current["open_break"], seen_at)
-                )
-                current["breaks"][-1]["ended"] = False
-                current["open_break"] = None
+            # So a real 9-minute break froze at 6 minutes — IDLE_GAP plus one
+            # throttle window — and stopped accruing, live on the dashboard and
+            # permanently in the rollup. The break's own subject matter is a
+            # person who is NOT working; using request traffic to detect their
+            # return only works if nothing else can produce it.
+            #
+            # An unended break is therefore bounded by MAX_BREAK alone (below
+            # and in the tail branch), which needs no assumption about what the
+            # client does. It is a looser bound, and that is the honest one.
+            if seen_at - current["open_break"]["started_at"] >= MAX_BREAK:
+                # Past MAX_BREAK nobody came back. This observation belongs to
+                # a new session rather than to the far side of an abandoned
+                # break, and the old one is closed at the break's start — the
+                # last moment with evidence of presence — so the abandoned
+                # interval counts as neither present nor break.
+                sessions.append(_close_session(
+                    current, current["open_break"]["started_at"], END_TIMEOUT,
+                ))
+                current = _new_session(seen_at)
         elif kind in _BREAK_STARTS and seen_at - current["last_at"] < MAX_BREAK:
             # A break_start does not split the session it interrupts. Pressing
             # Take a Break is itself evidence the annotator was at the
@@ -285,7 +284,15 @@ def sessionise(observations, now=None, idle_gap=IDLE_GAP) -> list:
             sessions.append(_close_session(
                 current, open_break["started_at"], END_TIMEOUT,
             ))
-        elif now - current["last_at"] < idle_gap or open_break is not None:
+        elif open_break is not None:
+            # A break in progress right now. The session ends at `now`, not at
+            # the last observation: the annotator is on a declared break, so
+            # the time since the last `seen` row is break time that is still
+            # accruing, not a gap of unknown presence. Closing at `last_at`
+            # froze a running break at whatever moment traffic last happened
+            # to land on — the dashboard showed it ticking up and then stop.
+            sessions.append(_close_session(current, now, END_OPEN))
+        elif now - current["last_at"] < idle_gap:
             sessions.append(_close_session(current, current["last_at"], END_OPEN))
         else:
             sessions.append(_close_session(current, current["last_at"], END_TIMEOUT))
