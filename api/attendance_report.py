@@ -63,6 +63,28 @@ from api.attendance import (
 # break suspends this rule entirely.
 IDLE_GAP = timedelta(minutes=5)
 
+# How long a declared break may absorb silence before it is treated as
+# abandoned rather than ongoing.
+#
+# A declared break suspends IDLE_GAP, which is right: during a break the client
+# deliberately sends nothing, so the gap is almost always longer than the idle
+# threshold and applying it would count the break as absence. But the
+# suspension needs a ceiling, because `break_start` and `break_end` come from
+# two separate clicks and the second one is exactly as skippable as a logout —
+# the founding problem of this feature, reappearing inside its own fix.
+#
+# Without a ceiling an annotator who pressed Take a Break and then closed the
+# tab had the idle rule suspended for the rest of the day: their next session
+# hours later was absorbed into the abandoned one, the whole absence was
+# recorded as a *declared* break, and present time collapsed to near zero.
+# Q17 specifies the answer — an unended break "is closed by the same IDLE_GAP
+# fallback" — so the suspension is bounded here rather than being open-ended.
+#
+# 4 hours is deliberately generous: it must not clip a real lunch or a genuine
+# long break, only a break nobody ever came back from. Past it the session is
+# closed at the break start, the last moment there is evidence of presence.
+MAX_BREAK = timedelta(hours=4)
+
 # How a session ended. `open` is not a state a stored row keeps — it is what a
 # session looks like when read while still running.
 END_LOGOUT = "logout"
@@ -161,13 +183,59 @@ def sessionise(observations, now=None, idle_gap=IDLE_GAP) -> list:
         if current is None:
             current = _new_session(seen_at)
         elif current["open_break"] is not None:
-            # A declared break suspends the idle rule entirely. During a break
-            # the client sends nothing — that is the point of declaring it —
-            # so the gap between `break_start` and `break_end` is almost always
-            # longer than IDLE_GAP. Applying the timeout here would split every
-            # break longer than ten minutes into two sessions and count the
-            # break as absence, which is precisely what declaring it is meant
-            # to prevent (§ 1.1: "a break does not end the session").
+            # A declared break suspends the idle rule. During a break the
+            # client sends nothing — that is the point of declaring it — so the
+            # gap between `break_start` and `break_end` is almost always longer
+            # than IDLE_GAP. Applying the timeout here would split every break
+            # into two sessions and count it as absence, which is precisely
+            # what declaring it is meant to prevent (§ 1.1: "a break does not
+            # end the session").
+            #
+            # Ordinary traffic during an open break is positive evidence that
+            # the break is over and End Break was simply never pressed: a
+            # client on a declared break is silent by design, so a `seen` row
+            # means somebody is back at the keyboard. That is a stronger and
+            # much earlier signal than waiting out MAX_BREAK, so it is checked
+            # first — otherwise a forgotten End Break swallows the rest of the
+            # morning as "break".
+            #
+            # The break is closed at this observation, not at the session end,
+            # and stays flagged unended: its length is an upper bound (the
+            # annotator may have returned at any point during the silence) and
+            # the flag is what says so. Q16's retroactive entry is how a user
+            # corrects it to the real interval.
+            #
+            # Declared breaks only. A *manual* break is entered after the fact
+            # for a stretch the annotator sat through with the tab open, so it
+            # is covered by ordinary `seen` traffic by construction — applying
+            # this rule to one truncates it to a single idle gap, which is the
+            # opposite of what Q16's retroactive entry is for. Only a declared
+            # break carries the guarantee of client silence that makes traffic
+            # meaningful evidence.
+            if (
+                current["open_break"]["source"] != "manual"
+                and kind not in _BREAK_ENDS
+                and seen_at - current["open_break"]["started_at"] >= idle_gap
+            ):
+                current["breaks"].append(
+                    _close_break(current["open_break"], seen_at)
+                )
+                current["breaks"][-1]["ended"] = False
+                current["open_break"] = None
+        elif kind in _BREAK_STARTS and seen_at - current["last_at"] < MAX_BREAK:
+            # A break_start does not split the session it interrupts. Pressing
+            # Take a Break is itself evidence the annotator was at the
+            # keyboard, so the work before it belongs to the same session —
+            # even when the last ambient observation is more than IDLE_GAP old
+            # (the throttle spaces `seen` rows up to a minute apart, and a
+            # quiet stretch just before stepping away is ordinary). Splitting
+            # here stranded the pre-break work as a separate session showing
+            # zero present time.
+            #
+            # Bounded by MAX_BREAK so this stays a continuation rule and does
+            # not reach across a whole absence: a retroactive break entered
+            # from the profile page for a much earlier moment, or a return
+            # after hours away, still starts a new session.
             pass
         elif seen_at - current["last_at"] >= idle_gap:
             # The gap is too long to be jitter: close the run and start a new
@@ -209,7 +277,15 @@ def sessionise(observations, now=None, idle_gap=IDLE_GAP) -> list:
         # timed out at its last observation.
         # `<`, matching the split rule: a session whose last observation
         # is exactly IDLE_GAP old has timed out, not still open.
-        if now - current["last_at"] < idle_gap:
+        open_break = current["open_break"]
+        if open_break is not None and now - open_break["started_at"] >= MAX_BREAK:
+            # An abandoned break, read after the fact: closed at its start for
+            # the same reason as in the loop, rather than reported as a session
+            # still running hours later.
+            sessions.append(_close_session(
+                current, open_break["started_at"], END_TIMEOUT,
+            ))
+        elif now - current["last_at"] < idle_gap or open_break is not None:
             sessions.append(_close_session(current, current["last_at"], END_OPEN))
         else:
             sessions.append(_close_session(current, current["last_at"], END_TIMEOUT))

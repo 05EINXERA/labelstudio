@@ -282,13 +282,108 @@ def test_a_break_open_at_read_time_does_not_invent_presence():
     sessions = report.sessionise(rows, now=much_later)
 
     assert any(s["has_unended_break"] for s in sessions)
+
+    # The hour of work before the break (09:00 -> 10:00) is real and must be
+    # kept: pressing Take a Break is evidence the annotator was there, so it
+    # continues that session rather than splitting it away.
+    #
+    # What must NOT be invented is the eight hours of silence AFTER the break
+    # started. Nothing was observed in it and nobody ended the break, so it
+    # counts as neither present nor break. The bound is therefore on time
+    # attributed past the break start, not on the total.
+    break_start = datetime(2026, 9, 1, 10, 0, tzinfo=timezone.utc)
+    latest_end = max(s["ended_at"] for s in sessions)
+    assert latest_end <= break_start, (
+        f"attendance runs to {latest_end} — past the abandoned break start "
+        f"{break_start}; the idle rule must still bound an unended break"
+    )
+
     total_present = sum(s["seconds"] for s in sessions)
-    assert total_present < 3600, (
-        f"{total_present}s of presence invented from an abandoned break; the "
-        "idle rule must still bound an unended break"
+    assert total_present == 3600, (
+        f"expected exactly the observed hour of presence, got {total_present}s"
     )
     for session in sessions:
         assert session["end_reason"] != report.END_OPEN
+
+
+def test_an_abandoned_break_does_not_swallow_later_work():
+    """A forgotten *End Break* must not absorb the rest of the day.
+
+    The regression the original unended-break test could not catch: its
+    fixture had no observation AFTER the break_start, so `sessionise` fell
+    straight to the tail branch and the loop body — where the idle rule is
+    suspended — never ran. The failure needs the annotator to come *back*.
+
+    Reported shape: break at 10:05, tab closed, working again at 13:00. That
+    used to read as one session to 13:02 with a 175-minute declared break and
+    almost no present time.
+    """
+    rows = [
+        obs(0), obs(2),
+        obs(5, kind=KIND_BREAK_START),
+        obs(0, hour=13), obs(2, hour=13),
+    ]
+    now = datetime(2026, 9, 1, 13, 5, tzinfo=timezone.utc)
+    sessions = report.sessionise(rows, now=now)
+
+    # The break is bounded by the return, not left running to the session end.
+    breaks = [b for s in sessions for b in s["breaks"]]
+    assert len(breaks) == 1
+    assert breaks[0]["ended_at"] <= datetime(2026, 9, 1, 13, 0, tzinfo=timezone.utc)
+    assert not breaks[0]["ended"], "a break nobody ended must stay flagged"
+
+    # The work either side of it is present time, not break time.
+    total_present = sum(s["seconds"] for s in sessions)
+    assert total_present >= 7 * 60, (
+        f"only {total_present}s present; the work before and after an "
+        "abandoned break was swallowed by it"
+    )
+
+
+def test_a_manual_break_is_not_truncated_by_the_traffic_it_covers():
+    """A retroactive break spans time the tab was open and sending `seen`.
+
+    Unlike a declared break, a manual one is entered after the fact for a
+    stretch the annotator sat through logged in, so ambient traffic runs right
+    through it. Treating that traffic as "they came back" would clip every
+    retroactive break to one idle gap — defeating the point of Q16's entry.
+    """
+    rows = [obs(m) for m in range(0, 34, 2)]
+    rows += [
+        obs(20, kind=KIND_BREAK_MANUAL_START),
+        obs(30, kind=KIND_BREAK_MANUAL_END),
+    ]
+    now = datetime(2026, 9, 1, 9, 35, tzinfo=timezone.utc)
+    sessions = report.sessionise(rows, now=now)
+
+    breaks = [b for s in sessions for b in s["breaks"]]
+    assert len(breaks) == 1
+    assert breaks[0]["seconds"] == 600, (
+        f"the manual break was recorded as {breaks[0]['seconds']}s, not the "
+        "600s that was entered"
+    )
+    assert breaks[0]["ended"]
+
+
+def test_a_break_start_does_not_split_the_session_it_interrupts():
+    """Pressing Take a Break is evidence of presence, so it continues the run.
+
+    The throttle spaces ambient rows up to a minute apart and a quiet stretch
+    before stepping away is ordinary, so a break_start often arrives more than
+    IDLE_GAP after the last `seen`. Splitting there stranded the pre-break
+    work as a separate session reporting zero present time.
+    """
+    rows = [
+        obs(0),
+        obs(int(report.IDLE_GAP.total_seconds() // 60) + 5, kind=KIND_BREAK_START),
+    ]
+    now = datetime(2026, 9, 1, 9, 30, tzinfo=timezone.utc)
+    sessions = report.sessionise(rows, now=now)
+
+    assert len(sessions) == 1, (
+        f"{len(sessions)} sessions; a break_start must not open a new one"
+    )
+    assert sessions[0]["seconds"] > 0, "the work before the break was lost"
 
 
 def test_a_manual_break_is_distinguishable_from_a_declared_one():
