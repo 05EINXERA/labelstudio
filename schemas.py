@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional, List, Dict, Any, Literal, get_args
 from pydantic import BaseModel, Field, field_validator
 
@@ -837,6 +837,12 @@ class Me(BaseModel):
     id: int
     username: str
     teams: List[MeTeam] = Field(default_factory=list)
+    # Instance-level admin. Present so the nav can decide whether to draw the
+    # Attendance tab — **rendering only** (CLAUDE.md rule 18b). The server
+    # gates every attendance endpoint with require_admin regardless of what
+    # the client believes, and a stale bundle showing the tab is a cosmetic
+    # bug that resolves in a 404, not a hole.
+    is_admin: bool = False
 
 
 class UserCreate(BaseModel):
@@ -861,3 +867,151 @@ class Token(BaseModel):
     # body so a non-browser client (tests, scripts) can echo it back without
     # having to parse Set-Cookie.
     csrf_token: Optional[str] = None
+
+
+# --- Attendance ---------------------------------------------------------------
+#
+# Response models for the attendance register (.devnotes/attendance-feature/).
+# Declared as schemas rather than hand-built dicts, per CLAUDE.md rule 6.
+
+
+class AttendanceBreak(BaseModel):
+    """One break inside a session.
+
+    `source` is "declared" (the button) or "manual" (entered afterwards from
+    the profile page). `entered_at` is when the ROW was written, which for a
+    manual break is hours after `started_at` — that gap is how an admin sees a
+    break was reconstructed rather than observed. Provenance, not suspicion.
+    """
+    started_at: datetime
+    ended_at: datetime
+    seconds: int
+    # False means the break was never ended and was closed by the fallback.
+    # A lower bound, and it says so rather than being silently dropped.
+    ended: bool
+    source: Literal["declared", "manual"]
+    entered_at: Optional[datetime] = None
+
+
+class AttendanceSession(BaseModel):
+    """A maximal run of observations with no gap greater than IDLE_GAP."""
+    started_at: datetime
+    ended_at: datetime
+    # logout (stated) | timeout (inferred, a lower bound) | open (still running)
+    end_reason: Literal["logout", "timeout", "open"]
+    # Present time: the span minus declared breaks.
+    seconds: int
+    span_seconds: int
+    break_seconds: int
+    tasks_touched: int
+    breaks: List[AttendanceBreak] = []
+
+
+class AttendanceRow(BaseModel):
+    """One person's day.
+
+    `tasks_touched` and `tasks_reviewed` are deliberately literal. "Tasks
+    completed by user X" is NOT derivable — there is no author column on the
+    annotation write path — and no field here may imply it (CLAUDE.md rule 11a).
+    """
+    user_id: Optional[int] = None
+    username: str
+    local_date: date
+    first_seen: datetime
+    last_seen: datetime
+    last_seen_reason: Literal["logout", "timeout", "open"]
+    session_count: int
+    present_seconds: int
+    break_seconds: int
+    manual_break_seconds: int
+    # From `active`-kind observations, never from time_logs, which is a
+    # lifetime total with no date column at all.
+    active_seconds: int
+    tasks_touched: int
+    tasks_reviewed: int
+    has_unended_break: bool = False
+    # True only while a declared break is running *right now*, which is why it
+    # is distinct from `has_unended_break`: that one stays true all day for a
+    # break nobody ended. Meaningful only when `last_seen_reason == "open"`,
+    # and always false for a past date.
+    break_in_progress: bool = False
+
+
+class AttendanceDayResponse(BaseModel):
+    date: date
+    instance_id: str
+    timezone: str
+    generated_at: datetime
+    rows: List[AttendanceRow] = []
+
+
+class AttendanceRangeResponse(BaseModel):
+    date_from: date
+    date_to: date
+    instance_id: str
+    timezone: str
+    generated_at: datetime
+    rows: List[AttendanceRow] = []
+
+
+class AttendanceSessionsResponse(BaseModel):
+    date: date
+    user_id: Optional[int] = None
+    username: str
+    sessions: List[AttendanceSession] = []
+
+
+class BreakStartResponse(BaseModel):
+    """Answer to POST /api/attendance/break/start."""
+    started_at: datetime
+    # True when a break was already open for this caller. The endpoint is
+    # idempotent rather than an error: a double-click, or a second tab, must
+    # not produce two overlapping breaks, and the user has no way to fix one
+    # if it does (the table is append-only — Q24).
+    already_open: bool = False
+
+
+class BreakEndResponse(BaseModel):
+    """Answer to POST /api/attendance/break/end."""
+    ended_at: datetime
+    seconds: int
+    # False when no break was open — ending a break nobody started is a no-op,
+    # not an error, for the same reason as above.
+    was_open: bool = True
+
+
+class OpenBreak(BaseModel):
+    """An unfinished break, so a reloaded page can restore its overlay.
+
+    Without this a refresh mid-break strands the user: the break is open
+    server-side but the page has no overlay and no way to end it — the Q17
+    failure, reached by pressing F5.
+    """
+    started_at: datetime
+    seconds: int
+
+
+class ManualBreakRequest(BaseModel):
+    """A break entered after the fact, for the caller.
+
+    The only place in the feature where a user writes a fact about themselves
+    rather than the server observing one, so it carries constraints the
+    observed path does not need. Validated here where the shape allows and in
+    the endpoint where it needs the clock or the database.
+
+    Deliberately carries **no user field**. The endpoint writes for the caller
+    and cannot be asked to write for anyone else (Q16, § 4.1 point 3).
+    """
+    started_at: datetime
+    ended_at: datetime
+
+
+class ManualBreakResponse(BaseModel):
+    started_at: datetime
+    ended_at: datetime
+    seconds: int
+    # The local day the pair landed on, re-rolled as part of the write. Past
+    # the 31-day retention the rollup is the only record, so a manual break on
+    # an already-rolled day must re-roll it or the two diverge silently.
+    local_date: date
+    rerolled: bool = False

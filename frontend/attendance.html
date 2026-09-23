@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Attendance - Label Studio</title>
+  <link rel="icon" type="image/png" href="logo.png">
+  <link rel="stylesheet" href="styles.css?v=14">
+</head>
+
+<body style="background: var(--bg);">
+
+  <header class="mgmt-header">
+    <div class="brand">
+      <img src="logo.png" alt="Logo">
+      <h1 id="pageHeading">Attendance</h1>
+    </div>
+    <nav class="app-nav" id="appNav" aria-label="Sections"></nav>
+    <div class="spacer"></div>
+    <span class="mgmt-user" id="currentUser"></span>
+    <button class="tool-button" id="logoutBtn" type="button">Log out</button>
+  </header>
+
+  <!--
+    Admin-only. The page is *also* gated server-side on every request it makes
+    (require_admin, which answers 404) — this markup hiding itself is a
+    courtesy, never the control. See CLAUDE.md rule 18b.
+  -->
+  <main class="mgmt-main">
+
+    <section id="deniedPane" hidden>
+      <div class="mgmt-title-row">
+        <div>
+          <p class="mgmt-eyebrow">Attendance</p>
+          <h2>Not available</h2>
+        </div>
+      </div>
+      <p class="field-hint">
+        This page is only available to administrators.
+        <a class="cell-link" href="projects.html">Back to projects</a>
+      </p>
+    </section>
+
+    <section id="mainPane" hidden>
+      <div class="mgmt-title-row">
+        <div>
+          <p class="mgmt-eyebrow">Workspace</p>
+          <h2 id="rangeHeading">Attendance</h2>
+        </div>
+      </div>
+
+      <div id="errorBanner" class="mgmt-error" style="display: none;"></div>
+
+      <div class="mgmt-toolbar">
+        <label for="modeSelect" class="field-label-inline">Show</label>
+        <select id="modeSelect" aria-label="Period">
+          <option value="day">One day</option>
+          <option value="range">Date range</option>
+        </select>
+
+        <span id="dayControls">
+          <label for="dayInput" class="field-label-inline">Date</label>
+          <input type="date" id="dayInput" aria-label="Date">
+          <button class="tool-button" id="prevDayBtn" type="button" title="Previous day">←</button>
+          <button class="tool-button" id="todayBtn" type="button">Today</button>
+          <button class="tool-button" id="nextDayBtn" type="button" title="Next day">→</button>
+        </span>
+
+        <span id="rangeControls" hidden>
+          <label for="fromInput" class="field-label-inline">From</label>
+          <input type="date" id="fromInput" aria-label="From">
+          <label for="toInput" class="field-label-inline">To</label>
+          <input type="date" id="toInput" aria-label="To">
+          <button class="tool-button" id="applyRangeBtn" type="button">Apply</button>
+        </span>
+
+        <input type="search" id="searchInput" placeholder="Search people…" aria-label="Search people">
+
+        <span class="toolbar-spacer"></span>
+        <!-- Admin-only, like the rest of this page. The server enforces it
+             (require_admin, answering 404); these buttons are the convenience. -->
+        <button class="tool-button" id="exportXlsxBtn" type="button"
+          title="Download the current period as a formatted workbook">Export .xlsx</button>
+        <button class="tool-button" id="exportCsvBtn" type="button"
+          title="Download the current period as CSV">Export .csv</button>
+      </div>
+
+      <div id="summaryStrip" class="mgmt-summary" aria-live="polite"></div>
+
+      <div id="tableMount"></div>
+
+      <!--
+        The footnote is not decoration. Three of these columns mean something
+        narrower than their names suggest, and an attendance register that is
+        misread is worse than one nobody reads.
+      -->
+      <p class="field-hint" id="tableFootnote" style="margin-top: 16px;">
+        <strong>Present</strong> excludes declared breaks.
+        <strong>Active (timer)</strong> is time the annotation timer was running, so it
+        is always lower than Present and the two will not agree.
+        A <strong>timeout</strong> end means the tab was closed without logging out — the
+        time shown is the last moment we saw them, a lower bound, not a logout time.
+        <strong>Tasks touched</strong> is tasks the person had open; it is
+        <em>not</em> tasks completed, which this system cannot attribute to a person.
+        <strong>*</strong> marks a day containing a break entered after the fact.
+      </p>
+    </section>
+  </main>
+
+  <!-- Session breakdown for one person's day -->
+  <div class="modal-overlay" id="sessionsModal">
+    <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="sessionsModalTitle">
+      <div class="modal-header">
+        <h2 id="sessionsModalTitle">Sessions</h2>
+        <button class="modal-close" id="sessionsModalClose" type="button">&times;</button>
+      </div>
+      <div class="modal-body" id="sessionsModalBody"></div>
+      <div class="modal-footer">
+        <button type="button" class="tool-button" id="sessionsModalDone">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="js/pages/attendance.js?v=3"></script>
+</body>
+
+</html>

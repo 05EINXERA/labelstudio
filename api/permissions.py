@@ -434,3 +434,41 @@ def can_write_task(
         .first()
     )
     return membership is not None
+
+
+# --- Instance-level admin ----------------------------------------------------
+
+
+def is_admin(user: models.User) -> bool:
+    """Whether this user holds the instance-level admin flag.
+
+    A third axis, and deliberately the narrowest one. `ProjectRole` and
+    `TeamRole` are both *scoped* — they answer "on this project" or "in this
+    team". Attendance is about a person's day across every project they touched
+    (294 of them, owned by different people), so no scoped role can express it:
+    there is no project whose owner should see the whole roster's hours.
+
+    The flag is writable **only by `scripts/grant_admin.py`**. No API path sets
+    it, which is what makes privilege escalation over HTTP impossible rather
+    than merely unlikely (.devnotes/attendance-feature/ Q13, invariant 7).
+    """
+    return bool(getattr(user, "is_admin", False))
+
+
+def require_admin(user: models.User) -> models.User:
+    """Return the user, or raise 404.
+
+    **404, not 403** — matching the contract `require_project` documents for a
+    caller with no role at all: the answer is identical to a nonexistent
+    resource, so the existence of an attendance dashboard is not disclosed to
+    someone who may not use it. The 403 half of that contract does not apply
+    here because `is_admin` is not a ranking: there is no "has a role but not a
+    high enough one" state to distinguish.
+
+    Call this **before any aggregation**, per CLAUDE.md rule 1c's ordering
+    principle. A permission answer must never arrive after the work it was
+    meant to prevent.
+    """
+    if not is_admin(user):
+        raise HTTPException(status_code=404, detail="Not found")
+    return user

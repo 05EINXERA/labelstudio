@@ -38,7 +38,7 @@ configure_logging()
 
 from api.middleware import ServiceLogMiddleware  # noqa: E402
 from api.compression import RequestDecompressionMiddleware  # noqa: E402
-from api.routers import projects, tasks, team, teams, grants, time_logs, data, detect, label_studio, labels, auth, imports, exports, image_info  # noqa: E402
+from api.routers import projects, tasks, team, teams, grants, time_logs, data, detect, label_studio, labels, auth, imports, exports, image_info, attendance  # noqa: E402
 from database import engine  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -62,6 +62,34 @@ async def _set_threadpool_capacity() -> None:
         logger.info("Request threadpool cap set to %d", THREADPOOL_CAP)
     except Exception as exc:  # pragma: no cover - never worth failing startup
         logger.warning("Could not set threadpool cap (%s); using anyio default", exc)
+
+    # Start the attendance drain.
+    #
+    # It runs on the app's own clock rather than riding request traffic,
+    # because the event attendance most needs to record -- someone closing
+    # their tab and leaving -- is precisely the event that stops the traffic
+    # a traffic-driven flush depends on. See api/attendance.py.
+    try:
+        from api import attendance
+        attendance.start_drain()
+    except Exception as exc:  # pragma: no cover - attendance never breaks startup
+        logger.warning("Could not start the attendance drain (%s)", exc)
+
+
+@app.on_event("shutdown")
+async def _flush_attendance() -> None:
+    """Write whatever is still buffered before the process exits.
+
+    These are the observations of whoever was working when the server stopped,
+    which is exactly the stretch an annotator would query. Losing them was
+    accepted in the original design as "at most one flush window"; it costs
+    one INSERT to not lose them.
+    """
+    try:
+        from api import attendance
+        await attendance.stop_drain()
+    except Exception as exc:  # pragma: no cover - never worth failing shutdown
+        logger.warning("Attendance shutdown flush failed (%s)", exc)
 
 
 @app.middleware("http")
@@ -252,6 +280,7 @@ app.include_router(labels.router)
 app.include_router(auth.router)
 app.include_router(imports.router)
 app.include_router(exports.router)
+app.include_router(attendance.router)
 
 
 @app.get("/health")
@@ -269,10 +298,25 @@ def health():
         db_ok = False
         logger.error("Health check database probe failed: %s", exc)
 
+    # Attendance is reported as its own field rather than folded into
+    # `status`. A dead drain does not stop the app serving annotation work, so
+    # it must not make the supervisor restart a healthy process — but it is
+    # invisible everywhere else: the process serves and the database answers
+    # while observations pile up in memory and are lost on the next restart.
+    # This is the only place that says so.
+    attendance_health = {"enabled": False}
+    try:
+        from api import attendance
+        attendance_health = attendance.drain_status()
+    except Exception as exc:  # pragma: no cover - health must never 500
+        logger.warning("Could not read attendance drain status (%s)", exc)
+        attendance_health = {"enabled": None, "healthy": None, "error": str(exc)}
+
     return {
         "status": "ok" if db_ok else "degraded",
         "database": "up" if db_ok else "down",
         "environment": "production" if IS_PRODUCTION else "development",
+        "attendance": attendance_health,
     }
 
 
