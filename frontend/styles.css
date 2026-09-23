@@ -2370,6 +2370,13 @@ table.data-table tbody tr:last-child td { border-bottom: none; }
 .pill.is-reviewed  { background: rgba(139,92,246,.14); color: #6d28d9; border-color: transparent; }
 .pill.is-monitored { background: rgba(249,115,22,.14); color: #c2410c; border-color: transparent; }
 
+/* The caller's own role on a project (projects list, project header). Same
+   teal as the per-name Reviewer tag in the task list, so one role reads as one
+   colour wherever it appears. */
+.pill.is-role-reviewer { background: rgba(15,139,141,.15); color: var(--accent); border-color: transparent; }
+.pill[hidden] { display: none; }
+.pill.is-role { font-size: .7rem; padding: 1px 8px; vertical-align: middle; margin-left: 6px; }
+
 /* Image size categories (Images Info).
    Each *named* size gets a distinct colour, because it is a real answer about
    the image. "Other" and "Unknown" deliberately share one muted neutral style:

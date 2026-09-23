@@ -120,6 +120,9 @@ class ProjectSummary(BaseModel):
     team_id: Optional[int] = None
     team_name: Optional[str] = None
     created_at: Optional[datetime] = None
+    # The caller's own standing, so the list can badge the role; see
+    # api/routers/projects.is_project_reviewer.
+    is_reviewer: bool = False
     total: int = 0
     completed: int = 0
     in_progress: int = 0

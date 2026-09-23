@@ -31,6 +31,7 @@ from schemas import (
 )
 from api.auth import get_current_user, require_csrf, get_current_annotator
 from api.assignments import set_task_assignees
+from api.notifications import notify_reviewer_appointed
 from app import image_inventory, image_inventory_xlsx
 from formats.common import measure_image
 
@@ -297,6 +298,13 @@ def get_projects(db: Session = Depends(get_db), user: models.User = Depends(get_
     if task_pids:
         conditions.append(models.Project.id.in_(task_pids))
 
+    # A reviewer may hold no task and belong to no team on the project, so the
+    # appointment alone must list it — get_owned_project already lets them open
+    # it, and the appointment notification links there.
+    reviewed_pids = set(reviewed_project_ids(user, db, annotator))
+    if reviewed_pids:
+        conditions.append(models.Project.id.in_(reviewed_pids))
+
     query = db.query(models.Project, models.Team.name.label("team_name")).outerjoin(
         models.Team, models.Project.team_id == models.Team.id
     ).filter(or_(*conditions))
@@ -313,6 +321,7 @@ def get_projects(db: Session = Depends(get_db), user: models.User = Depends(get_
             id=p.Project.id, name=p.Project.name, slug=p.Project.slug, type=p.Project.type, status=p.Project.status,
             creator=p.Project.creator, created_at=p.Project.created_at,
             team_id=p.Project.team_id, team_name=p.team_name,
+            is_reviewer=p.Project.id in reviewed_pids,
             **metrics[p.Project.id],
         )
         for p in projects_with_teams
@@ -409,6 +418,9 @@ def add_reviewer(
     commit_with_retry(db)
     db.refresh(row)
     logger.info("Appointed %r as reviewer of project %s (by %r)", name, project_id, appointed_by)
+    # After the commit (see api/notifications.py), and only on a new row: the
+    # idempotent re-appoint above returns early, so a double-click notifies once.
+    notify_reviewer_appointed(db, project, name, actor_name=appointed_by)
     return row
 
 

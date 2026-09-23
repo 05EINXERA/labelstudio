@@ -114,6 +114,27 @@ def notify_task_status_changed(
     )
 
 
+def notify_reviewer_appointed(
+    db: Session, project: models.Project, reviewer_name: str,
+    actor_name: Optional[str],
+) -> None:
+    """Tell an annotator they have been appointed a reviewer of a project.
+
+    A `project` notice, so the bell links straight to the project: the role
+    carries no task, and a reviewer usually holds none there — without this they
+    would only discover the appointment by stumbling on the project in their list.
+    """
+    label = project.name or f"Project {project.id}"
+    emit(
+        db,
+        recipient_name=reviewer_name,
+        type=TYPE_PROJECT,
+        entity_id=project.id,
+        message=f'You were appointed a reviewer of "{label}"',
+        actor_name=actor_name,
+    )
+
+
 def notify_task_assigned(
     db: Session, task_id: int, task_label: str,
     assignee: Optional[str], actor_name: Optional[str],

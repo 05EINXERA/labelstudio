@@ -41,6 +41,7 @@ const els = {
   view: document.getElementById("projectView"),
   name: document.getElementById("projectName"),
   status: document.getElementById("projectStatus"),
+  role: document.getElementById("projectRole"),
   user: document.getElementById("currentUser"),
   annotate: document.getElementById("annotateBtn"),
   logout: document.getElementById("logoutBtn"),
@@ -111,6 +112,10 @@ function renderHeader() {
   const status = p?.status || "New";
   els.status.textContent = status;
   els.status.className = "pill " + statusPillClass(status);
+
+  // Server-computed, like the nav gating: the caller's annotator name usually
+  // differs from both the username and project.creator.
+  if (els.role) els.role.hidden = !p?.is_reviewer;
 }
 
 function renderFatal(message) {

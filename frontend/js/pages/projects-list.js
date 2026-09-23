@@ -85,7 +85,13 @@ const table = createDataTable({
     {
       key: "name",
       label: "Project",
-      render: (r) => `<a class="cell-link" href="project.html?id=${encodeURIComponent(r.id)}">${escapeHTML(r.name || "Untitled")}</a>`,
+      // `is_reviewer` is the server's answer for this caller; the badge tells
+      // an appointed reviewer which projects they are there to sign off.
+      render: (r) => `<a class="cell-link" href="project.html?id=${encodeURIComponent(r.id)}">${escapeHTML(r.name || "Untitled")}</a>${
+        r.is_reviewer
+          ? ` <span class="pill is-role is-role-reviewer" title="You are an appointed reviewer of this project">Reviewer</span>`
+          : ""
+      }`,
     },
     { key: "type", label: "Type", render: (r) => `<span style="color:var(--muted);">${escapeHTML(r.type || "—")}</span>` },
     {

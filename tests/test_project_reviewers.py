@@ -251,3 +251,50 @@ def test_removing_a_reviewer_revokes_the_access(client, alice, bob):
 
     client.delete(f"/api/projects/{pid}/reviewers/{rev}", headers=alice)
     assert client.get(f"/api/projects/{pid}", headers=bob_rev).status_code == 404
+
+
+# --- telling the reviewer ---------------------------------------------
+
+
+def test_appointment_notifies_the_reviewer_once(client, alice, bob):
+    """The appointee hears about it; a double-click re-appoint is not news."""
+    pid = _new_project(client, alice, "notify-proj")
+    rev = _member(client, alice, "Rev")
+    bob_rev = {**bob, "X-Annotator-Name": rev}
+
+    client.post(f"/api/projects/{pid}/reviewers", json={"member_name": rev}, headers=alice)
+    client.post(f"/api/projects/{pid}/reviewers", json={"member_name": rev}, headers=alice)
+
+    notes = client.get("/api/notifications", headers=bob_rev).json()
+    assert len(notes) == 1
+    note = notes[0]
+    assert note["type"] == "project"
+    assert note["entity_id"] == pid
+    assert note["project_id"] == pid
+    assert note["project_name"] == "notify-proj"
+    assert "reviewer" in note["message"]
+
+
+def test_reviewed_project_is_listed_and_badged(client, alice, bob):
+    """The projects list must show a reviewed project, flagged for the badge."""
+    reviewed = _new_project(client, alice, "listed")
+    other = _new_project(client, alice, "unlisted")
+    rev = _member(client, alice, "Rev")
+    bob_rev = {**bob, "X-Annotator-Name": rev}
+
+    def listed():
+        return {p["id"]: p for p in client.get("/api/projects", headers=bob_rev).json()}
+
+    assert reviewed not in listed()
+
+    client.post(f"/api/projects/{reviewed}/reviewers", json={"member_name": rev}, headers=alice)
+    rows = listed()
+    assert rows[reviewed]["is_reviewer"] is True
+    assert other not in rows
+
+    # The owner sees their own project unflagged: owning is not reviewing.
+    owner_rows = {p["id"]: p for p in client.get("/api/projects", headers=alice).json()}
+    assert owner_rows[reviewed]["is_reviewer"] is False
+
+    client.delete(f"/api/projects/{reviewed}/reviewers/{rev}", headers=alice)
+    assert reviewed not in listed()
