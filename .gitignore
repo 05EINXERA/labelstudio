@@ -19,7 +19,7 @@ uploads/
 weights/
 *.pt
 
-# Secrets — never commit. (.jwt_secret was tracked historically; see docs/GOTCHAS.md #1)
+# Secarets — never commit. (.jwt_secret was tracked historically; see docs/GOTCHAS.md #1)
 .jwt_secret
 .env
 

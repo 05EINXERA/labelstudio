@@ -20,7 +20,7 @@ import { initFftControls } from "./fft-controls.js?v=1";
 import { toolAvailability } from "./feature-flags.js?v=10";
 import {
   switchImage, initGalleryNavigation, loadWorkspaceTasks, resizeCanvas
-} from "./components/gallery.js?v=9";
+} from "./components/gallery.js?v=10";
 import { initModals } from "./components/modals.js?v=2";
 import { initModeControls } from "./components/mode-controls.js?v=3";
 import { initOpacityControl } from "./components/opacity-control.js?v=1";

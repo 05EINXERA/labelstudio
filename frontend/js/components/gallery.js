@@ -18,6 +18,7 @@ import { autoDetectObjects, preloadMagicWand, preloadDetectAndTag } from "../ai/
 import { syncTaskTime, resetSessionForTask, refreshTimerDisplays } from "./timer.js?v=4";
 import { updateZoomDisplay } from "./zoom-control.js?v=2";
 import { claimTask, releaseTask } from "../task-lock.js?v=1";
+import { showNotAssignedModal } from "./not-assigned-modal.js?v=1";
 
 /**
  * Resizes the internal and static canvases to account for device pixel ratio and oversampling.
@@ -221,10 +222,14 @@ export async function switchImage(index) {
             !state.isTaskAssignee && !state.isProjectOwner && !state.isProjectReviewer;
           if (readOnly) {
             setStatus("⚠ Task is assigned to another user (Read-only)");
+            // The owner and a reviewer never reach here (excluded above), so
+            // only an annotator whose edits would be dropped sees the dialog.
+            showNotAssignedModal(taskAssignees);
           }
           item.isFullyLoaded = !readOnly;
         } else if (res && res.status === 403) {
           setStatus("⚠ Task is assigned to another user (Read-only)");
+          showNotAssignedModal();
           item.annotations = [];
           item.isFullyLoaded = false;
         } else {

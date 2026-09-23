@@ -1110,3 +1110,40 @@ def test_module_version_pins_are_consistent():
             for t, versions in sorted(mismatched.items())
         )
     )
+
+
+def test_not_assigned_warning_dialog_skips_owner_and_reviewer():
+    """A non-assignee opening an assigned task gets a warning dialog.
+
+    Their canvas is read-only (isFullyLoaded false gates every autosave), so
+    their changes are dropped; the status-bar line alone was easy to miss.
+    The owner and an appointed reviewer have full edit authority over any task
+    (_is_task_editor in api/routers/tasks.py) and must never see it.
+    """
+    gallery_file = os.path.join(FRONTEND_JS_DIR, "components", "gallery.js")
+    with open(gallery_file, "r", encoding="utf-8") as f:
+        content = f.read()
+    start = content.index("const detailPromise")
+    end = content.index("const lockPromise", start)
+    hydration = content[start:end]
+
+    # The dialog opens only inside the read-only branch...
+    ro_decl = hydration.index("const readOnly")
+    ro_branch = hydration.index("if (readOnly)")
+    assert ro_decl < ro_branch < hydration.index("showNotAssignedModal(taskAssignees)")
+    # ...and that flag excludes the owner and the reviewer.
+    ro_expr = hydration[ro_decl:ro_branch]
+    assert "!state.isProjectReviewer" in ro_expr
+    assert "!state.isProjectOwner" in ro_expr
+
+    modal_file = os.path.join(FRONTEND_JS_DIR, "components", "not-assigned-modal.js")
+    with open(modal_file, "r", encoding="utf-8") as f:
+        modal_js = f.read()
+    assert 'classList.add("is-active")' in modal_js
+    assert "style.display" not in modal_js
+
+    app_html = os.path.join(os.path.dirname(FRONTEND_JS_DIR), "app.html")
+    with open(app_html, "r", encoding="utf-8") as f:
+        html = f.read()
+    for element_id in ("notAssignedModal", "notAssignedOkBtn", "notAssignedAssignees"):
+        assert f'id="{element_id}"' in html

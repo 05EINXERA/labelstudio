@@ -7,7 +7,7 @@
   <title>Image Annotation</title>
   <link rel="icon" type="image/png" href="logo.png">
   <link rel="stylesheet" href="styles.css?v=30">
-  <link rel="modulepreload" href="js/init.js?v=12">
+  <link rel="modulepreload" href="js/init.js?v=13">
   <!-- sync.js (legacy global annotation-slot sync to /api/data) removed in T3.1.
        Under a shared account the 'image-annotation-mvp-v1' row was last-writer-wins
        across all 25 clients. Per-task localStorage drafts (workspace.js restoreDraft)
@@ -643,6 +643,27 @@
     </div>
   </div>
 
+  <!-- Not-assigned warning: opened by gallery.js when the annotator opens a
+       task assigned to someone else. Never shown to the project owner or a
+       reviewer, whose edits do save. See js/components/not-assigned-modal.js. -->
+  <div id="notAssignedModal" class="modal-overlay" style="z-index: 9998;">
+    <div class="modal-content" style="max-width: 440px;">
+      <div class="modal-header">
+        <h2 style="margin: 0; font-size: 1.2rem; color: #f59e0b;">⚠️ You are not assigned to this task</h2>
+        <button class="modal-close" id="notAssignedClose">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 24px;">
+        <p style="margin-top: 0; color: var(--ink-light);">
+          You can view this task, but <strong>any changes you make will not be saved</strong>.
+        </p>
+        <p id="notAssignedAssignees" style="color: var(--muted); font-size: 0.85rem;"></p>
+        <div style="display: flex; gap: 10px; margin-top: 20px;">
+          <button id="notAssignedOkBtn" class="primary" style="flex: 1; padding: 12px;">OK, view only</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Conflict Resolution Modal -->
   <div id="conflictModal" class="modal-overlay" style="z-index: 10000;">
     <div class="modal-content" style="max-width: 500px;">
@@ -706,7 +727,7 @@
     </div>
   </div>
 
-  <script type="module" src="js/init.js?v=12"></script>
+  <script type="module" src="js/init.js?v=13"></script>
 
 </body>
 
