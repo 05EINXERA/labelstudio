@@ -1,8 +1,8 @@
 import { generateUUID, clamp, round } from "../utils.js?v=2";
 import { state, snapshot, isAnnotationHidden, labelById, labelDisplayName } from "../state.js?v=11";
 import { annotationPoints, updateAnnotationBounds, pointInPolygon } from "./geometry.js?v=1";
-import { untangleRing } from "./untangle.js?v=2";
-import { unionAll } from "./merge.js?v=3";
+import { untangleRing } from "./untangle.js?v=3";
+import { unionAll } from "./merge.js?v=4";
 import { view } from "./view.js?v=1";
 import { draw, drawAllLayers } from "./draw.js?v=10";
 import { canvas, ctx, undoButton } from "../dom.js?v=5";
