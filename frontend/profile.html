@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My profile - Label Studio</title>
+  <link rel="icon" type="image/png" href="logo.png">
+  <link rel="stylesheet" href="styles.css?v=14">
+</head>
+
+<body style="background: var(--bg);">
+
+  <header class="mgmt-header">
+    <div class="brand">
+      <img src="logo.png" alt="Logo">
+      <h1>My profile</h1>
+    </div>
+    <nav class="app-nav" id="appNav" aria-label="Sections"></nav>
+    <div class="spacer"></div>
+    <span class="mgmt-user" id="currentUser"></span>
+    <!--
+      The same account-settings button the projects and project pages carry.
+      Those two stay exactly where they are: they are how a user reaches the
+      password modal from anywhere, and removing them to "absorb" settings
+      here would be a regression rather than a consolidation (Q28). Nothing
+      moves, so no import pin at either existing call site needs bumping.
+    -->
+    <button class="icon-button" id="settingsBtn" type="button"></button>
+    <button class="tool-button" id="logoutBtn" type="button">Log out</button>
+  </header>
+
+  <!--
+    Everything on this page is the CALLER'S OWN data. The endpoint behind it
+    takes no user parameter at all, so it cannot express another person —
+    safe by construction rather than by a check that could be forgotten.
+  -->
+  <main class="mgmt-main">
+
+    <div class="mgmt-title-row">
+      <div>
+        <p class="mgmt-eyebrow">You</p>
+        <h2 id="profileHeading">My attendance</h2>
+      </div>
+    </div>
+
+    <div id="errorBanner" class="mgmt-error" style="display: none;"></div>
+
+    <div class="mgmt-toolbar">
+      <label for="fromInput" class="field-label-inline">From</label>
+      <input type="date" id="fromInput" aria-label="From">
+      <label for="toInput" class="field-label-inline">To</label>
+      <input type="date" id="toInput" aria-label="To">
+      <button class="tool-button" id="applyRangeBtn" type="button">Apply</button>
+      <button class="tool-button" id="last7Btn" type="button">Last 7 days</button>
+      <button class="tool-button" id="last30Btn" type="button">Last 30 days</button>
+    </div>
+
+    <div id="summaryStrip" class="mgmt-summary" aria-live="polite"></div>
+
+    <div id="tableMount"></div>
+
+    <!--
+      Retroactive break entry (Q16). This is the one place a user asserts a
+      fact about themselves rather than the server observing one, so the copy
+      is explicit that it cannot be undone: nothing in the app can edit or
+      delete an entry once saved (Q24, Q31), and a mistyped one needs an
+      operator.
+    -->
+    <section class="manual-break" id="manualBreakSection">
+      <h3>Forgot to record a break?</h3>
+      <p class="field-hint">
+        Add one for today or yesterday. It is shown to administrators as
+        <em>entered later</em> rather than declared at the time — that is
+        provenance, not a mark against you.
+        <strong>Check the times before saving: an entry cannot be edited or
+        removed afterwards.</strong>
+      </p>
+
+      <div id="manualBreakError" class="mgmt-error" style="display: none;"></div>
+      <div id="manualBreakOk" class="mgmt-ok" style="display: none;"></div>
+
+      <form id="manualBreakForm" class="manual-break-form">
+        <div class="form-field">
+          <label for="breakDate">Date</label>
+          <input type="date" id="breakDate" required>
+        </div>
+        <div class="form-field">
+          <label for="breakStart">Started</label>
+          <input type="time" id="breakStart" required>
+        </div>
+        <div class="form-field">
+          <label for="breakEnd">Ended</label>
+          <input type="time" id="breakEnd" required>
+        </div>
+        <button type="submit" class="primary" id="manualBreakSubmit">Add break</button>
+      </form>
+    </section>
+
+    <!--
+      The same qualifications the admin dashboard carries. An annotator
+      checking their own hours needs them at least as much as an admin does:
+      these are the numbers they would query.
+    -->
+    <p class="field-hint" style="margin-top: 16px;">
+      <strong>Present</strong> excludes breaks you declared.
+      <strong>Active (timer)</strong> is time the annotation timer was running, so it
+      is always lower than Present and the two will not agree.
+      A <strong>timeout</strong> end means the tab was closed without logging out — the
+      time shown is the last moment you were seen, not when you left.
+      <strong>Tasks touched</strong> is tasks you had open; it is not a count of work
+      completed.
+    </p>
+  </main>
+
+  <script type="module" src="js/pages/profile.js?v=3"></script>
+</body>
+
+</html>

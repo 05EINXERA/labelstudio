@@ -1,8 +1,9 @@
-import { canvas, ctx, imageCanvas, imageCtx, staticCanvas, staticCtx } from "../dom.js?v=4";
+import { canvas, ctx, imageCanvas, imageCtx, staticCanvas, staticCtx } from "../dom.js?v=5";
 import { state, labelById, isAnnotationHidden } from "../state.js?v=11";
-import { annotationSettings, annotationOpacity } from "../feature-flags.js?v=1";
+import { annotationOpacity } from "../feature-flags.js?v=5";
 import { view } from "./view.js?v=1";
 import { annotationPoints, hexToRgba } from "./geometry.js?v=1";
+import { vertexHandleRadius, vertexHandleLineWidth } from "./handle-size.js?v=2";
 import {
   commentScreenGeometry, COMMENT_FONT, COMMENT_PILL_RADIUS,
   COMMENT_TEXT_INSET_X, COMMENT_TEXT_BASELINE_Y
@@ -356,9 +357,12 @@ export function drawAnnotation(annotation, selected = false, targetCtx = ctx) {
 }
 
 export function drawVertexHandles(points, color, targetCtx = ctx, isBeingDrawn = false) {
-  const radius = annotationSettings.vertexHandleRadius;
+  // Shrinks as the annotator zooms in, with a floor — a handle fixed in screen
+  // pixels covers the very detail being annotated at high zoom. See
+  // handle-size.js and the vertexHandleFalloff note in feature-flags.js.
+  const radius = vertexHandleRadius(view.viewZoom);
   targetCtx.strokeStyle = color;
-  targetCtx.lineWidth = 2;
+  targetCtx.lineWidth = vertexHandleLineWidth(radius);
   points.forEach((point, i) => {
     targetCtx.beginPath();
     targetCtx.arc(point.x, point.y, radius, 0, Math.PI * 2);

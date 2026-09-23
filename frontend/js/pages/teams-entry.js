@@ -9,13 +9,16 @@
  * `team/router.js` know nothing about each other — and neither is loaded unless
  * its pane is the one being shown.
  */
-import { renderAppNav, wireLogout } from "../components/app-nav.js?v=3";
+import { renderAppNav, revealAdminLinks, wireLogout } from "../components/app-nav.js?v=5";
 import { getCurrentUser } from "../session.js?v=2";
 
 const teamId = new URLSearchParams(window.location.search).get("id");
 
 async function init() {
   renderAppNav(document.getElementById("appNav"), "teams");
+  // Admin-only links appear once identity resolves; not awaited, so the
+  // header paints immediately (app-nav.js).
+  revealAdminLinks(document.getElementById("appNav"), "teams");
   wireLogout(document.getElementById("logoutBtn"));
 
   // Identity first: both panes level their controls on it, and the header

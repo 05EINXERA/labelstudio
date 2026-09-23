@@ -12,10 +12,11 @@ D4) and annotators may be running a cached bundle that still calls `/api/team`.
 import urllib.parse
 from typing import List
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy.orm import Session
 
 import models
+from api import attendance
 from api.auth import get_current_user, require_csrf
 from api.permissions import (
     TeamRole,
@@ -138,9 +139,33 @@ def delete_time_log(
 @router.post("/time", response_model=TimeLogUpdateResult)
 def update_time_logged(
     payload: TeamTime,
+    # Optional, with a default, because `api/routers/team.py` (the deprecated
+    # /api/team alias, kept one release for cached bundles) calls this as a
+    # plain Python function rather than through FastAPI. A required parameter
+    # here breaks that call site; `maybe_flush` treats None as "no flush", so
+    # the alias simply does not drain the buffer — the next real timer ping
+    # does.
+    background_tasks: BackgroundTasks = None,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    # The timer ping fires only while the timer is actually running
+    # (frontend/js/components/timer.js), so an observation from *this* endpoint
+    # is itself evidence the timer was active. That is what makes a per-day
+    # "Active (timer)" figure derivable without touching time_logs, which is a
+    # lifetime cumulative total with no date column at all (Q18, Q27).
+    #
+    # Marked here rather than by sniffing the path inside get_current_user: the
+    # auth layer must not learn which routers exist, which is the inverse of
+    # the dependency direction api/permissions.py establishes.
+    attendance.note_seen(
+        current_user.id, kind=attendance.KIND_ACTIVE, task_id=payload.task_id
+    )
+    # Flush here because this is the POST with the most dependable cadence in
+    # the app — one every 30s per annotator with a task open — so the buffer
+    # drains on a predictable interval without a dedicated endpoint. It runs
+    # after the response, so it costs this client nothing.
+    attendance.maybe_flush(background_tasks)
     # Time is credited to the authenticated user, not to the client-supplied
     # name, which came from an editable localStorage value and let anyone log
     # time against anyone. See docs/TIMER_AUDIT.md F7.

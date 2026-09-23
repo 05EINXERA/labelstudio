@@ -41,7 +41,7 @@
 // strictlyInside below. Unit-testable under plain Node — see
 // tests/js/merge_spec.mjs.
 
-import { segmentsIntersect, ringArea, isSimpleRing } from "./untangle.js?v=2";
+import { segmentsIntersect, ringArea, isSimpleRing } from "./untangle.js?v=3";
 
 // Coordinates are rounded to integers on every write (geometry.js
 // updateAnnotationBounds), so exactly-shared vertices and exactly-collinear

@@ -14,12 +14,12 @@ import {
   emptyState, drawMode, selectMode, boxMode, polygonMode, commentMode, magicWandMode,
   autoDetectButton, undoButton, redoButton, deleteButton, clearButton, unhideAllButton,
   assignTaskButton, saveButton
-} from "./dom.js?v=4";
-import { drawAllLayers } from "./canvas/draw.js?v=7";
+} from "./dom.js?v=5";
+import { drawAllLayers } from "./canvas/draw.js?v=10";
 import {
   setStatus, syncToBackend, save, loadSaved, saveDraft, restoreDraft,
   render, manualSaveWithUI, refreshSaveStatus, pruneStaleDrafts, unhideAllObjects
-} from "./components/workspace.js?v=26";
+} from "./components/workspace.js?v=27";
 import {
   configureQueue, startQueue, subscribe as subscribeQueue, drainQueue,
   enqueueWrite, retryablePendingCount, noteServerReachable, noteServerUnreachable,
@@ -30,12 +30,13 @@ import {
   syncTaskTime, syncTimeToServer, drainTaskTime, setActiveTaskResolver,
   setConflictHandler, resetSessionForTask, refreshTimerDisplays,
   handleVisibilityChange, setFrozenResolver, setEditedResolver
-} from "./components/timer.js?v=8";
+} from "./components/timer.js?v=9";
 import {
   finalizePolygon, deleteSelected, undoAction, redoAction, setZoomChangeHandler
-} from "./canvas/interactions.js?v=19";
-import { initContextMenu } from "./canvas/context-menu.js?v=5";
+} from "./canvas/interactions.js?v=22";
+import { initContextMenu } from "./canvas/context-menu.js?v=7";
 import { getCurrentUser } from "./session.js?v=2";
+import { wireBreakOverlay } from "./components/break-overlay.js?v=1";
 import { initCanvasAssign, renderAssignButton } from "./canvas-assign.js?v=2";
 import {
   applyReadOnlyMode, isReadOnly, loadProjectPermissions, renderReviewControls,
@@ -45,9 +46,9 @@ import {
 } from "./canvas-permissions.js?v=10";
 import { isFrozenForRole } from "./task-status.js?v=3";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
-import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=4";
+import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=6";
 import { claimTask, heartbeatTask, releaseTask } from "./task-lock.js?v=3";
-import { initFftControls } from "./fft-controls.js?v=4";
+import { initOpacityControls } from "./opacity-controls.js?v=2";
 
 if (!localStorage.getItem('logged_in')) {
   window.location.href = '/';
@@ -1596,5 +1597,18 @@ function closeTaskCompletedModal() {
 if (tcClose) tcClose.addEventListener('click', closeTaskCompletedModal);
 if (tcOk) tcOk.addEventListener('click', closeTaskCompletedModal);
 
-// Initialise FFT smoothing controls (Smooth button, slider, auto-smooth toggle).
-initFftControls();
+// Initialise the Opacity slider (selected-annotation fill opacity).
+// Session-only: it is not restored from storage and resets on reload.
+initOpacityControls();
+
+// The declared-break overlay. Pauses the annotation timer and opens an
+// attendance break interval, so one user action owns the interval rather than
+// two mechanisms disagreeing about when it started
+// (.devnotes/attendance-feature/ Q15). Also restores an overlay for a break
+// that is still open after a reload.
+wireBreakOverlay({
+  button: document.getElementById('takeBreakBtn'),
+  overlay: document.getElementById('breakOverlay'),
+  elapsed: document.getElementById('breakElapsed'),
+  endBtn: document.getElementById('endBreakBtn'),
+});

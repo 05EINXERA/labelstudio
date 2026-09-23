@@ -178,13 +178,18 @@ export function isSimpleRing(points, closed = true) {
  * to cut a self-crossing open path at the crossing point P, and one of them
  * is the small stray loop the annotator did not mean to keep:
  *
- *   head = points[0..i], P       (drops points[i+1..end] — the loop plus tail)
- *   tail = P, points[j+1..end]   (drops points[0..i] — the loop plus head)
+ *   head   = points[0..i], P                   (drops the loop plus tail)
+ *   tail   = P, points[j+1..end]               (drops the loop plus head)
+ *   splice = points[0..i], P, points[j+1..end] (drops ONLY the loop interior)
  *
- * Both are closed off at P for the area comparison (an open path encloses
- * nothing on its own); whichever side is bigger keeps drawing from P as its
- * new open end. This mirrors the closed-ring case exactly, just without a
- * wrap-around candidate.
+ * Each is closed off at P for the area comparison (an open path encloses
+ * nothing on its own). The splice is the open-path analogue of the closed
+ * branch's wrap-around loopB: it keeps both sides and removes only the stray
+ * lobe between them, which is what an annotator means when they loop back over
+ * an outline mid-draw and carry on. It wins when it encloses more than the
+ * loop it removes; otherwise the head/loop/tail/body comparison decides. See
+ * the body of the open branch for why the splice is judged on area rather than
+ * vertex count.
  *
  * Returns { points, changed }. `points` is a new array when changed, and the
  * caller's original array when not — callers must not assume identity either way.
@@ -206,7 +211,15 @@ export function untangleRing(input, anchor, closed = true) {
     const hit = findFirstSelfIntersection(points, closed);
     if (!hit) break;
 
-    const { i, j, point } = hit;
+    const { i, j } = hit;
+
+    // `segmentsIntersect` also returns the edge parameters `t`/`u` for
+    // merge.js, which orders several crossings along one edge by `t`. They are
+    // meaningless as geometry, so the crossing vertex is rebuilt as a bare
+    // {x, y} before it is spliced into the ring — inserting `hit.point`
+    // directly persisted the two dead fields into state.annotations, every
+    // render, and the per-task localStorage draft.
+    const point = { x: hit.point.x, y: hit.point.y };
 
     if (!closed) {
       // Open polyline — no wrap-around edge, but "keep the biggest piece" still
@@ -241,6 +254,22 @@ export function untangleRing(input, anchor, closed = true) {
       // body candidate is only valid (and only needed) when i === 0
       const body = i === 0 ? [...points.slice(0, j + 1), point] : null;
 
+      // Fifth candidate — the splice: keep BOTH sides and excise only the loop
+      // interior, rejoining the path at P.
+      //
+      //   splice = points[0..i], P, points[j+1..end]
+      //
+      // This is the open-path analogue of the closed branch's loopB (which
+      // wraps through index 0 and so is already "everything except the lobe").
+      // Its absence was a real bug: an annotator who drags out a stray lobe
+      // mid-path, crosses back over the outline, and keeps drawing had every
+      // vertex placed after the crossing deleted on the next click, because no
+      // candidate above preserves the head and the tail at the same time. The
+      // same shape closed onto the start vertex resolved correctly, via loopB
+      // — the two branches disagreed on identical geometry.
+      // See .devnotes/fix-untangle/01_ANALYSIS.md.
+      const splice = [...points.slice(0, i + 1), point, ...points.slice(j + 1)];
+
       const score = (seg) => ({
         len: seg.length,
         area: seg.length >= 3 ? ringArea(seg) : 0,
@@ -253,10 +282,28 @@ export function untangleRing(input, anchor, closed = true) {
       const beats = (a, b) =>
         a.len > b.len || (a.len === b.len && a.area > b.area);
 
+      // The splice is NOT scored by vertex count against the others — it has
+      // the most vertices almost by construction (every point except the loop
+      // interior), so a count comparison would hand it every crossing and that
+      // is badly wrong. When the loop interior *is* the drawn body — the
+      // annotator has traced most of a shape and the last click crosses back
+      // over an early edge (the fish and S-shape cases below) — splicing it
+      // out deletes the drawing and keeps only the stray approach.
+      //
+      // The discriminator is area, which is what actually separates the two
+      // situations: a stray lobe encloses little next to the path it hangs off,
+      // while a body encloses far more than the stray tail left behind. So the
+      // splice wins only when it encloses strictly more than the loop it would
+      // remove; otherwise the original head/loop/tail/body scoring decides,
+      // unchanged. Measured areas for every known case are tabulated in
+      // .devnotes/fix-untangle/01_ANALYSIS.md §3.
+      const ss = score(splice);
+
       // Pick the candidate that beats all others. body beats loop by definition
       // (same vertices plus P), so we only need to compare body vs tail.
       let winner;
-      if (body && !beats(sh, sb) && !beats(sl, sb) && !beats(st, sb)) winner = body;
+      if (ss.area > sl.area) winner = splice;
+      else if (body && !beats(sh, sb) && !beats(sl, sb) && !beats(st, sb)) winner = body;
       else if (!beats(sl, sh) && !beats(st, sh)) winner = head;
       else if (!beats(sh, sl) && !beats(st, sl)) winner = loop;
       else winner = tail;

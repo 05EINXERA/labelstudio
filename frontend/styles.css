@@ -2588,44 +2588,24 @@ a.metric-tile.status-tile:hover { border-color: var(--tile-accent, var(--accent)
   .mgmt-main, .project-view { padding: 16px; }
 }
 
-/* ── FFT Smooth toolbar group ──────────────────────────────────────────────── */
+/* ── Annotation opacity toolbar group ──────────────────────────────────────
+   Occupies the toolbar slot the FFT Smooth group used to hold, and reuses its
+   slider geometry so the control sits identically. The fill/rail split comes
+   from the --val custom property, set by opacity-controls.js on every input. */
 
-.fft-tool-group {
+.opacity-tool-group {
   border-left: 1px solid var(--line);
   padding-left: 8px;
 }
 
-.fft-group-buttons {
+.opacity-group-buttons {
   display: flex;
   align-items: center;
   gap: 6px;
   flex-wrap: nowrap;
 }
 
-/* Smooth button: teal accent to indicate a signal-processing action */
-.fft-smooth-btn {
-  background: linear-gradient(135deg, #0f8b8d 0%, #2a9d8f 100%);
-  color: #fff;
-  border: none;
-  border-radius: 6px;
-  padding: 4px 10px;
-  font-size: 0.78rem;
-  font-weight: 600;
-  white-space: nowrap;
-  transition: opacity 0.15s, transform 0.1s;
-  box-shadow: 0 2px 6px rgba(15, 139, 141, 0.3);
-}
-.fft-smooth-btn:hover {
-  opacity: 0.88;
-  transform: translateY(-1px);
-}
-.fft-smooth-btn:active {
-  transform: translateY(0);
-  opacity: 1;
-}
-
-/* Slider wrapper */
-.fft-slider-wrap {
+.opacity-slider-wrap {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2633,25 +2613,25 @@ a.metric-tile.status-tile:hover { border-color: var(--tile-accent, var(--accent)
   min-width: 80px;
 }
 
-.fft-slider-label {
+.opacity-slider-label {
   font-size: 0.7rem;
   color: var(--muted);
   white-space: nowrap;
   user-select: none;
 }
 
-.fft-slider {
+.opacity-slider {
   -webkit-appearance: none;
   appearance: none;
   width: 90px;
   height: 5px;
   border-radius: 3px;
-  /* Fallback: full teal track; JS will update --val inline to split fill/rail */
+  /* Fallback matches the 60% default; JS updates --val on init and on input. */
   background: linear-gradient(
     to right,
     var(--accent) 0%,
-    var(--accent) var(--val, 35%),
-    rgba(0,0,0,0.15) var(--val, 35%),
+    var(--accent) var(--val, 60%),
+    rgba(0,0,0,0.15) var(--val, 60%),
     rgba(0,0,0,0.15) 100%
   );
   cursor: pointer;
@@ -2659,11 +2639,11 @@ a.metric-tile.status-tile:hover { border-color: var(--tile-accent, var(--accent)
   border: none;
 }
 /* Webkit thumb */
-.fft-slider::-webkit-slider-runnable-track {
+.opacity-slider::-webkit-slider-runnable-track {
   height: 5px;
   border-radius: 3px;
 }
-.fft-slider::-webkit-slider-thumb {
+.opacity-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   width: 14px;
   height: 14px;
@@ -2675,25 +2655,25 @@ a.metric-tile.status-tile:hover { border-color: var(--tile-accent, var(--accent)
   margin-top: -4.5px;   /* vertically centre thumb on the track */
   transition: box-shadow 0.15s, transform 0.1s;
 }
-.fft-slider:hover::-webkit-slider-thumb {
+.opacity-slider:hover::-webkit-slider-thumb {
   box-shadow: 0 0 0 4px rgba(15,139,141,0.22);
   transform: scale(1.12);
 }
-.fft-slider:active::-webkit-slider-thumb {
+.opacity-slider:active::-webkit-slider-thumb {
   transform: scale(1.0);
 }
 /* Firefox thumb */
-.fft-slider::-moz-range-track {
+.opacity-slider::-moz-range-track {
   height: 5px;
   border-radius: 3px;
   background: rgba(0,0,0,0.15);
 }
-.fft-slider::-moz-range-progress {
+.opacity-slider::-moz-range-progress {
   height: 5px;
   border-radius: 3px;
   background: var(--accent);
 }
-.fft-slider::-moz-range-thumb {
+.opacity-slider::-moz-range-thumb {
   width: 14px;
   height: 14px;
   border-radius: 50%;
@@ -2701,29 +2681,6 @@ a.metric-tile.status-tile:hover { border-color: var(--tile-accent, var(--accent)
   border: 2px solid #fff;
   box-shadow: 0 1px 4px rgba(15,139,141,0.5);
   cursor: pointer;
-}
-
-/* Auto-smooth toggle button — lights up when active */
-.fft-auto-btn {
-  position: relative;
-  transition: background 0.2s, color 0.2s, box-shadow 0.2s;
-  border-radius: 6px;
-  padding: 4px 8px;
-  font-size: 0.78rem;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.fft-auto-btn.is-on {
-  background: linear-gradient(135deg, #7b2cbf 0%, #b5179e 100%);
-  color: #fff;
-  border-color: transparent;
-  box-shadow: 0 0 10px rgba(123, 44, 191, 0.45);
-  animation: fft-auto-pulse 2s ease-in-out infinite;
-}
-
-@keyframes fft-auto-pulse {
-  0%, 100% { box-shadow: 0 0 8px rgba(123, 44, 191, 0.45); }
-  50%       { box-shadow: 0 0 18px rgba(181, 23, 158, 0.65); }
 }
 
 /* ── Toggle Switch Button ────────────────────────────────────────────────── */
@@ -3218,4 +3175,244 @@ body.is-read-only #clearButton,
 body.is-read-only #deleteButton {
   opacity: .45;
   pointer-events: none;
+}
+
+/* --- Attendance dashboard (R5) -------------------------------------------- */
+
+/* The summary strip above the register. Wraps rather than scrolling: on a
+   narrow window an admin should see fewer cards per row, not lose them off
+   the edge. */
+.mgmt-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.summary-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 120px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.summary-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.summary-value {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+/* Inline labels in the toolbar, so the date controls read as a sentence
+   rather than as bare inputs. */
+.field-label-inline {
+  margin: 0 6px 0 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.field-label-inline:first-child {
+  margin-left: 0;
+}
+
+/* "still here" — an open session, i.e. the person was seen within IDLE_GAP.
+   Colour is reserved for live state on this page: everything else in the table
+   is a fact about the past, and only these two badges describe right now. */
+.badge-live {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--ok-bg, #14532d);
+  color: var(--ok-fg, #bbf7d0);
+}
+
+/* "on break" — a declared break running right now, shown beside "still here"
+   rather than instead of it: the annotator is still present, and the break is
+   a qualifier on that presence, not a different state. Amber so the two read
+   as distinct at a glance without either looking like an error. */
+.badge-break {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  margin-left: 4px;
+  background: var(--warn-bg, #78350f);
+  color: var(--warn-fg, #fde68a);
+}
+
+/* The session breakdown inside the popup. */
+.session-block {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.session-block:last-child {
+  border-bottom: none;
+}
+
+.session-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.session-meta {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.session-breaks {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* --- The declared-break overlay (R6) -------------------------------------- */
+
+/* Modelled on .save-overlay, as the requirement described ("like Saving
+   Overlay, but with time and end button as well"). A higher z-index than the
+   save overlay: a break is the one state that should sit above everything,
+   since the whole point is that the annotator has stepped away. */
+.break-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(23, 32, 38, 0.72);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2100;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+}
+
+.break-overlay.is-active {
+  opacity: 1;
+  visibility: visible;
+}
+
+.break-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 40px 56px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  text-align: center;
+}
+
+.break-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* The running count, in the same monospace treatment as the timer readouts so
+   the digits do not jitter as they tick. */
+.break-elapsed {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 2.75rem;
+  font-weight: 800;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.break-hint {
+  margin: 0;
+  max-width: 34ch;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.break-end-btn {
+  margin-top: 6px;
+  padding: 10px 28px;
+  border-radius: 8px;
+  font-weight: 600;
+}
+
+/* The trigger in the timer row. Deliberately quiet: it is used twice a day,
+   and it sits next to controls used constantly. */
+.break-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* Pushes what follows to the right of a toolbar. Used on the attendance
+   dashboard so the export buttons sit apart from the period controls. */
+.toolbar-spacer {
+  flex: 1 1 auto;
+}
+
+/* --- Retroactive break entry (R10) ---------------------------------------- */
+
+/* The success counterpart to .mgmt-error, same shape and weight. */
+.mgmt-ok {
+  padding: 12px 14px; border-radius: 8px; margin-bottom: 14px;
+  background: rgba(45,164,78,.1); border: 1px solid rgba(45,164,78,.3);
+  color: #1e7e34; font-size: .9rem;
+}
+
+/* Set apart from the table above it: this is the one control on the page
+   that WRITES, and it cannot be undone. Visual separation is part of making
+   that obvious. */
+.manual-break {
+  margin-top: 32px;
+  padding: 20px 22px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  max-width: 720px;
+}
+
+.manual-break h3 {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.manual-break .field-hint {
+  margin: 0 0 16px;
+  max-width: 62ch;
+}
+
+.manual-break-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 14px;
+}
+
+.manual-break-form .form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.manual-break-form label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.manual-break-form button {
+  padding: 8px 20px;
+  border-radius: 8px;
+  font-weight: 600;
 }

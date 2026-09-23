@@ -1,20 +1,20 @@
 import { generateUUID, clamp, round } from "../utils.js?v=2";
 import { state, snapshot, isAnnotationHidden, labelById, labelDisplayName } from "../state.js?v=11";
 import { annotationPoints, updateAnnotationBounds, pointInPolygon } from "./geometry.js?v=1";
-import { untangleRing } from "./untangle.js?v=2";
-import { unionAll } from "./merge.js?v=3";
+import { untangleRing } from "./untangle.js?v=3";
+import { unionAll } from "./merge.js?v=4";
 import { view } from "./view.js?v=1";
-import { draw, drawAllLayers } from "./draw.js?v=7";
-import { canvas, ctx, undoButton } from "../dom.js?v=4";
+import { draw, drawAllLayers } from "./draw.js?v=10";
+import { canvas, ctx, undoButton } from "../dom.js?v=5";
 import { commentHitTest, commentScreenGeometry, COMMENT_FONT } from "./comment-geometry.js?v=2";
 import { normalizeRect, rectIsDegenerate, marqueeHits } from "./marquee.js?v=1";
 import { shouldCanvasClickBeBlocked } from "../comment-mode.js?v=1";
 import { commentOverlayRefs, openCommentEditor, anchorCommentOverlay } from "../comment-overlay.js?v=2";
-import { setStatus, save, render, activateLabel, toggleAnnotationsHidden, unhideAllObjects, editBlockReason } from "../components/workspace.js?v=26";
+import { setStatus, save, render, activateLabel, toggleAnnotationsHidden, unhideAllObjects, editBlockReason } from "../components/workspace.js?v=27";
 import { labelIndexForCode, hideTargetIdsWhileDrawing, shouldHide, hideKeyAction, drawHideKeyAction, DRAW_PEEK_MS } from "../shortcuts.js?v=4";
 import { performMagicWandSegmentation } from "../ai/detect.js?v=4";
-import { applyAutoSmooth } from "../fft-controls.js?v=4";
-import { annotationSettings } from "../feature-flags.js?v=1";
+import { annotationSettings } from "../feature-flags.js?v=5";
+import { isTypingTarget } from "../typing-target.js?v=1";
 
 export function canvasPoint(event) {
   const rect = canvas.getBoundingClientRect();
@@ -346,21 +346,14 @@ export function finalizePolygon() {
     save();
     return;
   }
-  // Resolve any self-crossing before smoothing. Freehand tracing is sampled on
+  // Resolve any self-crossing before committing. Freehand tracing is sampled on
   // pointermove, so a stroke that loops back over itself lays down a crossing
   // mid-drag; untangling there would collapse the ring under the moving cursor,
   // which then continues drawing into a re-indexed array. Deferring to finalize
   // keeps the stroke stable and resolves it once, at the moment the shape is
   // committed. No anchor: by this point no single vertex is "the one just
   // placed", so area alone decides.
-  //
-  // Must run before applyAutoSmooth — the FFT low-pass treats points as one
-  // ordered contour, and running it over a tangled ring smears the two loops
-  // into each other rather than filtering either.
   const untangled = untangleIfPolygon(annotation);
-  // Auto-smooth: apply FFT low-pass filter when the toggle is enabled.
-  // Called before updateAnnotationBounds so the bounds reflect the smoothed points.
-  applyAutoSmooth(annotation);
   updateAnnotationBounds(annotation);
   state.needsLabelSelection = true;
   state.justFinalized = true;
@@ -1842,7 +1835,7 @@ function applyHideAction(action) {
 
 window.addEventListener("keyup", (event) => {
   if (event.key?.toLowerCase() !== "h") return;
-  // No isTyping guard, deliberately: if focus moved into a field mid-hold, the
+  // No typing-target guard, deliberately: if focus moved into a field mid-hold, the
   // release still has to end the peek or the shapes stay hidden with no key
   // down to explain it.
   applyHideAction(hideActionFor("keyup", false));
@@ -1855,9 +1848,12 @@ window.addEventListener("blur", () => {
 });
 
 window.addEventListener("keydown", (event) => {
-  const target = event.target;
-  const isTyping = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
-  if (isTyping) return;
+  // Not `instanceof HTMLInputElement`: that treats a range slider like a text
+  // field, so clicking the opacity slider left it focused and silently killed
+  // every canvas shortcut (H, the class digits, Delete, Ctrl+Z) while the
+  // shape still looked selected. A slider consumes arrows, not letters.
+  // See typing-target.js.
+  if (isTypingTarget(event.target)) return;
 
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
     event.preventDefault();
@@ -1949,8 +1945,8 @@ window.addEventListener("keydown", (event) => {
 
   // "M" merges the selection into one shape. Modifiers excluded so Ctrl+M /
   // Cmd+M stay with the browser, following the "U" binding's precedent. The
-  // isTyping guard above already keeps this out of the comment editor, which
-  // is a real <textarea>.
+  // isTypingTarget guard above already keeps this out of the comment editor,
+  // which is a real <textarea>.
   if (event.key.toLowerCase() === "m" && !event.ctrlKey && !event.metaKey && !event.altKey) {
     event.preventDefault();
     mergeSelectedAnnotations();

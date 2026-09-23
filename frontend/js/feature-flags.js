@@ -8,15 +8,12 @@
  * without any additional wiring.
  *
  * Flags:
- *   smooth  — the FFT Smooth group (Smooth button, strength slider,
- *              auto-smooth toggle).  Requires the FFT smooth module.
  *   ai      — the AI group (AI Settings dropdown, Detect button,
  *              Auto-Tag button, Magic Wand tool button).
  *              Set to false when no ML back-end is available.
  */
 export const toolAvailability = {
-  smooth: false,
-  ai:     false,
+  ai: false,
 };
 
 /**
@@ -29,18 +26,65 @@ export const toolAvailability = {
  *
  * vertexHandleRadius
  *   Radius, in on-screen pixels, of the round vertex handles DRAWN on a
- *   selected shape. Screen-space on purpose: a handle stays the same physical
- *   size at every zoom, so it neither disappears when zoomed out nor swallows
- *   the shape when zoomed in. Lower it when vertices sit close together and
- *   the handles overlap each other.
+ *   selected shape, AT FIT ZOOM (viewZoom === 1). Above that the handles
+ *   shrink along the curve described under vertexHandleFalloff. Lower this
+ *   when vertices sit close together and the handles overlap each other.
+ *
+ *   Screen pixels, not image pixels: handles must not scale 1:1 with the
+ *   image, or they would vanish when zoomed out. But a FIXED screen size was
+ *   wrong in the other direction — a handle that stays this size at 4000%
+ *   covers exactly the pixels the annotator is trying to judge, and a dense
+ *   polygon's handles merge into a chain of white beads. Hence the falloff
+ *   below.
+ *
+ *   Also sets the ring width: a handle at fit zoom gets a 2px ring, and
+ *   thinner rings as it shrinks (canvas/handle-size.js derives the divisor
+ *   from this value, so the proportion holds if you change it).
+ *
+ * vertexHandleFalloff
+ *   Exponent controlling how fast the drawn handle shrinks as the user zooms:
+ *
+ *       radius = clamp(min, vertexHandleRadius / viewZoom ** falloff, max)
+ *
+ *   0 disables the effect entirely (constant screen size — the behaviour
+ *   before this was added). 1 would shrink in exact proportion to zoom, which
+ *   is far too aggressive. Values around 0.3-0.4 keep the handle visible while
+ *   noticeably getting out of the way. Raise it to shrink harder.
+ *
+ *   Keyed off `view.viewZoom`, NOT `view.imageBox.scale`. Scale folds in
+ *   baseScale, which depends on the image's natural size versus the canvas
+ *   box — keying off it would give a 6000px photo and a 400px thumbnail
+ *   different handle sizes at the same "fit" view, and would resize the
+ *   handles when the browser window resized. viewZoom is 1 at fit for every
+ *   image, so the curve tracks the user's zoom gesture and nothing else.
+ *
+ * vertexHandleMinRadius
+ *   Floor for the above, in on-screen pixels. This is the "never lost
+ *   visually" guarantee: past roughly viewZoom 6 the handle stops shrinking
+ *   and holds this size all the way to maximum zoom. Raise it if handles read
+ *   poorly against the 3px selected outline they sit on.
+ *
+ * vertexHandleMaxRadius
+ *   Ceiling for the above, in on-screen pixels, which bites when zoomed OUT
+ *   past fit (viewZoom < 1). Keep it at or below vertexGrabRadius: a handle
+ *   drawn larger than its own click target would be visible but unclickable
+ *   around its rim. tests/js/handle_size_spec.mjs asserts this.
  *
  * vertexGrabRadius
  *   Radius, in on-screen pixels, within which a click counts as grabbing a
- *   vertex. Kept independent of (and by default LARGER than) the drawn radius:
- *   a forgiving click target makes vertices easy to catch without drawing
- *   handles big enough to hide the pixels underneath. Raise it for touch or
- *   pen input; if it exceeds roughly half the spacing between neighbouring
+ *   vertex. Kept independent of, and never smaller than, the drawn radius: a
+ *   forgiving click target makes vertices easy to catch without drawing
+ *   handles big enough to hide the pixels underneath. It equals
+ *   vertexHandleMaxRadius, so the two coincide at full zoom-out and the grab
+ *   area is strictly larger everywhere else. Raise it for touch or pen
+ *   input; if it exceeds roughly half the spacing between neighbouring
  *   vertices, adjacent grab areas start to overlap and the wrong vertex wins.
+ *
+ *   Deliberately NOT subject to vertexHandleFalloff: the grab area is
+ *   invisible, so there is no visual cost to leaving it generous, and
+ *   shrinking the click target would make vertices hardest to catch at
+ *   exactly the zoom where precision work happens. At high zoom the grab
+ *   area is therefore larger than the drawn circle. That is intended.
  *
  * edgeGrabRadius
  *   Radius, in on-screen pixels, within which a click counts as landing on a
@@ -58,10 +102,13 @@ export const toolAvailability = {
  *   finer detail without changing this number.
  */
 export const annotationSettings = {
-  vertexHandleRadius:   4.5,
-  vertexGrabRadius:     6,
-  edgeGrabRadius:       6,
-  freehandPointSpacing: 10,
+  vertexHandleRadius:    5.6,
+  vertexHandleFalloff:   0.35,
+  vertexHandleMinRadius: 3,
+  vertexHandleMaxRadius: 7.5,
+  vertexGrabRadius:      7.5,
+  edgeGrabRadius:        6,
+  freehandPointSpacing:  10,
 };
 
 /**
@@ -75,6 +122,28 @@ export const annotationSettings = {
  *
  * `selected` is deliberately the higher of the two: the active shape should
  * separate from its neighbours without any other visual cue.
+ *
+ * `selected` is ALSO the default position of the toolbar's Opacity slider,
+ * which writes back to it live as the user drags (opacity-controls.js). That
+ * makes this value the single source of truth for the slider's starting point
+ * — app.html carries a hardcoded 60% fallback for the no-JS case, and
+ * tests/js/opacity_slider_spec.mjs fails if the two drift apart.
+ *
+ * `drawing` is driven by the same slider, keeping whatever RATIO it has to
+ * `selected` here (0.30 / 0.60 = half). Annotators thin the fill while
+ * tracing, not only after the shape closes. Change either number and the
+ * ratio changes with it — that is intended, and it is why opacity-scale.js
+ * derives the ratio instead of hardcoding 0.5. Keep `drawing` below
+ * `selected` unless you want the in-progress and committed states to look
+ * identical at the moment a polygon closes.
+ *
+ * `normal` is deliberately NOT on the slider: it paints the static canvas
+ * layer, so binding it would turn every slider input event into a full static
+ * repaint.
+ *
+ * The slider is session-only: it mutates this object and nothing else, so a
+ * reload re-evaluates this module and the defaults are back. Do not add
+ * persistence without revisiting that contract.
  */
 export const annotationOpacity = {
   normal:   0.5,

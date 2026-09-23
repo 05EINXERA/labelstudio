@@ -261,56 +261,80 @@ ok('open zig-zag: closed=false correctly finds no real crossing',
 ok('open zig-zag: untangleRing(closed=false) leaves it alone',
    u.untangleRing(zigzagNoRealCrossing, null, false).changed === false);
 
-// --- 10a. Open polyline: head wins (annotator drew a big body first) -----
+// --- 10a. Open polyline: a stray lobe off a body is spliced out ----------
 //
 // Path: 0:(0,0)->1:(100,0)->2:(50,100)->3:(150,50)->4:(30,60)
-// Edge 1->2 crosses edge 3->4 at ~(71.7, 56.5).
-// head = [P(0,0), P(100,0), P~71.7]  len=3, area≈2826  ← most area
-// loop = [P~71.7,  P(50,100), P(150,50)]  len=3, area≈1630
-// tail = [P~71.7,  P(30,60)]          len=2, area=0
-// head ties loop on length, but has more area — head wins.
+// Edge 1->2 crosses edge 3->4 at ~(71.7, 56.5), so i=1, j=3.
+//   head   = [P(0,0), P(100,0), P~71.7]                  len=3, area≈2826
+//   loop   = [P~71.7, P(50,100), P(150,50)]              len=3, area≈1630
+//   tail   = [P~71.7, P(30,60)]                          len=2, area=0
+//   splice = [P(0,0), P(100,0), P~71.7, P(30,60)]        len=4, area≈4130 ← wins
+//
+// The splice encloses more than the loop it removes (4130 > 1630), so both
+// sides survive and only the loop interior — (50,100) and (150,50) — is cut.
+//
+// This assertion set was INVERTED by the splice fix. It previously asserted
+// that the trailing vertex (30,60) was dropped, because head won outright and
+// everything past the crossing went with it. That was the bug: a vertex the
+// annotator had already placed on the far side of the crossing was deleted
+// without them touching it. Keeping it is the point of the fix, not a
+// regression. See .devnotes/fix-untangle/01_ANALYSIS.md §5.
 const headWinsPath = [P(0, 0), P(100, 0), P(50, 100), P(150, 50), P(30, 60)];
 const headWinsHit = u.findFirstSelfIntersection(headWinsPath, false);
-ok('head-wins: crossing detected', headWinsHit !== null);
+ok('splice-lobe: crossing detected', headWinsHit !== null);
 const headWinsFixed = u.untangleRing(headWinsPath, P(30, 60), false);
-ok('head-wins: resolves to a simple open path', u.isSimpleRing(headWinsFixed.points, false));
-ok('head-wins: the big body (head) is kept — points[0] survives',
+ok('splice-lobe: resolves to a simple open path', u.isSimpleRing(headWinsFixed.points, false));
+ok('splice-lobe: the body is kept — points[0] survives',
    hasVertex(headWinsFixed.points, 0, 0));
-ok('head-wins: the big body (head) is kept — points[1] survives',
+ok('splice-lobe: the body is kept — points[1] survives',
    hasVertex(headWinsFixed.points, 100, 0));
-ok('head-wins: the stray vertex (30,60) is dropped',
-   !hasVertex(headWinsFixed.points, 30, 60));
-ok('head-wins: the loop vertex (50,100) is dropped',
+ok('splice-lobe: the vertex past the crossing (30,60) is KEPT',
+   hasVertex(headWinsFixed.points, 30, 60));
+ok('splice-lobe: the loop vertex (50,100) is dropped',
    !hasVertex(headWinsFixed.points, 50, 100));
-ok('head-wins: crossing point is the new last vertex',
-   headWinsHit && near(headWinsFixed.points[headWinsFixed.points.length - 1].x, headWinsHit.point.x) &&
-   near(headWinsFixed.points[headWinsFixed.points.length - 1].y, headWinsHit.point.y));
+ok('splice-lobe: the loop vertex (150,50) is dropped',
+   !hasVertex(headWinsFixed.points, 150, 50));
+ok('splice-lobe: the crossing point is spliced in before the surviving tail',
+   headWinsHit &&
+   near(headWinsFixed.points[2].x, headWinsHit.point.x) &&
+   near(headWinsFixed.points[2].y, headWinsHit.point.y));
+ok('splice-lobe: the path still ends at the last placed vertex',
+   near(headWinsFixed.points[headWinsFixed.points.length - 1].x, 30) &&
+   near(headWinsFixed.points[headWinsFixed.points.length - 1].y, 60));
 
-// --- 10b. Open polyline: tail wins (annotator drew a big body after the crossing) ---
+// --- 10b. Open polyline: a stray lobe at the very start is spliced out ---
 //
 // Path: 0:(50,0)->1:(50,100)->2:(0,50)->3:(100,50)->4:(100,200)->5:(0,200)->6:(0,150)
-// Edge 0->1 (x=50) crosses edge 2->3 (y=50) at (50,50).
-// head = [P(50,0), P(50,50)]                                        len=2, area=0
-// loop = [P(50,50), P(50,100), P(0,50)]                             len=3, area=1250
-// tail = [P(50,50), P(100,50), P(100,200), P(0,200), P(0,150)]     len=5, area=12500 ← most
-// tail has the most vertices — tail wins.
+// Edge 0->1 (x=50) crosses edge 2->3 (y=50) at (50,50), so i=0, j=2.
+//   head   = [P(50,0), P(50,50)]                              len=2, area=0
+//   loop   = [P(50,50), P(50,100), P(0,50)]                   len=3, area=1250
+//   tail   = [P(50,50), P(100,50) .. P(0,150)]                len=5, area=12500
+//   splice = [P(50,0), P(50,50), P(100,50) .. P(0,150)]       len=6, area=13750 ← wins
+//
+// Same inversion as 10a: the short opening stub P(50,0) used to be discarded
+// with tail winning outright. It is real work the annotator placed, it is not
+// part of the stray lobe, and it now survives.
 const tailWinsPath = [P(50,0), P(50,100), P(0,50), P(100,50), P(100,200), P(0,200), P(0,150)];
 const tailWinsHit = u.findFirstSelfIntersection(tailWinsPath, false);
-ok('tail-wins: crossing detected', tailWinsHit !== null);
+ok('splice-start-lobe: crossing detected', tailWinsHit !== null);
 const tailWinsFixed = u.untangleRing(tailWinsPath, tailWinsPath[tailWinsPath.length - 1], false);
-ok('tail-wins: resolves to a simple open path', u.isSimpleRing(tailWinsFixed.points, false));
-ok('tail-wins: the large body (tail) is kept — P(100,200) survives',
+ok('splice-start-lobe: resolves to a simple open path', u.isSimpleRing(tailWinsFixed.points, false));
+ok('splice-start-lobe: the large body is kept — P(100,200) survives',
    hasVertex(tailWinsFixed.points, 100, 200));
-ok('tail-wins: the large body (tail) is kept — P(0,200) survives',
+ok('splice-start-lobe: the large body is kept — P(0,200) survives',
    hasVertex(tailWinsFixed.points, 0, 200));
-ok('tail-wins: the tiny head vertex P(50,0) is dropped',
-   !hasVertex(tailWinsFixed.points, 50, 0));
-ok('tail-wins: the loop vertex P(50,100) is dropped',
+ok('splice-start-lobe: the opening vertex P(50,0) is KEPT',
+   hasVertex(tailWinsFixed.points, 50, 0));
+ok('splice-start-lobe: the loop vertex P(50,100) is dropped',
    !hasVertex(tailWinsFixed.points, 50, 100));
-ok('tail-wins: crossing point is the new first vertex',
+ok('splice-start-lobe: the loop vertex P(0,50) is dropped',
+   !hasVertex(tailWinsFixed.points, 0, 50));
+ok('splice-start-lobe: points[0] is still the original start, not the crossing',
+   near(tailWinsFixed.points[0].x, 50) && near(tailWinsFixed.points[0].y, 0));
+ok('splice-start-lobe: the crossing point follows it at index 1',
    tailWinsHit &&
-   near(tailWinsFixed.points[0].x, tailWinsHit.point.x) &&
-   near(tailWinsFixed.points[0].y, tailWinsHit.point.y));
+   near(tailWinsFixed.points[1].x, tailWinsHit.point.x) &&
+   near(tailWinsFixed.points[1].y, tailWinsHit.point.y));
 
 // --- 10c. Open polyline: body wins (fish / nearly-complete body, i=0 crossing) ---
 //
@@ -415,6 +439,127 @@ ok('collinear overlap still returns null',
    u.segmentsIntersect(P(0, 0), P(10, 0), P(5, 0), P(15, 0)) === null);
 ok('disjoint segments still return null',
    u.segmentsIntersect(P(0, 0), P(1, 0), P(5, 5), P(6, 5)) === null);
+
+// --- 12. The reported field case: a U lobe part-way along a hand-drawn path ---
+//
+// Reproduces the annotator's screenshot in .devnotes/fix-untangle/. They drag-
+// placed a long outline, pushed a small "U" lobe out to the right, crossed
+// back over the outline at I, carried on placing vertices up the outline to X,
+// and then clicked K. Because detection is deferred to a discrete click (a
+// mid-drag untangle would re-index the array under the moving cursor), the
+// crossing only fires on the click at K — by which time several good vertices
+// sit past it.
+//
+// Before the splice candidate existed, `head` won on vertex count and the U
+// lobe, the whole run from I to X, and K were all deleted, leaving a straight
+// line into nowhere. Only the two U-lobe vertices should go.
+const lobePath = [
+  P(90, 110), P(300, 120), P(300, 240), P(470, 210), P(450, 390),
+  P(600, 330),                  // approaching the crossing at I
+  P(700, 350), P(660, 400),     // the U lobe — the only vertices to lose
+  P(598, 325),                  // back across the outline
+  P(600, 300), P(598, 250),     // the run from I up towards X
+  P(600, 170),                  // X — last drag-placed vertex
+  P(660, 150),                  // K — the click that fires the untangle
+];
+const lobeHit = u.findFirstSelfIntersection(lobePath, false);
+ok('U-lobe: the crossing at I is detected', lobeHit !== null);
+const lobeFixed = u.untangleRing(lobePath, P(660, 150), false);
+ok('U-lobe: resolves to a simple open path', u.isSimpleRing(lobeFixed.points, false));
+ok('U-lobe: the stray lobe vertex (700,350) is dropped',
+   !hasVertex(lobeFixed.points, 700, 350));
+ok('U-lobe: the stray lobe vertex (660,400) is dropped',
+   !hasVertex(lobeFixed.points, 660, 400));
+ok('U-lobe: the run past the crossing survives — (600,300)',
+   hasVertex(lobeFixed.points, 600, 300));
+ok('U-lobe: the run past the crossing survives — (598,250)',
+   hasVertex(lobeFixed.points, 598, 250));
+ok('U-lobe: the last drag-placed vertex X (600,170) survives',
+   hasVertex(lobeFixed.points, 600, 170));
+ok('U-lobe: the newly clicked vertex K (660,150) survives',
+   hasVertex(lobeFixed.points, 660, 150));
+ok('U-lobe: the head is untouched — (90,110) survives',
+   hasVertex(lobeFixed.points, 90, 110));
+ok('U-lobe: exactly two vertices are lost, plus the crossing gained',
+   lobeFixed.points.length === lobePath.length - 2 + 1);
+ok('U-lobe: K is still the open end the annotator keeps drawing from',
+   near(lobeFixed.points[lobeFixed.points.length - 1].x, 660) &&
+   near(lobeFixed.points[lobeFixed.points.length - 1].y, 150));
+
+// --- 13. Open/closed parity on identical geometry ------------------------
+//
+// The bug was really a disagreement between the two branches: closing the same
+// shape onto its start vertex resolved correctly (the closed branch's loopB
+// wraps through index 0 and so already keeps both sides), while leaving it open
+// destroyed half the work. The splice is the open-path analogue of loopB, so
+// the two branches must now agree about which vertices are real.
+const parityOpen = u.untangleRing(lobePath, P(660, 150), false).points;
+const parityClosed = u.untangleRing(lobePath, P(660, 150), true).points;
+const survives = (pts, x, y) => hasVertex(pts, x, y, 1e-6);
+for (const [x, y] of [[600, 300], [598, 250], [600, 170]]) {
+  ok(`parity: (${x},${y}) survives in BOTH branches`,
+     survives(parityOpen, x, y) && survives(parityClosed, x, y));
+}
+for (const [x, y] of [[700, 350], [660, 400]]) {
+  ok(`parity: the lobe vertex (${x},${y}) is dropped by BOTH branches`,
+     !survives(parityOpen, x, y) && !survives(parityClosed, x, y));
+}
+
+// --- 14. The crossing vertex is bare geometry, not the raw hit object ----
+//
+// segmentsIntersect returns {x, y, t, u} because merge.js orders several
+// crossings along one edge by t. Both branches used to splice that object
+// straight into the ring, so the two dead parameters were persisted into
+// state.annotations, every render, and the per-task localStorage draft.
+const noExtras = (pts) => pts.every((p) => Object.keys(p).length === 2 && 't' in p === false && 'u' in p === false);
+ok('no t/u leak: open branch output carries only x and y',
+   noExtras(u.untangleRing(lobePath, P(660, 150), false).points));
+ok('no t/u leak: closed branch output carries only x and y',
+   noExtras(u.untangleRing([P(0, 0), P(10, 0), P(0, 10), P(10, 10)], null, true).points));
+ok('no t/u leak: segmentsIntersect itself still exposes t and u for merge.js',
+   (() => {
+     const h = u.segmentsIntersect(P(0, 0), P(10, 10), P(0, 10), P(10, 0));
+     return h !== null && typeof h.t === 'number' && typeof h.u === 'number';
+   })());
+
+// --- 15. Regression lock: the splice must never eat the drawn body -------
+//
+// The splice removes points[i+1..j]. When that span IS the body — the annotator
+// has traced most of a shape and the last click crosses back over an early edge
+// — splicing it out would keep only the stray approach and delete the drawing.
+// This is why the splice is judged on enclosed area, not vertex count, and it
+// is the single most damaging way this fix could have gone wrong.
+const fishBody = [
+  P(0, 0), P(100, 0), P(200, 50), P(200, 150), P(100, 200),
+  P(0, 150), P(0, 50), P(130, -20), P(170, 40),
+];
+const fishOut = u.untangleRing(fishBody, fishBody[fishBody.length - 1], false).points;
+ok('body lock (fish): the traced body is kept, not spliced away',
+   hasVertex(fishOut, 200, 50) && hasVertex(fishOut, 200, 150) &&
+   hasVertex(fishOut, 100, 200) && hasVertex(fishOut, 0, 150));
+ok('body lock (fish): the stray approach is still dropped',
+   !hasVertex(fishOut, 130, -20) && !hasVertex(fishOut, 170, 40));
+
+const sBody = [P(100, 0), P(200, 0), P(200, 100), P(0, 100), P(0, 50), P(150, -20)];
+const sOut = u.untangleRing(sBody, sBody[sBody.length - 1], false).points;
+ok('body lock (S-shape): the traced body is kept, not spliced away',
+   hasVertex(sOut, 200, 100) && hasVertex(sOut, 0, 100) && hasVertex(sOut, 0, 50));
+ok('body lock (S-shape): the stray approach is still dropped',
+   !hasVertex(sOut, 150, -20));
+
+// Randomised convergence guard: whatever the geometry, the open branch must
+// terminate and hand back a simple path — the splice adds a candidate with more
+// vertices than the input minus the loop, so a non-shrinking pass would loop.
+let fuzzBad = 0;
+let seed = 987654321;
+const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+for (let k = 0; k < 2000; k += 1) {
+  const n = 4 + Math.floor(rnd() * 9);
+  const pts = Array.from({ length: n }, () => P(Math.round(rnd() * 200), Math.round(rnd() * 200)));
+  const out = u.untangleRing(pts, pts[n - 1], false);
+  if (!u.isSimpleRing(out.points, false) || !noExtras(out.points)) fuzzBad += 1;
+}
+ok('fuzz: 2000 random polylines all resolve to simple, clean open paths', fuzzBad === 0);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Label Studio</title>
   <link rel="icon" type="image/png" href="logo.png">
-  <link rel="stylesheet" href="styles.css?v=32">
+  <link rel="stylesheet" href="styles.css?v=37">
   <!-- sync.js (legacy global annotation-slot sync to /api/data) removed in T3.1.
        Under a shared account the 'image-annotation-mvp-v1' row was last-writer-wins
        across all 25 clients. Per-task localStorage drafts (workspace.js restoreDraft)
@@ -74,6 +74,11 @@
       <button class="icon-button timer-btn" id="timerResetBtn" type="button" title="Reset Timer">
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
       </button>
+      <span class="timer-divider"></span>
+      <!-- A declared break pauses this timer AND opens an attendance break
+           interval, so the control sits beside what it affects. -->
+      <button class="tool-button break-btn" id="takeBreakBtn" type="button"
+        title="Pause the timer and record a break">Take a Break</button>
       <span class="timer-divider"></span>
       <strong id="totalTimeLogged" class="timer-readout">00:00:00</strong>
       <!-- T3.2: labelled "task total" not "my total" — under a shared account
@@ -309,40 +314,26 @@
           </div>
         </div>
 
-        <!-- FFT Smooth tool group -->
-        <div class="tool-group fft-tool-group" role="group" aria-label="FFT noise filter">
-          <span class="tool-group-label">Smooth</span>
-          <div class="tool-group-buttons fft-group-buttons">
-            <button class="tool-button fft-smooth-btn" id="fftSmoothBtn" type="button"
-              title="FFT smooth selected polygon — removes jagged noise by low-pass filtering the vertex coordinates">
-              <span class="btn-icon">〰️</span><span class="btn-label">Smooth</span>
-            </button>
-
-            <div class="fft-slider-wrap" title="Frequency keep ratio: lower = smoother, higher = preserves detail">
-              <label class="tool-group-label fft-slider-label" for="fftStrengthSlider">
-                Keep: <span id="fftStrengthLabel">40%</span>
+        <!-- Annotation opacity tool group -->
+        <div class="tool-group opacity-tool-group" role="group" aria-label="Annotation opacity">
+          <span class="tool-group-label">Opacity</span>
+          <div class="tool-group-buttons opacity-group-buttons">
+            <div class="opacity-slider-wrap"
+              title="Fill opacity of the selected shape and the one being drawn. Lower it to see the pixels underneath while tracing. Resets on reload.">
+              <label class="tool-group-label opacity-slider-label" for="opacitySlider">
+                Fill: <span id="opacityValueLabel">60%</span>
               </label>
               <input
                 type="range"
-                id="fftStrengthSlider"
-                min="0.05"
-                max="1.0"
-                step="0.05"
-                value="0.40"
-                class="fft-slider"
-                aria-label="FFT smoothing strength"
+                id="opacitySlider"
+                min="0"
+                max="100"
+                step="1"
+                value="60"
+                class="opacity-slider"
+                aria-label="Annotation fill opacity"
               >
             </div>
-
-            <button
-              class="tool-button fft-auto-btn"
-              id="fftAutoSmoothToggle"
-              type="button"
-              role="switch"
-              aria-checked="false"
-              title="Auto-smooth: when ON, every finalized polygon is automatically FFT-smoothed using an optimal cutoff based on its point count">
-              <span class="btn-icon">🤖</span><span class="btn-label">Auto</span>
-            </button>
           </div>
         </div>
 
@@ -530,7 +521,27 @@
     </div>
   </div>
 
-  <script type="module" src="js/init.js?v=37"></script>
+  <!--
+    The break overlay. Modelled on the save overlay above, as the requirement
+    described ("like Saving Overlay, but with time and end button as well"),
+    but it is NOT dismissible: no Escape handler and no backdrop click. See
+    js/components/break-overlay.js — dismissing it would strand an open break
+    with no visible way to end it, which is the failure this feature exists to
+    prevent, reachable by a stray keypress.
+  -->
+  <div id="breakOverlay" class="break-overlay" role="dialog" aria-modal="true"
+    aria-labelledby="breakOverlayTitle">
+    <div class="break-panel">
+      <h2 id="breakOverlayTitle" class="break-title">On a break</h2>
+      <div id="breakElapsed" class="break-elapsed" aria-live="polite">0:00:00</div>
+      <p class="break-hint">
+        Your timer is paused and this break is being recorded.
+      </p>
+      <button class="primary break-end-btn" id="endBreakBtn" type="button">End Break</button>
+    </div>
+  </div>
+
+  <script type="module" src="js/init.js?v=43"></script>
 
 </body>
 
