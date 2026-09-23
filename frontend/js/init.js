@@ -225,6 +225,8 @@ async function initWorkspaceContext() {
     // role grants nothing destructive, and the owner-only affordances below
     // must stay owner-only.
     state.isProjectReviewer = Boolean(project.is_reviewer);
+    const reviewerBadge = document.getElementById("reviewerRoleBadge");
+    if (reviewerBadge) reviewerBadge.hidden = !state.isProjectReviewer;
 
     if (breadcrumbProject) {
       breadcrumbProject.textContent = project.name || "Untitled project";

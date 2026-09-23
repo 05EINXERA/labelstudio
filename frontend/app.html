@@ -6,8 +6,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Image Annotation</title>
   <link rel="icon" type="image/png" href="logo.png">
-  <link rel="stylesheet" href="styles.css?v=30">
-  <link rel="modulepreload" href="js/init.js?v=13">
+  <link rel="stylesheet" href="styles.css?v=31">
+  <link rel="modulepreload" href="js/init.js?v=14">
   <!-- sync.js (legacy global annotation-slot sync to /api/data) removed in T3.1.
        Under a shared account the 'image-annotation-mvp-v1' row was last-writer-wins
        across all 25 clients. Per-task localStorage drafts (workspace.js restoreDraft)
@@ -171,6 +171,11 @@
               <p id="displayUsername"
                 style="margin: 0; font-size: 0.9rem; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
               </p>
+              <!-- Shown when this annotator is an appointed reviewer of the open
+                   project; toggled by js/init.js from the server's is_reviewer. -->
+              <span class="pill is-role is-role-reviewer" id="reviewerRoleBadge" hidden
+                style="margin-left: 0; margin-top: 3px;"
+                title="You are an appointed reviewer of this project">Reviewer</span>
             </div>
           </div>
           <div style="display: flex; align-items: center; gap: 4px;">
@@ -727,7 +732,7 @@
     </div>
   </div>
 
-  <script type="module" src="js/init.js?v=13"></script>
+  <script type="module" src="js/init.js?v=14"></script>
 
 </body>
 
