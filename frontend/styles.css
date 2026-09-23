@@ -911,12 +911,20 @@ h2 {
    happen to be on screen. Same --accent-dark as .eye-btn.is-hidden-state so the
    header and the rows read as the same state. */
 .hidden-objects-indicator {
-  display: grid;
-  place-items: center;
-  width: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
   height: 20px;
   flex-shrink: 0;
   color: var(--accent-dark);
+}
+
+/* Hidden total beside the closed eye, so it reads without hovering. */
+.hidden-objects-count {
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
 }
 
 /* [hidden] alone loses to the display above, so the attribute has to win here

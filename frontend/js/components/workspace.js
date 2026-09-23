@@ -512,7 +512,9 @@ function renderHiddenIndicator() {
   }
 
   hiddenObjectsIndicator.hidden = false;
-  hiddenObjectsIndicator.innerHTML = EYE_OFF_SVG;
+  // The number sits beside the icon so the hidden total is readable at a
+  // glance instead of only on hover.
+  hiddenObjectsIndicator.innerHTML = `${EYE_OFF_SVG}<span class="hidden-objects-count">${hiddenCount}</span>`;
   const noun = hiddenCount === 1 ? "object" : "objects";
   hiddenObjectsIndicator.title = `${hiddenCount} ${noun} hidden (U to reveal)`;
 }
