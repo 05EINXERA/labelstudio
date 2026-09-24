@@ -14,7 +14,7 @@ import {
 import { setZoomChangeHandler } from "./canvas/interactions.js?v=19";
 import { initContextMenu } from "./canvas/context-menu.js?v=3";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
-import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=2";
+import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=3";
 import { releaseTask, heartbeatTask } from "./task-lock.js?v=1";
 import { initFftControls } from "./fft-controls.js?v=1";
 import { toolAvailability } from "./feature-flags.js?v=10";

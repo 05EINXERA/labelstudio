@@ -152,6 +152,30 @@ button {
   display: block;
 }
 
+/* Lock-image-to-canvas toggle: a closed or open padlock for its state, and a
+   tinted background while on so the state reads without hovering. */
+.top-nav .zoom-lock-btn {
+  margin-left: 2px;
+  border-left: 1px solid #bfdbfe;
+  border-radius: 0 4px 4px 0;
+  width: 24px;
+  min-width: 24px;
+}
+
+.top-nav .zoom-lock-btn svg {
+  display: block;
+}
+
+.top-nav .zoom-lock-btn[aria-pressed="true"] {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.top-nav .zoom-lock-btn[aria-pressed="true"] .lock-open,
+.top-nav .zoom-lock-btn[aria-pressed="false"] .lock-closed {
+  display: none;
+}
+
 /* Fixed width and tabular figures: the label changes on every wheel notch, and
    an auto-width readout would shift the whole nav row as the digits change. */
 .zoom-readout {

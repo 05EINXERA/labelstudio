@@ -9,7 +9,7 @@
 
 import { view } from "../canvas/view.js?v=3";
 import { setZoom, ZOOM_STEP } from "../canvas/interactions.js?v=19";
-import { drawAllLayers } from "../canvas/draw.js?v=5";
+import { drawAllLayers } from "../canvas/draw.js?v=6";
 
 // viewZoom bounds (multiplier over fit-scale).
 //
@@ -30,6 +30,40 @@ const zoomInButton = document.querySelector("#zoomInButton");
 const zoomOutButton = document.querySelector("#zoomOutButton");
 const zoomLevel = document.querySelector("#zoomLevel");
 const zoomResetButton = document.querySelector("#zoomResetButton");
+const imageLockButton = document.querySelector("#imageLockButton");
+
+// UI preference only — a missing/blocked localStorage falls back to the default
+// (locked), matching the sticky-class preference in state.js.
+const IMAGE_LOCK_STORAGE_KEY = "canvas-image-lock-v1";
+
+function loadImageLockPref() {
+  try {
+    const stored = localStorage.getItem(IMAGE_LOCK_STORAGE_KEY);
+    return stored === null ? true : stored === "1";
+  } catch (err) {
+    console.warn("Could not read image-lock preference:", err);
+    return true;
+  }
+}
+
+function saveImageLockPref(on) {
+  try {
+    localStorage.setItem(IMAGE_LOCK_STORAGE_KEY, on ? "1" : "0");
+  } catch (err) {
+    console.warn("Could not persist image-lock preference:", err);
+  }
+}
+
+function renderImageLockButton() {
+  if (!imageLockButton) return;
+  const on = view.lockImageToCanvas;
+  imageLockButton.setAttribute("aria-pressed", on ? "true" : "false");
+  const text = on
+    ? "Image locked to canvas — stays centred when zooming (click to unlock)"
+    : "Image unlocked — free pan and zoom (click to lock to canvas)";
+  imageLockButton.title = text;
+  imageLockButton.setAttribute("aria-label", text);
+}
 
 // Back to the view a task opens with: fit-to-canvas and centred. setZoom derives
 // viewPan from its pivot point, so the pan must be cleared explicitly or the
@@ -91,6 +125,19 @@ export function initZoomControl() {
 
   if (zoomResetButton) {
     zoomResetButton.addEventListener("click", resetView);
+  }
+
+  view.lockImageToCanvas = loadImageLockPref();
+  renderImageLockButton();
+  if (imageLockButton) {
+    imageLockButton.addEventListener("click", () => {
+      view.lockImageToCanvas = !view.lockImageToCanvas;
+      saveImageLockPref(view.lockImageToCanvas);
+      renderImageLockButton();
+      // Redraw so switching the lock on snaps an off-canvas image back
+      // immediately rather than on the next zoom or pan.
+      drawAllLayers();
+    });
   }
 
   updateZoomDisplay();

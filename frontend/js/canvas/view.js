@@ -14,6 +14,10 @@ export const view = {
   // by setZoom so the two derivations can never drift apart.
   baseScale: 1,
   viewPan: { x: 0, y: 0 },
+  // When true, computeImageBox clamps viewPan so the image stays centred while
+  // it fits the canvas and cannot be panned past its own edges once zoomed in.
+  // A per-browser preference toggled from the zoom control (zoom-control.js).
+  lockImageToCanvas: true,
   isPanning: false,
   panStart: { x: 0, y: 0, panX: 0, panY: 0 },
   imageBox: { x: 0, y: 0, width: 0, height: 0, scale: 1 },

@@ -190,15 +190,18 @@ export function computeImageBox() {
   const width = view.imageElement.naturalWidth * scale;
   const height = view.imageElement.naturalHeight * scale;
 
-  // Keep the image pinned to the canvas: on each axis it stays centred while it
-  // fits, and once it overflows it can be panned but never past its own edge.
-  // Clamped here rather than in setZoom/the pan handler so every path that
-  // moves the view (wheel, buttons, drag, window resize) gets the same bound —
-  // without it, zoom-at-cursor leaves the image drifted off-centre on zoom-out.
-  const maxPanX = Math.max(0, (width - rect.width) / 2);
-  const maxPanY = Math.max(0, (height - rect.height) / 2);
-  view.viewPan.x = Math.max(-maxPanX, Math.min(maxPanX, view.viewPan.x));
-  view.viewPan.y = Math.max(-maxPanY, Math.min(maxPanY, view.viewPan.y));
+  // Keep the image pinned to the canvas (optional, see view.lockImageToCanvas):
+  // on each axis it stays centred while it fits, and once it overflows it can
+  // be panned but never past its own edge. Clamped here rather than in
+  // setZoom/the pan handler so every path that moves the view (wheel, buttons,
+  // drag, window resize) gets the same bound — without it, zoom-at-cursor
+  // leaves the image drifted off-centre on zoom-out.
+  if (view.lockImageToCanvas) {
+    const maxPanX = Math.max(0, (width - rect.width) / 2);
+    const maxPanY = Math.max(0, (height - rect.height) / 2);
+    view.viewPan.x = Math.max(-maxPanX, Math.min(maxPanX, view.viewPan.x));
+    view.viewPan.y = Math.max(-maxPanY, Math.min(maxPanY, view.viewPan.y));
+  }
 
   view.imageBox = {
     x: (rect.width - width) / 2 + view.viewPan.x,
