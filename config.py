@@ -185,6 +185,18 @@ IMPORT_QUEUE_WAIT_S = int(os.environ.get("IMPORT_QUEUE_WAIT_S", "120"))
 # not it was downloaded.
 EXPORT_RESULT_TTL_S = int(os.environ.get("EXPORT_RESULT_TTL_S", "3600"))
 
+# --- Wipe guard -------------------------------------------------------------
+# A task save is refused (422) when it would remove annotations the client did
+# not say it deleted, and that *unexplained* loss is both at least
+# WIPE_GUARD_MIN_LOST shapes and more than WIPE_GUARD_RATIO of the stored set.
+# Deletions the client lists in `deleted_ids` never count, so a deliberate bulk
+# delete of any size passes; only a canvas that lost shapes on its own is
+# stopped. See .devnotes/bulk-loss-guard/01_DESIGN.md.
+#
+# Mirrored for rendering in frontend/js/wipe-guard.js — change both together.
+WIPE_GUARD_MIN_LOST = int(os.environ.get("WIPE_GUARD_MIN_LOST", "10"))
+WIPE_GUARD_RATIO = float(os.environ.get("WIPE_GUARD_RATIO", "0.30"))
+
 # --- Teams ----------------------------------------------------------------
 # Cap on teams one user may own, so a compromised or buggy client cannot fill
 # the table. Same reasoning as MAX_UPLOAD_FILES; 50 is far above any legitimate

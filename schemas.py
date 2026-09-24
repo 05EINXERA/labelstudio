@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import Optional, List, Dict, Any, Literal, get_args
+from typing import Optional, List, Dict, Any, Literal, Union, get_args
 from pydantic import BaseModel, Field, field_validator
 
 # Upper bound on a single reported time delta. Clients sync far more often than
@@ -46,6 +46,16 @@ class TaskUpdate(BaseModel):
     # Default False so every existing caller (which never sends this field)
     # gets the safe behavior automatically.
     allow_clear: bool = False
+    # Ids of shapes the annotator deliberately removed (Delete, Clear all,
+    # merge, undo, AI replace) since the server last accepted a save from this
+    # tab. The wipe guard subtracts them from what the save would remove, and
+    # refuses only a large *unexplained* remainder — the shape of a canvas that
+    # lost its annotations on its own (task 660, 2026-09-24). Ids the server
+    # does not hold are ignored. See .devnotes/bulk-loss-guard/01_DESIGN.md.
+    # Numbers are accepted as well as strings: shape ids are stored as
+    # `str(id)` and some real annotations carry numeric ids. The guard compares
+    # both forms as strings.
+    deleted_ids: Optional[List[Union[str, int]]] = Field(None, max_length=100_000)
     # The Objects panel's own row count, sent purely so the service log can
     # record what the annotator was looking at when they saved. Never used for
     # any logic and never validated against `annotations` — the server counts
