@@ -153,6 +153,22 @@ function samePoint(a, b, epsilon = 1e-3) {
 }
 
 /**
+ * Where `point` sits strictly inside segment `a`-`b` (not at either end), its
+ * position along the segment as 0..1; otherwise null.
+ */
+function pointOnSegmentParameter(point, a, b, tolerance = UNION_EPSILON) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared === 0) return null;
+
+  const t = ((point.x - a.x) * dx + (point.y - a.y) * dy) / lengthSquared;
+  if (t <= UNION_EPSILON || t >= 1 - UNION_EPSILON) return null;
+  const distance = Math.hypot(point.x - (a.x + t * dx), point.y - (a.y + t * dy));
+  return distance <= tolerance ? t : null;
+}
+
+/**
  * Splits every edge of `subject` at the points where it crosses any edge of the
  * other polygons, so each resulting vertex run is entirely inside or entirely
  * outside those polygons.
@@ -175,6 +191,14 @@ function splitPolygonAtIntersections(subject, others) {
         if (hit.t <= UNION_EPSILON || hit.t >= 1 - UNION_EPSILON) continue;
         if (hit.u < -UNION_EPSILON || hit.u > 1 + UNION_EPSILON) continue;
         cuts.push({ t: hit.t, x: hit.x, y: hit.y });
+      }
+      // Parallel edges never "cross", so a border shared with another shape is
+      // only split where that shape's corners sit on it. Without these cuts two
+      // shapes sharing part of an edge produce pieces that never line up end to
+      // end, and the shared stretch cannot be recognised as interior.
+      for (const corner of other) {
+        const t = pointOnSegmentParameter(corner, p1, p2);
+        if (t !== null) cuts.push({ t, x: corner.x, y: corner.y });
       }
     }
 
@@ -560,6 +584,19 @@ export function unionPolygons(polygons) {
   // meet exactly; otherwise the chain breaks at a crossing and reconnects to
   // the wrong arc, producing a ring that omits part of its own inputs.
   snapSharedEndpoints(edges);
+
+  // A border two shapes share edge to edge is produced once by each shape, in
+  // opposite directions (they are wound the same way, and sit on opposite sides
+  // of it). It lies inside the union, not on its outline. Left in, it gave the
+  // walk a way back into the first shape at the shared corner, so the ring
+  // closed around that shape alone and the merge was refused.
+  const interiorBorders = new Set(edges.filter((edge) => edges.some((other) => (
+    other.shape !== edge.shape && other.from === edge.to && other.to === edge.from
+  ))));
+  if (interiorBorders.size) {
+    edges.splice(0, edges.length, ...edges.filter((edge) => !interiorBorders.has(edge)));
+  }
+  if (!edges.length) return null;
 
   // Start from an edge that is guaranteed to be on the outer hull: the one
   // leaving the leftmost (then lowest) vertex of the whole set.

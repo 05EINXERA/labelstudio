@@ -280,6 +280,19 @@ def shapes_are_connected(shapes):
     return len(seen) == len(shapes)
 
 
+def point_on_segment_parameter(point, a, b, tolerance=EPSILON):
+    dx = b["x"] - a["x"]
+    dy = b["y"] - a["y"]
+    length_squared = dx * dx + dy * dy
+    if length_squared == 0:
+        return None
+    t = ((point["x"] - a["x"]) * dx + (point["y"] - a["y"]) * dy) / length_squared
+    if t <= EPSILON or t >= 1 - EPSILON:
+        return None
+    distance = math.hypot(point["x"] - (a["x"] + t * dx), point["y"] - (a["y"] + t * dy))
+    return t if distance <= tolerance else None
+
+
 def split_polygon_at_intersections(subject, others):
     result = []
     for i in range(len(subject)):
@@ -299,6 +312,12 @@ def split_polygon_at_intersections(subject, others):
                 if hit["u"] < -EPSILON or hit["u"] > 1 + EPSILON:
                     continue
                 cuts.append(hit)
+            # Parallel edges never cross, so a shared border is split only where
+            # the other shape's corners sit on it.
+            for corner in other:
+                t = point_on_segment_parameter(corner, p1, p2)
+                if t is not None:
+                    cuts.append({"t": t, "x": corner["x"], "y": corner["y"]})
         cuts.sort(key=lambda c: c["t"])
         for cut in cuts:
             if not same_point(result[-1], cut):
@@ -306,10 +325,12 @@ def split_polygon_at_intersections(subject, others):
     return result
 
 
-def pick_outermost_turn(previous, vertex, candidates):
+def pick_straightest_continuation(previous, vertex, candidates):
+    if previous is None:
+        return candidates[0]
     incoming = math.atan2(vertex["y"] - previous["y"], vertex["x"] - previous["x"])
     best = candidates[0]
-    best_turn = -math.inf
+    smallest_deviation = math.inf
     for candidate in candidates:
         outgoing = math.atan2(candidate["to"]["y"] - vertex["y"], candidate["to"]["x"] - vertex["x"])
         turn = outgoing - incoming
@@ -317,10 +338,26 @@ def pick_outermost_turn(previous, vertex, candidates):
             turn += 2 * math.pi
         while turn > math.pi:
             turn -= 2 * math.pi
-        if turn > best_turn:
-            best_turn = turn
+        if abs(turn) < smallest_deviation:
+            smallest_deviation = abs(turn)
             best = candidate
     return best
+
+
+def snap_shared_endpoints(edges, tolerance=1e-3):
+    representatives = []
+
+    def canonical(point):
+        for candidate in representatives:
+            if math.hypot(candidate["x"] - point["x"], candidate["y"] - point["y"]) <= tolerance:
+                return candidate
+        fresh = {"x": point["x"], "y": point["y"]}
+        representatives.append(fresh)
+        return fresh
+
+    for edge in edges:
+        edge["from"] = canonical(edge["from"])
+        edge["to"] = canonical(edge["to"])
 
 
 def edge_borders_empty_space(edge, shapes, offset=CONTAINMENT_TOLERANCE):
@@ -381,8 +418,20 @@ def union_polygons(polygons):
                 continue
             if any(same_point(e["from"], frm) and same_point(e["to"], to) for e in edges):
                 continue
-            edges.append({"from": frm, "to": to, "used": False})
+            edges.append({"from": frm, "to": to, "used": False, "shape": index})
 
+    if not edges:
+        return None
+
+    snap_shared_endpoints(edges)
+
+    # A border shared edge to edge is produced once per shape, in opposite
+    # directions; it is interior to the union, not outline.
+    interior = [
+        e for e in edges
+        if any(o["shape"] != e["shape"] and o["from"] is e["to"] and o["to"] is e["from"] for o in edges)
+    ]
+    edges = [e for e in edges if not any(e is i for i in interior)]
     if not edges:
         return None
 
@@ -395,6 +444,7 @@ def union_polygons(polygons):
 
     start["used"] = True
     ring = [start["from"], start["to"]]
+    current_shape = start["shape"]
 
     while True:
         tail = ring[-1]
@@ -407,8 +457,15 @@ def union_polygons(polygons):
         if not candidates:
             return None
 
-        nxt = candidates[0] if len(candidates) == 1 else pick_outermost_turn(previous, tail, candidates)
+        # Stay on the polygon being traced when it can; picking purely by turn
+        # angle cuts across concavities.
+        same_shape = [e for e in candidates if e["shape"] == current_shape]
+        if len(same_shape) == 1:
+            nxt = same_shape[0]
+        else:
+            nxt = pick_straightest_continuation(previous, tail, same_shape or candidates)
         nxt["used"] = True
+        current_shape = nxt["shape"]
         ring.append(nxt["to"])
 
         if len(ring) > len(edges) + 2:
@@ -791,3 +848,42 @@ def test_overlap_enclosing_a_hole_refuses_to_merge():
     # around it.
     merged = union_polygons([u_shape(0, 0), u_shape(0, 30, flipped=True)])
     assert merged is None
+
+
+def test_edge_touching_boxes_of_different_heights_merge():
+    # The shared border only partly overlaps, so it must be split at the other
+    # box's corners before the two copies can cancel out.
+    merged = union_polygons([box(0, 0, 100, 100), box(100, -20, 100, 140)])
+    assert merged is not None
+    assert len(merged) == 8
+    assert abs(polygon_area(merged) - 24000) < 1
+
+
+def test_edge_touching_boxes_offset_along_the_border_merge():
+    merged = union_polygons([box(0, 0, 100, 100), box(100, 50, 100, 100)])
+    assert merged is not None
+    assert len(merged) == 8
+    assert abs(polygon_area(merged) - 20000) < 1
+
+
+def test_two_by_two_grid_of_boxes_merges_into_one_square():
+    merged = union_polygons([box(0, 0, 50, 50), box(50, 0, 50, 50), box(0, 50, 50, 50), box(50, 50, 50, 50)])
+    assert merged is not None
+    assert len(merged) == 4
+    assert abs(polygon_area(merged) - 10000) < 1
+
+
+def test_polygon_cut_in_two_merges_back_to_the_original():
+    # The halves share a diagonal chord; merging them must restore every vertex.
+    n = 60
+    ring = [
+        {"x": round(100 + 50 * math.cos(2 * math.pi * i / n), 2),
+         "y": round(100 + 40 * math.sin(2 * math.pi * i / n), 2)}
+        for i in range(n)
+    ]
+    first = ring[7:38]
+    second = ring[37:] + ring[:8]
+    merged = union_polygons([first, second])
+    assert merged is not None
+    assert len(merged) == n
+    assert abs(polygon_area(merged) - polygon_area(ring)) < 1e-6
