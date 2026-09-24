@@ -108,7 +108,7 @@ export const annotationSettings = {
   vertexHandleMaxRadius: 7,
   vertexGrabRadius:      7.5,
   edgeGrabRadius:        6,
-  freehandPointSpacing:  15,
+  freehandPointSpacing:  10,
 };
 
 /**
