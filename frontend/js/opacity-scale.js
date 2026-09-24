@@ -25,7 +25,7 @@
  * canvas/handle-size.js and objects-filter.js are separate modules.
  */
 
-import { annotationOpacity } from "./feature-flags.js?v=5";
+import { annotationOpacity } from "./feature-flags.js?v=6";
 
 /**
  * The default, captured at module load — before any slider edit can mutate

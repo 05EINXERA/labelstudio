@@ -16,18 +16,18 @@ import {
   autoDetectButton, undoButton, redoButton, deleteButton, clearButton, unhideAllButton,
   assignTaskButton, saveButton
 } from "./dom.js?v=5";
-import { drawAllLayers } from "./canvas/draw.js?v=11";
+import { drawAllLayers } from "./canvas/draw.js?v=12";
 import {
   setStatus, syncToBackend, save, loadSaved, saveDraft, restoreDraft,
   render, manualSaveWithUI, refreshSaveStatus, pruneStaleDrafts, unhideAllObjects,
   setLocalRefusalHandler
-} from "./components/workspace.js?v=28";
+} from "./components/workspace.js?v=29";
 import {
   configureQueue, startQueue, subscribe as subscribeQueue, drainQueue,
   enqueueWrite, retryablePendingCount, noteServerReachable, noteServerUnreachable,
   peekWrite as peekQueuedWrite, discardWrite as discardQueuedWrite
 } from "./offline-queue.js?v=6";
-import { autoDetectObjects, autoTagObjects } from "./ai/detect.js?v=5";
+import { autoDetectObjects, autoTagObjects } from "./ai/detect.js?v=6";
 import {
   syncTaskTime, syncTimeToServer, drainTaskTime, setActiveTaskResolver,
   setConflictHandler, resetSessionForTask, refreshTimerDisplays,
@@ -35,8 +35,8 @@ import {
 } from "./components/timer.js?v=10";
 import {
   finalizePolygon, deleteSelected, undoAction, redoAction, setZoomChangeHandler
-} from "./canvas/interactions.js?v=23";
-import { initContextMenu } from "./canvas/context-menu.js?v=8";
+} from "./canvas/interactions.js?v=24";
+import { initContextMenu } from "./canvas/context-menu.js?v=9";
 import { confirmDialog } from "./components/confirm-dialog.js?v=1";
 import { getCurrentUser } from "./session.js?v=2";
 import { wireBreakOverlay } from "./components/break-overlay.js?v=2";
@@ -49,9 +49,9 @@ import {
 } from "./canvas-permissions.js?v=10";
 import { isFrozenForRole } from "./task-status.js?v=3";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
-import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=7";
+import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=8";
 import { claimTask, heartbeatTask, releaseTask } from "./task-lock.js?v=3";
-import { initOpacityControls } from "./opacity-controls.js?v=3";
+import { initOpacityControls } from "./opacity-controls.js?v=4";
 
 if (!localStorage.getItem('logged_in')) {
   window.location.href = '/';

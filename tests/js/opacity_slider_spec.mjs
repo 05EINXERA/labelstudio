@@ -32,8 +32,8 @@
  * — and test 7 would mutate a value nothing under test can see. The pins must
  * match the ones opacity-scale.js itself imports.
  */
-const flagsUrl = new URL('../../frontend/js/feature-flags.js?v=5', import.meta.url);
-const ctrlUrl = new URL('../../frontend/js/opacity-scale.js?v=2', import.meta.url);
+const flagsUrl = new URL('../../frontend/js/feature-flags.js?v=6', import.meta.url);
+const ctrlUrl = new URL('../../frontend/js/opacity-scale.js?v=3', import.meta.url);
 const { annotationOpacity } = await import(flagsUrl);
 const { pctToOpacity, opacityToPct, defaultPct, drawingOpacityFor } = await import(ctrlUrl);
 

@@ -77,7 +77,7 @@ const js = (p) => new URL(`../../frontend/js/${p}`, import.meta.url);
 const guard = await import(js('wipe-guard.js?v=1'));
 const st = await import(js('state.js?v=12'));
 const timer = await import(js('components/timer.js?v=10'));
-const ws = await import(js('components/workspace.js?v=28'));
+const ws = await import(js('components/workspace.js?v=29'));
 const { timerState } = await import(js('timer-state.js?v=3'));
 
 let pass = 0, fail = 0;
@@ -287,7 +287,7 @@ st.state.projectId = 7;
 // Driven through the real handlers, so dropping the bookkeeping from any of
 // them fails here rather than as a refused save in production.
 {
-  const ix = await import(js('canvas/interactions.js?v=23'));
+  const ix = await import(js('canvas/interactions.js?v=24'));
   st.state.gallery = [{ id: 20 }];
   st.state.galleryIndex = 0;
   const g = st.beginHydration();
