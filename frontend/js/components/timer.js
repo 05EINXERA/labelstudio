@@ -407,6 +407,15 @@ function pauseTimer({ useBeacon = false } = {}) {
   syncTimeToServer({ useBeacon }); // final sync on pause
 }
 
+/**
+ * Pause the session timer from outside this module (Take a break). A manual
+ * pause, not a visibility one, so returning to the tab does not resume it; the
+ * annotator restarts it by drawing or pressing play when they are back.
+ */
+export function pauseSessionTimer() {
+  pauseTimer();
+}
+
 if (timerToggleBtn) {
   timerToggleBtn.addEventListener("click", () => {
     if (timerLocalState.isTimerRunning) {

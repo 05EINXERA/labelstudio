@@ -118,6 +118,28 @@ class LoginSession(Base):
     # 'logout' (explicit) or 'inactive' (swept). NULL while open.
     ended_reason = Column(String(16), nullable=True)
 
+class MemberBreak(Base):
+    """One break an annotator took, started from the workspace's Take a break button.
+
+    Breaks sit *inside* a login session rather than ending it: the tab stays
+    open and the heartbeat keeps the session alive, so the Teams page can show
+    someone as logged in but on break, and the day's worked hours can be read
+    as session time minus break time.
+
+    A break is ended by the annotator clicking End break ('resumed'), by an
+    explicit logout ('logout'), or by the presence sweeper when the tab is
+    closed mid-break ('inactive') — in that last case it is stamped at the
+    session's last heartbeat, the same rule `LoginSession` uses.
+    """
+    __tablename__ = "member_breaks"
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    member_name = Column(String, ForeignKey("team_members.name", ondelete="CASCADE"), nullable=False, index=True)
+    started_at = Column(UTCDateTime, nullable=False, index=True)
+    # NULL means the break is still in progress.
+    ended_at = Column(UTCDateTime, nullable=True)
+    # 'resumed' | 'logout' | 'inactive'. NULL while open.
+    ended_reason = Column(String(16), nullable=True)
+
 class Notification(Base):
     """One unread-able notice addressed to a single annotator.
 

@@ -15,7 +15,7 @@ import {
 import { drawAllLayers } from "../canvas/draw.js?v=6";
 import { setStatus, render, restoreDraft, clearStatusHold } from "./workspace.js?v=12";
 import { autoDetectObjects, preloadMagicWand, preloadDetectAndTag } from "../ai/detect.js?v=2";
-import { syncTaskTime, resetSessionForTask, refreshTimerDisplays } from "./timer.js?v=4";
+import { syncTaskTime, resetSessionForTask, refreshTimerDisplays } from "./timer.js?v=5";
 import { updateZoomDisplay } from "./zoom-control.js?v=3";
 import { claimTask, releaseTask } from "../task-lock.js?v=1";
 import { showNotAssignedModal } from "./not-assigned-modal.js?v=1";

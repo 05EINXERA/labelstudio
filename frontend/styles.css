@@ -2123,6 +2123,45 @@ canvas {
   background: rgba(239, 68, 68, 0.12);
 }
 
+/* Take a break. Amber so it reads as "pause for a person", distinct from the
+   red Stop and the neutral play/reset controls beside it. */
+.toolbar .timer-btn-break,
+.top-nav .timer-btn-break {
+  background: transparent;
+  color: #b45309;
+}
+
+.toolbar .timer-btn-break:hover,
+.top-nav .timer-btn-break:hover {
+  background: rgba(217, 119, 6, 0.14);
+}
+
+/* Sits above every other modal: while on break nothing else should be usable. */
+.break-overlay {
+  z-index: 1100;
+  background: rgba(23, 32, 38, 0.6);
+}
+
+.break-cup {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #b45309;
+  background: rgba(217, 119, 6, 0.12);
+}
+
+.break-elapsed {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 2.4rem;
+  font-weight: 800;
+  color: var(--ink);
+  margin: 18px 0 20px;
+  letter-spacing: 1px;
+}
+
 .timer-divider {
   width: 1px;
   align-self: stretch;

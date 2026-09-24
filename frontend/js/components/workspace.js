@@ -7,7 +7,7 @@ import {
 } from "../state.js?v=4";
 import { annotationPoints, updateAnnotationBounds } from "../canvas/geometry.js?v=9";
 import { view } from "../canvas/view.js?v=3";
-import { drainTaskTime } from "./timer.js?v=4";
+import { drainTaskTime } from "./timer.js?v=5";
 import { detectState } from "../ai/detect-state.js?v=1";
 import { draw, drawAllLayers } from "../canvas/draw.js?v=6";
 import {

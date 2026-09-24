@@ -12,11 +12,12 @@ import models
 from database import get_db, commit_with_retry
 from schemas import (
     TeamTime, TeamMemberResponse, TeamTimeResponse, TeamMemberAssign, TeamMemberCreate,
-    LoginSessionEntry, LoginSessionHistory,
+    LoginSessionEntry, LoginSessionHistory, BreakEntry, BreakStatus,
 )
 from api.auth import get_current_user, require_csrf, get_current_annotator
 from api.presence import (
     PRESENCE_TIMEOUT_SECONDS,
+    as_utc,
     close_stale_sessions,
     touch_session,
 )
@@ -86,6 +87,44 @@ def _session_seconds(session, now: datetime) -> int:
     elif not end.tzinfo:
         end = end.replace(tzinfo=timezone.utc)
     return max(0, int((end - login).total_seconds()))
+
+
+def _break_seconds(brk, now: datetime) -> int:
+    """Elapsed seconds for a break; an open one is counted up to `now`."""
+    end = as_utc(brk.ended_at) or now
+    return max(0, int((end - as_utc(brk.started_at)).total_seconds()))
+
+
+def _break_entry(brk, now: datetime) -> dict:
+    return {
+        "id": brk.id,
+        "started_at": as_utc(brk.started_at),
+        "ended_at": as_utc(brk.ended_at),
+        "ended_reason": brk.ended_reason,
+        "duration_seconds": _break_seconds(brk, now),
+        "is_open": brk.ended_at is None,
+    }
+
+
+def _caller_member_name(request: Request, annotator, user) -> str:
+    """The person acting, resolved the same way /ping resolves it.
+
+    On the shared login the account cannot tell annotators apart, so the
+    X-Annotator-Name header is what identifies whose break this is.
+    """
+    return request.headers.get("X-Annotator-Name") or (annotator.name if annotator else user.username)
+
+
+def _open_break(db: Session, member_name: str):
+    return (
+        db.query(models.MemberBreak)
+        .filter(
+            models.MemberBreak.member_name == member_name,
+            models.MemberBreak.ended_at.is_(None),
+        )
+        .order_by(models.MemberBreak.started_at.desc())
+        .first()
+    )
 
 @router.get("", response_model=List[TeamMemberResponse])
 def get_team(
@@ -164,6 +203,27 @@ def get_team(
     for s in todays_sessions:
         seconds_today[s.member_name] = seconds_today.get(s.member_name, 0) + _session_seconds(s, now)
 
+    todays_breaks = (
+        db.query(models.MemberBreak)
+        .filter(
+            models.MemberBreak.member_name.in_(member_names),
+            models.MemberBreak.started_at >= day_start,
+            models.MemberBreak.started_at < day_end,
+        )
+        .all()
+    )
+    break_seconds_today = {name: 0 for name in member_names}
+    for b in todays_breaks:
+        break_seconds_today[b.member_name] = break_seconds_today.get(b.member_name, 0) + _break_seconds(b, now)
+    # Queried separately from today's breaks so a break begun before local
+    # midnight still shows the member as on break now.
+    on_break = {
+        row[0] for row in db.query(models.MemberBreak.member_name).filter(
+            models.MemberBreak.member_name.in_(member_names),
+            models.MemberBreak.ended_at.is_(None),
+        ).all()
+    }
+
     results = []
     for m in members:
         is_logged_in = False
@@ -180,6 +240,10 @@ def get_team(
             "is_logged_in": is_logged_in,
             "last_active_at": last_active,
             "seconds_today": seconds_today.get(m.name, 0),
+            # Only meaningful while logged in: an open break on an offline
+            # member is one the sweeper has not reached yet.
+            "on_break": is_logged_in and m.name in on_break,
+            "break_seconds_today": break_seconds_today.get(m.name, 0),
         })
 
     return results
@@ -203,6 +267,78 @@ def ping_presence(
         # Advance (or open) the session row so the history tracks this beat.
         touch_session(db, annotator_name, now)
     return {"status": "ok"}
+
+@router.get("/breaks/current", response_model=BreakStatus)
+def get_current_break(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+    annotator = Depends(get_current_annotator),
+):
+    """The caller's open break, if any, so a reloaded workspace can restore it."""
+    member_name = _caller_member_name(request, annotator, user)
+    brk = _open_break(db, member_name) if member_name else None
+    now = datetime.now(timezone.utc)
+    return {"on_break": brk is not None, "current": _break_entry(brk, now) if brk else None}
+
+@router.post("/breaks", response_model=BreakEntry, status_code=201, dependencies=[Depends(require_csrf)])
+def start_break(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+    annotator = Depends(get_current_annotator),
+):
+    """Start a break for the calling annotator.
+
+    Idempotent: a second click (or a retry after a dropped response) returns
+    the break already in progress instead of stacking a second one.
+    """
+    member_name = _caller_member_name(request, annotator, user)
+    if not member_name or member_name == "Unknown":
+        raise HTTPException(status_code=400, detail="Set your annotator name before taking a break")
+
+    now = datetime.now(timezone.utc)
+    member = db.query(models.TeamMember).filter(models.TeamMember.name == member_name).first()
+    if not member:
+        member = models.TeamMember(name=member_name, time_logged=0)
+        db.add(member)
+    member.last_active_at = now
+    commit_with_retry(db)
+    # A break happens inside a login session; make sure one is open so the
+    # Teams page shows the member as logged in (on break), not offline.
+    touch_session(db, member_name, now)
+
+    brk = _open_break(db, member_name)
+    if brk is None:
+        brk = models.MemberBreak(member_name=member_name, started_at=now)
+        db.add(brk)
+        commit_with_retry(db)
+        db.refresh(brk)
+    return _break_entry(brk, now)
+
+@router.patch("/breaks/current", response_model=BreakStatus, dependencies=[Depends(require_csrf)])
+def end_break(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+    annotator = Depends(get_current_annotator),
+):
+    """End the caller's open break.
+
+    Idempotent: with no break open (already ended in another tab, or swept
+    because the tab was closed) it reports `on_break: false` rather than 404,
+    so the client can always leave its break screen.
+    """
+    member_name = _caller_member_name(request, annotator, user)
+    now = datetime.now(timezone.utc)
+    brk = _open_break(db, member_name) if member_name else None
+    if brk is None:
+        return {"on_break": False, "current": None}
+
+    brk.ended_at = now
+    brk.ended_reason = "resumed"
+    commit_with_retry(db)
+    return {"on_break": False, "current": _break_entry(brk, now)}
 
 @router.get("/sessions/export")
 def export_sessions_csv(
@@ -267,6 +403,18 @@ def export_sessions_csv(
             .all()
         )
 
+    break_rows = []
+    if targets:
+        break_rows = (
+            db.query(models.MemberBreak)
+            .filter(
+                models.MemberBreak.member_name.in_(targets),
+                models.MemberBreak.started_at >= range_start,
+                models.MemberBreak.started_at < range_end,
+            )
+            .all()
+        )
+
     offset = timedelta(minutes=tz_offset)
 
     def local(dt):
@@ -280,12 +428,20 @@ def export_sessions_csv(
         key = (r.member_name, local(r.login_at).date())
         totals[key] = totals.get(key, 0) + _session_seconds(r, now)
 
+    break_totals = {}
+    for b in break_rows:
+        key = (b.member_name, local(b.started_at).date())
+        break_totals[key] = break_totals.get(key, 0) + _break_seconds(b, now)
+
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow([
         "annotator", "date", "login_local", "logout_local",
         "duration_hours", "duration_minutes", "ended",
         "total_hours_that_day", "login_utc", "logout_utc",
+        # Appended rather than inserted so existing spreadsheet formulas that
+        # address the columns above by position keep working.
+        "break_hours_that_day",
     ])
     for r in rows:
         seconds = _session_seconds(r, now)
@@ -309,6 +465,7 @@ def export_sessions_csv(
             f"{totals[(r.member_name, day)] / 3600:.2f}",
             _utc_iso(r.login_at),
             _utc_iso(r.logout_at),
+            f"{break_totals.get((r.member_name, day), 0) / 3600:.2f}",
         ])
 
     if start_day == end_day:
@@ -453,11 +610,25 @@ def get_member_sessions(
             "is_open": r.logout_at is None,
         })
 
+    break_rows = (
+        db.query(models.MemberBreak)
+        .filter(
+            models.MemberBreak.member_name == name,
+            models.MemberBreak.started_at >= day_start,
+            models.MemberBreak.started_at < day_end,
+        )
+        .order_by(models.MemberBreak.started_at.asc())
+        .all()
+    )
+    breaks = [_break_entry(b, now) for b in break_rows]
+
     return {
         "name": name,
         "date": day.isoformat(),
         "sessions": sessions,
         "total_seconds": total,
+        "breaks": breaks,
+        "break_seconds": sum(b["duration_seconds"] for b in breaks),
     }
 
 @router.post("", response_model=TeamMemberResponse, dependencies=[Depends(require_csrf)])

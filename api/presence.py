@@ -47,6 +47,30 @@ def as_utc(dt):
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
+def close_open_breaks(db: Session, member_name: str, at: datetime, reason: str) -> int:
+    """Stamp any open break for the member as ended at `at`. Does not commit.
+
+    A break lives inside a login session, so whatever ends the session ends the
+    break too — otherwise a tab closed mid-break would leave the member "on
+    break" forever and inflate the day's break total.
+    """
+    open_breaks = (
+        db.query(models.MemberBreak)
+        .filter(
+            models.MemberBreak.member_name == member_name,
+            models.MemberBreak.ended_at.is_(None),
+        )
+        .all()
+    )
+    for b in open_breaks:
+        started = as_utc(b.started_at)
+        # Never end a break before it began (clock skew, or a break started
+        # after the session's last recorded beat).
+        b.ended_at = max(at, started) if started else at
+        b.ended_reason = reason
+    return len(open_breaks)
+
+
 def close_stale_sessions(db: Session, now: datetime | None = None) -> int:
     """Close open sessions whose heartbeat has gone silent.
 
@@ -71,6 +95,7 @@ def close_stale_sessions(db: Session, now: datetime | None = None) -> int:
         # stopped then; we are only noticing late.
         session.logout_at = session.last_seen_at
         session.ended_reason = "inactive"
+        close_open_breaks(db, session.member_name, as_utc(session.last_seen_at), "inactive")
 
     commit_with_retry(db)
     logger.info("Closed %d stale login session(s)", len(stale))
@@ -97,6 +122,7 @@ def open_session(db: Session, member_name: str, now: datetime | None = None) -> 
     for row in open_rows:
         row.logout_at = as_utc(row.last_seen_at) or now
         row.ended_reason = "inactive"
+        close_open_breaks(db, member_name, row.logout_at, "inactive")
 
     db.add(models.LoginSession(
         member_name=member_name,
@@ -136,6 +162,7 @@ def touch_session(db: Session, member_name: str, now: datetime | None = None) ->
             # row at its real end and start a fresh one.
             session.logout_at = last_seen
             session.ended_reason = "inactive"
+            close_open_breaks(db, member_name, last_seen, "inactive")
             session = None
         else:
             session.last_seen_at = now
@@ -164,7 +191,8 @@ def close_session(db: Session, member_name: str, now: datetime | None = None) ->
         )
         .all()
     )
-    if not open_rows:
+    closed_breaks = close_open_breaks(db, member_name, now, "logout")
+    if not open_rows and not closed_breaks:
         return
     for row in open_rows:
         row.logout_at = now

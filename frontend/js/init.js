@@ -9,8 +9,9 @@ import {
 } from "./components/workspace.js?v=12";
 import {
   syncTimeToServer, setActiveTaskResolver, setConflictHandler, setSaveHaltedHandler,
-  handleVisibilityChange as handleTimerVisibility
-} from "./components/timer.js?v=4";
+  handleVisibilityChange as handleTimerVisibility, pauseSessionTimer
+} from "./components/timer.js?v=5";
+import { initBreakControl } from "./components/break.js?v=1";
 import { setZoomChangeHandler } from "./canvas/interactions.js?v=19";
 import { initContextMenu } from "./canvas/context-menu.js?v=3";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
@@ -294,6 +295,9 @@ document.addEventListener('DOMContentLoaded', () => {
   // leaving the canvas. Here it hangs in the sidebar user footer and opens
   // upward against the viewport — see .sidebar .notification-dropdown.
   new NotificationManager("notifBell", "notifDropdown", "notifList", "notifBadge");
+
+  // Take a break: pausing the timer keeps break time off the open task.
+  initBreakControl({ onBreakStart: pauseSessionTimer });
 
   initFftControls();
   initOpacityControl();

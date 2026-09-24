@@ -12,7 +12,7 @@
  */
 import { setStatus } from "./workspace.js?v=12";
 import { state } from "../state.js?v=4";
-import { drainTaskTime } from "./timer.js?v=4";
+import { drainTaskTime } from "./timer.js?v=5";
 
 /**
  * Initializes the Settings modal and AI configuration controls.

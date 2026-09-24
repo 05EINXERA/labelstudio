@@ -193,7 +193,7 @@ function renderSessionDetail(member) {
   const day = entry?.date || todayISO();
 
   const header = `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
-      <strong style="font-size:0.85rem;">Login history — ${escapeHTML(member.name)}</strong>
+      <strong style="font-size:0.85rem;">Login &amp; break history — ${escapeHTML(member.name)}</strong>
       <input type="date" data-action="session-date" value="${escapeHTML(day)}" max="${escapeHTML(todayISO())}"
         style="font-size:0.78rem;padding:2px 6px;border:1px solid var(--line);border-radius:4px;">
       <button type="button" data-action="export-member" class="pill"
@@ -237,7 +237,54 @@ function renderSessionDetail(member) {
       <div style="margin-top:8px;font-size:0.8rem;font-weight:600;">Total: ${escapeHTML(formatDuration(entry.data.total_seconds))}</div>`;
   }
 
+  if (entry?.data && !entry.loading && !entry.error) {
+    body += renderBreaks(entry.data);
+  }
+
   return `<div style="padding:10px 6px 12px 18px;border-left:2px solid var(--accent);background:rgba(128,128,128,0.04);">${header}${body}</div>`;
+}
+
+const BREAK_ENDED_LABELS = {
+  logout: "logged out",
+  inactive: "tab closed",
+};
+
+/** The day's breaks, and worked time net of them, under the login table. */
+function renderBreaks(data) {
+  const breaks = data.breaks || [];
+  const heading = `<strong style="display:block;margin-top:14px;margin-bottom:6px;font-size:0.8rem;">Breaks</strong>`;
+  if (!breaks.length) {
+    return `${heading}<div style="color:var(--muted);font-size:0.8rem;">No breaks recorded on this day.</div>`;
+  }
+  const rows = breaks.map((b) => {
+    let end;
+    if (b.is_open) {
+      end = `<span style="color:#b45309;font-weight:600;">on break now</span>`;
+    } else {
+      const note = BREAK_ENDED_LABELS[b.ended_reason];
+      end = escapeHTML(formatClock(b.ended_at))
+        + (note ? ` <span style="color:var(--muted);font-size:0.72rem;">(${escapeHTML(note)})</span>` : "");
+    }
+    return `<tr>
+        <td style="padding:3px 12px 3px 0;">${escapeHTML(formatClock(b.started_at))}</td>
+        <td style="padding:3px 12px 3px 0;color:var(--muted);">→</td>
+        <td style="padding:3px 12px 3px 0;">${end}</td>
+        <td style="padding:3px 0;color:var(--muted);">${escapeHTML(formatDuration(b.duration_seconds))}</td>
+      </tr>`;
+  }).join("");
+  const worked = Math.max(0, (data.total_seconds || 0) - (data.break_seconds || 0));
+  return `${heading}<table style="font-size:0.8rem;border-collapse:collapse;">
+      <thead><tr style="color:var(--muted);font-size:0.72rem;text-transform:uppercase;">
+        <th style="text-align:left;padding-right:12px;font-weight:600;">Start</th><th></th>
+        <th style="text-align:left;padding-right:12px;font-weight:600;">End</th>
+        <th style="text-align:left;font-weight:600;">Duration</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div style="margin-top:8px;font-size:0.8rem;font-weight:600;">
+      Break total: ${escapeHTML(formatDuration(data.break_seconds))}
+      <span style="color:var(--muted);font-weight:500;margin-left:10px;">Worked (excl. breaks): ${escapeHTML(formatDuration(worked))}</span>
+    </div>`;
 }
 
 function showError(msg) {
@@ -300,8 +347,10 @@ function updateOnlineCount(rows) {
     return;
   }
 
+  const onBreak = rows.filter((r) => r.on_break === true).length;
   els.onlineCountBadge.style.display = "inline-flex";
-  els.onlineCountText.textContent = `${online} of ${rows.length} logged in`;
+  els.onlineCountText.textContent = `${online} of ${rows.length} logged in`
+    + (onBreak ? ` · ${onBreak} on break` : "");
   els.onlineCountBadge.title = selectedTeam
     ? `${online} of ${rows.length} members of ${selectedTeam.name} are logged in right now`
     : `${online} of ${rows.length} team members are logged in right now`;
@@ -404,6 +453,9 @@ function initTables() {
         label: "Status",
         width: "110px",
         render: (r) => {
+          if (r.is_logged_in === true && r.on_break === true) {
+            return `<span class="pill" title="Logged in, currently on a break" style="display:inline-flex;align-items:center;gap:6px;font-size:0.75rem;padding:2px 8px;font-weight:600;color:#b45309;background:rgba(217,119,6,0.12);"><span style="width:7px;height:7px;border-radius:50%;background:#d97706;display:inline-block;box-shadow:0 0 0 2px rgba(217,119,6,0.2);"></span>On break</span>`;
+          }
           if (r.is_logged_in === true) {
             return `<span class="pill is-completed" style="display:inline-flex;align-items:center;gap:6px;font-size:0.75rem;padding:2px 8px;font-weight:600;"><span style="width:7px;height:7px;border-radius:50%;background:#2e7d32;display:inline-block;box-shadow:0 0 0 2px rgba(46,125,50,0.2);"></span>Logged in</span>`;
           }
@@ -424,6 +476,19 @@ function initTables() {
             title="Show today's login and logout times for ${escapeHTML(r.name)}"
             style="cursor:pointer;font-size:0.75rem;padding:2px 10px;border:1px solid var(--line);display:inline-flex;align-items:center;gap:5px;">
             ${escapeHTML(total)}<span style="font-size:0.6rem;">${open ? "▲" : "▼"}</span></button>`;
+        }
+      },
+      {
+        key: "break_seconds_today",
+        label: "Breaks",
+        width: "90px",
+        render: (r) => {
+          // Same visibility rule as the Sessions column.
+          if (!isMemberOwnedByMe(r)) return `<span style="color:var(--muted);font-size:0.8rem;">—</span>`;
+          const total = r.break_seconds_today ? formatDuration(r.break_seconds_today) : "—";
+          return `<button type="button" data-action="toggle-sessions" class="pill"
+            title="Show today's breaks for ${escapeHTML(r.name)}"
+            style="cursor:pointer;font-size:0.75rem;padding:2px 10px;border:1px solid var(--line);">${escapeHTML(total)}</button>`;
         }
       },
       {

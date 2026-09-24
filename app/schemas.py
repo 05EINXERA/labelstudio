@@ -214,6 +214,25 @@ class TeamMemberResponse(BaseModel):
     last_active_at: Optional[datetime] = None
     # Seconds spent logged in during the caller's local day, from LoginSession.
     seconds_today: Optional[int] = None
+    # True while the member has an open break (MemberBreak with no ended_at).
+    on_break: Optional[bool] = None
+    # Seconds spent on break during the caller's local day.
+    break_seconds_today: Optional[int] = None
+
+class BreakEntry(BaseModel):
+    id: int
+    started_at: datetime
+    # None while the break is still in progress.
+    ended_at: Optional[datetime] = None
+    # 'resumed' (clicked End break), 'logout', or 'inactive' (tab closed).
+    ended_reason: Optional[str] = None
+    duration_seconds: int
+    is_open: bool
+
+class BreakStatus(BaseModel):
+    """The caller's current break, so a reloaded workspace can restore it."""
+    on_break: bool
+    current: Optional[BreakEntry] = None
 
 class LoginSessionEntry(BaseModel):
     login_at: datetime
@@ -229,6 +248,8 @@ class LoginSessionHistory(BaseModel):
     date: str
     sessions: List[LoginSessionEntry] = Field(default_factory=list)
     total_seconds: int
+    breaks: List[BreakEntry] = Field(default_factory=list)
+    break_seconds: int = 0
 
 class TeamTimeResponse(BaseModel):
     status: str
