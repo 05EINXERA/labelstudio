@@ -119,11 +119,17 @@ def task_object(task: models.Task, labels_by_id: dict, values: Optional[Dict[str
 
 
 def build_single(tasks: Sequence[models.Task], labels: Sequence[models.Label], db=None) -> str:
-    """Every task as one JSON array — the `annotations_json` format."""
+    """Every task as one JSON array — the `annotations_json` format.
+
+    Compact separators: whitespace only, the parsed value is identical to the
+    old `indent=2` output (see api/export_service.py COMPACT). A project-wide
+    array is the one body large enough for the indentation to matter; the
+    small per-task files in `build_entries` stay indented.
+    """
     labels_by_id = {l.id: l for l in labels}
     values = values_for_labels(labels)
     return json.dumps(
-        [task_object(t, labels_by_id, values, db=db) for t in tasks], indent=2
+        [task_object(t, labels_by_id, values, db=db) for t in tasks], separators=(",", ":")
     )
 
 

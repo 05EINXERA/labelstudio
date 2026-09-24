@@ -1,0 +1,517 @@
+"""Annotation import: parsing, task matching, label resolution and the apply.
+
+The work behind `POST /api/imports/annotations[/preview]`, without the HTTP.
+Moved out of `api/routers/imports.py` so the heavy-job worker process
+(`jobs/worker.py`) can run it: parsing a large COCO file is CPU-bound, and in
+the web process it used to run on the event loop itself (the endpoints were
+`async def`), where nothing else could be served until it finished. See
+.devnotes/fix-exports-imports/02_ISSUES.md I-3.
+
+The router keeps authentication, the permission check (rules 1b/1c) and the
+upload cap; everything from "bytes" to "response dict" is here.
+
+Imports COCO JSON, the task-JSON formats (single array or per-task), LabelMe
+per-image JSON, a YOLO segmentation archive, or a ZIP of the JSON formats,
+matching images to existing tasks by filename (`Task.description`), or by stem
+where the extensions cannot line up (a YOLO `P1000015.txt` against a
+`P1000015.JPG` task). Tasks are matched, not created.
+
+Masks are export-only and rejected with a message that says so. A class-set
+file (label definitions, no geometry) is redirected to Classes -> Import.
+
+The container is detected from the bytes, not the extension:
+`_parse_import_file` routes ZIPs to `_parse_zip`, which recognises mask and
+YOLO archives before falling back to a JSON walk. Per-document detection in
+`_parse_single_json` is duck-typed and its order matters: COCO, then LabelMe,
+then the class-set redirect, then the task-JSON fall-through (a catch-all that
+returns `{}`, so a format added after it silently imports nothing).
+
+YOLO annotations stay normalized to [0, 1] out of the parser and are scaled in
+the apply step, the first point the matched task's image size is known.
+
+Label resolution matches an existing class on its display name *or* its
+derived interop `value`, so a COCO file (value form in `supercategory`) and a
+per-task JSON (display name) from one source project resolve to one label.
+"""
+import datetime
+import io
+import json
+import logging
+import uuid
+import zipfile
+from collections import defaultdict
+from typing import Dict, List, Optional
+
+from sqlalchemy.orm import Session
+
+import models
+from database import commit_with_retry
+from formats import annotations_json
+from formats import coco as coco_format
+from formats import labelme as labelme_format
+from formats import yolo as yolo_format
+from formats.annotation_rows import sync_task_annotations_for_project
+from formats.common import (annotation_dicts, clean_label_name, image_size,
+                            normalize_label_name, value_from_name)
+from logging_service import log_event
+
+logger = logging.getLogger(__name__)
+
+# Folder names that mark a mask archive. Masks are export-only — tracing a
+# raster back to polygons is not a faithful inverse — so an archive of them is
+# rejected with a clear message rather than falling through as "nothing
+# recognizable". See .devnotes/data-refactor/00_FORMAT_ANALYSIS.md § 8.
+_MASK_DIRS = ("semantic_segmentations", "instance_segmentations")
+
+# Parsing lives in formats/, each alongside the builder it has to agree with.
+_parse_coco = coco_format.parse
+_parse_native = annotations_json.parse
+
+# Zip-bomb guards. The endpoint takes an upload from any project manager, and
+# an archive's uncompressed size is unbounded by its compressed size.
+_ZIP_MAX_ENTRIES = 10_000        # a project writes one JSON per task
+_ZIP_MAX_ENTRY_BYTES = 25 * 1024 * 1024
+_ZIP_MAX_TOTAL_BYTES = 250 * 1024 * 1024
+
+
+class ImportRejected(Exception):
+    """The upload cannot be imported; the message is shown to the user (422)."""
+
+
+def _parse_single_json(raw: bytes, source_name: Optional[str] = None,
+                       notes: Optional[List[str]] = None) -> Dict[str, List[dict]]:
+    """Dispatch one JSON document to the COCO, LabelMe or native parser.
+
+    `source_name` is the file's own name, used by the LabelMe parser as the
+    image identity when the document's `imagePath` is missing. `notes`, when
+    given, collects human-readable strings about anything a parser dropped, so
+    the endpoint can report the loss instead of letting it pass silently.
+    """
+    try:
+        data = json.loads(raw.decode("utf-8-sig", errors="replace"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON: {exc}") from exc
+
+    if isinstance(data, dict) and "images" in data and "annotations" in data:
+        return _parse_coco(data)
+
+    # Before the class-set check and the native fall-through. Ordering is
+    # load-bearing: a LabelMe document keys its image as `imagePath` and its
+    # shapes as `shapes`, so the native parser's container check matches none
+    # of its branches and quietly returns {} — which surfaced as "no
+    # recognizable annotations" for a file full of perfectly good polygons.
+    # See .devnotes/task-imports-new/fix/01_ANALYSIS.md § 2.
+    if labelme_format.looks_like(data):
+        parsed, parse_notes = labelme_format.parse(data, source_name=source_name)
+        if notes is not None:
+            notes.extend(parse_notes)
+        return parsed
+
+    # A class-set file (the Classes export) is a JSON array of label
+    # definitions — {type, title, value, color, ...} with no per-image
+    # `annotations`. It carries no geometry, so it belongs in the Classes
+    # importer; caught here it gets a message that says where to take it, rather
+    # than the generic "nothing recognizable" it would otherwise produce.
+    if _looks_like_class_set(data):
+        raise ValueError(
+            "This looks like a class-set file (label definitions, no "
+            "annotations). Import it from Classes -> Import, not here."
+        )
+
+    return _parse_native(data)
+
+
+def _looks_like_class_set(data) -> bool:
+    """True for a JSON array of label definitions with no annotation payload."""
+    if not isinstance(data, list) or not data:
+        return False
+    return all(
+        isinstance(item, dict) and "title" in item and "value" in item
+        and "annotations" not in item and "name" not in item
+        for item in data
+    )
+
+
+def _parse_zip(raw: bytes, notes: Optional[List[str]] = None) -> Dict[str, List[dict]]:
+    """A ZIP export -> {filename: [annotation, ...]}, merging every entry.
+
+    Reads `*.json` at any depth rather than only the `jsons/` folder the
+    exporter writes today: the archive is deliberately multi-folder (a future
+    export may add `coco/`), so binding the importer to one prefix would make
+    it wrong as soon as that lands. Non-JSON entries are skipped, not errors —
+    an archive bundling images is legitimate.
+
+    Each entry is dispatched through the same per-file detection as a bare
+    upload, so an archive can mix per-task files and a COCO file.
+
+    One unreadable entry must not lose the rest of the archive; it is logged
+    and skipped. An archive with nothing usable falls through to the caller's
+    existing "no recognizable annotations" 422.
+    """
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(raw))
+    except zipfile.BadZipFile as exc:
+        raise ValueError(f"Invalid ZIP archive: {exc}") from exc
+
+    with zf:
+        infos = [i for i in zf.infolist() if not i.is_dir()]
+        if len(infos) > _ZIP_MAX_ENTRIES:
+            raise ValueError(
+                f"Archive has {len(infos)} files; the limit is {_ZIP_MAX_ENTRIES}."
+            )
+        total = sum(i.file_size for i in infos)
+        if total > _ZIP_MAX_TOTAL_BYTES:
+            raise ValueError(
+                f"Archive expands to {total // (1024 * 1024)} MB; the limit is "
+                f"{_ZIP_MAX_TOTAL_BYTES // (1024 * 1024)} MB."
+            )
+
+        names = [i.filename for i in infos]
+
+        # A mask archive is recognised before anything else so it can be
+        # rejected with a message that names the reason, rather than falling
+        # through the JSON walk to a generic "nothing recognizable".
+        if any(part in _MASK_DIRS
+               for name in names
+               for part in name.replace("\\", "/").split("/")):
+            raise ValueError(
+                "This looks like a mask export (semantic/instance segmentation "
+                "images). Masks are export-only: a raster mask cannot be traced "
+                "back to the original polygons faithfully, so it cannot be imported."
+            )
+
+        # A YOLO archive (classes.txt + label files) is dispatched to the YOLO
+        # parser, whose annotations stay normalized until the apply step scales
+        # them by the matched task's dimensions.
+        if yolo_format.looks_like_archive(names):
+            entries = {}
+            for info in infos:
+                if info.filename.lower().endswith(".txt") and info.file_size <= _ZIP_MAX_ENTRY_BYTES:
+                    try:
+                        entries[info.filename] = zf.read(info)
+                    except (zipfile.BadZipFile, OSError, RuntimeError) as exc:
+                        logger.warning("Could not read archive entry %r, skipping: %s",
+                                       info.filename, exc)
+            return yolo_format.parse_archive(entries)
+
+        merged: Dict[str, List[dict]] = defaultdict(list)
+        for info in infos:
+            name = info.filename
+            if not name.lower().endswith(".json"):
+                continue  # images and other bundled files are not annotations
+            # Nothing is written to disk, but an archive with absolute or
+            # traversing paths is malformed and its names are not trustworthy.
+            if name.startswith("/") or ".." in name.replace("\\", "/").split("/"):
+                logger.warning("Skipping unsafe archive entry %r", name)
+                continue
+            # Checked from the header, before decompressing.
+            if info.file_size > _ZIP_MAX_ENTRY_BYTES:
+                raise ValueError(
+                    f"Archive entry '{name}' is {info.file_size // (1024 * 1024)} MB; "
+                    f"the limit is {_ZIP_MAX_ENTRY_BYTES // (1024 * 1024)} MB per file."
+                )
+            try:
+                entry_raw = zf.read(info)
+            except (zipfile.BadZipFile, OSError, RuntimeError) as exc:
+                logger.warning("Could not read archive entry %r, skipping: %s", name, exc)
+                continue
+            try:
+                parsed = _parse_single_json(entry_raw, source_name=name, notes=notes)
+            except ValueError as exc:
+                logger.warning("Archive entry %r is not valid JSON, skipping: %s", name, exc)
+                continue
+            # Concatenate rather than overwrite: two entries may legitimately
+            # target the same image (per-task file plus a COCO file).
+            for image_name, anns in parsed.items():
+                merged[image_name].extend(anns)
+
+    return dict(merged)
+
+
+def _parse_import_file(filename: str, raw: bytes,
+                       notes: Optional[List[str]] = None) -> Dict[str, List[dict]]:
+    """Detect the container by content, not by filename.
+
+    The extension is a hint the caller controls; the magic bytes are not. A
+    ZIP uploaded as `.json` (or the reverse) still imports correctly.
+    """
+    if raw[:4] == b"PK\x03\x04":
+        return _parse_zip(raw, notes=notes)
+    return _parse_single_json(raw, source_name=filename, notes=notes)
+
+
+def _stem(name: str) -> str:
+    """Filename without its extension, e.g. "P1000015.JPG" -> "P1000015"."""
+    base = name.replace("\\", "/").split("/")[-1]
+    dot = base.rfind(".")
+    return base[:dot] if dot > 0 else base
+
+
+def _match_to_tasks(by_filename: Dict[str, List[dict]], project_id: int, db: Session):
+    """Resolve each imported key to a Task.
+
+    Matching by filename rather than any embedded id, since the imported file
+    was very likely produced by a different system with no knowledge of this
+    project's task ids.
+
+    An exact `description` match wins. Failing that, the key is matched on its
+    stem — a YOLO label file is `P1000015.txt` while the task is
+    `P1000015.JPG`, so the extension cannot line up. Stem matching is only a
+    fallback, and an ambiguous stem (two tasks sharing it) is left unmatched
+    rather than guessed.
+    """
+    tasks = db.query(models.Task).filter(models.Task.project_id == project_id).all()
+    tasks_by_desc = {t.description: t for t in tasks if t.description}
+
+    # Stems that map to exactly one task; a collision drops out of this map so
+    # it is never used to match ambiguously.
+    stem_counts: Dict[str, int] = defaultdict(int)
+    stem_to_task: Dict[str, models.Task] = {}
+    for t in tasks:
+        if t.description:
+            s = _stem(t.description)
+            stem_counts[s] += 1
+            stem_to_task[s] = t
+    unique_stems = {s: t for s, t in stem_to_task.items() if stem_counts[s] == 1}
+
+    matched, unmatched = [], []
+    for filename, anns in by_filename.items():
+        task = tasks_by_desc.get(filename) or unique_stems.get(_stem(filename))
+        if task:
+            matched.append({"filename": filename, "task_id": task.id,
+                            "annotation_count": len(anns)})
+        else:
+            unmatched.append({"filename": filename, "annotation_count": len(anns)})
+    return matched, unmatched
+
+
+# Keys a parser attaches to carry class identity through label resolution.
+# They are stripped before the annotation is stored — the task's annotations
+# reference a labelId, not a name.
+_TRANSIENT_KEYS = ("labelName", "labelColor", "labelValue")
+
+
+def _label_key(a: dict) -> str:
+    """The key an annotation's class resolves under.
+
+    The shared normaliser, not a bare `.lower()`: the key has to agree with the
+    form actually stored, or an import creates "Rust_Area" alongside the
+    "rust area" the project already has — which the unique index on
+    (project_id, name) then rejects outright.
+    """
+    return normalize_label_name(a.get("labelName") or "object")
+
+
+def _resolve_label_ids(by_filename: Dict[str, List[dict]], project_id: int, db: Session) -> Dict[str, str]:
+    """Map label name (case-insensitive) -> label id, creating missing labels.
+
+    Import must not silently drop annotations because their class doesn't
+    exist yet in the target project; it creates the label instead, consistent
+    with the Classes import behaviour in labels.py.
+
+    An existing label is matched on its display name *or* its derived interop
+    `value`. An interop COCO export puts the value form in `supercategory`
+    ("RustArea") while its per-task JSON uses the display name ("Rust Area"),
+    so importing both files from one source project used to create two
+    labels for the same class. Matching on either collapses them.
+
+    Uses the color from the annotation if provided, otherwise falls back to the
+    palette.
+    """
+    labels = db.query(models.Label).filter(models.Label.project_id == project_id).all()
+    # Keyed on the canonical form rather than the raw stored name: after
+    # migration a1c4e7b09f52 the two are identical, but a database that has not
+    # run it yet still holds "Object"-style rows, and those must still match an
+    # incoming "object" instead of being duplicated.
+    existing = {normalize_label_name(l.name): l.id for l in labels}
+    # Secondary index: value form -> id. Only consulted when the display name
+    # does not match, so an exact name match always wins.
+    by_value = {value_from_name(l.name).lower(): l.id for l in labels}
+
+    palette = ["#ef4444", "#f97316", "#eab308", "#22c55e", "#0f8b8d", "#3b82f6", "#8b5cf6", "#ec4899"]
+    i = len(existing)
+
+    # Track which labels we've seen (first occurrence wins for color)
+    labels_to_create = {}
+
+    for anns in by_filename.values():
+        for a in anns:
+            key = _label_key(a)
+            if key in existing or key in labels_to_create:
+                continue
+            # The incoming name may itself be a value form, or the file may
+            # report the value separately — try both against existing labels.
+            candidates = [value_from_name(a.get("labelName") or "").lower()]
+            if a.get("labelValue"):
+                candidates.append(a["labelValue"].lower())
+            matched = next((by_value[c] for c in candidates if c in by_value), None)
+            if matched:
+                existing[key] = matched
+                continue
+
+            color = a.get("labelColor") or palette[i % len(palette)]
+            # Store the file's own casing; `key` is only the matching form.
+            labels_to_create[key] = {
+                "name": clean_label_name(a.get("labelName") or "object"),
+                "color": color,
+            }
+            i += 1
+
+    # Create all new labels
+    for key, label_data in labels_to_create.items():
+        new_label = models.Label(
+            id=uuid.uuid4().hex,
+            name=label_data["name"],
+            name_key=key,
+            color=label_data["color"],
+            project_id=project_id
+        )
+        db.add(new_label)
+        existing[key] = new_label.id
+
+    if labels_to_create:
+        # An annotation import that invents ten classes is a real change to a
+        # project shared by every annotator, and left no trace before this.
+        log_event(
+            "label.auto_create",
+            project=project_id,
+            count=len(labels_to_create),
+            names=",".join(sorted(labels_to_create)),
+        )
+
+    return existing
+
+
+def _parse_or_reject(filename: str, raw: bytes, notes: List[str]) -> Dict[str, List[dict]]:
+    try:
+        by_filename = _parse_import_file(filename or "", raw, notes=notes)
+    except ValueError as exc:
+        raise ImportRejected(str(exc)) from exc
+    if not by_filename:
+        raise ImportRejected("No recognizable annotations found in the uploaded file.")
+    return by_filename
+
+
+def preview_import(db: Session, project_id: int, filename: str, raw: bytes) -> dict:
+    """Report what an import would do, without writing anything."""
+    notes: List[str] = []
+    by_filename = _parse_or_reject(filename, raw, notes)
+
+    matched, unmatched = _match_to_tasks(by_filename, project_id, db)
+
+    # Which classes this import would create, using the same name-or-value
+    # matching the apply path uses — otherwise the preview would promise a new
+    # label that the import then resolves to an existing one.
+    labels = db.query(models.Label).filter(models.Label.project_id == project_id).all()
+    existing_names = {l.name.lower() for l in labels}
+    existing_values = {value_from_name(l.name).lower() for l in labels}
+
+    new_labels = []
+    for name in sorted({a.get("labelName") or "object" for anns in by_filename.values() for a in anns}):
+        if name.lower() in existing_names or value_from_name(name).lower() in existing_values:
+            continue
+        new_labels.append(name)
+
+    return {
+        "matched": matched,
+        "unmatched": unmatched,
+        "new_labels": new_labels,
+        "total_annotations": sum(len(v) for v in by_filename.values()),
+        # Shapes a parser recognised but could not represent (a LabelMe point
+        # or mask). Reported so the loss is visible before the import is
+        # applied rather than discovered afterwards.
+        "notes": notes,
+    }
+
+
+def apply_import(db: Session, project_id: int, mode: str, filename: str, raw: bytes) -> dict:
+    """Apply an annotation import. `merge` appends to each matched task's
+    existing annotations; `replace` overwrites them.
+
+    All-or-nothing: every matched task is written in one transaction, and a
+    failure anywhere rolls the whole import back.
+    """
+    notes: List[str] = []
+    by_filename = _parse_or_reject(filename, raw, notes)
+
+    label_ids = _resolve_label_ids(by_filename, project_id, db)
+    matched, unmatched = _match_to_tasks(by_filename, project_id, db)
+    tasks_by_id = {t.id: t for t in db.query(models.Task).filter(models.Task.project_id == project_id).all()}
+
+    applied = 0
+    annotations_imported = 0
+    skipped = []
+    for m in matched:
+        task = tasks_by_id[m["task_id"]]
+        anns = by_filename[m["filename"]]
+
+        # YOLO annotations arrive normalized to [0, 1]; they can only be scaled
+        # into pixels once the task — and therefore the image size — is known,
+        # which is here. A task with unknown dimensions cannot be scaled, so it
+        # is reported rather than written with meaningless coordinates.
+        if any(a.get("normalized") for a in anns):
+            width, height = image_size(task, db=db, persist=True)
+            if not width or not height:
+                skipped.append({
+                    "filename": m["filename"],
+                    "reason": "normalized coordinates need the image's dimensions, which are unknown",
+                })
+                continue
+            anns = [yolo_format.denormalize(a, width, height) if a.get("normalized") else a
+                    for a in anns]
+
+        resolved = [
+            {**{k: v for k, v in a.items() if k not in _TRANSIENT_KEYS},
+             "labelId": label_ids[_label_key(a)]}
+            for a in anns
+        ]
+
+        if mode == "replace":
+            existing_kept = []
+        else:
+            existing_kept = annotation_dicts(task)
+
+        merged = existing_kept + resolved
+        # The rows are the only write (CLAUDE.md rule 11b). This used to also
+        # serialise the whole merged set into the legacy `Task.annotations`
+        # blob -- the last write path that still did, after the save path
+        # stopped at the Phase C cutover -- and it swallowed a failure of the
+        # row write because the blob was then a second copy. With the blob
+        # gone the rows are the only copy, so a failure must fail the import
+        # and roll it back, exactly as the save path does: reporting success
+        # over annotations that were not stored is the loss that must never
+        # happen. See .devnotes/fix-exports-imports/02_ISSUES.md I-9.
+        sync_task_annotations_for_project(db, task, merged)
+        # Set explicitly — `Task.updated_at` has no `onupdate` (models.py). An
+        # import rewrites annotations wholesale, so a stale timestamp here
+        # would hide the biggest change a task can undergo.
+        task.updated_at = datetime.datetime.now(datetime.timezone.utc)
+        applied += 1
+        annotations_imported += len(resolved)
+
+    commit_with_retry(db)
+    # WARN in replace mode, which overwrites every matched task's annotations
+    # for everyone — the same class of event as a bulk delete, and one of the
+    # few things that can remove work an annotator never touched.
+    log_event(
+        "import.annotations",
+        level="WARN" if mode == "replace" else "INFO",
+        project=project_id,
+        mode=mode,
+        source=filename,
+        tasks_updated=applied,
+        annotations_imported=annotations_imported,
+        unmatched=len(unmatched),
+        skipped=len(skipped),
+    )
+    return {
+        "status": "ok",
+        "tasks_updated": applied,
+        "annotations_imported": annotations_imported,
+        "unmatched": unmatched,
+        # Tasks that matched but could not be written (normalized coordinates
+        # with no image dimensions). Reported so the loss is visible.
+        "skipped": skipped,
+        # Shapes a parser recognised but could not represent — see the preview.
+        "notes": notes,
+    }

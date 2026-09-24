@@ -3,6 +3,8 @@
 Kept out of `formats/` deliberately: that package is pure, server-free format
 logic, while this is about the request boundary.
 """
+import os
+
 from fastapi import HTTPException, UploadFile
 
 from config import MAX_IMPORT_BYTES
@@ -35,3 +37,31 @@ async def read_capped(file: UploadFile, max_bytes: int = MAX_IMPORT_BYTES) -> by
             )
         chunks.append(chunk)
     return b"".join(chunks)
+
+
+async def save_capped(file: UploadFile, path: str, max_bytes: int = MAX_IMPORT_BYTES) -> int:
+    """Stream an upload to `path`, refusing anything over `max_bytes`.
+
+    The heavy-job path: the web process never holds the upload in memory, it
+    only copies chunks to disk for the worker to parse. An oversized upload
+    is rejected mid-stream and the partial file removed. Returns the byte count.
+    """
+    total = 0
+    try:
+        with open(path, "wb") as out:
+            while True:
+                chunk = await file.read(_READ_CHUNK)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > max_bytes:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"Upload exceeds the {max_bytes // (1024 * 1024)} MB limit.",
+                    )
+                out.write(chunk)
+    except BaseException:
+        if os.path.exists(path):
+            os.remove(path)
+        raise
+    return total
