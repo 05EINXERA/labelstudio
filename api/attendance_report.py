@@ -85,6 +85,31 @@ IDLE_GAP = timedelta(minutes=5)
 # closed at the break start, the last moment there is evidence of presence.
 MAX_BREAK = timedelta(hours=4)
 
+# How far past a resumption to look for an explicit break-end row before
+# concluding the annotator forgot to press End Break.
+#
+# The resumption rule below closes an open break when traffic reappears after
+# an IDLE_GAP silence, on the reading that the annotator came back and never
+# ended it. That reading was wrong whenever the End Break click was simply a
+# few seconds behind the client's own ambient traffic:
+#
+# The overlay pauses the annotation timer, not the session heartbeat, so `seen`
+# rows keep arriving through a declared break at irregular intervals. In
+# production (2026-09-24) they stopped for 12 minutes, resumed at 05:57:37, and
+# the user's genuine `break_end` landed at 05:57:53 — 16 seconds later. The
+# resumption rule had already closed the break and flagged it "not ended", so
+# the real end row found nothing to close and was discarded. The break was
+# reported 16s short AND as forgotten, which is a claim about the annotator
+# that the evidence flatly contradicts.
+#
+# 2 minutes only has to cover the distance between the last ambient row and the
+# click that follows it. It is deliberately NOT generous: an End Break pressed
+# long after the annotator demonstrably came back is a different situation —
+# they were working again and only later remembered the overlay — and there the
+# resumption reading is the honest one. See
+# `.devnotes/attendance-feature/11-BREAK-END-RACE.md`.
+BREAK_END_LOOKAHEAD = timedelta(minutes=2)
+
 # How long a running break may go unconfirmed before the live "on break" pill
 # stops claiming the annotator is on it.
 #
@@ -191,7 +216,7 @@ def sessionise(observations, now=None, idle_gap=IDLE_GAP) -> list:
     sessions = []
     current = None
 
-    for row in rows:
+    for index, row in enumerate(rows):
         seen_at = row["seen_at"]
         kind = row.get("kind")
 
@@ -257,10 +282,19 @@ def sessionise(observations, now=None, idle_gap=IDLE_GAP) -> list:
             # declared break time, which is a far stronger claim than the
             # evidence supports.
             break_age = seen_at - current["open_break"]["started_at"]
+            # The `kind not in _BREAK_ENDS` guard stops an end row from
+            # triggering this rule, but it cannot stop a *different* row — an
+            # ordinary `seen` — from tripping it moments before the end row
+            # arrives. That is the production failure: the loop committed to
+            # "they forgot to press End" while the evidence they did press it
+            # was one row away. So look ahead before closing.
             resumed_after_silence = (
                 current["open_break"]["source"] != "manual"
                 and kind not in _BREAK_ENDS
                 and seen_at - current["last_at"] >= idle_gap
+                and not _explicit_end_follows(
+                    rows, index, seen_at + BREAK_END_LOOKAHEAD
+                )
             )
 
             if break_age < MAX_BREAK and resumed_after_silence:
@@ -368,6 +402,33 @@ def _new_session(started_at: datetime) -> dict:
         "breaks": [],
         "open_break": None,
     }
+
+
+def _explicit_end_follows(rows, index: int, until: datetime) -> bool:
+    """Is there an explicit break-end row at or before `until`, from `index`?
+
+    A bounded forward scan over the list `sessionise` has already sorted, so it
+    costs no I/O and no extra pass: it reads rows that are in memory anyway and
+    stops at the first one past the window.
+
+    Cheap in practice as well as in theory. It is only reached from the
+    resumption branch, which needs an open *declared* break AND a preceding
+    IDLE_GAP silence — a handful of rows per user per day, not per request.
+
+    A `break_start` terminates the scan. An end row after a second start
+    belongs to that second break, and letting the first break claim it would
+    merge two breaks into one and lose the gap between them.
+    """
+    for candidate in rows[index:]:
+        seen_at = candidate["seen_at"]
+        if seen_at > until:
+            return False
+        kind = candidate.get("kind")
+        if kind in _BREAK_ENDS:
+            return True
+        if kind in _BREAK_STARTS:
+            return False
+    return False
 
 
 def _close_break(open_break: dict, ended_at: datetime) -> dict:
