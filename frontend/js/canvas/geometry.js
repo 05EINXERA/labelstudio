@@ -458,6 +458,26 @@ function containsAllShapes(outline, shapes, tolerance = CONTAINMENT_TOLERANCE) {
 }
 
 /**
+ * True when there is empty space — area covered by none of the shapes — right
+ * beside the edge, on either side. An outline arc the walk never visited is then
+ * the rim of a hole, not a border shared between two shapes (which has a shape
+ * on both sides).
+ */
+function edgeBordersEmptySpace(edge, shapes, offset = CONTAINMENT_TOLERANCE) {
+  const dx = edge.to.x - edge.from.x;
+  const dy = edge.to.y - edge.from.y;
+  const length = Math.hypot(dx, dy);
+  if (length === 0) return false;
+
+  const mid = { x: (edge.from.x + edge.to.x) / 2, y: (edge.from.y + edge.to.y) / 2 };
+  const normal = { x: -dy / length * offset, y: dx / length * offset };
+  return [1, -1].some((side) => {
+    const probe = { x: mid.x + side * normal.x, y: mid.y + side * normal.y };
+    return !shapes.some((shape) => pointInPolygon(probe, shape));
+  });
+}
+
+/**
  * Merges a set of touching/overlapping polygons into a single outline.
  *
  * Walks the boundary of each polygon, keeps only the arcs that lie outside every
@@ -590,6 +610,13 @@ export function unionPolygons(polygons) {
 
     if (ring.length > edges.length + 2) return null;
   }
+
+  // Outline arcs left over once the outer ring closes are the rim of a hole:
+  // the shapes overlap around a pocket of empty space. A single ring cannot
+  // express that, and returning the outer ring alone would fill the pocket and
+  // silently delete every vertex around it — so refuse. Leftover arcs with a
+  // shape on both sides are just a border two shapes share, and are harmless.
+  if (edges.some((edge) => !edge.used && edgeBordersEmptySpace(edge, active))) return null;
 
   const merged = dropCollinearVertices(filterConsecutiveDuplicates(ring));
   if (merged.length < 3) return null;

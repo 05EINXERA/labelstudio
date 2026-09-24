@@ -13,7 +13,7 @@ import {
   polygonsTouch,
   unionPolygons,
   smoothUnionCusps
-} from "./geometry.js?v=7";
+} from "./geometry.js?v=8";
 import { view } from "./view.js?v=3";
 import { draw, drawAllLayers } from "./draw.js?v=6";
 import { canvas, undoButton } from "../dom.js?v=2";

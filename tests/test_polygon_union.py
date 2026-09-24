@@ -323,6 +323,21 @@ def pick_outermost_turn(previous, vertex, candidates):
     return best
 
 
+def edge_borders_empty_space(edge, shapes, offset=CONTAINMENT_TOLERANCE):
+    dx = edge["to"]["x"] - edge["from"]["x"]
+    dy = edge["to"]["y"] - edge["from"]["y"]
+    length = math.hypot(dx, dy)
+    if length == 0:
+        return False
+    mid_x = (edge["from"]["x"] + edge["to"]["x"]) / 2
+    mid_y = (edge["from"]["y"] + edge["to"]["y"]) / 2
+    for side in (1, -1):
+        probe = {"x": mid_x - side * dy / length * offset, "y": mid_y + side * dx / length * offset}
+        if not any(point_in_polygon(probe, s) for s in shapes):
+            return True
+    return False
+
+
 def union_polygons(polygons):
     shapes = [filter_consecutive_duplicates(p) for p in (polygons or [])]
     shapes = [s for s in shapes if len(s) >= 3]
@@ -398,6 +413,11 @@ def union_polygons(polygons):
 
         if len(ring) > len(edges) + 2:
             return None
+
+    # Leftover arcs with empty space beside them are the rim of a hole, which a
+    # single ring cannot express; the outer ring alone would fill it.
+    if any(not e["used"] and edge_borders_empty_space(e, active) for e in edges):
+        return None
 
     merged = drop_collinear_vertices(filter_consecutive_duplicates(ring))
     if len(merged) < 3:
@@ -753,3 +773,21 @@ def test_union_always_contains_every_input_shape():
         merged = union_polygons(shapes)
         assert merged is not None
         assert contains_all_shapes(merged, shapes)
+
+
+def u_shape(x, y, flipped=False):
+    """A 100x60 U with thick prongs and a 20px notch; upside down when flipped."""
+    pts = [(0, 0), (100, 0), (100, 60), (60, 60), (60, 20), (40, 20), (40, 60), (0, 60)]
+    if flipped:
+        pts = [(px, 60 - py) for px, py in pts]
+    return [{"x": x + px, "y": y + py} for px, py in pts]
+
+
+def test_overlap_enclosing_a_hole_refuses_to_merge():
+    # Two U shapes whose prongs overlap enclose the notches as an empty pocket.
+    # The pocket (1000px²) is smaller than the overlap (2400px²), so the area
+    # bound alone lets it through. A single ring cannot express the hole:
+    # returning the outer ring filled the pocket and deleted every vertex
+    # around it.
+    merged = union_polygons([u_shape(0, 0), u_shape(0, 30, flipped=True)])
+    assert merged is None
