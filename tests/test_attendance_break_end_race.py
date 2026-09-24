@@ -291,3 +291,159 @@ def test_the_lookahead_does_not_reach_across_a_second_break_start():
     assert first["ended"] is False, (
         "the end row closes the second break; the first must not claim it"
     )
+
+
+# --- No leak: the time has to land somewhere, exactly once -----------------
+
+
+def totals(rows, **kwargs):
+    """Session count, present, break, and the span they are carved from.
+
+    `_close_session` sets `seconds = span - break_seconds`, so present and
+    break partition one span. That makes `present + break` a conservation law:
+    a fix that moved the break boundary must move time BETWEEN the two, never
+    create or destroy any.
+    """
+    sessions = report.sessionise(rows, **kwargs)
+    present = sum(s["seconds"] for s in sessions)
+    taken = sum(b["seconds"] for s in sessions for b in s["breaks"])
+    span = sum(
+        int((s["ended_at"] - s["started_at"]).total_seconds()) for s in sessions
+    )
+    return {
+        "sessions": len(sessions),
+        "present": present,
+        "break": taken,
+        "span": span,
+    }
+
+
+def test_honouring_the_real_end_moves_time_it_does_not_invent_it():
+    """The gap this fix closed must come OUT of present time.
+
+    The 16 seconds between the ambient row and the real `break_end` were
+    counted as presence before the fix and as break after it. What must not
+    happen is the total growing: that would mean the fix pays for a longer
+    break with time nobody observed.
+
+    Checked as a conservation law rather than against a magic number, so it
+    keeps holding if the fixture or the constants change.
+    """
+    rows = [
+        at(9, 0),
+        at(9, 5, kind=KIND_BREAK_START),
+        at(9, 40),                          # returns after a 35-minute silence
+        at(9, 40, 30, kind=KIND_BREAK_END),  # ...and ends the break 30s later
+        at(9, 41),
+        at(9, 42),
+    ]
+
+    t = totals(rows)
+    assert t["present"] + t["break"] == t["span"], (
+        f"present {t['present']}s + break {t['break']}s != session span "
+        f"{t['span']}s — time was invented or lost"
+    )
+    # The whole day is one session: a declared break does not split it, and
+    # honouring the real end must not introduce a split either.
+    assert t["sessions"] == 1, (
+        f"expected one session, got {t['sessions']} — the break split it"
+    )
+    # 09:00 -> 09:42 is 42 min, of which 09:05 -> 09:40:30 is break.
+    assert t["span"] == 42 * 60
+    assert t["break"] == (35 * 60) + 30
+    assert t["present"] == t["span"] - t["break"]
+
+
+def test_the_fix_only_shifts_the_boundary_between_present_and_break():
+    """Same rows, end row present vs absent: the SPAN is identical.
+
+    Two fixtures that differ only in whether the annotator pressed End Break.
+    Both cover the same wall-clock span, so the totals must agree and only the
+    present/break split may differ — the ended case attributing MORE to break,
+    because it has evidence for where the break really finished.
+    """
+    common = [at(9, 0), at(9, 5, kind=KIND_BREAK_START), at(9, 40), at(9, 41)]
+    ended = [*common[:3], at(9, 40, 30, kind=KIND_BREAK_END), common[3]]
+
+    forgotten_t = totals(common)
+    ended_t = totals(ended)
+
+    assert forgotten_t["span"] == ended_t["span"], (
+        "the two fixtures cover the same wall clock; the span must not depend "
+        "on whether End Break was pressed"
+    )
+    for t in (forgotten_t, ended_t):
+        assert t["present"] + t["break"] == t["span"]
+
+    assert ended_t["break"] > forgotten_t["break"], (
+        "the explicit end is later than the resumption, so it must attribute "
+        "more to break"
+    )
+    assert ended_t["present"] < forgotten_t["present"], (
+        "and correspondingly less to present — the difference is the 30s "
+        "between the resumption and the real end"
+    )
+    assert ended_t["break"] - forgotten_t["break"] == 30
+    assert forgotten_t["present"] - ended_t["present"] == 30
+
+
+def test_a_break_ended_normally_with_no_silence_is_unchanged_by_the_fix():
+    """The ordinary case must be untouched.
+
+    A break whose ambient rows never went quiet for IDLE_GAP never reaches the
+    resumption rule at all, so the lookahead must be invisible here. This is
+    the shape most breaks have, and it is the one a regression would hit
+    hardest while the reported bug's fixtures all still passed.
+    """
+    rows = [
+        at(9, 0),
+        at(9, 5, kind=KIND_BREAK_START),
+        at(9, 7),
+        at(9, 9),
+        at(9, 11),
+        at(9, 13),
+        at(9, 15, kind=KIND_BREAK_END),
+        at(9, 16),
+    ]
+
+    taken = only_break(rows)
+    assert taken["ended"] is True
+    assert taken["seconds"] == 10 * 60
+    assert taken["ended_at"] == datetime(2026, 9, 24, 9, 15, tzinfo=timezone.utc)
+
+    t = totals(rows)
+    assert t["sessions"] == 1
+    assert t["present"] + t["break"] == t["span"]
+    assert t["span"] == 16 * 60
+    assert t["break"] == 10 * 60
+
+
+def test_present_time_is_never_double_counted_across_the_break():
+    """The break interval must not be in present time as well.
+
+    The failure this guards is subtler than the reported one: a break that is
+    closed twice (once by the resumption rule, once by the real end row) would
+    append two break entries over the same interval and make break time exceed
+    the session span. `open_break` being cleared is what prevents it, and this
+    pins that it stays cleared.
+    """
+    rows = [
+        at(9, 0),
+        at(9, 5, kind=KIND_BREAK_START),
+        at(9, 40),
+        at(9, 40, 30, kind=KIND_BREAK_END),
+        at(9, 45),
+    ]
+
+    sessions = report.sessionise(rows)
+    breaks = [b for s in sessions for b in s["breaks"]]
+    assert len(breaks) == 1, (
+        f"the break was closed more than once: {breaks}"
+    )
+
+    t = totals(rows)
+    assert t["break"] <= t["span"], (
+        f"break {t['break']}s exceeds the session span {t['span']}s — the "
+        "interval is counted twice"
+    )
+    assert t["present"] >= 0
