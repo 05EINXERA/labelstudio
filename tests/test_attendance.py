@@ -456,3 +456,161 @@ def test_drain_status_flags_a_buffer_that_is_not_draining():
     assert status["healthy"] is False, (
         "rows sitting unflushed far past the interval must not read healthy"
     )
+
+
+# --- A deleted task must not destroy everyone's observations ---------------
+
+
+def stored_rows(user_id):
+    """Rows actually written for a user, newest first. No buffer involved."""
+    from database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        return (
+            db.query(models.AttendanceObservation)
+            .filter(models.AttendanceObservation.user_id == user_id)
+            .order_by(models.AttendanceObservation.seen_at.desc())
+            .all()
+        )
+    finally:
+        db.close()
+
+
+MISSING_TASK_ID = 987654321  # no such task; the FK will reject it
+
+
+def test_a_dangling_task_id_does_not_drop_the_batch(real_user_ids, caplog):
+    """The 2026-09-24 data loss, as a test.
+
+    Observations sit in the buffer for up to ATTENDANCE_FLUSH_SECONDS carrying
+    a `task_id`. An annotator deleting tasks in that window leaves a dangling
+    reference, and because the flush is one executemany in one transaction, the
+    FK violation failed the WHOLE batch: 46 observations belonging to everyone
+    on the instance were destroyed over ten minutes, including a `break_end`
+    whose user then showed as permanently on break.
+
+    The presence fact is the data; the task reference is decoration. Losing
+    which task someone had open is a fair price for keeping the row.
+    """
+    attendance.note_seen(real_user_ids[0], kind=attendance.KIND_BREAK_END)
+    attendance.note_seen(real_user_ids[1], task_id=MISSING_TASK_ID)
+    attendance.note_seen(real_user_ids[2], kind=attendance.KIND_LOGIN)
+
+    with caplog.at_level(logging.WARNING):
+        written = attendance.flush()
+
+    assert written == 3, (
+        f"expected all 3 rows kept, got {written} -- one dangling task_id "
+        "still destroys the batch"
+    )
+    assert attendance.buffered_observations() == []
+    assert any("without task_id" in r.message for r in caplog.records), (
+        "the degraded retry must say so; silently nulling a column is worse "
+        "than the bug"
+    )
+
+
+def test_the_break_end_survives_a_dangling_task_id(real_user_ids):
+    """The specific row whose loss was visible to a human.
+
+    palden lama pressed End Break at 15:05:01 and it answered 200, but the row
+    died in the flush 13 seconds later, so the dashboard showed him on a break
+    that kept growing. A break boundary is the one observation that cannot be
+    reconstructed from ambient traffic.
+    """
+    user_id = real_user_ids[0]
+    attendance.note_seen(user_id, kind=attendance.KIND_BREAK_START)
+    attendance.note_seen(user_id, task_id=MISSING_TASK_ID)
+    attendance.note_seen(user_id, kind=attendance.KIND_BREAK_END)
+
+    assert attendance.flush() == 3
+
+    kinds = {r.kind for r in stored_rows(user_id)}
+    assert attendance.KIND_BREAK_START in kinds
+    assert attendance.KIND_BREAK_END in kinds, (
+        "the break_end was dropped; the user shows as permanently on break"
+    )
+
+
+def test_the_degraded_retry_keeps_every_other_field(real_user_ids):
+    """Only `task_id` may be sacrificed.
+
+    A retry that also blanked the kind, the user or the timestamp would keep
+    the row count up while destroying what the row is for.
+    """
+    user_id = real_user_ids[0]
+    attendance.note_seen(
+        user_id, kind=attendance.KIND_BREAK_END, task_id=MISSING_TASK_ID
+    )
+
+    assert attendance.flush() == 1
+
+    row = stored_rows(user_id)[0]
+    assert row.kind == attendance.KIND_BREAK_END
+    assert row.user_id == user_id
+    assert row.task_id is None, "the dangling reference must be nulled"
+    assert row.seen_at is not None
+    assert row.instance_id
+
+
+def test_a_valid_task_id_is_not_nulled_by_the_fix(real_user_ids):
+    """The happy path must be untouched.
+
+    The retry only runs on IntegrityError, so an ordinary flush must keep its
+    task references. A fix that nulled task_id unconditionally would silently
+    empty the "task touched" column for everyone.
+    """
+    from database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        project = models.Project(
+            name="attend-fk", slug="attend-fk", type="detection", status="New"
+        )
+        db.add(project)
+        db.commit()
+        task = models.Task(project_id=project.id, image_path="uploads/x.png")
+        db.add(task)
+        db.commit()
+        real_task_id = task.id
+    finally:
+        db.close()
+
+    user_id = real_user_ids[0]
+    attendance.note_seen(user_id, task_id=real_task_id)
+    assert attendance.flush() == 1
+
+    row = stored_rows(user_id)[0]
+    assert row.task_id == real_task_id, (
+        "a valid task reference was discarded; the retry fired when it "
+        "should not have"
+    )
+
+
+def test_a_failure_the_retry_cannot_mend_still_drops(
+    real_user_ids, monkeypatch, caplog
+):
+    """The original contract survives for real failures.
+
+    With the only plausible offender removed and the insert still failing, the
+    cause is something nulling a column cannot fix (a bad column, a full disk).
+    Attendance must still be the thing that gives way rather than growing the
+    buffer forever.
+    """
+    from sqlalchemy.exc import IntegrityError
+
+    def explode(*args, **kwargs):
+        raise IntegrityError("stmt", {}, Exception("not about task_id"))
+
+    attendance.note_seen(real_user_ids[0], kind=attendance.KIND_LOGIN)
+    monkeypatch.setattr(attendance, "_insert", explode)
+
+    with caplog.at_level(logging.ERROR):
+        assert attendance.flush() == 0
+
+    assert attendance.buffered_observations() == [], (
+        "rows were put back; a persistent failure would grow the buffer "
+        "without bound"
+    )
+    assert any("flush failed" in r.message for r in caplog.records)
