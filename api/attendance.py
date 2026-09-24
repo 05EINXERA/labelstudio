@@ -32,6 +32,8 @@ import logging
 import threading
 from datetime import datetime, timezone
 
+from sqlalchemy.exc import IntegrityError
+
 import config
 import models
 from database import SessionLocal, commit_with_retry
@@ -195,6 +197,35 @@ def should_flush() -> bool:
     return elapsed >= config.ATTENDANCE_FLUSH_SECONDS
 
 
+def _mappings(batch, drop_task_id: bool = False) -> list:
+    """The buffer's tuples as insert mappings.
+
+    `drop_task_id` nulls the task reference for the degraded retry. It is the
+    only field that can dangle: user_id and instance_id are not FKs to
+    anything that gets deleted mid-buffer, and the rest are literals.
+    """
+    return [
+        {
+            "user_id": user_id,
+            "seen_at": seen_at,
+            "task_id": None if drop_task_id else task_id,
+            "instance_id": instance_id,
+            "kind": kind,
+            "entered_by": entered_by,
+        }
+        for user_id, seen_at, task_id, instance_id, kind, entered_by in batch
+    ]
+
+
+def _insert(db, mappings) -> None:
+    """One executemany, not N inserts.
+
+    Mappings rather than ORM instances: there is nothing to read back, so the
+    identity map and the flush machinery would be pure cost.
+    """
+    db.bulk_insert_mappings(models.AttendanceObservation, mappings)
+
+
 def flush() -> int:
     """Write the buffer as one batched INSERT. Returns the row count.
 
@@ -223,21 +254,48 @@ def flush() -> int:
     started = datetime.now(timezone.utc)
     db = SessionLocal()
     try:
-        # One executemany, not N inserts. Mappings rather than ORM instances:
-        # there is nothing to read back, so the identity map and the flush
-        # machinery would be pure cost.
-        db.bulk_insert_mappings(models.AttendanceObservation, [
-            {
-                "user_id": user_id,
-                "seen_at": seen_at,
-                "task_id": task_id,
-                "instance_id": instance_id,
-                "kind": kind,
-                "entered_by": entered_by,
-            }
-            for user_id, seen_at, task_id, instance_id, kind, entered_by in batch
-        ])
+        _insert(db, _mappings(batch))
         commit_with_retry(db)  # CLAUDE.md rule 10, never raw db.commit()
+    except IntegrityError:
+        # A row references something that no longer exists. In practice that
+        # is always `task_id`: observations sit in the buffer for up to
+        # ATTENDANCE_FLUSH_SECONDS, and a task deleted inside that window
+        # leaves a dangling reference the FK rejects at INSERT time.
+        #
+        # `ondelete="SET NULL"` on the column says what the design wants here
+        # — "deleting a task does not destroy the attendance fact that someone
+        # was working" — but it only covers rows ALREADY stored. A row still
+        # in the buffer never reaches the delete rule, so the same intent has
+        # to be applied by hand on the way in.
+        #
+        # This cost a real day's data. On 2026-09-24 an annotator deleted
+        # tasks while others worked; one dangling task_id failed the whole
+        # executemany five times over ten minutes and destroyed 46
+        # observations belonging to everyone on the instance, including a
+        # `break_end` whose user then showed as permanently on break. The task
+        # reference is decoration; the presence fact is the data. Losing which
+        # task someone had open is a fair price for keeping the row.
+        db.rollback()
+        try:
+            _insert(db, _mappings(batch, drop_task_id=True))
+            commit_with_retry(db)
+        except Exception:
+            # Still failing with the only plausible offender removed, so the
+            # cause is something this retry cannot mend (a bad column, a full
+            # disk). Fall through to the original contract: drop, log, and let
+            # attendance be the thing that gives way.
+            db.rollback()
+            logger.error(
+                "attendance flush failed after dropping task_id; "
+                "dropped %d observations", len(batch), exc_info=True,
+            )
+            log_event("attendance.flush_failed", level="ERROR", rows=len(batch))
+            return 0
+        logger.warning(
+            "attendance flush retried without task_id (a referenced task was "
+            "deleted mid-buffer); kept %d observations", len(batch),
+        )
+        log_event("attendance.flush_degraded", level="WARNING", rows=len(batch))
     except Exception:
         # The rows are dropped, deliberately. Putting them back would let a
         # persistent failure (a bad column, a full disk) grow the buffer
