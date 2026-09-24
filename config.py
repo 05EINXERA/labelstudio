@@ -160,6 +160,31 @@ CORS_ORIGINS = [o.strip() for o in _raw_cors.split(",") if o.strip()] if _raw_co
 MAX_UPLOAD_FILES = int(os.environ.get("MAX_UPLOAD_FILES", "200"))
 MAX_IMPORT_BYTES = int(os.environ.get("MAX_IMPORT_BYTES", str(300 * 1024 * 1024)))
 
+# --- Heavy jobs (exports, annotation imports) -----------------------------
+# Where an export or import runs. See .devnotes/fix-exports-imports/.
+#   process  a child Python process per job, below-normal priority, killed at
+#            its timeout. The web process never spends CPU on the job, so no
+#            export can slow another user's request. The production default.
+#   thread   a thread inside the web process. It shares the GIL with every
+#            request and cannot be killed; kept for one release as the
+#            rollback switch.
+#   inline   synchronously inside the request. Tests only: it makes a job
+#            finish before the POST returns.
+HEAVY_JOB_MODE = os.environ.get("HEAVY_JOB_MODE", "process").strip().lower()
+if HEAVY_JOB_MODE not in ("process", "thread", "inline"):
+    raise ValueError(f"HEAVY_JOB_MODE must be process, thread or inline, not {HEAVY_JOB_MODE!r}.")
+# Jobs running at once. Children run on other cores, so this bounds RAM and
+# Postgres load on the deploy laptop, not CPU seen by the API.
+HEAVY_JOB_SLOTS = int(os.environ.get("HEAVY_JOB_SLOTS", "2"))
+EXPORT_TIMEOUT_S = int(os.environ.get("EXPORT_TIMEOUT_S", "900"))
+IMPORT_TIMEOUT_S = int(os.environ.get("IMPORT_TIMEOUT_S", "300"))
+# An import request waits for a free slot at most this long before it is told
+# the server is busy; an export just stays queued.
+IMPORT_QUEUE_WAIT_S = int(os.environ.get("IMPORT_QUEUE_WAIT_S", "120"))
+# A finished export's file is deleted this long after it completes, whether or
+# not it was downloaded.
+EXPORT_RESULT_TTL_S = int(os.environ.get("EXPORT_RESULT_TTL_S", "3600"))
+
 # --- Teams ----------------------------------------------------------------
 # Cap on teams one user may own, so a compromised or buggy client cannot fill
 # the table. Same reasoning as MAX_UPLOAD_FILES; 50 is far above any legitimate
