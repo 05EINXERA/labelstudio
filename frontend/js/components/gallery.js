@@ -12,7 +12,7 @@ import { commentOverlayRefs } from "../comment-overlay.js?v=1";
 import {
   canvas, ctx, backgroundImage, staticCanvas, staticCtx, stageWrap, emptyState
 } from "../dom.js?v=2";
-import { drawAllLayers } from "../canvas/draw.js?v=4";
+import { drawAllLayers } from "../canvas/draw.js?v=5";
 import { setStatus, render, restoreDraft, clearStatusHold } from "./workspace.js?v=12";
 import { autoDetectObjects, preloadMagicWand, preloadDetectAndTag } from "../ai/detect.js?v=2";
 import { syncTaskTime, resetSessionForTask, refreshTimerDisplays } from "./timer.js?v=4";

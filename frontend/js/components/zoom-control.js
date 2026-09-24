@@ -9,7 +9,7 @@
 
 import { view } from "../canvas/view.js?v=3";
 import { setZoom, ZOOM_STEP } from "../canvas/interactions.js?v=19";
-import { drawAllLayers } from "../canvas/draw.js?v=4";
+import { drawAllLayers } from "../canvas/draw.js?v=5";
 
 // viewZoom bounds (multiplier over fit-scale).
 //

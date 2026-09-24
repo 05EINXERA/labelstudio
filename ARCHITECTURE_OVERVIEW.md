@@ -142,7 +142,7 @@ Browser: Canvas edit → Click Save
                    └─ Clear local draft on success
 ```
 
-### 2. Task Load (Ownership Detection) ⭐
+### 2. Tagisk Load (Ownership Detection) ⭐
 
 ```
 Browser: Click task in gallery
