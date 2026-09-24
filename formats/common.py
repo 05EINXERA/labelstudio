@@ -16,6 +16,7 @@ import secrets
 import re
 from typing import Dict, List, Optional, Sequence, Tuple
 
+import numpy as np
 from PIL import Image, UnidentifiedImageError
 
 import models
@@ -97,7 +98,7 @@ def polygon_area(points: Sequence[dict]) -> float:
 # Detection only. Nothing here rewrites a user's saved geometry: a
 # self-intersecting polygon is a quality problem, not a correctness or security
 # one, and silently deleting a lobe of someone's label server-side would be far
-# worse than exporting an awkward shape. Exports warn; imports of foreign data
+# worse than exporting an awkward shape. Imports of foreign data
 # are the one place normalisation is appropriate, and that happens at the
 # import call site, not here.
 
@@ -124,7 +125,14 @@ def segments_properly_intersect(p1: dict, p2: dict, p3: dict, p4: dict) -> bool:
     return (d1 > 0) != (d2 > 0) and (d3 > 0) != (d4 > 0)
 
 
-def _find_first_self_intersection(points: Sequence[dict]) -> Optional[Tuple[int, int, dict]]:
+def _find_first_self_intersection_scalar(points: Sequence[dict]) -> Optional[Tuple[int, int, dict]]:
+    """Reference implementation: every segment pair, in pure Python.
+
+    O(v²) interpreted work -- ~10 minutes of GIL-held CPU on a task with
+    1 M vertices (.devnotes/fix-exports-imports/01_INCIDENT.md § 5). Kept as
+    the fast path for small rings, where numpy's setup costs more than the
+    loop, and as the oracle the vectorised finder is tested against.
+    """
     n = len(points)
     if n < 4:
         return None
@@ -140,6 +148,82 @@ def _find_first_self_intersection(points: Sequence[dict]) -> Optional[Tuple[int,
                 point = _segment_intersection_point(a1, a2, b1, b2)
                 if point is not None:
                     return i, j, point
+    return None
+
+
+
+# Below this many vertices the scalar loop beats numpy's per-call overhead.
+_VECTOR_MIN_VERTICES = 32
+
+# Cap on the candidate matrix built per chunk (rows x columns), which bounds
+# peak memory at a few tens of MB however large the ring is.
+_VECTOR_CHUNK_CELLS = 2_000_000
+
+
+def _cross_sign_v(o: "np.ndarray", a: "np.ndarray", b: "np.ndarray") -> "np.ndarray":
+    """`_cross_sign` over arrays of points, with the same operation order.
+
+    Each numpy ufunc is one IEEE-754 double operation (no fused multiply-add),
+    so this is bit-for-bit the scalar result -- which is what lets the
+    vectorised finder report exactly the pair the scalar loop would.
+    """
+    return (a[:, 0] - o[:, 0]) * (b[:, 1] - o[:, 1]) - (a[:, 1] - o[:, 1]) * (b[:, 0] - o[:, 0])
+
+
+def _find_first_self_intersection(points: Sequence[dict]) -> Optional[Tuple[int, int, dict]]:
+    """The first proper crossing (i, j, point) in scalar scan order, or None.
+
+    Same answer as `_find_first_self_intersection_scalar` -- same predicate,
+    same epsilon, same (i ascending, then j ascending) order -- but the pair
+    test runs in numpy, a block of rows at a time, and pairs whose bounding
+    boxes do not overlap are discarded before any arithmetic. A proper crossing
+    needs overlapping boxes, so the pruning cannot drop a real hit. Measured on
+    the 9,181-polygon task that stalled production: hours -> 9.5 s for all of it.
+    """
+    n = len(points)
+    if n < 4:
+        return None
+    if n <= _VECTOR_MIN_VERTICES:
+        return _find_first_self_intersection_scalar(points)
+
+    a = np.array([(float(p["x"]), float(p["y"])) for p in points], dtype=np.float64)
+    b = np.roll(a, -1, axis=0)            # segment i runs a[i] -> b[i]
+    lo = np.minimum(a, b)
+    hi = np.maximum(a, b)
+
+    rows_per_chunk = max(1, min(n, _VECTOR_CHUNK_CELLS // n))
+    for i0 in range(0, n, rows_per_chunk):
+        i1 = min(n, i0 + rows_per_chunk)
+        j0 = i0 + 2                       # j == i + 1 is adjacent; j <= i is a repeat
+        if j0 >= n:
+            break
+        ii = np.arange(i0, i1)[:, None]
+        jj = np.arange(j0, n)[None, :]
+        cand = jj > ii + 1
+        # The closing edge (n-1) is adjacent to edge 0.
+        if i0 == 0:
+            cand[0, n - 1 - j0] = False
+        cand &= (lo[ii, 0] <= hi[jj, 0]) & (lo[jj, 0] <= hi[ii, 0])
+        cand &= (lo[ii, 1] <= hi[jj, 1]) & (lo[jj, 1] <= hi[ii, 1])
+        ri, ci = np.nonzero(cand)         # row-major: i ascending, then j
+        if ri.size == 0:
+            continue
+        ri = ri + i0
+        ci = ci + j0
+        p1, p2, p3, p4 = a[ri], b[ri], a[ci], b[ci]
+        d1 = _cross_sign_v(p3, p4, p1)
+        d2 = _cross_sign_v(p3, p4, p2)
+        d3 = _cross_sign_v(p1, p2, p3)
+        d4 = _cross_sign_v(p1, p2, p4)
+        smallest = np.minimum(np.minimum(np.abs(d1), np.abs(d2)), np.minimum(np.abs(d3), np.abs(d4)))
+        hit = (smallest >= _INTERSECT_EPS) & ((d1 > 0) != (d2 > 0)) & ((d3 > 0) != (d4 > 0))
+        for k in np.flatnonzero(hit):
+            i, j = int(ri[k]), int(ci[k])
+            # The scalar loop skips a crossing whose point cannot be computed
+            # (near-parallel) and keeps scanning; so does this.
+            point = _segment_intersection_point(points[i], points[(i + 1) % n], points[j], points[(j + 1) % n])
+            if point is not None:
+                return i, j, point
     return None
 
 

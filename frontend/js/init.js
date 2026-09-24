@@ -4,8 +4,9 @@ import {
   state, snapshot, resetWorkspaceForNewImage,
   beginHydration, completeHydration, failHydration, hydrationOk, hydrationFailed,
   hydrationSaveBlock, currentHydrationGeneration, noteHydratedAnnotationCount,
-  noteHydratedAnnotations, annotationsChangedSinceHydration, openTaskWasHydrated
-} from "./state.js?v=11";
+  noteHydratedAnnotations, annotationsChangedSinceHydration, openTaskWasHydrated,
+  noteUserRemoved, pendingDeletedIds, acknowledgeDeletedIds, noteServerAnnotationIds
+} from "./state.js?v=12";
 import { view } from "./canvas/view.js?v=1";
 import { commentOverlayRefs, clearCommentOverlayAnchor } from "./comment-overlay.js?v=2";
 import { backspaceAction, modeAfterCommentCommit } from "./comment-mode.js?v=1";
@@ -15,28 +16,30 @@ import {
   autoDetectButton, undoButton, redoButton, deleteButton, clearButton, unhideAllButton,
   assignTaskButton, saveButton
 } from "./dom.js?v=5";
-import { drawAllLayers } from "./canvas/draw.js?v=10";
+import { drawAllLayers } from "./canvas/draw.js?v=12";
 import {
   setStatus, syncToBackend, save, loadSaved, saveDraft, restoreDraft,
-  render, manualSaveWithUI, refreshSaveStatus, pruneStaleDrafts, unhideAllObjects
-} from "./components/workspace.js?v=27";
+  render, manualSaveWithUI, refreshSaveStatus, pruneStaleDrafts, unhideAllObjects,
+  setLocalRefusalHandler
+} from "./components/workspace.js?v=29";
 import {
   configureQueue, startQueue, subscribe as subscribeQueue, drainQueue,
   enqueueWrite, retryablePendingCount, noteServerReachable, noteServerUnreachable,
   peekWrite as peekQueuedWrite, discardWrite as discardQueuedWrite
 } from "./offline-queue.js?v=6";
-import { autoDetectObjects, autoTagObjects } from "./ai/detect.js?v=4";
+import { autoDetectObjects, autoTagObjects } from "./ai/detect.js?v=6";
 import {
   syncTaskTime, syncTimeToServer, drainTaskTime, setActiveTaskResolver,
   setConflictHandler, resetSessionForTask, refreshTimerDisplays,
-  handleVisibilityChange, setFrozenResolver, setEditedResolver
-} from "./components/timer.js?v=9";
+  handleVisibilityChange, setFrozenResolver, setEditedResolver, setDeletionTracker
+} from "./components/timer.js?v=10";
 import {
   finalizePolygon, deleteSelected, undoAction, redoAction, setZoomChangeHandler
-} from "./canvas/interactions.js?v=21";
-import { initContextMenu } from "./canvas/context-menu.js?v=6";
+} from "./canvas/interactions.js?v=24";
+import { initContextMenu } from "./canvas/context-menu.js?v=9";
+import { confirmDialog } from "./components/confirm-dialog.js?v=1";
 import { getCurrentUser } from "./session.js?v=2";
-import { wireBreakOverlay } from "./components/break-overlay.js?v=1";
+import { wireBreakOverlay } from "./components/break-overlay.js?v=2";
 import { initCanvasAssign, renderAssignButton } from "./canvas-assign.js?v=2";
 import {
   applyReadOnlyMode, isReadOnly, loadProjectPermissions, renderReviewControls,
@@ -46,9 +49,9 @@ import {
 } from "./canvas-permissions.js?v=10";
 import { isFrozenForRole } from "./task-status.js?v=3";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
-import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=5";
+import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=8";
 import { claimTask, heartbeatTask, releaseTask } from "./task-lock.js?v=3";
-import { initOpacityControls } from "./opacity-controls.js?v=2";
+import { initOpacityControls } from "./opacity-controls.js?v=4";
 
 if (!localStorage.getItem('logged_in')) {
   window.location.href = '/';
@@ -360,6 +363,9 @@ async function switchImage(index) {
         // switch) can be told apart from a real edit — only the latter may
         // demote a Completed task back to In Progress.
         noteHydratedAnnotations(item.annotations);
+        // And its ids: the baseline the wipe guard judges a save against — any
+        // of these the canvas loses without a recorded delete is unexplained.
+        noteServerAnnotationIds(item.id, item.annotations);
         completeHydration(generation);
       } else {
         failHydration(generation);
@@ -604,7 +610,7 @@ if (unhideAllButton) {
   });
 }
 
-clearButton.addEventListener("click", () => {
+clearButton.addEventListener("click", async () => {
   const total = state.annotations.length;
   if (!total) return;
 
@@ -613,27 +619,31 @@ clearButton.addEventListener("click", () => {
   // no partial result to notice before the save goes out. It is also adjacent
   // to Delete (selected) in the toolbar, so a misclick wipes the whole image.
   //
-  // Native confirm() rather than a styled modal to match every other
-  // destructive action in this codebase (project/task/class delete, leaving a
-  // team) and because it is synchronous: the clear must not begin until the
-  // answer is known, and an async modal here would mean restructuring the
-  // save path for one dialog.
+  // A styled dialog rather than native confirm(): it names the count, defaults
+  // focus to Cancel, and marks the destructive button as one. Being async is
+  // harmless — nothing is removed until the answer is in, and the removal
+  // below re-reads the canvas as it is then.
   const shapes = `${total} annotation${total === 1 ? "" : "s"}`;
-  if (!confirm(
-    `Delete all ${shapes} on this image?\n\n` +
-    "You can undo this with Ctrl+Z as long as you stay on this task."
-  )) return;
+  const ok = await confirmDialog({
+    title: "Clear all annotations?",
+    message:
+      `Delete all ${shapes} on this image?\n\n` +
+      "You can undo this with Ctrl+Z as long as you stay on this task.",
+    confirmLabel: "Delete all",
+  });
+  if (!ok || state.annotations.length === 0) return;
 
   snapshot();
+  const cleared = state.annotations;
   state.annotations = [];
+  // A deliberate delete-all: every id is recorded, so the save names them in
+  // `deleted_ids` and the server's wipe guard knows the emptiness is meant.
+  noteUserRemoved(cleared, state.annotations);
   state.selectedId = null;
   view.drag = null;
   render();
-  // A deliberate delete-all. Without allowClear the server's clear-guard refuses
-  // this save and the annotator is told their "offline work could not be saved"
-  // for something they just chose to do.
-  save({ allowClear: true });
-  setStatus(`Cleared ${shapes}`);
+  save();
+  setStatus(`Cleared ${cleared.length} annotation${cleared.length === 1 ? "" : "s"}`);
 });
 
 // Save button: manual save with visual feedback
@@ -778,6 +788,25 @@ if (typeof ResizeObserver !== "undefined") {
 // annotations. Drafts are per-task and per-tab now; the old listener watched a
 // single global key, so a second tab editing a different task would overwrite
 // this tab's in-memory annotations with unrelated ones.
+
+// The wipe guard's deletion record, handed to the save path (timer.js does not
+// import state.js). Every save carries the task's deliberate deletions as
+// `deleted_ids`; an accepted save settles them and becomes the new baseline.
+// See .devnotes/bulk-loss-guard/01_DESIGN.md.
+setDeletionTracker({
+  pending: (taskId) => pendingDeletedIds(taskId),
+  accepted: (taskId, sentIds, annotations) => {
+    acknowledgeDeletedIds(taskId, sentIds);
+    noteServerAnnotationIds(taskId, annotations);
+  },
+});
+
+// A save held back client-side for dropping shapes nobody deleted is reported
+// on the same banner as the server's own 422 for it — same cause, same remedy.
+setLocalRefusalHandler((message) => {
+  reportSaveRefused(message);
+  setStatus("Not saved — reload the task");
+});
 
 // A genuine conflict means another browser wrote this task since we loaded it.
 // The user decides: keep editing (and overwrite on the next save) or reload

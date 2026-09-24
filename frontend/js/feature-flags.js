@@ -104,8 +104,8 @@ export const toolAvailability = {
 export const annotationSettings = {
   vertexHandleRadius:    5.6,
   vertexHandleFalloff:   0.35,
-  vertexHandleMinRadius: 3,
-  vertexHandleMaxRadius: 7.5,
+  vertexHandleMinRadius: 4,
+  vertexHandleMaxRadius: 7,
   vertexGrabRadius:      7.5,
   edgeGrabRadius:        6,
   freehandPointSpacing:  10,

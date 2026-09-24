@@ -89,20 +89,11 @@ def build(tasks: Sequence[models.Task], labels: Sequence[models.Label], db=None)
             points = points_of(ann)
             if len(points) < 2:
                 continue
-            if len(points) >= 4 and not is_simple_polygon(points):
-                # The canvas resolves crossings as the annotator edits (see
-                # frontend/js/canvas/untangle.js), so this should be rare — model
-                # output and legacy/imported rows are the paths that skip it.
-                # COCO's segmentation/area semantics assume a simple ring; a
-                # self-intersecting one still exports (never block an export
-                # over a data-quality issue), but downstream tools may render or
-                # measure it inconsistently, so it's worth a name in the log.
-                logger.warning(
-                    "Task %s annotation %s is a self-intersecting polygon; "
-                    "exported segmentation/area may not match how it renders "
-                    "in the annotator.",
-                    task.id, ann.get("id"),
-                )
+            # No self-intersection check here. It only ever produced a log
+            # warning (the geometry exports unchanged either way), and at
+            # O(v²) per polygon it cost ~10 minutes of GIL-held CPU per export
+            # on a task with 1 M vertices -- the 2026-09-24 production stall.
+            # See .devnotes/fix-exports-imports/02_ISSUES.md I-1.
             x, y, w, h = bbox_of(points)
             annotations.append({
                 "id": ann_id,

@@ -160,6 +160,43 @@ CORS_ORIGINS = [o.strip() for o in _raw_cors.split(",") if o.strip()] if _raw_co
 MAX_UPLOAD_FILES = int(os.environ.get("MAX_UPLOAD_FILES", "200"))
 MAX_IMPORT_BYTES = int(os.environ.get("MAX_IMPORT_BYTES", str(300 * 1024 * 1024)))
 
+# --- Heavy jobs (exports, annotation imports) -----------------------------
+# Where an export or import runs. See .devnotes/fix-exports-imports/.
+#   process  a child Python process per job, below-normal priority, killed at
+#            its timeout. The web process never spends CPU on the job, so no
+#            export can slow another user's request. The production default.
+#   thread   a thread inside the web process. It shares the GIL with every
+#            request and cannot be killed; kept for one release as the
+#            rollback switch.
+#   inline   synchronously inside the request. Tests only: it makes a job
+#            finish before the POST returns.
+HEAVY_JOB_MODE = os.environ.get("HEAVY_JOB_MODE", "process").strip().lower()
+if HEAVY_JOB_MODE not in ("process", "thread", "inline"):
+    raise ValueError(f"HEAVY_JOB_MODE must be process, thread or inline, not {HEAVY_JOB_MODE!r}.")
+# Jobs running at once. Children run on other cores, so this bounds RAM and
+# Postgres load on the deploy laptop, not CPU seen by the API.
+HEAVY_JOB_SLOTS = int(os.environ.get("HEAVY_JOB_SLOTS", "2"))
+EXPORT_TIMEOUT_S = int(os.environ.get("EXPORT_TIMEOUT_S", "900"))
+IMPORT_TIMEOUT_S = int(os.environ.get("IMPORT_TIMEOUT_S", "300"))
+# An import request waits for a free slot at most this long before it is told
+# the server is busy; an export just stays queued.
+IMPORT_QUEUE_WAIT_S = int(os.environ.get("IMPORT_QUEUE_WAIT_S", "120"))
+# A finished export's file is deleted this long after it completes, whether or
+# not it was downloaded.
+EXPORT_RESULT_TTL_S = int(os.environ.get("EXPORT_RESULT_TTL_S", "3600"))
+
+# --- Wipe guard -------------------------------------------------------------
+# A task save is refused (422) when it would remove annotations the client did
+# not say it deleted, and that *unexplained* loss is both at least
+# WIPE_GUARD_MIN_LOST shapes and more than WIPE_GUARD_RATIO of the stored set.
+# Deletions the client lists in `deleted_ids` never count, so a deliberate bulk
+# delete of any size passes; only a canvas that lost shapes on its own is
+# stopped. See .devnotes/bulk-loss-guard/01_DESIGN.md.
+#
+# Mirrored for rendering in frontend/js/wipe-guard.js — change both together.
+WIPE_GUARD_MIN_LOST = int(os.environ.get("WIPE_GUARD_MIN_LOST", "10"))
+WIPE_GUARD_RATIO = float(os.environ.get("WIPE_GUARD_RATIO", "0.30"))
+
 # --- Teams ----------------------------------------------------------------
 # Cap on teams one user may own, so a compromised or buggy client cannot fill
 # the table. Same reasoning as MAX_UPLOAD_FILES; 50 is far above any legitimate

@@ -1,14 +1,14 @@
 import { generateUUID, round } from "../utils.js?v=2";
 import { apiFetch, pollJob } from "../api.js?v=5";
-import { state, colorForName, labelByName, snapshot, selectedAnnotation } from "../state.js?v=11";
+import { state, colorForName, labelByName, snapshot, selectedAnnotation, noteUserRemoved } from "../state.js?v=12";
 import { updateAnnotationBounds } from "../canvas/geometry.js?v=1";
 import { view } from "../canvas/view.js?v=1";
 import { detectState } from "./detect-state.js?v=3";
-import { getImageSrcForAPI } from "./shared.js?v=1";
+import { getImageSrcForAPI } from "./shared.js?v=2";
 import { autoDetectButton } from "../dom.js?v=5";
 import {
   setStatus, ensureLabel, save, render
-} from "../components/workspace.js?v=27";
+} from "../components/workspace.js?v=29";
 
 export function setDetectionBusy(isBusy) {
   detectState.detectionBusy = isBusy;
@@ -107,6 +107,9 @@ export async function autoDetectObjects({ replace = true } = {}) {
 
     const predictions = result.predictions || [];
     snapshot();
+    // "Replace" discards the previous auto-detected shapes — a removal the user
+    // asked for, so it is recorded like a delete (wipe guard, state.js).
+    const beforeDetect = state.annotations;
 
     if (!predictions.length) {
       if (replace) {
@@ -118,6 +121,7 @@ export async function autoDetectObjects({ replace = true } = {}) {
           state.selectedId = null;
         }
       }
+      noteUserRemoved(beforeDetect, state.annotations);
       render();
       save();
       setStatus("No objects");
@@ -138,6 +142,7 @@ export async function autoDetectObjects({ replace = true } = {}) {
     } else {
       state.annotations.push(...detected);
     }
+    noteUserRemoved(beforeDetect, state.annotations);
     render();
     save();
     setStatus(`${detected.length} objects`);

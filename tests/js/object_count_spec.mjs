@@ -178,12 +178,17 @@ ok('a time-only drain sends no object_count', bodyOf().object_count === undefine
 
 // --- 3. a deliberate delete-all reports zero, and still declares itself ---
 // This is the one save where the count is most worth having: it is exactly the
-// event an annotator later reports as lost work.
+// event an annotator later reports as lost work. It declares itself by naming
+// the deleted ids (the wipe guard's `deleted_ids`), no longer `allow_clear`.
 
 reset({ edited: true });
-await timer.drainTaskTime(task(), { annotations: [], allowClear: true });
+timer.setDeletionTracker({ pending: () => ['a', 'b'], accepted: () => {} });
+await timer.drainTaskTime(task(), { annotations: [] });
+timer.setDeletionTracker({ pending: () => [], accepted: () => {} });
 ok('a delete-all reports zero objects', bodyOf().object_count === 0);
-ok('a delete-all still declares allow_clear', bodyOf().allow_clear === true);
+ok('a delete-all names what it deleted',
+   JSON.stringify(bodyOf().deleted_ids) === JSON.stringify(['a', 'b']));
+ok('a delete-all no longer sends allow_clear', bodyOf().allow_clear === undefined);
 
 // --- 4. the diagnostic field changes nothing about the save ---------------
 
@@ -196,6 +201,7 @@ await timer.drainTaskTime(task(), { annotations: [box(1), box(2)], status: 'Comp
   ok('the status still rides along', b.status === 'Completed');
   ok('the time delta is untouched', b.time_spent_delta === 30);
   ok('a non-clearing save does not set allow_clear', b.allow_clear === undefined);
+  ok('a save with nothing deleted sends no deleted_ids', b.deleted_ids === undefined);
 }
 
 console.log(`
