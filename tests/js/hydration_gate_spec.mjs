@@ -38,7 +38,7 @@ const s = await import(url);
 const {
   beginHydration, completeHydration, failHydration,
   hydrationOk, hydrationFailed, hydrationSaveBlock, currentHydrationGeneration,
-  noteHydratedAnnotationCount, getHydratedAnnotationCount, clearIsUserIntent,
+  noteHydratedAnnotationCount, getHydratedAnnotationCount, pendingDeletedIds,
 } = s;
 
 let pass = 0, fail = 0;
@@ -101,40 +101,33 @@ completeHydration(g4);
 ok('a successful retry reopens the gate', hydrationOk() === true);
 ok('and clears the block message', hydrationSaveBlock() === null);
 
-// --- 7. allow_clear requires proof of intent, not just an empty canvas ----
+// --- 7. A delete-all is recorded, never inferred ---------------------------
 
-// The clear-guard (422) is the server's last defence against an empty
-// overwrite. `allow_clear` switches it off, so the client may only set it when
-// it can PROVE the user deleted work they could see. Inferring it from
-// `state.annotations.length === 0` — as manualSaveWithUI once did — disabled
-// the guard in precisely the case it exists for: a blank, not-yet-populated
-// canvas. That is how Ctrl+S on a still-loading task wiped it.
+// The server's wipe guard refuses a save that drops shapes the client did not
+// name in `deleted_ids`. The client used to *infer* a delete-all instead —
+// `clearIsUserIntent()` set `allow_clear` whenever a hydrated task's canvas was
+// empty — which switched the guard off for exactly the faulted empty canvas it
+// exists to catch. Deletions now come only from explicit removal paths
+// (noteUserRemoved); hydration, emptiness and task switches never create one.
+// The removal bookkeeping itself is pinned in wipe_guard_spec.mjs.
 
+ok('the inference helper is gone', s.clearIsUserIntent === undefined);
+
+s.state.gallery = [{ id: 501 }, { id: 502 }];
+s.state.galleryIndex = 0;
 const g5 = beginHydration();
-ok('mid-fetch, a clear is never user intent', clearIsUserIntent(0) === false);
-
 noteHydratedAnnotationCount(500);
 completeHydration(g5);
 ok('the hydrated count is recorded', getHydratedAnnotationCount() === 500);
-ok('a full canvas is not a clear', clearIsUserIntent(500) === false);
-ok('emptying hydrated work IS user intent', clearIsUserIntent(0) === true);
+s.state.annotations = [];
+ok('an emptied canvas is not a recorded deletion', pendingDeletedIds(501).length === 0);
 
-// A task that legitimately had no annotations has nothing to delete, so it
-// never needs the override — and must not be handed it.
-const g6 = beginHydration();
-noteHydratedAnnotationCount(0);
-completeHydration(g6);
-ok('an already-empty task never earns allow_clear', clearIsUserIntent(0) === false);
-
-// The count must not survive a task switch: otherwise the next task inherits
-// "it had work when it loaded" and qualifies for a clear it never earned.
+// The count must not survive a task switch.
+s.state.galleryIndex = 1;
 const g7 = beginHydration();
 ok('the count resets on switch', getHydratedAnnotationCount() === 0);
-ok('and the new task cannot clear pre-hydration', clearIsUserIntent(0) === false);
-
-// Even after a *failed* hydration the override stays off — nothing was proven.
 failHydration(g7);
-ok('a failed hydration never earns allow_clear', clearIsUserIntent(0) === false);
+ok('a failed hydration records no deletion either', pendingDeletedIds(502).length === 0);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

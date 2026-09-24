@@ -320,6 +320,23 @@ def sync_task_annotations(db, task, incoming: list, known_label_ids=None) -> boo
         # whose annotation_rows disagree with the database.
         db.expire(task, ["annotation_rows"])
 
+    # A set emptied to zero rows must also empty the legacy blob.
+    #
+    # `annotation_dicts()` (formats/common.py) reads the rows, and falls back to
+    # `Task.annotations` when a task has none -- the path that still serves
+    # tasks the row conversion could not handle. The blob stopped being written
+    # at the cutover, so on a task that predates it the blob still holds the
+    # pre-cutover set. Deleting every shape removed the rows, the next read fell
+    # through to that stale blob, and the old annotations reappeared on reload
+    # and were saved straight back (dev task 1370, 2026-09-24). Partial deletes
+    # were unaffected: any remaining row keeps the reader off the blob.
+    #
+    # Writing `[]` rather than NULL keeps the column's meaning as the rollback
+    # copy: the task is genuinely empty, so its rollback copy is too.
+    if not seen and task.annotations not in (None, "", "[]", "null"):
+        task.annotations = "[]"
+        changed = True
+
     return changed
 
 

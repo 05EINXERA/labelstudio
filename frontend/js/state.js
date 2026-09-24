@@ -447,17 +447,92 @@ export function annotationsChangedSinceHydration(annotations) {
   }
 }
 
+// --- Deliberate deletions (the wipe guard) --------------------------------
+//
+// Every save names the shapes the user deliberately removed since the server
+// last accepted a save of that task (`deleted_ids`), and the server refuses a
+// large loss those ids do not explain — the shape of a canvas that lost its
+// annotations on its own (task 660, 2026-09-24). This replaces the old
+// `clearIsUserIntent()`, which *inferred* a delete-all from an empty canvas and
+// so authorised exactly the empty state the guard exists to catch.
+//
+// Keyed by task id, not reset per switch: the gallery-switch flush saves the
+// *outgoing* task after beginHydration() has already moved to the incoming
+// one, and a bulk delete followed by a quick page-away must still carry its
+// ids. See .devnotes/bulk-loss-guard/01_DESIGN.md.
+const pendingDeletions = new Map();   // taskId -> Set of annotation ids
+const serverIdsByTask = new Map();    // taskId -> Set of ids the server holds
+
+function openTaskId() {
+  const task = state.gallery?.[state.galleryIndex];
+  return task ? task.id : null;
+}
+
 /**
- * May this save legitimately clear the task?
- *
- * Only when the task hydrated (so the count below is real), the canvas is now
- * empty, and it was *not* empty when it loaded — i.e. the user removed
- * annotations that demonstrably arrived from the server. A canvas that was
- * empty on arrival has nothing to delete, so it never needs the override; a
- * task that never hydrated cannot prove anything and must not get it.
+ * Record the shapes a user action removed: every id in `before` that is not in
+ * `after`. Called by each deliberate removal path (delete, clear all, merge,
+ * undo/redo, AI replace, cancelling a half-drawn polygon) — never by hydration
+ * or draft restore, which are not the user's doing.
  */
-export function clearIsUserIntent(currentCount) {
-  return hydrationOk() && currentCount === 0 && hydratedAnnotationCount > 0;
+export function noteUserRemoved(before, after, taskId = openTaskId()) {
+  if (taskId == null) return;
+  const kept = new Set((after || []).map((a) => a && a.id).filter(Boolean).map(String));
+  let set = pendingDeletions.get(taskId);
+  for (const ann of before || []) {
+    if (!ann || !ann.id) continue;
+    const id = String(ann.id);
+    if (kept.has(id)) continue;
+    if (!set) {
+      set = new Set();
+      pendingDeletions.set(taskId, set);
+    }
+    set.add(id);
+  }
+}
+
+/** Merge ids from a recovered draft back into the task's pending set. */
+export function restorePendingDeletions(taskId, ids) {
+  if (taskId == null || !Array.isArray(ids) || ids.length === 0) return;
+  let set = pendingDeletions.get(taskId);
+  if (!set) {
+    set = new Set();
+    pendingDeletions.set(taskId, set);
+  }
+  ids.forEach((id) => set.add(String(id)));
+}
+
+/** The ids to send with the next save of `taskId`, as an array. */
+export function pendingDeletedIds(taskId) {
+  const set = pendingDeletions.get(taskId);
+  return set ? [...set] : [];
+}
+
+/**
+ * The server accepted a save that carried `sentIds`: those are settled.
+ *
+ * Only the ids that save carried — a delete made while it was in flight rides
+ * the next save, exactly as `sentAnnotations` does in workspace.js.
+ */
+export function acknowledgeDeletedIds(taskId, sentIds) {
+  const set = pendingDeletions.get(taskId);
+  if (!set) return;
+  (sentIds || []).forEach((id) => set.delete(String(id)));
+  if (set.size === 0) pendingDeletions.delete(taskId);
+}
+
+/** Record which annotation ids the server holds for `taskId`. */
+export function noteServerAnnotationIds(taskId, annotations) {
+  if (taskId == null) return;
+  const ids = new Set();
+  for (const ann of annotations || []) {
+    if (ann && ann.id) ids.add(String(ann.id));
+  }
+  serverIdsByTask.set(taskId, ids);
+}
+
+/** The ids the server holds for `taskId` as far as this tab knows, or null. */
+export function serverAnnotationIds(taskId) {
+  return serverIdsByTask.get(taskId) || null;
 }
 
 /** True when the current task's hydration fetch was attempted and failed. */

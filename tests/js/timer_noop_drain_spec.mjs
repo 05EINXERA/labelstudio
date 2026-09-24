@@ -170,10 +170,12 @@ ok('supplied annotations are sent',
 
 reset({ edited: false });
 t = task();
-await timer.drainTaskTime(t, { annotations: [], allowClear: true });
+timer.setDeletionTracker({ pending: () => ['a'], accepted: () => {} });
+await timer.drainTaskTime(t, { annotations: [] });
+timer.setDeletionTracker({ pending: () => [], accepted: () => {} });
 ok('deliberate delete-all is never suppressed', fetchCalls.length === 1);
-ok('deliberate delete-all still declares allow_clear',
-   JSON.parse(fetchCalls[0].opts.body).allow_clear === true);
+ok('deliberate delete-all names its deleted ids',
+   JSON.stringify(JSON.parse(fetchCalls[0].opts.body).deleted_ids) === '["a"]');
 
 // --- 4. fail safe ---------------------------------------------------------
 

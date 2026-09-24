@@ -194,6 +194,29 @@ def _stored_annotation_count(db: Session, db_task: models.Task) -> int:
     )
 
 
+def _unexplained_removals(db_task: models.Task, incoming_anns: list, deleted_ids) -> tuple:
+    """`(removed, unexplained)`: stored shapes this save drops, and how many of
+    those the client did not list as deliberately deleted.
+
+    Costs no extra parse and no extra query. `incoming_anns` is the payload the
+    save path has already parsed for the row sync, and `annotation_rows` is the
+    collection that sync loads to diff against — reading it here first only
+    moves that load earlier, and the sync then reuses it from the session.
+
+    Ids are compared as the row mapping stores them (`str(ann["id"])`, with a
+    falsy id minted fresh — so such a shape can never match a stored row).
+    """
+    stored_ids = {row.id for row in db_task.annotation_rows}
+    incoming_ids = {
+        str(ann["id"])
+        for ann in incoming_anns
+        if isinstance(ann, dict) and ann.get("id")
+    }
+    removed = stored_ids - incoming_ids
+    unexplained = removed.difference(str(i) for i in (deleted_ids or ()))
+    return len(removed), len(unexplained)
+
+
 def _sync_project_status(project_id: Optional[int], db: Session) -> None:
     """Re-derive the project's status from its tasks. Does not commit.
 
@@ -1400,7 +1423,19 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
             # client_id never conflicts with itself (by design, see
             # 04_ANNOTATION_SAVE_LOSS.md) — this is the guard for the case that
             # rule cannot cover.
+            #
+            # The same reasoning extends past emptiness. Task 660 (2026-09-24)
+            # lost 975 of 976 shapes to a save carrying the one shape drawn
+            # after its canvas emptied itself — not empty, so the check below
+            # used to wave it through. A ratio alone cannot separate that from
+            # real cleanup (the owner's bulk deletes sit at 31-57% loss,
+            # .devnotes/wipe-guard-bypass-fix/05_IMPLEMENTATION.md §3), so the
+            # client now names what it deleted in `deleted_ids`, and only the
+            # loss it does *not* explain is judged. Deliberate cleanup of any
+            # size explains itself; a faulted canvas cannot.
+            # See .devnotes/bulk-loss-guard/01_DESIGN.md.
             incoming_is_empty = task.annotations.strip() in ("", "[]", "null")
+            incoming_anns = _parsed(task.annotations) or []
             # Counted from the rows, which are now the stored annotations. The
             # old test read the blob, which stops being written at the cutover
             # and would leave this guard judging a stale value -- the guard
@@ -1408,8 +1443,59 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
             # legitimate clear of a task the blob still shows as full.
             stored_count = _stored_annotation_count(db, db_task)
             existing_has_work = stored_count > 0
+            removed = unexplained = 0
+            if existing_has_work:
+                removed, unexplained = _unexplained_removals(
+                    db_task, incoming_anns, task.deleted_ids
+                )
+            # Partial loss: refused only when the unexplained remainder is both
+            # large in absolute terms and a large share of the task, so a bug
+            # that drops a handful of shapes (or a client that forgets to list
+            # one) never blocks an annotator.
+            if (
+                existing_has_work
+                and not incoming_is_empty
+                and unexplained >= _cfg.WIPE_GUARD_MIN_LOST
+                and unexplained > _cfg.WIPE_GUARD_RATIO * stored_count
+            ):
+                log_event(
+                    "task.save.refused_loss",
+                    level="WARN",
+                    task=db_task.id,
+                    project=db_task.project_id,
+                    objects_prev=stored_count,
+                    objects=len(incoming_anns),
+                    objects_client=task.object_count,
+                    removed=removed,
+                    unexplained=unexplained,
+                    client=task.client_id,
+                    reason="unexplained_loss",
+                )
+                logger.warning(
+                    "Task %s: save would remove %s of %s annotations, %s of them not deleted by the user "
+                    "(client_id=%s, user=%s). Refused with 422.",
+                    db_task.id,
+                    removed,
+                    stored_count,
+                    unexplained,
+                    task.client_id,
+                    getattr(user, "username", "unknown"),
+                )
+                # 422, not 409, for the reason given on the empty-payload
+                # refusal below.
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"Refusing to save: {unexplained} existing annotations would be removed "
+                        "that were not deleted on this screen. Reload the task to see the current "
+                        "work; your changes are kept on this computer."
+                    ),
+                )
+            # Emptying: any unexplained loss at all is refused, as before. The
+            # legacy `allow_clear` still authorises it, for bundles cached from
+            # before `deleted_ids` existed; a current client lists the ids.
             if incoming_is_empty and existing_has_work:
-                if not task.allow_clear:
+                if unexplained > 0 and not task.allow_clear:
                     log_event(
                         "task.save.refused_clear",
                         level="WARN",
@@ -1454,12 +1540,11 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
                         client=task.client_id,
                     )
                     logger.warning(
-                        "Task %s: explicit clear of annotations executed with allow_clear=True (client_id=%s, user=%s).",
+                        "Task %s: explicit clear of annotations executed (client_id=%s, user=%s).",
                         db_task.id,
                         task.client_id,
                         getattr(user, "username", "unknown"),
                     )
-            incoming_anns = _parsed(task.annotations) or []
             # No history row is written here any more. `task_annotation_history`
             # kept the superseded annotation set on every save, and after the
             # normalisation it was the last place still serialising a task's

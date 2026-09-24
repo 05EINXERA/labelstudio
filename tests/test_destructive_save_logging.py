@@ -1,18 +1,14 @@
 """The destructive-save WARN line (wipe-guard-bypass-fix, fix plan S2).
 
 A save that drops a large share of a task's annotations emits
-`event=task.save.destructive` at WARN. It is **detection only** — nothing is
-refused, no status changes, and the annotations are written exactly as sent.
+`event=task.save.destructive` at WARN. The line itself refuses nothing; it
+records every large drop that was *accepted*.
 
-That distinction is the point of this file. A proportional *guard* was designed
-(S1) and deliberately not built: replayed over eight days of production traffic
-it would have refused five saves, four of which were the project owner's
-legitimate cleanup. The real wipe (55% loss) and the legitimate edits (31-57%)
-are not separable by ratio, so the server reports and the humans decide
-(.devnotes/wipe-guard-bypass-fix/04_VERIFICATION.md §D).
-
-What the log buys is time-to-notice: task 691 lost 1437 annotations and the
-number sat in the log for a day before anyone saw it.
+Refusing is the wipe guard's job (tests/test_bulk_loss_guard.py): it stops a
+large loss the client did not explain with `deleted_ids`. So the drops that
+reach this line are deliberate ones, and the saves here name their deletions
+the way the canvas does. A deliberate drop of 80% is still worth a line --
+it is exactly the event someone should be able to find afterwards.
 """
 import json
 
@@ -43,13 +39,29 @@ def _annotations(n):
     return json.dumps([{"id": f"a{i}", "type": "box", "labelId": "l1"} for i in range(n)])
 
 
-def _save(client, auth, task_id, annotations, client_id="tab-A", updated_at=None):
-    return client.post("/api/tasks", json={
+def _save(client, auth, task_id, annotations, client_id="tab-A", updated_at=None,
+          name_deletions=True):
+    """Save `annotations`, by default naming every id it drops as user-deleted.
+
+    That is what the canvas sends for a real delete (`deleted_ids`), so these
+    tests exercise the log line rather than the wipe guard in front of it.
+    `_annotations` only ever mints ids a0..a{n-1}, so listing every such id
+    the payload leaves out is exactly the set it drops.
+    """
+    body = {
         "id": task_id,
         "annotations": annotations,
         "updated_at": updated_at,
         "client_id": client_id,
-    }, headers=auth)
+    }
+    if name_deletions:
+        kept = {a["id"] for a in json.loads(annotations or "[]")}
+        body["deleted_ids"] = [f"a{i}" for i in range(_MAX_SEEDED) if f"a{i}" not in kept]
+    return client.post("/api/tasks", json=body, headers=auth)
+
+
+# Above the largest task any test here seeds.
+_MAX_SEEDED = 1000
 
 
 @pytest.fixture
@@ -104,9 +116,8 @@ def test_a_large_drop_is_logged(client, alice, events):
 def test_the_save_is_not_refused(client, alice, events):
     """The whole design: report, do not block.
 
-    This is the case S1 would have turned into a 422 and, on the evidence, would
-    mostly have fired on legitimate work. The annotations must be stored exactly
-    as sent.
+    A drop the user made deliberately is logged, never refused: the
+    annotations must be stored exactly as sent.
     """
     project_id, task = _seed(client, alice, 100)
 
@@ -222,7 +233,7 @@ def test_an_empty_payload_is_still_refused_and_logs_no_destructive(client, alice
     _project_id, task = _seed(client, alice, 100)
     events.clear()
 
-    res = _save(client, alice, task["id"], "[]")
+    res = _save(client, alice, task["id"], "[]", name_deletions=False)
     assert res.status_code == 422, res.text
     assert _destructive(events) == []
 

@@ -4,19 +4,20 @@ import {
   state, storageKey, draftKey, legacyDraftKey, draftMatchesProject,
   colorForName, labelByName, labelById, resolveAnnotationLabels,
   labelDisplayName, snapshot, selectedAnnotation, hydrationOk, hydrationSaveBlock,
-  clearIsUserIntent, annotationsChangedSinceHydration, noteHydratedAnnotations,
+  annotationsChangedSinceHydration, noteHydratedAnnotations,
+  pendingDeletedIds, restorePendingDeletions, serverAnnotationIds,
   isAnnotationHidden
-} from "../state.js?v=11";
+} from "../state.js?v=12";
 import { visibleRows, hiddenRowCount } from "../objects-filter.js?v=1";
 import { MAX_CLASS_SHORTCUTS } from "../shortcuts.js?v=4";
 import { pendingCount, retryablePendingCount, isServerUnreachable, peekWrite } from "../offline-queue.js?v=6";
 import { coalesce } from "../save-coalesce.js?v=1";
 import { annotationPoints, updateAnnotationBounds } from "../canvas/geometry.js?v=1";
 import { view } from "../canvas/view.js?v=1";
-import { drainTaskTime, DRAIN_SKIPPED, refreshTimerDisplays } from "./timer.js?v=9";
+import { drainTaskTime, DRAIN_SKIPPED, refreshTimerDisplays } from "./timer.js?v=10";
 import { timerState } from "../timer-state.js?v=3";
 import { detectState } from "../ai/detect-state.js?v=3";
-import { draw, drawAllLayers } from "../canvas/draw.js?v=10";
+import { draw, drawAllLayers } from "../canvas/draw.js?v=11";
 import {
   emptyState, classesList, annotationList, annotationCount, selectedInfo,
   hiddenFilterButton, hiddenCount,
@@ -27,6 +28,7 @@ import {
 } from "../dom.js?v=5";
 import { commentOverlayRefs, openCommentEditor } from "../comment-overlay.js?v=2";
 import { toolAvailability } from "../feature-flags.js?v=5";
+import { unexplainedRemovals, isRefusedLoss } from "../wipe-guard.js?v=1";
 // Per-task write gating. `isReadOnly()` is project-role only, so it is false
 // for an annotator who simply is not assigned the open task — the sidepanel
 // needs the per-task answer, which is what taskWriteBlock() gives.
@@ -272,15 +274,14 @@ export function editBlockReason() {
 /**
  * Push the open task's annotations to the server.
  *
- * `allowClear` marks a save the user explicitly meant to empty: this is the
- * only path that carries the real, user-authored annotation set, so it is the
- * only one entitled to confirm a delete-all past the server's clear-guard
- * (api/routers/tasks.py — the guard that exists because a half-hydrated client
- * once autosaved `[]` over 403 real polygons, INCIDENT_692). Time-only saves
- * elsewhere deliberately omit the annotation set entirely rather than sending
- * an empty one, so they can never reach that guard at all.
+ * Deliberate deletions travel as `deleted_ids` (timer.js reads them from
+ * state.js), so the server's wipe guard can refuse a loss the user did not
+ * make — the guard that exists because a half-hydrated client once autosaved
+ * `[]` over 403 real polygons (INCIDENT_692), and a faulted canvas later saved
+ * one box over 976 (task 660). Time-only saves elsewhere deliberately omit the
+ * annotation set entirely, so they can never reach that guard at all.
  */
-export function syncToBackend({ useBeacon = false, keepStatus = false, allowClear = false, forceStatus = null, userInitiated = false } = {}) {
+export function syncToBackend({ useBeacon = false, keepStatus = false, forceStatus = null, userInitiated = false } = {}) {
   if (typeof state === 'undefined' || state.galleryIndex < 0 || !state.gallery || !state.gallery[state.galleryIndex]) return;
   const currentTask = state.gallery[state.galleryIndex];
   if (!currentTask.id) return;
@@ -364,8 +365,6 @@ export function syncToBackend({ useBeacon = false, keepStatus = false, allowClea
   //   * `!annotationsChangedSinceHydration(...)` — fails safe, reporting
   //     "changed" whenever it cannot prove otherwise (no fingerprint, an
   //     unserialisable state), so an unprovable case still saves.
-  //   * `!allowClear` — a deliberate delete-all is an edit by definition, and
-  //     must never be swallowed.
   //
   // Beacons matter most here: sendBeacon reports only that it queued, so a
   // pointless one can never be judged after the fact. Not sending it is the
@@ -377,7 +376,6 @@ export function syncToBackend({ useBeacon = false, keepStatus = false, allowClea
   //     they are eligible for suppression.
   const nothingToSave = !userInitiated
     && !forceStatus
-    && !allowClear
     && taskStatus === statusBeforeDerivation
     && !annotationsChangedSinceHydration(state.annotations);
 
@@ -448,11 +446,21 @@ export function syncToBackend({ useBeacon = false, keepStatus = false, allowClea
     // given — marking unsent edits as saved, which suppresses the next autosave
     // as "nothing to save" and loses the work.
     const sentAnnotations = currentTask.annotations;
+    // Hold back a save the server's wipe guard would refuse: one that drops
+    // shapes this tab never deleted. Sending it would only earn a 422 (and an
+    // outbox entry) — and task 660 shows what happens when a guard waves it
+    // through. The draft is left exactly as it is (rule 18a) and the annotator
+    // is told to reload, which re-fetches the server's copy.
+    const refusal = localWipeRefusal(currentTask.id, sentAnnotations);
+    if (refusal) {
+      console.warn(`[wipe-guard] save of task ${currentTask.id} held back:`, refusal);
+      reportLocalRefusal(refusal.message);
+      return Promise.resolve(false);
+    }
     return Promise.resolve(drainTaskTime(currentTask, {
       status: taskStatus,
       annotations: sentAnnotations,
-      useBeacon,
-      allowClear
+      useBeacon
     })).then((ok) => {
       // The draft exists to cover work the server does not have. Once it has
       // taken the write, the draft is stale and must go, or the next load would
@@ -526,6 +534,10 @@ export function saveDraft({ task = null, annotations = null } = {}) {
       // drafts predating this field, which restoreDraft treats as "unknown"
       // rather than "mismatched" — see there.
       projectId: state.projectId ?? null,
+      // The deliberate deletions this set reflects. Without them a reload
+      // would recover the edited set but not the proof that its removals were
+      // the user's, and the wipe guard would refuse to save it.
+      deletedIds: pendingDeletedIds(target.id),
       savedAt: Date.now()
     }));
   } catch (e) {
@@ -677,7 +689,23 @@ export function restoreDraft(task) {
       clearDraft(task.id);
       return false;
     }
+    // Nor does a draft that drops shapes nobody deleted. The same test the
+    // server's wipe guard applies to a save: restoring it would put a faulted
+    // canvas back on screen, and every save after would be refused. Unlike the
+    // empty case the draft is *kept* — it may still hold new work (task 660's
+    // one freshly-drawn box) — but it does not win over the server's copy.
+    const serverIds = new Set(state.annotations.map((a) => a && a.id).filter(Boolean).map(String));
+    const draftDeleted = Array.isArray(draft.deletedIds) ? draft.deletedIds : [];
+    const { unexplained } = unexplainedRemovals(serverIds, draft.annotations, draftDeleted);
+    if (isRefusedLoss({ stored: serverIds.size, unexplained, empty: draft.annotations.length === 0 })) {
+      console.warn(
+        `Ignoring draft for task ${task.id}: it drops ${unexplained} of ${serverIds.size} ` +
+        "server annotations that were never deleted."
+      );
+      return false;
+    }
     state.annotations = draft.annotations;
+    restorePendingDeletions(task.id, draftDeleted);
     // `draft.labels` is ignored, including on drafts written before saveDraft
     // stopped storing it. The classes fetched from the server at boot are
     // authoritative; a draft's copy is only ever equal or stale, and applying a
@@ -690,15 +718,51 @@ export function restoreDraft(task) {
   }
 }
 
+// Shown when a save is held back for dropping shapes nobody deleted. Registered
+// by the page (init.js wires it to the same banner as a server 422), so this
+// module does not import the permission UI.
+let onLocalRefusal = null;
+
+export function setLocalRefusalHandler(fn) {
+  onLocalRefusal = typeof fn === "function" ? fn : null;
+}
+
+function reportLocalRefusal(message) {
+  if (onLocalRefusal) onLocalRefusal(message);
+  else setStatus(message);
+}
+
+/**
+ * Would the server's wipe guard refuse saving `annotations` over `taskId`?
+ *
+ * Judged against the ids this tab last knew the server held (hydration, then
+ * each accepted save), minus the ids the user deliberately deleted. Returns
+ * null when the save is fine or when there is no baseline to judge against —
+ * the server still decides, this only spares a doomed request.
+ */
+export function localWipeRefusal(taskId, annotations) {
+  const stored = serverAnnotationIds(taskId);
+  if (!stored || stored.size === 0) return null;
+  const { unexplained } = unexplainedRemovals(stored, annotations, pendingDeletedIds(taskId));
+  if (!isRefusedLoss({ stored: stored.size, unexplained, empty: annotations.length === 0 })) {
+    return null;
+  }
+  return {
+    unexplained,
+    stored: stored.size,
+    message:
+      `Not saved: ${unexplained} of this image's ${stored.size} annotations have disappeared ` +
+      "from the canvas without being deleted. Reload the task to get them back.",
+  };
+}
+
 /**
  * Debounced autosave.
  *
- * `allowClear` is threaded through for the one caller that legitimately empties
- * the annotation set (the Clear-all button). Without it that save is refused by
- * the server's clear-guard and surfaces to the annotator as a permission-style
- * warning about unsaved offline work — for an action they deliberately took.
+ * A delete-all needs no flag here: the removal path recorded its ids
+ * (state.noteUserRemoved), and timer.js sends them as `deleted_ids`.
  */
-export function save({ allowClear = false } = {}) {
+export function save() {
   const block = hydrationSaveBlock();
   if (block) {
     setStatus(block);
@@ -718,7 +782,7 @@ export function save({ allowClear = false } = {}) {
     // On failure the write is now in the outbox, so "retrying" is finally true
     // rather than aspirational — and refreshSaveStatus() keeps the pending count
     // on screen instead of reverting to "Saved" three seconds later.
-    Promise.resolve(syncToBackend({ allowClear }))
+    Promise.resolve(syncToBackend())
       .then((ok) => (ok === false ? refreshSaveStatus() : setStatus("Saved")))
       .catch(() => refreshSaveStatus());
   }, 1000);
@@ -761,20 +825,13 @@ export async function manualSaveWithUI() {
     // Save the draft locally
     saveDraft();
 
-    // An explicit Save of an empty canvas *may* be a deliberate delete-all —
-    // but emptiness alone does not prove it. A canvas is equally empty when
-    // hydration has not populated it yet, or when a reload race left it blank
-    // while the gate happened to be open. Inferring allow_clear from the
-    // emptiness itself therefore switched off the server's clear-guard in
-    // exactly the situation the guard exists to catch, and a fast Ctrl+S on a
-    // still-blank task wiped it.
-    //
-    // clearIsUserIntent() requires proof instead: the task hydrated, and it
-    // hydrated with work that is now gone. That is only true when the user
-    // actually removed annotations they could see. Otherwise the flag stays
-    // off and the server refuses the empty write with a 422.
+    // No delete-all flag is inferred here. An empty canvas does not prove the
+    // user emptied it — it is equally empty when hydration has not landed or
+    // when it faulted — and inferring `allow_clear` from emptiness switched
+    // the server's guard off in exactly the case it exists for. Deliberate
+    // deletions carry their own ids (`deleted_ids`); anything else is judged
+    // as unexplained. See .devnotes/bulk-loss-guard/01_DESIGN.md.
     const ok = await syncToBackend({
-      allowClear: clearIsUserIntent(state.annotations.length),
       // The user pressed Save and is watching for an answer, so this one is
       // always sent even when nothing changed.
       userInitiated: true,
