@@ -3416,3 +3416,31 @@ body.is-read-only #deleteButton {
   border-radius: 8px;
   font-weight: 600;
 }
+
+/* Destructive confirm (js/components/confirm-dialog.js). Above the save
+   overlay and banners, so nothing can cover the question being asked. */
+.confirm-dialog {
+  z-index: 2100;
+}
+
+.confirm-dialog-content {
+  max-width: 440px;
+}
+
+.confirm-dialog-message {
+  margin: 0;
+  color: var(--ink);
+  line-height: 1.5;
+  white-space: pre-line;
+}
+
+.modal-footer button.confirm-danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+
+.modal-footer button.confirm-danger:hover,
+.modal-footer button.confirm-danger:focus-visible {
+  filter: brightness(0.92);
+}

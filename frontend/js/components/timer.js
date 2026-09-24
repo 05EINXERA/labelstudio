@@ -104,6 +104,31 @@ function activeTaskWasEdited() {
   }
 }
 
+// The wipe guard's record of deliberate deletions (state.js), injected for the
+// same reason as the resolvers above. `pending(taskId)` returns the ids to send
+// as `deleted_ids`; `accepted(taskId, sentIds, annotations)` is told when the
+// server took a save, so those ids are settled and the sent set becomes the
+// baseline. Defaults send nothing — the server then judges every removal as
+// unexplained, which fails safe (a refusal, never a wipe).
+// See .devnotes/bulk-loss-guard/01_DESIGN.md.
+let deletionTracker = { pending: () => [], accepted: () => {} };
+
+export function setDeletionTracker(tracker) {
+  if (tracker && typeof tracker.pending === 'function' && typeof tracker.accepted === 'function') {
+    deletionTracker = tracker;
+  }
+}
+
+function pendingDeletedIdsFor(taskId) {
+  try {
+    const ids = deletionTracker.pending(taskId);
+    return Array.isArray(ids) ? ids : [];
+  } catch (e) {
+    console.warn('[wipe-guard] could not read pending deletions:', e);
+    return [];
+  }
+}
+
 /**
  * Sentinel returned by a drain that was deliberately not sent because nothing
  * had changed.
@@ -135,7 +160,7 @@ function hasActiveTask() {
  * single drain point for timerState.taskSessionSeconds (F4).
  */
 /** Resolves true when the server accepted the write, false otherwise. */
-export async function drainTaskTime(task, { status, annotations, useBeacon = false, allowClear = false } = {}) {
+export async function drainTaskTime(task, { status, annotations, useBeacon = false } = {}) {
   if (!task || !task.id) return false;
 
   // A frozen task takes no writes at all. Returning before the accumulator is
@@ -205,10 +230,14 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
   // callers that really mean it.
   if (annotations !== undefined && Array.isArray(annotations)) {
     payload.annotations = JSON.stringify(annotations);
-    // A deliberate delete-all still has to say so, or the server's clear-guard
-    // refuses it forever with no way through (the guard's own escape hatch was
-    // previously unreachable — nothing in the frontend ever set this).
-    if (allowClear && annotations.length === 0) payload.allow_clear = true;
+    // Name what the user deliberately deleted, so the server's wipe guard can
+    // tell a real delete (any size, including delete-all) from a canvas that
+    // lost its shapes on its own. Read at payload-build time, so a delete made
+    // since the last save rides this one. Replaces `allow_clear`, which a
+    // bundle set whenever the canvas was empty — including when it was empty
+    // by fault. See .devnotes/bulk-loss-guard/01_DESIGN.md.
+    const deletedIds = pendingDeletedIdsFor(task.id);
+    if (deletedIds.length) payload.deleted_ids = deletedIds;
     // What the Objects panel was showing when this save left, for the service
     // log. Sent only alongside an actual annotation set, because that is the
     // only time the number describes this write; on a time-only save it would
@@ -330,6 +359,13 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
     // entry whose annotations this save did not carry, and nets off the seconds
     // just banked so they cannot be replayed twice.
     discardWrite(taskId, { supersededBy: payload });
+    if (annotations !== undefined && Array.isArray(annotations)) {
+      try {
+        deletionTracker.accepted(taskId, payload.deleted_ids || [], annotations);
+      } catch (e) {
+        console.warn('[wipe-guard] could not settle deletions:', e);
+      }
+    }
     updateTimerDisplays();
     return true;
   } catch (e) {
