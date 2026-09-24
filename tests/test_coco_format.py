@@ -126,12 +126,14 @@ def test_area_equals_bbox_area_for_a_rectangle(client, alice):
 # Annotation key set
 # ---------------------------------------------------------------------------
 
-def test_export_does_not_raise_on_a_self_intersecting_polygon(client, alice, caplog):
+def test_export_does_not_raise_on_a_self_intersecting_polygon(client, alice):
     """A tangled ring can reach a task without going through the canvas at all
     (a hand-edited draft, a row saved before this feature existed, direct API
     use). Export must still succeed — a data-quality issue is not a reason to
-    fail the whole job — and it should say so in the log rather than silently
-    producing a segmentation whose area/rendering won't match the annotator.
+    fail the whole job — and must export the ring verbatim.
+
+    It no longer logs a warning: the O(v²) check behind that warning was the
+    2026-09-24 production stall (.devnotes/fix-exports-imports/ I-1).
     """
     pid = _new_project(client, alice)
     lid = _new_label(client, alice, pid, "lbl-bowtie", "Bowtie")
@@ -140,14 +142,12 @@ def test_export_does_not_raise_on_a_self_intersecting_polygon(client, alice, cap
         "points": [{"x": 0, "y": 0}, {"x": 10, "y": 10}, {"x": 10, "y": 0}, {"x": 0, "y": 10}],
     }])
 
-    with caplog.at_level("WARNING", logger="formats.coco"):
-        export = _export_coco(client, alice, pid)
+    export = _export_coco(client, alice, pid)
 
     assert len(export["annotations"]) == 1
     ann = export["annotations"][0]
     # Exported verbatim — export never rewrites a stored annotation's geometry.
-    assert len(ann["segmentation"][0]) == 8
-    assert any("self-intersecting" in rec.message for rec in caplog.records)
+    assert ann["segmentation"][0] == [0, 0, 10, 10, 10, 0, 0, 10]
 
 
 def test_annotation_key_set_matches_interop(client, alice):

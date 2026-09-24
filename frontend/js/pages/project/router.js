@@ -50,7 +50,7 @@ const VIEWS = {
   "image-info": () => import("./image-info.js?v=1"),
   classes: () => import("./classes.js?v=3"),
   imports: () => import("./imports.js?v=3"),
-  exports: () => import("./exports.js?v=4"),
+  exports: () => import("./exports.js?v=5"),
   access: () => import("./access.js?v=2"),
   move: () => import("./move.js?v=2"),
 };

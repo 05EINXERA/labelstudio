@@ -17,6 +17,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _TMP_DATA_DIR = tempfile.mkdtemp(prefix="labelstudio-tests-")
 os.environ["DATA_DIR"] = _TMP_DATA_DIR
 os.environ.setdefault("JWT_SECRET", "test-secret-not-used-in-production")
+# Exports and imports run synchronously inside the request, so a job is done
+# before its POST returns. The process mode has its own tests
+# (tests/test_heavy_jobs.py), which build their own runner.
+os.environ["HEAVY_JOB_MODE"] = "inline"
 
 from fastapi.testclient import TestClient  # noqa: E402
 

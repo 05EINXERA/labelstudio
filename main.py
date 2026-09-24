@@ -38,6 +38,7 @@ configure_logging()
 
 from api.middleware import ServiceLogMiddleware  # noqa: E402
 from api.compression import RequestDecompressionMiddleware  # noqa: E402
+from jobs.runner import get_runner  # noqa: E402
 from api.routers import projects, tasks, team, teams, grants, time_logs, data, detect, label_studio, labels, auth, imports, exports, image_info, attendance  # noqa: E402
 from database import engine  # noqa: E402
 
@@ -75,6 +76,11 @@ async def _set_threadpool_capacity() -> None:
     except Exception as exc:  # pragma: no cover - attendance never breaks startup
         logger.warning("Could not start the attendance drain (%s)", exc)
 
+    # Build the heavy-job runner now, which clears job files a previous
+    # process left behind (no export or import survives a restart).
+    runner = get_runner()
+    logger.info("Heavy jobs: mode=%s slots=%d", runner.mode, runner.slots)
+
 
 @app.on_event("shutdown")
 async def _flush_attendance() -> None:
@@ -90,6 +96,9 @@ async def _flush_attendance() -> None:
         await attendance.stop_drain()
     except Exception as exc:  # pragma: no cover - never worth failing shutdown
         logger.warning("Attendance shutdown flush failed (%s)", exc)
+
+    # A stopping server must not leave export/import children running.
+    get_runner().shutdown()
 
 
 @app.middleware("http")
@@ -317,6 +326,9 @@ def health():
         "database": "up" if db_ok else "down",
         "environment": "production" if IS_PRODUCTION else "development",
         "attendance": attendance_health,
+        # Exports and imports in flight. A large `oldest_running_s` with
+        # nothing finishing is a stuck job; health-check.ps1 can alert on it.
+        "heavy_jobs": get_runner().health(),
     }
 
 

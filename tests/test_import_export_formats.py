@@ -759,7 +759,7 @@ def test_import_zip_merges_duplicate_filenames(client, alice):
 
 def test_import_zip_rejects_oversized_entry(client, alice):
     """10.3: per-entry cap is enforced from the header."""
-    from api.routers import imports as imp
+    from api import import_service as imp
 
     pid = _new_project(client, alice)
     _new_task(client, alice, pid, "a.jpg")
@@ -778,7 +778,7 @@ def test_import_zip_rejects_oversized_entry(client, alice):
 
 def test_import_zip_rejects_too_many_entries(client, alice):
     """10.3: entry-count cap is enforced."""
-    from api.routers import imports as imp
+    from api import import_service as imp
 
     pid = _new_project(client, alice)
     _new_task(client, alice, pid, "a.jpg")

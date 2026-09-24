@@ -17,12 +17,16 @@
  * masks need image dimensions), so the completed-job panel surfaces the
  * backend's `skipped` list rather than letting a short export be silent.
  *
- * Uses the job-queue pattern from detect.py — polls /api/exports/{job_id}
- * until complete, then offers /api/exports/{job_id}/download (one-shot).
+ * Polls /api/exports/{job_id} until complete, then offers
+ * /api/exports/{job_id}/download (one-shot). Polling goes through
+ * export-poll.js: one request in flight, backing off to 5 s, paused while the
+ * tab is hidden. The export itself runs in a server-side worker process, and
+ * may wait in a queue first ("Queued (n ahead)").
  */
 import { apiFetch } from "../../api.js?v=5";
 import { escapeHTML } from "../../utils.js?v=2";
 import { APPROVED_STATUSES, WORKING_STATUSES } from "../../task-status.js?v=3";
+import { createPoller } from "./export-poll.js?v=1";
 
 /**
  * One status checkbox. Generated rather than hand-written: the hardcoded list
@@ -41,7 +45,7 @@ function statusCheckbox(status) {
 let root = null;
 let ctx = null;
 let abortController = null;
-let pollInterval = null;
+let poller = null;
 
 // Job state: null | { job_id, status, format, imageOutput, task_count }
 let currentJob = null;
@@ -221,10 +225,11 @@ function clearError() {
 }
 
 function stopPolling() {
-  if (pollInterval) {
-    clearInterval(pollInterval);
-    pollInterval = null;
-  }
+  poller?.stop();
+}
+
+function onVisibilityChange() {
+  poller?.resume();
 }
 
 function showBuilder() {
@@ -321,9 +326,16 @@ function renderJobStatus() {
   const downloadBtn = el("downloadBtn");
 
   if (currentJob.status === "pending") {
+    // `state`/`position` come from the server's job queue; an older server
+    // omits them, which reads as "building".
+    const queued = currentJob.state === "queued";
+    const ahead = currentJob.position || 0;
+    const label = queued
+      ? `Queued${ahead > 0 ? ` (${ahead} ahead)` : ""}…`
+      : "Building export…";
     statusEl.innerHTML = `
       <p style="font-size:.9rem; color:var(--muted);">
-        <strong>Status:</strong> Building export…
+        <strong>Status:</strong> ${escapeHTML(label)}
       </p>
       <div style="margin-top:8px; height:6px; background:var(--line); border-radius:4px; overflow:hidden;">
         <div style="height:100%; background:var(--accent); width:60%; animation:pulse 1.5s ease-in-out infinite;"></div>
@@ -373,27 +385,31 @@ function renderJobStatus() {
   }
 }
 
+/**
+ * One status check. Resolves true to keep polling, false once the job is
+ * finished or polling has to stop; export-poll.js schedules the next call.
+ */
 async function pollJobStatus() {
-  if (!currentJob || currentJob.status !== "pending") return;
+  if (!currentJob || currentJob.status !== "pending") return false;
 
   try {
     const res = await apiFetch(`/api/exports/${currentJob.job_id}`, {
       signal: abortController.signal,
     });
-    if (!res) return;
+    if (!res) return false;
     if (res.status === 404) {
-      stopPolling();
       showError("Export job not found or expired.");
       showBuilder();
-      return;
+      return false;
     }
     if (!res.ok) {
-      stopPolling();
       showError(`Polling failed (${res.status}).`);
-      return;
+      return false;
     }
     const body = await res.json();
     currentJob.status = body.status;
+    currentJob.state = body.state;
+    currentJob.position = body.position;
     if (body.status === "completed") {
       currentJob.task_count = body.task_count;
       currentJob.format = body.format;
@@ -403,16 +419,18 @@ async function pollJobStatus() {
       currentJob.error = body.error;
     }
     renderJobStatus();
+    return currentJob.status === "pending";
   } catch (err) {
-    if (err.name === "AbortError") return;
+    if (err.name === "AbortError") return false;
     console.error("Polling error", err);
+    return true;
   }
 }
 
 function startPolling() {
   stopPolling();
-  pollInterval = setInterval(pollJobStatus, 1000);
-  pollJobStatus(); // immediate first call
+  poller = createPoller({ poll: pollJobStatus, isHidden: () => document.hidden });
+  poller.start();
 }
 
 /** The server names the file; prefer that over guessing so the two can't drift. */
@@ -482,6 +500,7 @@ export async function mount(hostRoot, hostCtx) {
   root = hostRoot;
   ctx = hostCtx;
   abortController = new AbortController();
+  document.addEventListener("visibilitychange", onVisibilityChange);
 
   root.innerHTML = template();
   bindExportBuilder();
@@ -490,6 +509,8 @@ export async function mount(hostRoot, hostCtx) {
 
 export function unmount() {
   stopPolling();
+  poller = null;
+  document.removeEventListener("visibilitychange", onVisibilityChange);
   abortController?.abort();
   abortController = null;
   currentJob = null;
