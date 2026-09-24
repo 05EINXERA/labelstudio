@@ -1,20 +1,22 @@
 import { generateUUID, clamp, round } from "../utils.js?v=2";
-import { state, snapshot, isAnnotationHidden, labelById, labelDisplayName } from "../state.js?v=11";
+import { state, snapshot, isAnnotationHidden, labelById, labelDisplayName, noteUserRemoved } from "../state.js?v=12";
 import { annotationPoints, updateAnnotationBounds, pointInPolygon } from "./geometry.js?v=1";
 import { untangleRing } from "./untangle.js?v=3";
 import { unionAll } from "./merge.js?v=4";
 import { view } from "./view.js?v=1";
-import { draw, drawAllLayers } from "./draw.js?v=10";
+import { draw, drawAllLayers } from "./draw.js?v=11";
 import { canvas, ctx, undoButton } from "../dom.js?v=5";
 import { commentHitTest, commentScreenGeometry, COMMENT_FONT } from "./comment-geometry.js?v=2";
 import { normalizeRect, rectIsDegenerate, marqueeHits } from "./marquee.js?v=1";
 import { shouldCanvasClickBeBlocked } from "../comment-mode.js?v=1";
 import { commentOverlayRefs, openCommentEditor, anchorCommentOverlay } from "../comment-overlay.js?v=2";
-import { setStatus, save, render, activateLabel, toggleAnnotationsHidden, unhideAllObjects, editBlockReason } from "../components/workspace.js?v=27";
+import { setStatus, save, render, activateLabel, toggleAnnotationsHidden, unhideAllObjects, editBlockReason } from "../components/workspace.js?v=28";
 import { labelIndexForCode, hideTargetIdsWhileDrawing, shouldHide, hideKeyAction, drawHideKeyAction, DRAW_PEEK_MS } from "../shortcuts.js?v=4";
-import { performMagicWandSegmentation } from "../ai/detect.js?v=4";
+import { performMagicWandSegmentation } from "../ai/detect.js?v=5";
 import { annotationSettings } from "../feature-flags.js?v=5";
 import { isTypingTarget } from "../typing-target.js?v=1";
+import { needsDeleteConfirm } from "../wipe-guard.js?v=1";
+import { confirmDialog } from "../components/confirm-dialog.js?v=1";
 
 export function canvasPoint(event) {
   const rect = canvas.getBoundingClientRect();
@@ -339,7 +341,9 @@ export function finalizePolygon() {
   if (!annotation || (annotation.points || []).length < 3) {
     // Remove incomplete polygon
     if (annotation) {
+      const before = state.annotations;
       state.annotations = state.annotations.filter((item) => item.id !== annotation.id);
+      noteUserRemoved(before, state.annotations);
       state.selectedId = null;
     }
     render();
@@ -444,7 +448,10 @@ export function undoAction() {
 
   const restored = JSON.parse(previous);
   // state.labels is untouched: classes are project-level, not undoable (state.js).
+  // Undoing a draw removes that shape; it is the user's removal like any other.
+  const beforeUndo = state.annotations;
   state.annotations = restored.annotations;
+  noteUserRemoved(beforeUndo, state.annotations);
   state.selectedId = restored.selectedId;
 
   if (view.drag?.type === "draw-polygon") {
@@ -476,7 +483,10 @@ export function redoAction() {
 
   const restored = JSON.parse(next);
   // state.labels is untouched: classes are project-level, not undoable (state.js).
+  // Redoing a delete removes those shapes again.
+  const beforeRedo = state.annotations;
   state.annotations = restored.annotations;
+  noteUserRemoved(beforeRedo, state.annotations);
   state.selectedId = restored.selectedId;
 
   if (view.drag?.type === "draw-polygon") {
@@ -545,15 +555,46 @@ export function setZoom(newZoom, mouseX, mouseY) {
 
 export function deleteSelected() {
   if (state.selectedIds.size === 0) return;
+  // The ids are captured now: the dialog below is asynchronous, and whatever
+  // the selection becomes meanwhile, the confirmed delete must be exactly the
+  // one the user was asked about.
+  const ids = new Set(state.selectedIds);
+  const count = state.annotations.filter((item) => ids.has(item.id)).length;
+  const total = state.annotations.length;
+  // Ask only when the delete is large enough that the server's wipe guard
+  // would refuse losing it by accident (wipe-guard.js). The everyday
+  // few-shape delete stays one keypress — a prompt there only trains people
+  // to click through it.
+  if (needsDeleteConfirm(count, total)) {
+    confirmDialog({
+      title: "Delete objects?",
+      message:
+        `Delete ${count} of the ${total} objects on this image?\n\n` +
+        "You can undo this with Ctrl+Z as long as you stay on this task.",
+      confirmLabel: `Delete ${count}`,
+    }).then((ok) => {
+      if (ok) applyDelete(ids);
+    });
+    return;
+  }
+  applyDelete(ids);
+}
+
+function applyDelete(ids) {
+  // Re-read against the canvas as it is now: an id that has since gone (an
+  // undo while the dialog was open, say) is simply not deleted twice.
+  if (!state.annotations.some((item) => ids.has(item.id))) return;
   snapshot();
   // If deleting the polygon being drawn, clean up view.drag state
-  if (view.drag?.type === "draw-polygon" && state.selectedIds.has(view.drag.annotationId)) {
+  if (view.drag?.type === "draw-polygon" && ids.has(view.drag.annotationId)) {
     view.drag = null;
   }
   // Drop visibility state for the ids going away, so the set does not grow
   // unboundedly across a session.
-  state.selectedIds.forEach((id) => state.hiddenAnnotationIds.delete(id));
-  state.annotations = state.annotations.filter((item) => !state.selectedIds.has(item.id));
+  ids.forEach((id) => state.hiddenAnnotationIds.delete(id));
+  const before = state.annotations;
+  state.annotations = state.annotations.filter((item) => !ids.has(item.id));
+  noteUserRemoved(before, state.annotations);
   state.selectedIds.clear();
   state.selectedId = null;
   // The pending shape may be the one just deleted; there is nothing left to
@@ -817,6 +858,8 @@ export function mergeSelectedAnnotations() {
   const insertAt = state.annotations.findIndex((a) => consumedIds.has(a.id));
   const remaining = state.annotations.filter((a) => !consumedIds.has(a.id));
   remaining.splice(insertAt, 0, ...mergedShapes);
+  // The inputs are consumed into new shapes with new ids: removed, by the user.
+  noteUserRemoved(state.annotations, remaining);
   state.annotations = remaining;
 
   // The consumed ids are gone; leaving them in these sets would hide or
@@ -1651,7 +1694,9 @@ canvas.addEventListener("pointercancel", () => {
   if (view.drag?.type === "draw-polygon") {
     const annotation = state.annotations.find((item) => item.id === view.drag.annotationId);
     if (annotation && (annotation.points || []).length < 3) {
+      const before = state.annotations;
       state.annotations = state.annotations.filter((item) => item.id !== annotation.id);
+      noteUserRemoved(before, state.annotations);
     }
   }
   // A cancelled marquee never happened: the provisional selection painted
@@ -1925,7 +1970,9 @@ window.addEventListener("keydown", (event) => {
     if (view.drag?.type === "draw-polygon") {
       const annotation = state.annotations.find((item) => item.id === view.drag.annotationId);
       if (annotation) {
+        const before = state.annotations;
         state.annotations = state.annotations.filter((item) => item.id !== annotation.id);
+        noteUserRemoved(before, state.annotations);
       }
     }
     state.selectedId = null;
