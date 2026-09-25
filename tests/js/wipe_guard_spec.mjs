@@ -287,7 +287,7 @@ st.state.projectId = 7;
 // Driven through the real handlers, so dropping the bookkeeping from any of
 // them fails here rather than as a refused save in production.
 {
-  const ix = await import(js('canvas/interactions.js?v=27'));
+  const ix = await import(js('canvas/interactions.js?v=28'));
   st.state.gallery = [{ id: 20 }];
   st.state.galleryIndex = 0;
   const g = st.beginHydration();

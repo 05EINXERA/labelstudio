@@ -36,8 +36,8 @@ import {
 import {
   finalizePolygon, deleteSelected, undoAction, redoAction, setZoomChangeHandler,
   toggleVertexHandles
-} from "./canvas/interactions.js?v=27";
-import { initContextMenu } from "./canvas/context-menu.js?v=12";
+} from "./canvas/interactions.js?v=28";
+import { initContextMenu } from "./canvas/context-menu.js?v=13";
 import { confirmDialog } from "./components/confirm-dialog.js?v=1";
 import { getCurrentUser } from "./session.js?v=2";
 import { wireBreakOverlay } from "./components/break-overlay.js?v=2";
@@ -50,7 +50,7 @@ import {
 } from "./canvas-permissions.js?v=10";
 import { isFrozenForRole } from "./task-status.js?v=3";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
-import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=11";
+import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=12";
 import { claimTask, heartbeatTask, releaseTask } from "./task-lock.js?v=3";
 import { initOpacityControls } from "./opacity-controls.js?v=7";
 import { initVertexControls } from "./vertex-controls.js?v=1";

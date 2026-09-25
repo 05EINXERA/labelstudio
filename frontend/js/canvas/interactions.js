@@ -1597,6 +1597,11 @@ canvas.addEventListener("pointerup", (e) => {
     // snapshot() was already taken at pointerdown, so one Ctrl+Z undoes the
     // move and the untangle together — they are one edit from the user's side.
     if (untangled) render();
+    // With handles hidden ("V") the dragged vertex is the only disc on screen,
+    // drawn because it was being dragged. The last frame still shows it, so
+    // repaint the interactive layer now; otherwise it lingers until the
+    // pointer next moves. With handles shown every disc is drawn anyway.
+    else if (state.verticesHidden || state.verticesPeekHidden) draw();
     save();
     return;
   }
