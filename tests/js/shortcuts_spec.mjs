@@ -25,7 +25,7 @@
  * The module imports nothing, so no DOM shim is needed.
  */
 const url = new URL('../../frontend/js/shortcuts.js', import.meta.url);
-const { labelIndexForCode, hideTargetIds, hideTargetIdsWhileDrawing, shouldHide, hideKeyAction, drawHideKeyAction, DRAW_PEEK_MS, MAX_CLASS_SHORTCUTS } = await import(url);
+const { labelIndexForCode, hideTargetIds, hideTargetIdsWhileDrawing, shouldHide, hideKeyAction, drawHideKeyAction, DRAW_PEEK_MS, MAX_CLASS_SHORTCUTS, visibleHandleIndices } = await import(url);
 
 let pass = 0, fail = 0;
 const ok = (name, cond) => {
@@ -441,6 +441,60 @@ const samePress = (() => {
   return sticky;
 })();
 ok("a hold still rolls back its own press's tap", samePress.has('X') === false);
+
+// ── "V": which vertex handles are drawn ──────────────────────────────────────
+const sorted = (set) => (set ? [...set].sort((a, b) => a - b) : set);
+ok('handles shown -> null (draw all, no allocation)', visibleHandleIndices({ hidden: false, count: 5, hovered: 2 }) === null);
+ok('hidden, nothing active -> no handles', sorted(visibleHandleIndices({ hidden: true, count: 5 })).length === 0);
+ok('hidden never shows the hovered vertex', sorted(visibleHandleIndices({ hidden: true, count: 5, hovered: 3 })).length === 0);
+ok('hidden keeps the dragged vertex', JSON.stringify(sorted(visibleHandleIndices({ hidden: true, count: 5, dragging: 1 }))) === '[1]');
+ok('hidden keeps the start point while drawing', JSON.stringify(sorted(visibleHandleIndices({ hidden: true, count: 4, drawingStart: true }))) === '[0]');
+ok('dragged + start combine, hover ignored', JSON.stringify(sorted(visibleHandleIndices({ hidden: true, count: 6, hovered: 4, dragging: 2, drawingStart: true }))) === '[0,2]');
+ok('stale out-of-range drag index is dropped', sorted(visibleHandleIndices({ hidden: true, count: 3, dragging: 7 })).length === 0);
+ok('empty shape draws no start point', sorted(visibleHandleIndices({ hidden: true, count: 0, drawingStart: true })).length === 0);
+
+// V reuses hideKeyAction with its own flags. Simulate the V state machine (a
+// single boolean, no ids) and an H hold interleaved with it: each key must
+// keep its own peek, so releasing one never ends the other.
+function vMachine() {
+  return { sticky: false, peek: false, lastTap: null, pressId: 0 };
+}
+function stepV(m, e) {
+  if (e.type === 'keydown' && !e.repeat) m.pressId += 1;
+  const action = hideKeyAction({ ...e, peeking: m.peek });
+  if (action === 'toggle') { m.lastTap = { was: m.sticky, press: m.pressId }; m.sticky = !m.sticky; }
+  else if (action === 'peek-start') {
+    if (m.lastTap && m.lastTap.press === m.pressId) m.sticky = m.lastTap.was;
+    m.lastTap = null; m.peek = true;
+  } else if (action === 'peek-end') { m.peek = false; m.lastTap = null; }
+  return m;
+}
+{
+  const m = vMachine();
+  stepV(m, { type: 'keydown', repeat: false }); stepV(m, { type: 'keyup', repeat: false });
+  ok('V tap hides', m.sticky === true && m.peek === false);
+  stepV(m, { type: 'keydown', repeat: false }); stepV(m, { type: 'keyup', repeat: false });
+  ok('V second tap shows', m.sticky === false);
+}
+for (const start of [false, true]) {
+  const m = vMachine(); m.sticky = start;
+  const seen = [];
+  for (const e of HOLD_EVENTS) { stepV(m, e); seen.push(m.sticky || m.peek); }
+  ok(`V hold from ${start ? 'hidden' : 'shown'} hides while held`, seen[1] === true && seen[2] === true);
+  ok(`V hold from ${start ? 'hidden' : 'shown'} restores the sticky state`, m.sticky === start && m.peek === false);
+}
+{
+  // Hold H and V together, release V first, then H.
+  const v = vMachine(); let hPeek = false;
+  stepV(v, { type: 'keydown', repeat: false });
+  hideKeyAction({ type: 'keydown', repeat: false, peeking: hPeek });
+  stepV(v, { type: 'keydown', repeat: true });
+  if (hideKeyAction({ type: 'keydown', repeat: true, peeking: hPeek }) === 'peek-start') hPeek = true;
+  stepV(v, { type: 'keyup', repeat: false });
+  ok('releasing V ends only the V peek', v.peek === false && hPeek === true);
+  if (hideKeyAction({ type: 'keyup', repeat: false, peeking: hPeek }) === 'peek-end') hPeek = false;
+  ok('releasing H afterwards ends the H peek; V back to shown', hPeek === false && v.sticky === false);
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
