@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Label Studio</title>
   <link rel="icon" type="image/png" href="logo.png">
-  <link rel="stylesheet" href="styles.css?v=38">
+  <link rel="stylesheet" href="styles.css?v=39">
   <!-- sync.js (legacy global annotation-slot sync to /api/data) removed in T3.1.
        Under a shared account the 'image-annotation-mvp-v1' row was last-writer-wins
        across all 25 clients. Per-task localStorage drafts (workspace.js restoreDraft)
@@ -337,6 +337,16 @@
           </div>
         </div>
 
+        <!-- Vertex handle visibility ("V"). Same chip as "Selected" so the two
+             line up; state and colour are set by vertex-controls.js. -->
+        <div class="tool-group vertex-tool-group" role="group" aria-label="Vertex handles">
+          <span class="tool-group-label">Vertex</span>
+          <div class="tool-group-buttons">
+            <button type="button" id="vertexToggle" class="selection-chip vertex-chip is-on" aria-pressed="true"
+              title="Show or hide vertex handles on selected shapes (V). Hold V to hide them while held. Resets on reload.">Vertex : On</button>
+          </div>
+        </div>
+
         <div class="tool-group" role="group" aria-label="Selection status">
           <span class="tool-group-label">Selected</span>
           <div class="tool-group-buttons">
@@ -541,7 +551,7 @@
     </div>
   </div>
 
-  <script type="module" src="js/init.js?v=45"></script>
+  <script type="module" src="js/init.js?v=46"></script>
 
 </body>
 

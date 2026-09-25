@@ -96,6 +96,17 @@ export const state = {
   // nature as the two sets above — session-only view state, never persisted,
   // never sent to the backend, and read only at render time.
   hiddenFilterActive: false,
+  // "V": draw no vertex handles on selected shapes. One flag for the whole
+  // canvas, not a per-object set: handles only ever show on the selection, so
+  // this reads as "hide the selection's handles" and survives reselecting.
+  // Rendering only — hit-testing ignores it, so hidden handles stay editable.
+  // Session-only and deliberately kept across task switches, like the opacity
+  // slider. See .devnotes/feat/hide-vertex/01_DESIGN.md.
+  verticesHidden: false,
+  // The momentary half of "V": true only while the key is held. Kept apart
+  // from verticesHidden for the same reason peekHiddenIds is kept apart from
+  // hiddenAnnotationIds — a release just clears it.
+  verticesPeekHidden: false,
   activeLabelId: null,
   mode: "select",
   shape: "polygon",
@@ -290,6 +301,9 @@ export function resetWorkspaceForNewImage() {
   // "hidden only" list. See .devnotes/object-selection/01_DESIGN.md § 5.1.
   state.hiddenAnnotationIds.clear();
   state.peekHiddenIds.clear();
+  // Only the hold is dropped; the sticky "V" choice is a view preference and
+  // carries on to the next task.
+  state.verticesPeekHidden = false;
   state.hiddenLabelIds.clear();
   state.hiddenFilterActive = false;
   clearHistory();

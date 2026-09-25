@@ -1,14 +1,14 @@
 import { generateUUID, round } from "../utils.js?v=2";
 import { apiFetch, pollJob } from "../api.js?v=5";
-import { state, colorForName, labelByName, snapshot, selectedAnnotation, noteUserRemoved } from "../state.js?v=12";
+import { state, colorForName, labelByName, snapshot, selectedAnnotation, noteUserRemoved } from "../state.js?v=13";
 import { updateAnnotationBounds } from "../canvas/geometry.js?v=1";
 import { view } from "../canvas/view.js?v=1";
 import { detectState } from "./detect-state.js?v=3";
-import { getImageSrcForAPI } from "./shared.js?v=2";
+import { getImageSrcForAPI } from "./shared.js?v=3";
 import { autoDetectButton } from "../dom.js?v=5";
 import {
   setStatus, ensureLabel, save, render
-} from "../components/workspace.js?v=29";
+} from "../components/workspace.js?v=30";
 
 export function setDetectionBusy(isBusy) {
   detectState.detectionBusy = isBusy;
