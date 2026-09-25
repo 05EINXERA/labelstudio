@@ -169,3 +169,30 @@ export function drawHideKeyAction({ type, repeat, peeking, timed } = {}) {
   if (peeking && !timed) return "none";
   return "peek-start";
 }
+
+/**
+ * Which vertex handles of one shape to draw, given the "V" toggle.
+ *
+ * Returns null for "all of them", so the ordinary path allocates nothing and
+ * the caller's loop is unchanged. When handles are hidden it returns only the
+ * ones the annotator is actively working with:
+ *  - `dragging` the vertex being moved — it appears only once it is actually
+ *               grabbed, never on hover;
+ *  - `drawingStart` the start point of a polygon in progress, which is the
+ *               only way to see where to click to close it.
+ *
+ * The hovered vertex is deliberately NOT kept: a disc popping up under the
+ * cursor covers the very border the toggle exists to reveal. Hovering one is
+ * still signalled by the usual vertex cursor, and a click still grabs it. Out-of-range indices are dropped rather than trusted.
+ * Rendering only. Hit-testing never consults this, so hidden handles stay
+ * fully editable.
+ * See .devnotes/feat/hide-vertex/01_DESIGN.md D2-D3.
+ */
+export function visibleHandleIndices({ hidden, count, dragging = -1, drawingStart = false } = {}) {
+  if (!hidden) return null;
+  const keep = new Set();
+  const n = Number(count) || 0;
+  if (Number.isInteger(dragging) && dragging >= 0 && dragging < n) keep.add(dragging);
+  if (drawingStart && n > 0) keep.add(0);
+  return keep;
+}

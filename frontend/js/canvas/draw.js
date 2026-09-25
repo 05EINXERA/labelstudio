@@ -1,5 +1,5 @@
 import { canvas, ctx, imageCanvas, imageCtx, staticCanvas, staticCtx } from "../dom.js?v=5";
-import { state, labelById, isAnnotationHidden } from "../state.js?v=12";
+import { state, labelById, isAnnotationHidden } from "../state.js?v=13";
 import { annotationOpacity } from "../feature-flags.js?v=6";
 import { view } from "./view.js?v=1";
 import { annotationPoints, hexToRgba } from "./geometry.js?v=1";
@@ -8,6 +8,7 @@ import {
   commentScreenGeometry, COMMENT_FONT, COMMENT_PILL_RADIUS,
   COMMENT_TEXT_INSET_X, COMMENT_TEXT_BASELINE_Y
 } from "./comment-geometry.js?v=2";
+import { visibleHandleIndices } from "../shortcuts.js?v=7";
 import { repositionCommentOverlay } from "../comment-overlay.js?v=2";
 
 export function computeImageBox() {
@@ -351,12 +352,25 @@ export function drawAnnotation(annotation, selected = false, targetCtx = ctx) {
   }
 
   if (selected) {
-    drawVertexHandles(screenPoints, label.color, targetCtx, isBeingDrawn);
+    // With handles hidden ("V"), only the vertex being dragged and a
+    // polygon's start point are drawn — never the hovered one.
+    const keep = visibleHandleIndices({
+      hidden: state.verticesHidden || state.verticesPeekHidden,
+      count: screenPoints.length,
+      dragging: view.drag?.type === "move-point" && view.drag.annotationId === annotation.id
+        ? view.drag.pointIndex : -1,
+      drawingStart: isBeingDrawn,
+    });
+    drawVertexHandles(screenPoints, label.color, targetCtx, isBeingDrawn, keep);
   }
   targetCtx.restore();
 }
 
-export function drawVertexHandles(points, color, targetCtx = ctx, isBeingDrawn = false) {
+/**
+ * `only` is null to draw every handle, or a Set of the indices to draw (the
+ * "V" toggle — see visibleHandleIndices in shortcuts.js).
+ */
+export function drawVertexHandles(points, color, targetCtx = ctx, isBeingDrawn = false, only = null) {
   // Shrinks as the annotator zooms in, with a floor — a handle fixed in screen
   // pixels covers the very detail being annotated at high zoom. See
   // handle-size.js and the vertexHandleFalloff note in feature-flags.js.
@@ -364,6 +378,7 @@ export function drawVertexHandles(points, color, targetCtx = ctx, isBeingDrawn =
   targetCtx.strokeStyle = color;
   targetCtx.lineWidth = vertexHandleLineWidth(radius);
   points.forEach((point, i) => {
+    if (only && !only.has(i)) return;
     targetCtx.beginPath();
     targetCtx.arc(point.x, point.y, radius, 0, Math.PI * 2);
     if (i === 0 && isBeingDrawn) {

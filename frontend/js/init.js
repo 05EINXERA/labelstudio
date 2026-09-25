@@ -6,7 +6,7 @@ import {
   hydrationSaveBlock, currentHydrationGeneration, noteHydratedAnnotationCount,
   noteHydratedAnnotations, annotationsChangedSinceHydration, openTaskWasHydrated,
   noteUserRemoved, pendingDeletedIds, acknowledgeDeletedIds, noteServerAnnotationIds
-} from "./state.js?v=12";
+} from "./state.js?v=13";
 import { view } from "./canvas/view.js?v=1";
 import { commentOverlayRefs, clearCommentOverlayAnchor } from "./comment-overlay.js?v=2";
 import { backspaceAction, modeAfterCommentCommit } from "./comment-mode.js?v=1";
@@ -16,27 +16,28 @@ import {
   autoDetectButton, undoButton, redoButton, deleteButton, clearButton, unhideAllButton,
   assignTaskButton, saveButton
 } from "./dom.js?v=5";
-import { drawAllLayers } from "./canvas/draw.js?v=12";
+import { drawAllLayers } from "./canvas/draw.js?v=15";
 import {
   setStatus, syncToBackend, save, loadSaved, saveDraft, restoreDraft,
   render, manualSaveWithUI, refreshSaveStatus, pruneStaleDrafts, unhideAllObjects,
   setLocalRefusalHandler
-} from "./components/workspace.js?v=29";
+} from "./components/workspace.js?v=32";
 import {
   configureQueue, startQueue, subscribe as subscribeQueue, drainQueue,
   enqueueWrite, retryablePendingCount, noteServerReachable, noteServerUnreachable,
   peekWrite as peekQueuedWrite, discardWrite as discardQueuedWrite
 } from "./offline-queue.js?v=6";
-import { autoDetectObjects, autoTagObjects } from "./ai/detect.js?v=6";
+import { autoDetectObjects, autoTagObjects } from "./ai/detect.js?v=9";
 import {
   syncTaskTime, syncTimeToServer, drainTaskTime, setActiveTaskResolver,
   setConflictHandler, resetSessionForTask, refreshTimerDisplays,
   handleVisibilityChange, setFrozenResolver, setEditedResolver, setDeletionTracker
 } from "./components/timer.js?v=10";
 import {
-  finalizePolygon, deleteSelected, undoAction, redoAction, setZoomChangeHandler
-} from "./canvas/interactions.js?v=24";
-import { initContextMenu } from "./canvas/context-menu.js?v=9";
+  finalizePolygon, deleteSelected, undoAction, redoAction, setZoomChangeHandler,
+  toggleVertexHandles
+} from "./canvas/interactions.js?v=28";
+import { initContextMenu } from "./canvas/context-menu.js?v=13";
 import { confirmDialog } from "./components/confirm-dialog.js?v=1";
 import { getCurrentUser } from "./session.js?v=2";
 import { wireBreakOverlay } from "./components/break-overlay.js?v=2";
@@ -49,9 +50,10 @@ import {
 } from "./canvas-permissions.js?v=10";
 import { isFrozenForRole } from "./task-status.js?v=3";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
-import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=8";
+import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=12";
 import { claimTask, heartbeatTask, releaseTask } from "./task-lock.js?v=3";
-import { initOpacityControls } from "./opacity-controls.js?v=4";
+import { initOpacityControls } from "./opacity-controls.js?v=7";
+import { initVertexControls } from "./vertex-controls.js?v=1";
 
 if (!localStorage.getItem('logged_in')) {
   window.location.href = '/';
@@ -1629,6 +1631,10 @@ if (tcOk) tcOk.addEventListener('click', closeTaskCompletedModal);
 // Initialise the Opacity slider (selected-annotation fill opacity).
 // Session-only: it is not restored from storage and resets on reload.
 initOpacityControls();
+
+// The "Vertex : On / Off" pill. A click is a tap of "V"; the toggle lives in
+// interactions.js and is handed in so the two modules do not import each other.
+initVertexControls(toggleVertexHandles);
 
 // The declared-break overlay. Pauses the annotation timer and opens an
 // attendance break interval, so one user action owns the interval rather than

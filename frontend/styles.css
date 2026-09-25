@@ -3444,3 +3444,35 @@ body.is-read-only #deleteButton {
 .modal-footer button.confirm-danger:focus-visible {
   filter: brightness(0.92);
 }
+
+/* ── Vertex handle pill ("V") ───────────────────────────────────────────────
+   A .selection-chip, so it matches the "Selected" readout beside it; these
+   rules only add the button affordance and the On/Off colouring, using the
+   theme tokens. "On" = handles visible (accent), "Off" = hidden (muted). */
+
+.vertex-chip {
+  cursor: pointer;
+  border-style: solid;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.vertex-chip.is-on {
+  background: rgba(15, 139, 141, 0.12);
+  border-color: var(--accent);
+  color: var(--accent-dark);
+}
+
+.vertex-chip.is-off {
+  background: var(--panel-2);
+  border-color: var(--line);
+  color: var(--muted);
+}
+
+.vertex-chip:hover {
+  border-color: var(--accent-dark);
+}
+
+.vertex-chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}

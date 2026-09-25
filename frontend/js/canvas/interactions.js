@@ -1,18 +1,19 @@
 import { generateUUID, clamp, round } from "../utils.js?v=2";
-import { state, snapshot, isAnnotationHidden, labelById, labelDisplayName, noteUserRemoved } from "../state.js?v=12";
+import { state, snapshot, isAnnotationHidden, labelById, labelDisplayName, noteUserRemoved } from "../state.js?v=13";
 import { annotationPoints, updateAnnotationBounds, pointInPolygon } from "./geometry.js?v=1";
 import { untangleRing } from "./untangle.js?v=3";
 import { unionAll } from "./merge.js?v=4";
 import { view } from "./view.js?v=1";
-import { draw, drawAllLayers } from "./draw.js?v=12";
+import { draw, drawAllLayers } from "./draw.js?v=15";
 import { canvas, ctx, undoButton } from "../dom.js?v=5";
 import { commentHitTest, commentScreenGeometry, COMMENT_FONT } from "./comment-geometry.js?v=2";
 import { normalizeRect, rectIsDegenerate, marqueeHits } from "./marquee.js?v=1";
 import { shouldCanvasClickBeBlocked } from "../comment-mode.js?v=1";
 import { commentOverlayRefs, openCommentEditor, anchorCommentOverlay } from "../comment-overlay.js?v=2";
-import { setStatus, save, render, activateLabel, toggleAnnotationsHidden, unhideAllObjects, editBlockReason } from "../components/workspace.js?v=29";
-import { labelIndexForCode, hideTargetIdsWhileDrawing, shouldHide, hideKeyAction, drawHideKeyAction, DRAW_PEEK_MS } from "../shortcuts.js?v=4";
-import { performMagicWandSegmentation } from "../ai/detect.js?v=6";
+import { setStatus, save, render, activateLabel, toggleAnnotationsHidden, unhideAllObjects, editBlockReason } from "../components/workspace.js?v=32";
+import { labelIndexForCode, hideTargetIdsWhileDrawing, shouldHide, hideKeyAction, drawHideKeyAction, DRAW_PEEK_MS } from "../shortcuts.js?v=7";
+import { syncVertexPill } from "../vertex-controls.js?v=1";
+import { performMagicWandSegmentation } from "../ai/detect.js?v=9";
 import { annotationSettings } from "../feature-flags.js?v=6";
 import { isTypingTarget } from "../typing-target.js?v=1";
 import { needsDeleteConfirm } from "../wipe-guard.js?v=1";
@@ -1596,6 +1597,11 @@ canvas.addEventListener("pointerup", (e) => {
     // snapshot() was already taken at pointerdown, so one Ctrl+Z undoes the
     // move and the untangle together — they are one edit from the user's side.
     if (untangled) render();
+    // With handles hidden ("V") the dragged vertex is the only disc on screen,
+    // drawn because it was being dragged. The last frame still shows it, so
+    // repaint the interactive layer now; otherwise it lingers until the
+    // pointer next moves. With handles shown every disc is drawn anyway.
+    else if (state.verticesHidden || state.verticesPeekHidden) draw();
     save();
     return;
   }
@@ -1878,6 +1884,75 @@ function applyHideAction(action) {
   setStatus("Hiding while held");
 }
 
+// ── "V": hide / show vertex handles ─────────────────────────────────────────
+// The same tap/hold gesture as "H", driven by the same pure hideKeyAction, but
+// over one boolean instead of a set of ids. Every variable is V's own: sharing
+// H's peekActive/lastTap/pressId would let releasing one key end the other's
+// hold. No mid-draw timed variant — hidden handles are not a trap the way a
+// hidden shape is (the outline and the start point stay on screen), so a tap
+// mid-draw is the ordinary sticky toggle. See
+// .devnotes/feat/hide-vertex/01_DESIGN.md D4-D5.
+let vPeekActive = false;
+// What this press's tap flipped verticesHidden *from*, so a hold can put it
+// back exactly. Tagged with the press, as H's lastTap is.
+let vLastTap = null;
+let vPressId = 0;
+
+/**
+ * Carry out one hideKeyAction() decision for "V". Exported through
+ * toggleVertexHandles for the toolbar pill, so a click and a key tap share one
+ * path. Repaints with draw() only: handles live on the interactive layer, so
+ * the static layer and the Objects panel never need to change.
+ */
+function applyVertexHideAction(action) {
+  if (action === "peek-end") {
+    if (!vPeekActive) return;
+    vPeekActive = false;
+    vLastTap = null;
+    state.verticesPeekHidden = false;
+    syncVertexPill();
+    draw();
+    return;
+  }
+
+  if (action === "toggle") {
+    vLastTap = { was: state.verticesHidden, press: vPressId };
+    state.verticesHidden = !state.verticesHidden;
+    syncVertexPill();
+    draw();
+    const hasTarget = state.selectedIds.size > 0 || view.drag?.type === "draw-polygon";
+    const word = state.verticesHidden ? "hidden" : "shown";
+    // V still works with nothing selected (it is a view setting), but a press
+    // that visibly does nothing must say why.
+    setStatus(hasTarget ? `Vertices ${word}` : `Vertices ${word} — applies to selected objects`);
+    return;
+  }
+
+  if (action === "peek-start") {
+    // Undo this press's own tap, never an earlier press's (see H's pressId).
+    if (vLastTap && vLastTap.press === vPressId) state.verticesHidden = vLastTap.was;
+    vLastTap = null;
+    vPeekActive = true;
+    state.verticesPeekHidden = true;
+    syncVertexPill();
+    draw();
+    setStatus("Hiding vertices while held");
+  }
+}
+
+/** The toolbar pill's click: exactly a tap of "V". */
+export function toggleVertexHandles() {
+  // A click is a press of its own, so a later hold cannot roll it back.
+  vPressId += 1;
+  applyVertexHideAction("toggle");
+}
+
+window.addEventListener("keyup", (event) => {
+  if (event.key?.toLowerCase() !== "v") return;
+  // No typing-target guard, as for H: a hold must end even if focus moved.
+  applyVertexHideAction(hideKeyAction({ type: "keyup", repeat: false, peeking: vPeekActive }));
+});
+
 window.addEventListener("keyup", (event) => {
   if (event.key?.toLowerCase() !== "h") return;
   // No typing-target guard, deliberately: if focus moved into a field mid-hold, the
@@ -1890,6 +1965,7 @@ window.addEventListener("keyup", (event) => {
 // DevTools open). Without this the peek would strand shapes hidden.
 window.addEventListener("blur", () => {
   if (peekActive) applyHideAction("peek-end");
+  if (vPeekActive) applyVertexHideAction("peek-end");
 });
 
 window.addEventListener("keydown", (event) => {
@@ -2079,6 +2155,16 @@ window.addEventListener("keydown", (event) => {
     }
     render();
     setStatus(`Shown ${revealed} hidden object${revealed === 1 ? "" : "s"}`);
+    return;
+  }
+
+  // "V" hides or shows the vertex handles of the selection — the outline stays,
+  // so the border can be checked without the discs covering it. Tap toggles,
+  // hold hides until release. Ctrl/Cmd+V (paste) and Alt+V are left alone.
+  if (event.key.toLowerCase() === "v" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    event.preventDefault();
+    if (!event.repeat) vPressId += 1;
+    applyVertexHideAction(hideKeyAction({ type: "keydown", repeat: event.repeat, peeking: vPeekActive }));
     return;
   }
 
