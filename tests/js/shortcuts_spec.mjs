@@ -25,7 +25,7 @@
  * The module imports nothing, so no DOM shim is needed.
  */
 const url = new URL('../../frontend/js/shortcuts.js', import.meta.url);
-const { labelIndexForCode, hideTargetIds, hideTargetIdsWhileDrawing, shouldHide, hideKeyAction, drawHideKeyAction, DRAW_PEEK_MS, MAX_CLASS_SHORTCUTS, visibleHandleIndices } = await import(url);
+const { labelIndexForCode, hideTargetIds, hideTargetIdsWhileDrawing, shouldHide, hideKeyAction, drawHideKeyAction, DRAW_PEEK_MS, MAX_CLASS_SHORTCUTS, visibleHandleIndices, vertexHoverCursor } = await import(url);
 
 let pass = 0, fail = 0;
 const ok = (name, cond) => {
@@ -446,11 +446,13 @@ ok("a hold still rolls back its own press's tap", samePress.has('X') === false);
 const sorted = (set) => (set ? [...set].sort((a, b) => a - b) : set);
 ok('handles shown -> null (draw all, no allocation)', visibleHandleIndices({ hidden: false, count: 5, hovered: 2 }) === null);
 ok('hidden, nothing active -> no handles', sorted(visibleHandleIndices({ hidden: true, count: 5 })).length === 0);
-ok('hidden keeps the hovered vertex', JSON.stringify(sorted(visibleHandleIndices({ hidden: true, count: 5, hovered: 3 }))) === '[3]');
+ok('hidden never shows the hovered vertex', sorted(visibleHandleIndices({ hidden: true, count: 5, hovered: 3 })).length === 0);
 ok('hidden keeps the dragged vertex', JSON.stringify(sorted(visibleHandleIndices({ hidden: true, count: 5, dragging: 1 }))) === '[1]');
 ok('hidden keeps the start point while drawing', JSON.stringify(sorted(visibleHandleIndices({ hidden: true, count: 4, drawingStart: true }))) === '[0]');
-ok('hovered + dragged + start combine', JSON.stringify(sorted(visibleHandleIndices({ hidden: true, count: 6, hovered: 4, dragging: 2, drawingStart: true }))) === '[0,2,4]');
-ok('stale out-of-range hover is dropped', sorted(visibleHandleIndices({ hidden: true, count: 3, hovered: 7 })).length === 0);
+ok('dragged + start combine, hover ignored', JSON.stringify(sorted(visibleHandleIndices({ hidden: true, count: 6, hovered: 4, dragging: 2, drawingStart: true }))) === '[0,2]');
+ok('stale out-of-range drag index is dropped', sorted(visibleHandleIndices({ hidden: true, count: 3, dragging: 7 })).length === 0);
+ok('vertex hover cursor: crosshair when handles show', vertexHoverCursor(false) === 'crosshair');
+ok('vertex hover cursor: plain arrow when hidden', vertexHoverCursor(true) === 'default');
 ok('empty shape draws no start point', sorted(visibleHandleIndices({ hidden: true, count: 0, drawingStart: true })).length === 0);
 
 // V reuses hideKeyAction with its own flags. Simulate the V state machine (a

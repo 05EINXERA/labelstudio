@@ -4,16 +4,16 @@ import { annotationPoints, updateAnnotationBounds, pointInPolygon } from "./geom
 import { untangleRing } from "./untangle.js?v=3";
 import { unionAll } from "./merge.js?v=4";
 import { view } from "./view.js?v=1";
-import { draw, drawAllLayers } from "./draw.js?v=13";
+import { draw, drawAllLayers } from "./draw.js?v=14";
 import { canvas, ctx, undoButton } from "../dom.js?v=5";
 import { commentHitTest, commentScreenGeometry, COMMENT_FONT } from "./comment-geometry.js?v=2";
 import { normalizeRect, rectIsDegenerate, marqueeHits } from "./marquee.js?v=1";
 import { shouldCanvasClickBeBlocked } from "../comment-mode.js?v=1";
 import { commentOverlayRefs, openCommentEditor, anchorCommentOverlay } from "../comment-overlay.js?v=2";
-import { setStatus, save, render, activateLabel, toggleAnnotationsHidden, unhideAllObjects, editBlockReason } from "../components/workspace.js?v=30";
-import { labelIndexForCode, hideTargetIdsWhileDrawing, shouldHide, hideKeyAction, drawHideKeyAction, DRAW_PEEK_MS } from "../shortcuts.js?v=5";
+import { setStatus, save, render, activateLabel, toggleAnnotationsHidden, unhideAllObjects, editBlockReason } from "../components/workspace.js?v=31";
+import { labelIndexForCode, hideTargetIdsWhileDrawing, shouldHide, hideKeyAction, drawHideKeyAction, DRAW_PEEK_MS, vertexHoverCursor } from "../shortcuts.js?v=6";
 import { syncVertexPill } from "../vertex-controls.js?v=1";
-import { performMagicWandSegmentation } from "../ai/detect.js?v=7";
+import { performMagicWandSegmentation } from "../ai/detect.js?v=8";
 import { annotationSettings } from "../feature-flags.js?v=6";
 import { isTypingTarget } from "../typing-target.js?v=1";
 import { needsDeleteConfirm } from "../wipe-guard.js?v=1";
@@ -232,7 +232,7 @@ export function updateCanvasCursor(point) {
     if (state.selectedId) {
       const selected = state.annotations.find(a => a.id === state.selectedId);
       if (selected && hitTestPoint(point, selected) !== -1) {
-        canvas.style.cursor = "crosshair";
+        canvas.style.cursor = vertexHoverCursor(state.verticesHidden || state.verticesPeekHidden);
         return;
       }
     }
@@ -1360,7 +1360,7 @@ canvas.addEventListener("pointermove", (event) => {
           view.hoveredPointIndex = ptIndex;
           draw();
         }
-        canvas.style.cursor = "crosshair";
+        canvas.style.cursor = vertexHoverCursor(state.verticesHidden || state.verticesPeekHidden);
       } else {
         if (view.hoveredPointIndex !== -1) {
           view.hoveredPointIndex = -1;

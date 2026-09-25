@@ -9,7 +9,7 @@ import {
   isAnnotationHidden
 } from "../state.js?v=13";
 import { visibleRows, hiddenRowCount } from "../objects-filter.js?v=1";
-import { MAX_CLASS_SHORTCUTS } from "../shortcuts.js?v=5";
+import { MAX_CLASS_SHORTCUTS } from "../shortcuts.js?v=6";
 import { pendingCount, retryablePendingCount, isServerUnreachable, peekWrite } from "../offline-queue.js?v=6";
 import { coalesce } from "../save-coalesce.js?v=1";
 import { annotationPoints, updateAnnotationBounds } from "../canvas/geometry.js?v=1";
@@ -17,7 +17,7 @@ import { view } from "../canvas/view.js?v=1";
 import { drainTaskTime, DRAIN_SKIPPED, refreshTimerDisplays } from "./timer.js?v=10";
 import { timerState } from "../timer-state.js?v=3";
 import { detectState } from "../ai/detect-state.js?v=3";
-import { draw, drawAllLayers } from "../canvas/draw.js?v=13";
+import { draw, drawAllLayers } from "../canvas/draw.js?v=14";
 import {
   emptyState, classesList, annotationList, annotationCount, selectedInfo,
   hiddenFilterButton, hiddenCount,

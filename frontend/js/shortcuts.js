@@ -175,26 +175,34 @@ export function drawHideKeyAction({ type, repeat, peeking, timed } = {}) {
  *
  * Returns null for "all of them", so the ordinary path allocates nothing and
  * the caller's loop is unchanged. When handles are hidden it returns only the
- * ones the annotator is acting on right now, since hiding those would make
- * editing blind:
- *  - `hovered`  the vertex under the cursor, so an invisible handle is never
- *               grabbed or deleted without the user seeing which one it is;
- *  - `dragging` the vertex being moved;
+ * ones the annotator is actively working with:
+ *  - `dragging` the vertex being moved — it appears only once it is actually
+ *               grabbed, never on hover;
  *  - `drawingStart` the start point of a polygon in progress, which is the
  *               only way to see where to click to close it.
  *
- * Out-of-range indices are dropped rather than trusted: hoveredPointIndex can
- * outlive the shape it was measured on. Rendering only. Hit-testing never
- * consults this, so hidden handles stay fully editable.
+ * The hovered vertex is deliberately NOT kept: a disc popping up under the
+ * cursor covers the very border the toggle exists to reveal. Hovering one is
+ * signalled by the plain arrow cursor instead (vertexHoverCursor), and a click
+ * still grabs it. Out-of-range indices are dropped rather than trusted.
+ * Rendering only. Hit-testing never consults this, so hidden handles stay
+ * fully editable.
  * See .devnotes/feat/hide-vertex/01_DESIGN.md D2-D3.
  */
-export function visibleHandleIndices({ hidden, count, hovered = -1, dragging = -1, drawingStart = false } = {}) {
+export function visibleHandleIndices({ hidden, count, dragging = -1, drawingStart = false } = {}) {
   if (!hidden) return null;
   const keep = new Set();
   const n = Number(count) || 0;
-  [hovered, dragging].forEach((i) => {
-    if (Number.isInteger(i) && i >= 0 && i < n) keep.add(i);
-  });
+  if (Number.isInteger(dragging) && dragging >= 0 && dragging < n) keep.add(dragging);
   if (drawingStart && n > 0) keep.add(0);
   return keep;
+}
+
+/**
+ * Cursor for hovering a vertex of the selected shape. The crosshair normally
+ * marks a grabbable handle; with handles hidden it becomes the plain arrow, so
+ * the border stays unobstructed. The vertex is still grabbed on click.
+ */
+export function vertexHoverCursor(handlesHidden) {
+  return handlesHidden ? "default" : "crosshair";
 }

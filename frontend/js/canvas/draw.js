@@ -8,7 +8,7 @@ import {
   commentScreenGeometry, COMMENT_FONT, COMMENT_PILL_RADIUS,
   COMMENT_TEXT_INSET_X, COMMENT_TEXT_BASELINE_Y
 } from "./comment-geometry.js?v=2";
-import { visibleHandleIndices } from "../shortcuts.js?v=5";
+import { visibleHandleIndices } from "../shortcuts.js?v=6";
 import { repositionCommentOverlay } from "../comment-overlay.js?v=2";
 
 export function computeImageBox() {
@@ -352,13 +352,11 @@ export function drawAnnotation(annotation, selected = false, targetCtx = ctx) {
   }
 
   if (selected) {
-    // With "V" on, only the handles the user is acting on are drawn. The
-    // hovered index is measured against the primary selection only, so it
-    // must not light up the same index on the other selected shapes.
+    // With handles hidden ("V"), only the vertex being dragged and a
+    // polygon's start point are drawn — never the hovered one.
     const keep = visibleHandleIndices({
       hidden: state.verticesHidden || state.verticesPeekHidden,
       count: screenPoints.length,
-      hovered: annotation.id === state.selectedId ? view.hoveredPointIndex : -1,
       dragging: view.drag?.type === "move-point" && view.drag.annotationId === annotation.id
         ? view.drag.pointIndex : -1,
       drawingStart: isBeingDrawn,
