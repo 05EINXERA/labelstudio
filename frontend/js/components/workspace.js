@@ -5,11 +5,11 @@ import {
   state, storageKey, draftKey, colorForName, labelByName, labelById,
   labelDisplayName, snapshot, selectedAnnotation
 } from "../state.js?v=4";
-import { annotationPoints, updateAnnotationBounds } from "../canvas/geometry.js?v=9";
+import { annotationPoints, updateAnnotationBounds } from "../canvas/geometry.js?v=10";
 import { view } from "../canvas/view.js?v=3";
 import { drainTaskTime } from "./timer.js?v=5";
 import { detectState } from "../ai/detect-state.js?v=1";
-import { draw, drawAllLayers } from "../canvas/draw.js?v=6";
+import { draw, drawAllLayers } from "../canvas/draw.js?v=7";
 import {
   emptyState, classesList, annotationList, annotationCount, hiddenObjectsIndicator, selectedInfo,
   drawMode, selectMode, boxMode, polygonMode, commentMode, magicWandMode,

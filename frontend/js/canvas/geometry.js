@@ -74,16 +74,72 @@ export function pointInOrOnPolygon(point, polygon) {
   return inside;
 }
 
+// The stored outline, read in place. annotationPoints() copies the array on
+// every call, which is fine once per shape but not inside per-vertex loops.
+function rawPoints(annotation) {
+  return Array.isArray(annotation?.points) && annotation.points.length >= 1
+    ? annotation.points
+    : annotationPoints(annotation);
+}
+
 export function isPointInsideOtherGroupPolygons(point, currentAnn, groupAnns) {
   if (!groupAnns || groupAnns.length <= 1) return false;
   for (const otherAnn of groupAnns) {
     if (otherAnn === currentAnn) continue;
-    const otherPoints = annotationPoints(otherAnn);
-    if (pointInOrOnPolygon(point, otherPoints)) {
+    if (pointInOrOnPolygon(point, rawPoints(otherAnn))) {
       return true;
     }
   }
   return false;
+}
+
+// One entry per annotation. The key is the annotation object itself, so an
+// entry disappears along with the annotation.
+const hiddenVertexCache = new WeakMap();
+
+function groupGeometrySignature(annotation, groupAnns) {
+  // Built from every member's coordinates, not from array references or lengths.
+  // groupId and points are both changed in place (grouping, vertex drags), so a
+  // cheaper key would keep returning an out-of-date answer. Building it is linear
+  // in the group's vertex count, while the containment test it saves is quadratic.
+  // Hashed rather than joined into a string so a redraw allocates nothing. Two
+  // independent 32-bit mixes make a collision (which would at worst show a stale
+  // handle until the next edit) negligible.
+  let h1 = 0x811c9dc5;
+  let h2 = 0x01000193;
+  const mix = (value) => {
+    const v = Math.round(value * 1000) | 0;
+    h1 = Math.imul(h1 ^ v, 0x01000193);
+    h2 = Math.imul(h2 + v, 0x5bd1e995) ^ (h2 >>> 13);
+  };
+  for (const member of groupAnns) {
+    mix(member === annotation ? -1 : -2);
+    const points = rawPoints(member);
+    mix(points.length);
+    for (const p of points) {
+      mix(Number(p.x) || 0);
+      mix(Number(p.y) || 0);
+    }
+  }
+  return `${h1 >>> 0}:${h2 >>> 0}`;
+}
+
+/**
+ * For each vertex of `annotation`: true when it lies inside or on another
+ * member of `groupAnns`. Those vertices are buried in the grouped shape and get
+ * no handle. The result is cached until the geometry or membership of the group
+ * changes, so a frame that redraws an unchanged group does not rerun the
+ * vertices-by-edges containment test.
+ */
+export function hiddenGroupVertexFlags(annotation, groupAnns) {
+  const points = rawPoints(annotation);
+  if (!groupAnns || groupAnns.length <= 1) return points.map(() => false);
+  const signature = groupGeometrySignature(annotation, groupAnns);
+  const cached = hiddenVertexCache.get(annotation);
+  if (cached && cached.signature === signature) return cached.flags;
+  const flags = points.map(p => isPointInsideOtherGroupPolygons(p, annotation, groupAnns));
+  hiddenVertexCache.set(annotation, { signature, flags });
+  return flags;
 }
 
 const UNION_EPSILON = 1e-6;

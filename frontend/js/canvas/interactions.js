@@ -13,9 +13,9 @@ import {
   polygonsTouch,
   unionPolygons,
   smoothUnionCusps
-} from "./geometry.js?v=9";
+} from "./geometry.js?v=10";
 import { view } from "./view.js?v=3";
-import { draw, drawAllLayers } from "./draw.js?v=6";
+import { draw, drawAllLayers } from "./draw.js?v=7";
 import { canvas, undoButton } from "../dom.js?v=2";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
 import { setStatus, save, render, activateLabel, HOTKEY_LABEL_LIMIT } from "../components/workspace.js?v=12";
@@ -61,6 +61,23 @@ export function hitTest(point) {
   return null;
 }
 
+/**
+ * The annotation's group-mates, looked up on first call only. Hit tests run on
+ * every pointer move, and most moves never land near a vertex, so the scan of
+ * state.annotations is skipped unless a candidate actually needs it.
+ */
+function lazyGroupMembers(annotation) {
+  let members;
+  return () => {
+    if (members === undefined) {
+      members = annotation.groupId
+        ? state.annotations.filter(a => a.groupId === annotation.groupId)
+        : null;
+    }
+    return members;
+  };
+}
+
 export function hitTestPoint(point, annotation) {
   if (!annotation || !annotation.points) return -1;
   const img = imagePoint(point);
@@ -71,13 +88,14 @@ export function hitTestPoint(point, annotation) {
   const screenRadius = vertexGrabScreenRadius(
     annotationSettings.vertexGrabRadius, view.viewZoom, view.imageBox.scale);
   const threshold = screenRadius / view.imageBox.scale;
-  const groupAnns = annotation.groupId ? state.annotations.filter(a => a.groupId === annotation.groupId) : null;
+  const groupAnns = lazyGroupMembers(annotation);
   for (let i = 0; i < annotation.points.length; i++) {
     const pt = annotation.points[i];
-    if (groupAnns && isPointInsideOtherGroupPolygons(pt, annotation, groupAnns)) continue;
-    if (Math.hypot(pt.x - img.x, pt.y - img.y) < threshold) {
-      return i;
-    }
+    // Distance first: it is O(1), while the buried-vertex test walks every
+    // edge of the group, so it only runs for the vertex under the cursor.
+    if (Math.hypot(pt.x - img.x, pt.y - img.y) >= threshold) continue;
+    if (groupAnns() && isPointInsideOtherGroupPolygons(pt, annotation, groupAnns())) continue;
+    return i;
   }
   return -1;
 }
@@ -88,7 +106,7 @@ export function hitTestLine(point, annotation) {
   // Screen pixels -> image space; see hitTestPoint above.
   const threshold = annotationSettings.edgeGrabRadius / view.imageBox.scale;
   const pts = annotation.points;
-  const groupAnns = annotation.groupId ? state.annotations.filter(a => a.groupId === annotation.groupId) : null;
+  const groupAnns = lazyGroupMembers(annotation);
   for (let i = 0; i < pts.length; i++) {
     const p1 = pts[i];
     const p2 = pts[(i + 1) % pts.length];
@@ -102,11 +120,10 @@ export function hitTestLine(point, annotation) {
     const projX = p1.x + t * (p2.x - p1.x);
     const projY = p1.y + t * (p2.y - p1.y);
 
-    if (groupAnns && isPointInsideOtherGroupPolygons({x: projX, y: projY}, annotation, groupAnns)) continue;
-
-    if (Math.hypot(img.x - projX, img.y - projY) < threshold) {
-      return i;
-    }
+    // Distance before the group test, as in hitTestPoint.
+    if (Math.hypot(img.x - projX, img.y - projY) >= threshold) continue;
+    if (groupAnns() && isPointInsideOtherGroupPolygons({x: projX, y: projY}, annotation, groupAnns())) continue;
+    return i;
   }
   return -1;
 }

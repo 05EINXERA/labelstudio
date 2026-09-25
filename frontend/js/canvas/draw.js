@@ -2,7 +2,7 @@ import { canvas, ctx, backgroundImage, staticCanvas, staticCtx } from "../dom.js
 import { state, labelById, isAnnotationHidden } from "../state.js?v=4";
 import { annotationSettings, annotationOpacity, zoomScaledRadius } from "../feature-flags.js?v=10";
 import { view } from "./view.js?v=3";
-import { annotationPoints, hexToRgba, isPointInsideOtherGroupPolygons } from "./geometry.js?v=9";
+import { annotationPoints, hexToRgba, hiddenGroupVertexFlags } from "./geometry.js?v=10";
 
 let compositeFillCanvas = null;
 let compositeFillCtx = null;
@@ -491,12 +491,12 @@ export function drawAnnotation(annotation, selected = false, targetCtx = ctx, sk
   // It was removed with the hover highlight rather than left as dead paint code.
 
   if (selected) {
-    const visibleScreenPoints = screenPoints.map((sp, i) => {
-      if (groupAnns && isPointInsideOtherGroupPolygons(points[i], annotation, groupAnns)) {
-        return null;
-      }
-      return sp;
-    });
+    // Cached per group geometry: recomputing this every frame cost
+    // vertices x edges across the group and made grouped shapes lag.
+    const hidden = groupAnns ? hiddenGroupVertexFlags(annotation, groupAnns) : null;
+    const visibleScreenPoints = hidden
+      ? screenPoints.map((sp, i) => (hidden[i] ? null : sp))
+      : screenPoints;
     drawVertexHandles(visibleScreenPoints, label.color, targetCtx, isBeingDrawn);
   }
   targetCtx.restore();

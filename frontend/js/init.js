@@ -12,7 +12,7 @@ import {
   handleVisibilityChange as handleTimerVisibility, pauseSessionTimer
 } from "./components/timer.js?v=5";
 import { initBreakControl } from "./components/break.js?v=1";
-import { setZoomChangeHandler } from "./canvas/interactions.js?v=19";
+import { setZoomChangeHandler } from "./canvas/interactions.js?v=20";
 import { initContextMenu } from "./canvas/context-menu.js?v=3";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
 import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=3";
