@@ -8,7 +8,7 @@ import { getImageSrcForAPI } from "./shared.js?v=3";
 import { autoDetectButton } from "../dom.js?v=5";
 import {
   setStatus, ensureLabel, save, render
-} from "../components/workspace.js?v=31";
+} from "../components/workspace.js?v=32";
 
 export function setDetectionBusy(isBusy) {
   detectState.detectionBusy = isBusy;

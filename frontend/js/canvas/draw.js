@@ -8,7 +8,7 @@ import {
   commentScreenGeometry, COMMENT_FONT, COMMENT_PILL_RADIUS,
   COMMENT_TEXT_INSET_X, COMMENT_TEXT_BASELINE_Y
 } from "./comment-geometry.js?v=2";
-import { visibleHandleIndices } from "../shortcuts.js?v=6";
+import { visibleHandleIndices } from "../shortcuts.js?v=7";
 import { repositionCommentOverlay } from "../comment-overlay.js?v=2";
 
 export function computeImageBox() {

@@ -183,8 +183,7 @@ export function drawHideKeyAction({ type, repeat, peeking, timed } = {}) {
  *
  * The hovered vertex is deliberately NOT kept: a disc popping up under the
  * cursor covers the very border the toggle exists to reveal. Hovering one is
- * signalled by the plain arrow cursor instead (vertexHoverCursor), and a click
- * still grabs it. Out-of-range indices are dropped rather than trusted.
+ * still signalled by the usual vertex cursor, and a click still grabs it. Out-of-range indices are dropped rather than trusted.
  * Rendering only. Hit-testing never consults this, so hidden handles stay
  * fully editable.
  * See .devnotes/feat/hide-vertex/01_DESIGN.md D2-D3.
@@ -196,13 +195,4 @@ export function visibleHandleIndices({ hidden, count, dragging = -1, drawingStar
   if (Number.isInteger(dragging) && dragging >= 0 && dragging < n) keep.add(dragging);
   if (drawingStart && n > 0) keep.add(0);
   return keep;
-}
-
-/**
- * Cursor for hovering a vertex of the selected shape. The crosshair normally
- * marks a grabbable handle; with handles hidden it becomes the plain arrow, so
- * the border stays unobstructed. The vertex is still grabbed on click.
- */
-export function vertexHoverCursor(handlesHidden) {
-  return handlesHidden ? "default" : "crosshair";
 }
