@@ -263,3 +263,48 @@ def test_authenticated_pages_load_telemetry_before_their_entry(page, entry):
 def test_login_page_does_not_load_telemetry():
     """No session on the login page: nothing to post under."""
     assert "telemetry" not in (_FRONTEND / "index.html").read_text(encoding="utf-8")
+
+
+# --- bandwidth probes ------------------------------------------------------------
+
+@pytest.fixture
+def probes_on(monkeypatch, telemetry_on):
+    import config
+    monkeypatch.setattr(config, "TELEMETRY_PROBES_ENABLED", True)
+    monkeypatch.setattr(config, "TELEMETRY_PROBE_BYTES", 64 * 1024)
+    return telemetry_on
+
+
+def test_probes_404_unless_enabled(client, alice, telemetry_on):
+    assert client.get("/api/telemetry/probe/down?n=10", headers=alice).status_code == 404
+    assert client.post("/api/telemetry/probe/up", content=b"x", headers=alice).status_code == 404
+
+
+def test_config_reports_probes(client, alice, probes_on):
+    body = client.get("/api/telemetry/config", headers=alice).json()
+    assert body["probes"] is True and body["probe_bytes"] == 64 * 1024
+
+
+def test_probe_down_is_exact_uncompressed_and_uncached(client, alice, probes_on):
+    res = client.get("/api/telemetry/probe/down?n=1024",
+                     headers={**alice, "Accept-Encoding": "gzip"})
+    assert res.status_code == 200
+    assert len(res.content) == 1024
+    # The load-bearing part: gzip must not touch it (CPU on random bytes).
+    assert res.headers.get("content-encoding") == "identity"
+    assert res.headers["cache-control"] == "no-store"
+    assert res.headers["content-type"] == "application/octet-stream"
+
+
+def test_probe_down_is_clamped(client, alice, probes_on):
+    assert len(client.get("/api/telemetry/probe/down?n=999999999", headers=alice).content) == 64 * 1024
+    assert len(client.get("/api/telemetry/probe/down?n=-5", headers=alice).content) == 1
+
+
+def test_probe_up_discards_and_caps(client, alice, probes_on):
+    ok = client.post("/api/telemetry/probe/up", content=os.urandom(16 * 1024), headers=alice)
+    assert ok.status_code == 204
+    assert "x-server-ms" in ok.headers
+    big = client.post("/api/telemetry/probe/up", content=os.urandom(64 * 1024 + 1), headers=alice)
+    assert big.status_code == 413
+    assert _lines(probes_on) == []   # probes never write telemetry files

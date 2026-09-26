@@ -20,6 +20,7 @@ SPECS = [
     "telemetry_buffer_spec.mjs",
     "telemetry_collector_spec.mjs",
     "telemetry_flush_spec.mjs",
+    "telemetry_probe_spec.mjs",
 ]
 
 

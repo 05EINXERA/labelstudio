@@ -31,6 +31,9 @@ const RULES = [
   ['*', /^\/api\/attendance/, 'attendance'],
   ['*', /^\/api\/teams/, 'teams'],
   ['*', /^\/api\/detect/, 'ai'],
+  // Probes are measurements, not telemetry's own traffic: keep them.
+  ['GET', /^\/api\/telemetry\/probe\/down$/, 'probe_down'],
+  ['POST', /^\/api\/telemetry\/probe\/up$/, 'probe_up'],
   ['*', /^\/api\/telemetry/, 'telemetry'],
   ['GET', /^\/thumbs\//, 'thumb'],
   // App assets, including images outside /uploads (e.g. the 341 KB logo.png).

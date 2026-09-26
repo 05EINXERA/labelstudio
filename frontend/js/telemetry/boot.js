@@ -82,6 +82,16 @@ function boot() {
         // The server refused us: stop observing too, not just sending.
         onStop: () => collector.uninstall(),
       });
+      if (config.probes) {
+        // Loaded only when switched on: a deployment without probes never
+        // downloads this module.
+        // A probe failure must not take passive capture down with it.
+        return import('./probe.js?v=1')
+          .then(({ startProbes }) =>
+            startProbes({ config, activeRequests: collector.activeRequests }))
+          .catch((e) => console.warn('[telemetry] probes unavailable:', e));
+      }
+      return null;
     })
     .catch((e) => {
       collector.uninstall();

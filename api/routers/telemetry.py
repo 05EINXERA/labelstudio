@@ -129,3 +129,63 @@ async def telemetry_batch(
 
     await run_in_threadpool(_ingest, body, _client_ip(request), current_user.username)
     return Response(status_code=204)
+
+
+# --- bandwidth probes (TELEMETRY_PROBES_ENABLED) ----------------------------
+#
+# Passive capture cannot show a seat's capacity when that seat is barely using
+# it; these measure it directly (02_DESIGN.md §3.5). Separate switch because
+# they put real bytes on the wire.
+
+_PROBE_PAYLOAD = b""
+_PROBE_LOCK = threading.Lock()
+
+
+def _require_probes(request: Request) -> None:
+    _require_enabled(request)
+    if not config.TELEMETRY_PROBES_ENABLED:
+        raise HTTPException(status_code=404, detail="Not Found")
+
+
+def _probe_payload() -> bytes:
+    """Incompressible bytes, generated once per process on first use: random
+    data so neither gzip nor any link-level compression flatters the figure."""
+    global _PROBE_PAYLOAD
+    with _PROBE_LOCK:
+        if len(_PROBE_PAYLOAD) < config.TELEMETRY_PROBE_BYTES:
+            _PROBE_PAYLOAD = os.urandom(config.TELEMETRY_PROBE_BYTES)
+        return _PROBE_PAYLOAD
+
+
+@router.get("/probe/down")
+def probe_down(request: Request, n: int = 0):
+    """`n` random bytes, capped at TELEMETRY_PROBE_BYTES.
+
+    `Content-Encoding: identity` is preset on purpose: Starlette's
+    GZipMiddleware leaves a response alone when that header already exists, so
+    no CPU is spent trying to compress random data. `no-store` plus the
+    client's nonce keep the browser cache out of the measurement.
+    """
+    _require_probes(request)
+    size = max(1, min(n or config.TELEMETRY_PROBE_BYTES, config.TELEMETRY_PROBE_BYTES))
+    return Response(
+        content=_probe_payload()[:size],
+        media_type="application/octet-stream",
+        headers={"Content-Encoding": "identity", "Cache-Control": "no-store"},
+    )
+
+
+@router.post("/probe/up", status_code=204)
+async def probe_up(request: Request):
+    """Read and discard an upload, chunk by chunk, never holding it whole.
+
+    X-Server-Ms starts before the body is read, so for this request it is
+    roughly the upload's transfer time: throughput = bytes / srv.
+    """
+    _require_probes(request)
+    received = 0
+    async for chunk in request.stream():
+        received += len(chunk)
+        if received > config.TELEMETRY_PROBE_BYTES:
+            raise HTTPException(status_code=413, detail="Probe upload is too large.")
+    return Response(status_code=204)

@@ -47,6 +47,7 @@ export function install({ onRecord, env = globalThis } = {}) {
   const pending = new Map();   // absolute url -> [meta]
   const observers = [];
   let wrapperErrors = 0;
+  let active = 0;       // requests awaiting their headers, for probe.js
   let wrapped = false;
   let sweepTimer = null;
 
@@ -139,9 +140,10 @@ export function install({ onRecord, env = globalThis } = {}) {
     // any other receiver, and app code calls it unbound.
     const p = origFetch.apply(win, arguments);
     if (meta) {
+      active += 1;
       p.then(
-        (res) => { try { end(meta, res); } catch (e) { noteWrapperError(e); } },
-        (err) => { try { fail(meta, err); } catch (e) { noteWrapperError(e); } },
+        (res) => { active -= 1; try { end(meta, res); } catch (e) { noteWrapperError(e); } },
+        (err) => { active -= 1; try { fail(meta, err); } catch (e) { noteWrapperError(e); } },
       );
     }
     return p;   // the ORIGINAL promise
@@ -250,6 +252,8 @@ export function install({ onRecord, env = globalThis } = {}) {
     /** The native fetch, for telemetry's own requests (never measured). */
     origFetch,
     sweep,
+    /** Same-origin fetches still waiting for headers. */
+    activeRequests: () => active,
     uninstall() {
       unwrap();
       for (const obs of observers) {
