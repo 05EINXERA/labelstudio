@@ -46,13 +46,13 @@ function _sessionStorage() {
 // it stays statically analysable.
 const VIEWS = {
   home: () => import("./home.js?v=6"),
-  tasks: () => import("./tasks.js?v=16"),
+  tasks: () => import("./tasks.js?v=17"),
   "image-info": () => import("./image-info.js?v=1"),
   classes: () => import("./classes.js?v=3"),
   imports: () => import("./imports.js?v=3"),
   exports: () => import("./exports.js?v=5"),
   access: () => import("./access.js?v=2"),
-  move: () => import("./move.js?v=2"),
+  move: () => import("./move.js?v=3"),
 };
 
 let currentView = null;   // the loaded module, so we can call unmount()

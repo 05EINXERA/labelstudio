@@ -37,7 +37,8 @@ import {
   showsSelection,
   showsUpload,
   statusPill,
-} from "./task-columns.js?v=10";
+} from "./task-columns.js?v=11";
+import { installThumbFallback, thumbUrl } from "../../thumb-url.js?v=1";
 
 let root = null;
 let ctx = null;
@@ -290,7 +291,7 @@ function template() {
         <form id="editForm">
           <input type="hidden" id="editId">
           <div class="modal-body" style="display:grid; gap:14px;">
-            <img id="editPreview" src="" style="max-width:100%;max-height:180px;border-radius:6px;border:1px solid var(--line);display:none;">
+            <img id="editPreview" data-thumb src="" style="max-width:100%;max-height:180px;border-radius:6px;border:1px solid var(--line);display:none;">
             <label style="display:grid;gap:6px;">
               <span style="font-size:.85rem;color:var(--muted);">Filename</span>
               <input type="text" id="editDescription" required style="padding:9px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink);">
@@ -587,7 +588,9 @@ function openEditModal(task) {
   el("editStatus").value = task.status || "New";
   const preview = el("editPreview");
   if (task.image_path) {
-    preview.src = "/" + String(task.image_path).replace(/\\/g, "/");
+    // Which image this is, not a pixel inspection: the thumbnail will do,
+    // and loading the ~10 MB original here was the same cost as the table.
+    preview.src = thumbUrl(task.image_path);
     preview.style.display = "inline-block";
   } else {
     preview.style.display = "none";
@@ -1033,6 +1036,9 @@ export async function mount(hostRoot, hostCtx, hashParams, { inPageNavigation = 
   root = hostRoot;
   ctx = hostCtx;
   root.innerHTML = template();
+  // Table rows and the edit preview: a failed thumbnail becomes a
+  // placeholder, never the ~10 MB original (thumb-url.js).
+  installThumbFallback(root);
 
   const role = ctx.myRole;
 
