@@ -124,3 +124,48 @@ def test_thumbs_need_no_login_like_uploads(client, data_dir):
     client.cookies.clear()
     _jpeg(data_dir / "uploads" / f"{NAME}.jpg")
     assert client.get(f"/thumbs/{NAME}.jpg").status_code == 200
+
+
+# --- backfill script -------------------------------------------------------------
+
+import io as _io  # noqa: E402
+import os  # noqa: E402
+import sys  # noqa: E402
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
+
+import backfill_thumbnails  # noqa: E402
+
+
+def test_backfill_makes_skips_and_reports(data_dir, monkeypatch):
+    monkeypatch.setattr(thumbs.logger, "disabled", False)
+    uploads = data_dir / "uploads"
+    good = [f"{i:032x}.jpg" for i in range(3)]
+    for name in good:
+        _jpeg(uploads / name, size=(400, 300))
+    (uploads / f"{9:032x}.jpg").write_bytes(b"corrupt")
+    (uploads / "notes.txt").write_text("not an upload")
+
+    dry = backfill_thumbnails.backfill(dry_run=True, out=_io.StringIO())
+    assert dry["made"] == 4 and not (data_dir / "thumbs").exists()
+
+    first = backfill_thumbnails.backfill(out=_io.StringIO())
+    assert first == {"made": 3, "skipped": 0, "failed": 1, "ignored": 1}
+    assert sorted(p.name for p in (data_dir / "thumbs").iterdir()) == \
+        sorted(n.replace(".jpg", ".webp") for n in good)
+
+    again = backfill_thumbnails.backfill(out=_io.StringIO())
+    assert again["made"] == 0 and again["skipped"] == 3 and again["failed"] == 1
+
+
+def test_backfill_exit_code_reflects_failures(data_dir, monkeypatch):
+    monkeypatch.setattr(thumbs.logger, "disabled", False)
+    _jpeg(data_dir / "uploads" / f"{NAME}.jpg", size=(200, 100))
+    assert backfill_thumbnails.main([]) == 0
+    (data_dir / "uploads" / f"{1:032x}.png").write_bytes(b"bad")
+    assert backfill_thumbnails.main([]) == 1
+
+
+def test_backfill_without_uploads_folder(tmp_path, monkeypatch):
+    monkeypatch.setattr(thumbs, "DATA_DIR", str(tmp_path / "empty"))
+    assert backfill_thumbnails.backfill(out=_io.StringIO())["made"] == 0
