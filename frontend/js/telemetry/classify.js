@@ -33,7 +33,8 @@ const RULES = [
   ['*', /^\/api\/detect/, 'ai'],
   ['*', /^\/api\/telemetry/, 'telemetry'],
   ['GET', /^\/thumbs\//, 'thumb'],
-  ['GET', /\.(js|css)$/, 'static'],
+  // App assets, including images outside /uploads (e.g. the 341 KB logo.png).
+  ['GET', /\.(js|css|png|jpe?g|gif|svg|ico|webp|woff2?)$/, 'static'],
   ['GET', /(\.html|^\/)$/, 'page'],
 ];
 

@@ -64,6 +64,9 @@ is('POST', '/api/detect', 'ai');
 is('POST', '/api/telemetry/batch', 'telemetry');
 is('GET', '/js/init.js', 'static');
 is('GET', '/styles.css', 'static');
+is('GET', '/logo.png', 'static');
+is('GET', '/manual/img/step1.jpg', 'static');
+is('GET', '/uploads/0123456789abcdef0123456789abcdef.png', 'image_list');  // uploads win over the asset rule
 is('GET', '/app.html', 'page');
 is('GET', '/', 'page');
 is('GET', '/api/something-new', 'other');
