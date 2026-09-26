@@ -88,7 +88,10 @@ def test_missing_source_is_404(client, data_dir):
     assert client.get(f"/thumbs/{NAME}.jpg").status_code == 404
 
 
-def test_corrupt_source_is_404_logged_and_leaves_nothing(client, data_dir, caplog):
+def test_corrupt_source_is_404_logged_and_leaves_nothing(client, data_dir, caplog, monkeypatch):
+    # alembic/env.py's fileConfig disables every existing logger, so a test
+    # that ran migrations earlier in the session would silence this one.
+    monkeypatch.setattr(thumbs.logger, "disabled", False)
     (data_dir / "uploads" / f"{NAME}.jpg").write_bytes(b"not an image at all")
     with caplog.at_level("WARNING"):
         assert client.get(f"/thumbs/{NAME}.jpg").status_code == 404
