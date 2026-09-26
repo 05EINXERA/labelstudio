@@ -213,6 +213,10 @@ def test_oversized_and_malformed_batches_are_refused(client, telemetry_on, monke
 def test_write_failure_is_logged_and_answered_204(client, telemetry_on, monkeypatch, caplog):
     from api.routers import telemetry as router
 
+    # alembic/env.py's fileConfig disables every existing logger, so a test
+    # that ran migrations earlier in the session would silence this one.
+    monkeypatch.setattr(router.logger, "disabled", False)
+
     def boom(path, line):
         raise OSError("disk full")
 
