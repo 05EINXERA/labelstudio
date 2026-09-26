@@ -38,6 +38,7 @@ configure_logging()
 
 from api.middleware import ServiceLogMiddleware  # noqa: E402
 from api.compression import RequestDecompressionMiddleware  # noqa: E402
+from api.telemetry_timing import ServerTimeMiddleware  # noqa: E402
 from jobs.runner import get_runner  # noqa: E402
 from api.routers import projects, tasks, team, teams, grants, time_logs, data, detect, label_studio, labels, auth, imports, exports, image_info, attendance  # noqa: E402
 from database import engine  # noqa: E402
@@ -269,6 +270,12 @@ else:
 # parameter, never the body, so the sendBeacon query-param fallback keeps
 # working exactly as before.
 app.add_middleware(RequestDecompressionMiddleware)
+
+# Temporary network telemetry (.devnotes/frontend-telemetry/): stamps
+# X-Server-Ms on /api/ responses while TELEMETRY_ENABLED. Outermost, so the
+# figure is the whole server share, decompression and gzip included. A no-op
+# pass-through when the flag is off.
+app.add_middleware(ServerTimeMiddleware)
 
 # Include routers
 app.include_router(data.router)
