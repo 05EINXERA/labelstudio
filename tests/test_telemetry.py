@@ -230,3 +230,36 @@ def test_only_ips_limits_capture(client, alice, telemetry_on, monkeypatch):
     assert client.get("/api/telemetry/config", headers=alice).status_code == 404
     monkeypatch.setattr(config, "TELEMETRY_ONLY_IPS", ["testclient"])
     assert client.get("/api/telemetry/config", headers=alice).status_code == 200
+
+
+# --- page wiring ---------------------------------------------------------------
+
+import re  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+_FRONTEND = Path(__file__).resolve().parent.parent / "frontend"
+_BOOT_TAG = '<script type="module" src="js/telemetry/boot.js?v=1"></script>'
+_ENTRY = {
+    "app.html": "js/init.js",
+    "attendance.html": "js/pages/attendance.js",
+    "profile.html": "js/pages/profile.js",
+    "project.html": "js/pages/project/router.js",
+    "projects.html": "js/pages/projects-list.js",
+    "teams.html": "js/pages/teams-entry.js",
+}
+
+
+@pytest.mark.parametrize("page,entry", sorted(_ENTRY.items()))
+def test_authenticated_pages_load_telemetry_before_their_entry(page, entry):
+    """Module scripts run in document order: the boot tag must come first, or
+    the page's first requests are made before the fetch wrapper exists."""
+    html = (_FRONTEND / page).read_text(encoding="utf-8")
+    assert html.count(_BOOT_TAG) == 1
+    entry_at = re.search(r'<script type="module" src="' + re.escape(entry), html)
+    assert entry_at, f"{page}: entry module not found"
+    assert html.index(_BOOT_TAG) < entry_at.start()
+
+
+def test_login_page_does_not_load_telemetry():
+    """No session on the login page: nothing to post under."""
+    assert "telemetry" not in (_FRONTEND / "index.html").read_text(encoding="utf-8")
