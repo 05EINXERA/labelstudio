@@ -1025,3 +1025,16 @@ class ManualBreakResponse(BaseModel):
     # an already-rolled day must re-roll it or the two diverge silently.
     local_date: date
     rerolled: bool = False
+
+
+# --- Network telemetry (temporary; .devnotes/frontend-telemetry) -----------
+
+class TelemetryConfig(BaseModel):
+    """What the browser collector needs to know at page load."""
+    enabled: bool
+    flush_seconds: int = 300
+    probes: bool = False
+    probe_seconds: int = 900
+    probe_bytes: int = 0
+    # Server clock, epoch ms: lets the report estimate per-client clock skew.
+    server_now: int = 0

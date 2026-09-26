@@ -323,6 +323,47 @@ ATTENDANCE_FLUSH_SECONDS = int(os.environ.get("ATTENDANCE_FLUSH_SECONDS", "60"))
 ATTENDANCE_BUFFER_MAX = int(os.environ.get("ATTENDANCE_BUFFER_MAX", "10000"))
 
 
+# --- Network telemetry (temporary) -----------------------------------------
+# A one-off measurement of how the office LAN affects the app. Removed after
+# the measurement window by reverting its merge; see
+# .devnotes/frontend-telemetry/ (06_ROLLBACK_AND_CLEANUP.md).
+#
+# Default OFF. When off, every /api/telemetry/* path answers 404, no response
+# carries X-Server-Ms, and the browser module uninstalls itself after its one
+# config request.
+TELEMETRY_ENABLED = _flag("TELEMETRY_ENABLED", False)
+
+# How often a page posts its buffered records. The client jitters it ±10% so
+# a room of browsers does not flush in lockstep.
+TELEMETRY_FLUSH_SECONDS = int(os.environ.get("TELEMETRY_FLUSH_SECONDS", "300"))
+
+# Caps on one batch, after decompression. Deliberately far below
+# MAX_DECOMPRESSED_BODY: a real batch is ~10-75 KB, and a buggy client must not
+# be able to fill the disk.
+TELEMETRY_MAX_BATCH_BYTES = int(
+    os.environ.get("TELEMETRY_MAX_BATCH_BYTES", str(1024 * 1024))
+)
+TELEMETRY_MAX_RECORDS = int(os.environ.get("TELEMETRY_MAX_RECORDS", "5000"))
+
+# Active bandwidth probes. Separate switch because, unlike passive capture,
+# they put real bytes on the network (02_DESIGN.md §3.5).
+TELEMETRY_PROBES_ENABLED = _flag("TELEMETRY_PROBES_ENABLED", False)
+TELEMETRY_PROBE_SECONDS = int(os.environ.get("TELEMETRY_PROBE_SECONDS", "900"))
+TELEMETRY_PROBE_BYTES = int(
+    os.environ.get("TELEMETRY_PROBE_BYTES", str(4 * 1024 * 1024))
+)
+
+# Per-day NDJSON lives here. Outside the repo by default (LOG_DIR is under
+# DATA_DIR), and not in the database: no migration to write or undo.
+TELEMETRY_DIR = (
+    os.environ.get("TELEMETRY_DIR", "").strip() or os.path.join(LOG_DIR, "telemetry")
+)
+
+# Restrict capture to these client IPs (comma-separated); empty means all.
+# Used for the one-seat soak before the whole office is enabled.
+TELEMETRY_ONLY_IPS = _csv("TELEMETRY_ONLY_IPS", "")
+
+
 class ConfigError(RuntimeError):
     """A deployment-configuration problem that must stop startup."""
 
