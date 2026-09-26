@@ -264,7 +264,7 @@ SERVICE_LOG_METHODS = [m.upper() for m in _csv(
 # entry starts with '*'.
 SERVICE_LOG_SKIP_PATHS = _csv(
     "SERVICE_LOG_SKIP_PATHS",
-    "/health,/uploads,/frontend,*.js,*.css,*.png,*.jpg,*.jpeg,*.ico,*.svg,*.map",
+    "/health,/uploads,/thumbs,/frontend,*.js,*.css,*.png,*.jpg,*.jpeg,*.ico,*.svg,*.map",
 )
 
 # Logged, but at most once per client per window (plus every non-2xx). The task
