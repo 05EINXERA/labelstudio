@@ -219,10 +219,11 @@ class TaskAssignee(Base):
 
     `tasks.assignee` is kept as a **denormalized mirror of the primary row**
     (the one with the lowest `position`), not as a second source of truth.
-    Every existing query reads it — project access (`Task.assignee.in_(names)`
-    in api/routers/projects.py), the `?assignee=` filter, the Teams per-member
-    task list, the exports, and browser tabs still running cached JS against a
-    live server. Dropping it would have broken all of those at once on a
+    It predates this table and is still read by assignee sorting, the JSON
+    export, and browser tabs running cached JS against a live server. Anything
+    asking "is X assigned?" — project access, the `?assignee=` filter, search,
+    the Teams per-member task list — reads this table instead (see
+    `api.assignments.assigned_to`), since the mirror names only one person. Dropping it would have broken all of those at once on a
     deployment that cannot take downtime. Writes go through
     `api.assignments.set_task_assignees`, which rewrites this table and
     restamps the mirror in the same transaction; nothing else may write either

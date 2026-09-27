@@ -24,8 +24,8 @@ from schemas import (
 )
 from api.auth import get_current_user, require_csrf, get_current_annotator
 from api.assignments import (
-    get_assignees, get_assignees_map, get_history, get_participants,
-    get_project_history, normalize_names, set_task_assignees,
+    assigned_to, get_assignees, get_assignees_map, get_history,
+    get_participants, get_project_history, normalize_names, set_task_assignees,
 )
 from api.notifications import notify_task_assigned, notify_task_status_changed
 from api.routers.projects import (
@@ -342,7 +342,7 @@ def get_tasks(
         query = query.filter(
             or_(
                 models.Task.description.ilike(f"%{search}%"),
-                models.Task.assignee.ilike(f"%{search}%")
+                assigned_to(models.TaskAssignee.member_name.ilike(f"%{search}%")),
             )
         )
     if cross_project and projectIds:
@@ -353,7 +353,7 @@ def get_tasks(
     if status and status.lower() != "all":
         query = query.filter(models.Task.status == status)
     if assignee:
-        query = query.filter(models.Task.assignee == assignee)
+        query = query.filter(assigned_to(models.TaskAssignee.member_name == assignee))
 
     total = query.count()
 

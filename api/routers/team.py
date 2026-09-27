@@ -15,6 +15,7 @@ from schemas import (
     LoginSessionEntry, LoginSessionHistory, BreakEntry, BreakStatus,
 )
 from api.auth import get_current_user, require_csrf, get_current_annotator
+from api.assignments import assigned_to
 from api.presence import (
     PRESENCE_TIMEOUT_SECONDS,
     as_utc,
@@ -529,7 +530,7 @@ def get_member_tasks(
             models.Project.name.label("project_name"),
         )
         .join(models.Project, models.Task.project_id == models.Project.id)
-        .filter(models.Task.assignee == name)
+        .filter(assigned_to(models.TaskAssignee.member_name == name))
         .order_by(models.Task.updated_at.desc())
         .all()
     )

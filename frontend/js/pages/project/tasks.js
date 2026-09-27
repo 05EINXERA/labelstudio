@@ -28,6 +28,11 @@ const POLL_INTERVAL_MS = 30_000;
 // Populated asynchronously after the task list renders.
 const _lockCache = {};
 
+// Edit modal assignees, in order (index 0 is the primary), and the team roster
+// offered as typing suggestions.
+let editAssignees = [];
+let rosterNames = [];
+
 async function _refreshLockCache(tasks) {
   // Fetch lock status for every task in parallel (fire-and-forget batches).
   // Errors are silently swallowed — lock display is best-effort.
@@ -143,10 +148,13 @@ function template(isCreator) {
                 <span class="section-hint" id="editAssigneeHint">Unassigned</span>
               </summary>
               <div class="section-content">
-                <span style="font-size:.75rem;color:var(--muted);font-style:italic;">Optional, advisory only — hold Ctrl to pick several.</span>
-                <select id="editAssignee" multiple size="5" style="padding:9px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink);">
-                </select>
-                <span style="font-size:.75rem;color:var(--muted);">Select none to leave the image unassigned. The first name selected is the primary assignee.</span>
+                <span style="font-size:.75rem;color:var(--muted);font-style:italic;">Optional, advisory only — type a name and press Enter; add as many as needed.</span>
+                <div class="assignee-input" id="editAssigneeBox">
+                  <span id="editAssigneeChips" class="assignee-chips"></span>
+                  <input type="text" id="editAssignee" list="editAssigneeOptions" autocomplete="off" placeholder="Type a name…">
+                </div>
+                <datalist id="editAssigneeOptions"></datalist>
+                <span style="font-size:.75rem;color:var(--muted);">Leave empty to keep the image unassigned.</span>
               </div>
             </details>
             <details class="modal-section" id="editHistoryWrap" style="display:none;">
@@ -600,11 +608,58 @@ async function loadTeamForTasks() {
       }
     };
     
-    populate(el("editAssignee"));
     populate(el("assignInput"));
+
+    // The edit modal takes typed names; the roster only feeds its suggestions.
+    rosterNames = [...Object.values(byTeam).flat(), ...unassigned].map((m) => m.name);
+    const options = el("editAssigneeOptions");
+    options.innerHTML = "";
+    rosterNames.forEach((name) => {
+      const opt = document.createElement("option");
+      opt.value = name;
+      options.appendChild(opt);
+    });
   } catch (err) {
     console.error("Failed to load team", err);
   }
+}
+
+/** Add a typed name to the edit modal's assignee list; true if it was consumed.
+ *
+ * Names are free text (the server accepts any name). A name that differs from
+ * exactly one roster entry only by case takes the roster's spelling, so typing
+ * "akemi" assigns Akemi. Matching stays case-sensitive otherwise: the roster
+ * may hold "sanjita" and "Sanjita" as two people (see normalize_names in
+ * api/assignments.py), and folding case would merge them.
+ */
+function addEditAssignee(raw) {
+  const typed = (raw || "").trim();
+  if (!typed) return false;
+  let name = typed;
+  if (!rosterNames.includes(typed)) {
+    const lower = typed.toLowerCase();
+    const matches = rosterNames.filter((n) => n.toLowerCase() === lower);
+    if (matches.length === 1) name = matches[0];
+  }
+  if (editAssignees.includes(name)) return true;
+  editAssignees.push(name);
+  renderAssigneeChips();
+  return true;
+}
+
+function renderAssigneeChips() {
+  const chips = el("editAssigneeChips");
+  if (!chips) return;
+  const roster = new Set(rosterNames);
+  chips.innerHTML = editAssignees.map((name, i) => {
+    // Still shown, and still saved, when off the roster: a member removed from
+    // the team should not silently drop off the images they hold.
+    const offRoster = rosterNames.length && !roster.has(name);
+    return `<span class="pill assignee-chip"${offRoster ? ' title="Not on this team"' : ""}>`
+      + escapeHTML(name)
+      + `<button type="button" data-remove="${i}" aria-label="Remove ${escapeHTML(name)}">&times;</button></span>`;
+  }).join("");
+  syncAssigneeHint();
 }
 
 /** Selected values of a multi-select, in the order the options are listed.
@@ -641,9 +696,8 @@ function assigneesOf(task) {
  */
 function syncAssigneeHint() {
   const hint = el("editAssigneeHint");
-  const select = el("editAssignee");
-  if (!hint || !select) return;
-  const names = selectedNames(select);
+  if (!hint) return;
+  const names = editAssignees;
   if (!names.length) {
     hint.textContent = "Unassigned";
     return;
@@ -660,24 +714,9 @@ function openEditModal(task) {
   el("editDescription").value = task.description || "";
 
   const current = assigneesOf(task);
-  const assigneeSelect = el("editAssignee");
-  // A name still on the task but no longer on the roster (member removed, or a
-  // project reassigned to another team) has no option to select, so it would
-  // silently drop off the task on the next save. Re-adding it keeps the save
-  // non-destructive and shows the owner who is actually on the image.
-  current.forEach((name) => {
-    if (!assigneeSelect.querySelector(`option[value="${CSS.escape(name)}"]`)) {
-      const opt = document.createElement("option");
-      opt.value = name;
-      opt.textContent = `${name} (not on this team)`;
-      assigneeSelect.appendChild(opt);
-    }
-  });
-  const selected = new Set(current);
-  Array.from(assigneeSelect.options).forEach((opt) => {
-    opt.selected = selected.has(opt.value);
-  });
-  syncAssigneeHint();
+  editAssignees = [...current];
+  el("editAssignee").value = "";
+  renderAssigneeChips();
 
   // Collapsed by default: the section is optional ("advisory only"), and its
   // 5-row list is one of the two things that pushed the footer off screen.
@@ -857,12 +896,42 @@ function bindEditModal() {
   // Keeps the collapsed summary honest while the section is open: without it
   // the hint still shows the selection the modal was opened with, and reads as
   // stale the moment the section is shut again.
-  el("editAssignee").addEventListener("change", syncAssigneeHint);
+  const assigneeInput = el("editAssignee");
+  assigneeInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === ",") {
+      // Enter would otherwise submit the whole form mid-typing.
+      e.preventDefault();
+      if (addEditAssignee(assigneeInput.value)) assigneeInput.value = "";
+    } else if (e.key === "Backspace" && !assigneeInput.value && editAssignees.length) {
+      editAssignees.pop();
+      renderAssigneeChips();
+    }
+  });
+  // Picking a datalist suggestion fires `input` with the full name and no
+  // keydown, so commit it right away when it matches a roster entry exactly.
+  assigneeInput.addEventListener("input", (e) => {
+    if (e.inputType && e.inputType !== "insertReplacementText") return;
+    if (rosterNames.includes(assigneeInput.value) && addEditAssignee(assigneeInput.value)) {
+      assigneeInput.value = "";
+    }
+  });
+  el("editAssigneeChips").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-remove]");
+    if (!btn) return;
+    editAssignees.splice(Number(btn.dataset.remove), 1);
+    renderAssigneeChips();
+  });
+  el("editAssigneeBox").addEventListener("click", (e) => {
+    if (e.target === el("editAssigneeBox")) assigneeInput.focus();
+  });
   el("editModal").addEventListener("click", (e) => { if (e.target === el("editModal")) closeEditModal(); });
 
   el("editForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const id = el("editId").value;
+    // A name typed but not yet confirmed with Enter still counts: the owner
+    // pressing Save expects what is in the box to be saved.
+    if (addEditAssignee(el("editAssignee").value)) el("editAssignee").value = "";
     try {
       const res = await apiFetch(`/api/tasks/${id}`, {
         method: "PATCH",
@@ -872,8 +941,8 @@ function bindEditModal() {
           // `assignees` (the list) is what the server reads; the scalar is sent
           // alongside only so a mid-deploy server still running the previous
           // build applies the primary rather than ignoring the change.
-          assignees: selectedNames(el("editAssignee")),
-          assignee: selectedNames(el("editAssignee"))[0] || "",
+          assignees: [...editAssignees],
+          assignee: editAssignees[0] || "",
           status: el("editStatus").value,
         }),
       });
@@ -1153,17 +1222,13 @@ export async function mount(hostRoot, hostCtx) {
           // on the row where the question comes up. Reviewers are per-project,
           // so the list comes from the project rather than the team member.
           const reviewers = ctx?.project?.reviewers || [];
-          return names.map((name, i) => {
+          // No "(primary)" marker: filters, search and access all read every
+          // assignee, so the first name carries no extra meaning worth showing.
+          return names.map((name) => {
             const badge = reviewers.includes(name)
               ? ` <span title="Appointed reviewer for this project" style="font-size:.7rem;padding:1px 6px;border-radius:10px;background:rgba(15,139,141,.15);color:var(--accent);white-space:nowrap;vertical-align:middle;">Reviewer</span>`
               : "";
-            // The primary is the one the rest of the app still keys on (the
-            // tasks.assignee mirror), so it is marked rather than left
-            // indistinguishable from the others.
-            const primary = i === 0 && names.length > 1
-              ? ` <span title="Primary assignee" style="color:var(--muted);font-size:.7rem;">(primary)</span>`
-              : "";
-            return escapeHTML(name) + badge + primary;
+            return escapeHTML(name) + badge;
           }).join(`<span style="color:var(--muted);">, </span>`);
         },
       },

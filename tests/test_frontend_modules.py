@@ -983,12 +983,20 @@ def test_edit_task_modal_sections_are_collapsible():
 
     # The hint must track the live selection, not just the value the modal
     # opened with, or it reads as stale as soon as the section is shut again.
-    assert re.search(
-        r'el\("editAssignee"\)\.addEventListener\("change",\s*syncAssigneeHint\)',
-        source), (
+    # Every add and remove re-renders the chips, and the render refreshes it.
+    render = re.search(
+        r'function renderAssigneeChips\(\)\s*\{(.*?)\n\}', source, re.S)
+    assert render and "syncAssigneeHint()" in render.group(1), (
         "the assignee hint must be refreshed on change, or the collapsed "
         "summary contradicts the selection inside."
     )
+    assert re.search(r'editAssignees\.(push|pop|splice)', source)
+    for mutation in re.finditer(r'editAssignees\.(?:push|pop|splice)\([^)]*\);', source):
+        following = source[mutation.end():mutation.end() + 80]
+        assert "renderAssigneeChips()" in following, (
+            f"`{mutation.group(0)}` changes the assignees without re-rendering, "
+            f"so the chips and the collapsed summary go stale."
+        )
 
 
 def test_collapsible_modal_section_styles_exist():

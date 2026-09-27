@@ -19,6 +19,7 @@ that carries it land atomically under one `commit_with_retry` (CLAUDE.md rule 10
 import logging
 from typing import Iterable, List, Optional, Sequence
 
+from sqlalchemy import exists
 from sqlalchemy.orm import Session
 
 import models
@@ -57,6 +58,21 @@ def normalize_names(names: Optional[Iterable[Optional[str]]]) -> List[str]:
         seen.add(name)
         out.append(name)
     return out[:MAX_ASSIGNEES_PER_TASK]
+
+
+def assigned_to(*criteria):
+    """SQL condition: the task has an assignee matching `criteria`.
+
+    `criteria` are conditions on `models.TaskAssignee.member_name`. Reads the
+    task_assignees set, not the tasks.assignee mirror, which names only the
+    primary: a filter on the mirror hides a task from its second assignee's
+    "My tasks". EXISTS rather than a join so a task matched by two of its
+    assignees still counts once.
+    """
+    return exists().where(
+        models.TaskAssignee.task_id == models.Task.id,
+        *criteria,
+    )
 
 
 def get_assignees(db: Session, task_id: int) -> List[str]:

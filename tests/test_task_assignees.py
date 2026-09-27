@@ -87,8 +87,8 @@ def test_task_carries_several_assignees(client, alice, owner, ravi, sanjita):
 def test_primary_is_mirrored_into_the_legacy_column(client, alice, owner, ravi, sanjita):
     """tasks.assignee must keep naming the primary assignee.
 
-    Project access, the `?assignee=` filter and the exports all still read this
-    column; a stale mirror would lock people out of their own projects.
+    Assignee sorting, the JSON export and clients running the previous build
+    still read this column, so a stale mirror would misreport the task.
     """
     pid = _new_project(client, alice, owner)
     tid = _new_task(client, alice, owner, pid, assignees=[ravi, sanjita])
@@ -413,3 +413,55 @@ def test_history_csv_escapes_commas_and_quotes(client, alice, owner):
     assert all(len(r) == 8 for r in data if r)
     assert any(tricky in r for r in data)
     assert any('a,b "quoted".png' in r for r in data)
+
+
+def test_assignee_filter_finds_every_assignee_not_only_the_primary(
+    client, alice, owner, ravi, sanjita
+):
+    """`?assignee=` backs "My tasks": the second assignee must see the task too."""
+    pid = _new_project(client, alice, owner)
+    tid = _new_task(client, alice, owner, pid, assignees=[ravi, sanjita])
+
+    for name in (ravi, sanjita):
+        res = client.get(
+            f"/api/tasks?projectId={pid}&assignee={name}", headers=_as(alice, owner)
+        )
+        assert res.status_code == 200, res.text
+        assert [t["id"] for t in res.json()["items"]] == [tid]
+        assert res.json()["total"] == 1
+
+
+def test_search_matches_a_non_primary_assignee_once(client, alice, owner, ravi, sanjita):
+    pid = _new_project(client, alice, owner)
+    tid = _new_task(client, alice, owner, pid, assignees=[ravi, sanjita])
+
+    res = client.get(
+        f"/api/tasks?projectId={pid}&search={sanjita}", headers=_as(alice, owner)
+    )
+    assert res.status_code == 200, res.text
+    assert [t["id"] for t in res.json()["items"]] == [tid]
+
+    # A term matching both assignees must not return the task twice.
+    res = client.get(f"/api/tasks?projectId={pid}&search=_", headers=_as(alice, owner))
+    assert [t["id"] for t in res.json()["items"]].count(tid) == 1
+
+
+def test_team_member_task_list_includes_non_primary_tasks(
+    client, alice, owner, ravi, sanjita
+):
+    pid = _new_project(client, alice, owner)
+    tid = _new_task(client, alice, owner, pid, assignees=[ravi, sanjita])
+
+    db = SessionLocal()
+    try:
+        team = models.Team(name=f"team_{uuid.uuid4().hex[:6]}", creator=owner)
+        db.add(team)
+        db.flush()
+        db.add(models.TeamMemberAssociation(team_id=team.id, member_name=sanjita))
+        db.commit()
+    finally:
+        db.close()
+
+    res = client.get(f"/api/team/{sanjita}/tasks", headers=_as(alice, owner))
+    assert res.status_code == 200, res.text
+    assert tid in [t["id"] for t in res.json()]

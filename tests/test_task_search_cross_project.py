@@ -11,6 +11,7 @@ the accessible-project filter regressed.
 """
 import models
 from database import SessionLocal
+from api.assignments import set_task_assignees
 
 
 def _make_project(client, headers, name, slug):
@@ -24,7 +25,12 @@ def _make_project(client, headers, name, slug):
 
 
 def _seed_tasks(project_id, filenames, assignee=None, status="New"):
-    """Create tasks directly; the read path is what's under test here."""
+    """Create tasks directly; the read path is what's under test here.
+
+    Assignment goes through set_task_assignees, as every real write does: the
+    assignee filter and search read task_assignees, so a task with only the
+    tasks.assignee mirror set is a state the app never produces.
+    """
     ids = []
     with SessionLocal() as db:
         for name in filenames:
@@ -33,11 +39,12 @@ def _seed_tasks(project_id, filenames, assignee=None, status="New"):
                 description=name,
                 image_path=name,
                 status=status,
-                assignee=assignee,
                 time_spent=0,
             )
             db.add(task)
             db.flush()
+            if assignee:
+                set_task_assignees(db, task, [assignee], actor_name="tester")
             ids.append(task.id)
         db.commit()
     return ids
