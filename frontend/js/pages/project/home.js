@@ -63,7 +63,7 @@ export function statusTiles(metrics) {
 
   return [
     ...APPROVED_STATUSES.map((s) => entry(s, s, "Signed off by a reviewer")),
-    entry("Completed", "Awaiting review", "Marked complete, not yet approved"),
+    entry("Completed", "Completed", "Marked complete, not yet approved"),
     entry("In Progress", "In progress"),
     entry("New", "New", "Not started"),
     entry("Rejected", "Rejected", "Sent back for rework"),
