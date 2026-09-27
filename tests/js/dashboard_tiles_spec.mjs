@@ -10,7 +10,7 @@
  *     holding the whole group, which hid exactly the distinction the batch
  *     names exist to make (CLAUDE.md rule 11a).
  *  2. Every tile links to the tasks view *with its filter applied*, so clicking
- *     "Awaiting review: 12" opens a table of those 12 and not of all 400.
+ *     "Completed: 12" opens a table of those 12 and not of all 400.
  *
  * `statusTiles` and `tasksHref` are pure and imported from the real module.
  * `home.js` imports api.js/utils.js at module scope but neither touches the DOM
@@ -72,8 +72,8 @@ const byStatus = (overrides = {}) => ({
   // 'Completed' is the annotator's submission, i.e. the review queue.
   const tiles = statusTiles(byStatus({ Completed: 12 }));
   const awaiting = tiles.find((t) => t.status === 'Completed');
-  ok('the Completed tile is labelled as the review queue',
-    awaiting.label === 'Awaiting review' && awaiting.value === 12);
+  ok('the Completed tile is labelled Completed',
+    awaiting.label === 'Completed' && awaiting.value === 12);
 }
 
 // --- click-to-filter links --------------------------------------------------
