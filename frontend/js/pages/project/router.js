@@ -45,7 +45,7 @@ function _sessionStorage() {
 // View loaders. Keyed by route; the dynamic import path must be a literal so
 // it stays statically analysable.
 const VIEWS = {
-  home: () => import("./home.js?v=6"),
+  home: () => import("./home.js?v=7"),
   tasks: () => import("./tasks.js?v=16"),
   "image-info": () => import("./image-info.js?v=1"),
   classes: () => import("./classes.js?v=3"),
