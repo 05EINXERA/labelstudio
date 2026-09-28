@@ -1,13 +1,15 @@
-"""Multiple assignees per task, and the history of who held it.
+"""Task assignment: one person per task, and the history of who held it.
 
-An image is worked by different people at different times, so assignment is a
-set with a history, not a single overwritten cell. These tests pin the three
-things that make that safe on the live deployment:
+An image is worked by different people at different times, so assignment keeps
+a history rather than a single overwritten cell. Only one person holds a task
+at a time; tasks assigned to several people before that rule remain in the
+data and must keep working until someone reassigns them. These tests pin:
 
-  - `tasks.assignee` stays a correct mirror of the primary assignee, because
-    project access, the exports and any client still running the previous build
-    all read it;
-  - every assignee — not only the primary — can edit the task they were given;
+  - no write can put more than one person on a task;
+  - a pre-rule multi-assigned task still saves, and each of its assignees can
+    still edit it and find it;
+  - `tasks.assignee` stays a correct mirror of the assignee, because assignee
+    sorting, the JSON export and clients running the previous build read it;
   - removing someone from a task does not erase the record that they held it.
 """
 import uuid
@@ -66,6 +68,27 @@ def _new_task(client, auth, owner, project_id, **body):
     return res.json()["id"]
 
 
+def _legacy_assign(task_id, names):
+    """Assign several people directly, as data from before the one-person rule.
+
+    The API now refuses this, so it is written straight to the tables the way
+    set_task_assignees used to leave them: one row per name in order, and the
+    mirror naming the first.
+    """
+    db = SessionLocal()
+    try:
+        for position, name in enumerate(names):
+            db.add(models.TaskAssignee(
+                task_id=task_id, member_name=name, position=position,
+            ))
+        db.query(models.Task).filter(models.Task.id == task_id).update(
+            {models.Task.assignee: names[0]}
+        )
+        db.commit()
+    finally:
+        db.close()
+
+
 def _mirror(task_id):
     """Read tasks.assignee straight from the database, bypassing the API."""
     db = SessionLocal()
@@ -75,28 +98,65 @@ def _mirror(task_id):
         db.close()
 
 
-def test_task_carries_several_assignees(client, alice, owner, ravi, sanjita):
+def test_creating_a_task_for_several_people_is_refused(client, alice, owner, ravi, sanjita):
     pid = _new_project(client, alice, owner)
-    tid = _new_task(client, alice, owner, pid, assignees=[ravi, sanjita])
+    res = client.post(
+        f"/api/tasks?projectId={pid}",
+        json={"description": "img.png", "status": "New", "assignees": [ravi, sanjita]},
+        headers=_as(alice, owner),
+    )
+    assert res.status_code == 422, res.text
 
-    res = client.get(f"/api/tasks/{tid}", headers=_as(alice, owner))
+
+def test_adding_a_second_person_is_refused(client, alice, owner, ravi, sanjita):
+    pid = _new_project(client, alice, owner)
+    tid = _new_task(client, alice, owner, pid, assignees=[ravi])
+
+    res = client.patch(
+        f"/api/tasks/{tid}", json={"assignees": [ravi, sanjita]}, headers=_as(alice, owner)
+    )
+    assert res.status_code == 422, res.text
+
+    detail = client.get(f"/api/tasks/{tid}", headers=_as(alice, owner)).json()
+    assert detail["assignees"] == [ravi]
+
+
+def test_pre_rule_multi_assignment_can_only_shrink_to_one(client, alice, owner, ravi, sanjita):
+    """A task holding two people from before the rule is reassigned to one.
+
+    Changing it to a different set of several (here, reordered) is a real
+    change that leaves several people on it, so it is refused too.
+    """
+    pid = _new_project(client, alice, owner)
+    tid = _new_task(client, alice, owner, pid)
+    _legacy_assign(tid, [ravi, sanjita])
+
+    res = client.patch(
+        f"/api/tasks/{tid}", json={"assignees": [sanjita, ravi]}, headers=_as(alice, owner)
+    )
+    assert res.status_code == 422, res.text
+
+    res = client.patch(
+        f"/api/tasks/{tid}", json={"assignees": [sanjita]}, headers=_as(alice, owner)
+    )
     assert res.status_code == 200, res.text
-    assert res.json()["assignees"] == [ravi, sanjita]
+    detail = client.get(f"/api/tasks/{tid}", headers=_as(alice, owner)).json()
+    assert detail["assignees"] == [sanjita]
 
 
-def test_primary_is_mirrored_into_the_legacy_column(client, alice, owner, ravi, sanjita):
-    """tasks.assignee must keep naming the primary assignee.
+def test_assignee_is_mirrored_into_the_legacy_column(client, alice, owner, ravi, sanjita):
+    """tasks.assignee must keep naming the assignee.
 
     Assignee sorting, the JSON export and clients running the previous build
     still read this column, so a stale mirror would misreport the task.
     """
     pid = _new_project(client, alice, owner)
-    tid = _new_task(client, alice, owner, pid, assignees=[ravi, sanjita])
+    tid = _new_task(client, alice, owner, pid, assignees=[ravi])
     assert _mirror(tid) == ravi
 
-    # Reordering moves the primary, and the mirror follows.
+    # Reassigning moves the mirror with it.
     res = client.patch(
-        f"/api/tasks/{tid}", json={"assignees": [sanjita, ravi]}, headers=_as(alice, owner)
+        f"/api/tasks/{tid}", json={"assignees": [sanjita]}, headers=_as(alice, owner)
     )
     assert res.status_code == 200, res.text
     assert _mirror(tid) == sanjita
@@ -125,14 +185,15 @@ def test_legacy_scalar_client_still_works(client, alice, owner, ravi):
     assert detail["assignee"] == ravi
 
 
-def test_every_assignee_may_edit_not_only_the_primary(client, alice, owner, ravi, sanjita):
-    """The second assignee owns the work as much as the first.
+def test_every_pre_rule_assignee_may_edit(client, alice, owner, ravi, sanjita):
+    """On a pre-rule multi-assigned task, the second assignee can still edit.
 
     _is_task_editor used to compare against the single assignee column, which
     would deny the non-primary assignee access to the task they were given.
     """
     pid = _new_project(client, alice, owner)
-    tid = _new_task(client, alice, owner, pid, assignees=[ravi, sanjita])
+    tid = _new_task(client, alice, owner, pid)
+    _legacy_assign(tid, [ravi, sanjita])
 
     res = client.patch(
         f"/api/tasks/{tid}", json={"description": "edited.png"}, headers=_as(alice, sanjita)
@@ -223,15 +284,17 @@ def test_history_is_owner_and_reviewer_only(client, alice, bob, owner, ravi):
     assert res.status_code == 200, res.text
 
 
-def test_autosave_echoing_the_same_set_records_nothing(client, alice, owner, ravi, sanjita):
-    """Re-sending the current set must not stack duplicate history rows.
+def test_resending_a_pre_rule_set_saves_and_records_nothing(client, alice, owner, ravi, sanjita):
+    """Re-sending the current set is accepted and stacks no history rows.
 
-    Every autosave resends the assignee set (workspace.js syncToBackend), so a
-    write that records unconditionally would fill the history with noise and
-    ring the bell on every 30-second drain.
+    A save that resends the assignees unchanged (the edit modal saving only a
+    new status) must go through even for a pre-rule multi-assigned task —
+    refusing it would block every edit to that task — and a write that records
+    unconditionally would fill the history with noise.
     """
     pid = _new_project(client, alice, owner)
-    tid = _new_task(client, alice, owner, pid, assignees=[ravi, sanjita])
+    tid = _new_task(client, alice, owner, pid)
+    _legacy_assign(tid, [ravi, sanjita])
 
     before = client.get(f"/api/tasks/{tid}/assignments", headers=_as(alice, owner)).json()
     for _ in range(3):
@@ -256,9 +319,10 @@ def test_save_without_assignee_fields_leaves_assignment_alone(client, alice, own
     assert detail["assignees"] == [ravi]
 
 
-def test_task_list_reports_every_assignee(client, alice, owner, ravi, sanjita):
+def test_task_list_reports_every_pre_rule_assignee(client, alice, owner, ravi, sanjita):
     pid = _new_project(client, alice, owner)
-    _new_task(client, alice, owner, pid, assignees=[ravi, sanjita])
+    tid = _new_task(client, alice, owner, pid)
+    _legacy_assign(tid, [ravi, sanjita])
 
     res = client.get(f"/api/tasks?projectId={pid}", headers=_as(alice, owner))
     assert res.status_code == 200, res.text
@@ -267,23 +331,28 @@ def test_task_list_reports_every_assignee(client, alice, owner, ravi, sanjita):
     assert item["assignee"] == ravi
 
 
-def test_bulk_add_keeps_existing_assignees(client, alice, owner, ravi, sanjita):
-    """"Also give these images to X" must not displace whoever is already on them."""
+def test_bulk_assign_cannot_put_several_people_on_a_task(client, alice, owner, ravi, sanjita):
+    """Neither form of bulk assign can leave two people on an image.
+
+    The whole request is refused rather than applied to some of the tasks: a
+    partial bulk assign leaves the owner guessing which images changed.
+    """
     pid = _new_project(client, alice, owner)
     t1 = _new_task(client, alice, owner, pid, description="a.png", assignees=[ravi])
     t2 = _new_task(client, alice, owner, pid, description="b.png")
 
-    res = client.post(
-        "/api/tasks/bulk-update",
-        json={"ids": [t1, t2], "add_assignees": [sanjita]},
-        headers=_as(alice, owner),
-    )
-    assert res.status_code == 200, res.text
+    for body in (
+        {"ids": [t1, t2], "assignees": [ravi, sanjita]},
+        # "add" onto t2 alone would be fine; onto t1 it makes two people.
+        {"ids": [t2, t1], "add_assignees": [sanjita]},
+    ):
+        res = client.post("/api/tasks/bulk-update", json=body, headers=_as(alice, owner))
+        assert res.status_code == 422, res.text
 
     d1 = client.get(f"/api/tasks/{t1}", headers=_as(alice, owner)).json()
     d2 = client.get(f"/api/tasks/{t2}", headers=_as(alice, owner)).json()
-    assert d1["assignees"] == [ravi, sanjita]
-    assert d2["assignees"] == [sanjita]
+    assert d1["assignees"] == [ravi]
+    assert d2["assignees"] == []
 
 
 def test_bulk_replace_sets_the_whole_set(client, alice, owner, ravi, sanjita):
@@ -316,7 +385,7 @@ def test_duplicate_and_padded_names_are_normalized(client, alice, owner, ravi):
 
 
 def test_assignee_reaches_the_project_through_the_join_table(client, alice, bob, owner, ravi):
-    """A non-primary assignee must still be able to open the project.
+    """A pre-rule non-primary assignee must still be able to open the project.
 
     Project access used to be granted by matching tasks.assignee, which names
     only the primary — so the second assignee could be handed work in a project
@@ -324,7 +393,8 @@ def test_assignee_reaches_the_project_through_the_join_table(client, alice, bob,
     """
     sanjita = _member(f"s_{uuid.uuid4().hex[:6]}")
     pid = _new_project(client, alice, owner)
-    tid = _new_task(client, alice, owner, pid, assignees=[ravi, sanjita])
+    tid = _new_task(client, alice, owner, pid)
+    _legacy_assign(tid, [ravi, sanjita])
 
     # sanjita is the *second* assignee, so the mirror does not name her.
     assert _mirror(tid) == ravi
@@ -418,9 +488,10 @@ def test_history_csv_escapes_commas_and_quotes(client, alice, owner):
 def test_assignee_filter_finds_every_assignee_not_only_the_primary(
     client, alice, owner, ravi, sanjita
 ):
-    """`?assignee=` backs "My tasks": the second assignee must see the task too."""
+    """`?assignee=` backs "My tasks": a pre-rule second assignee sees it too."""
     pid = _new_project(client, alice, owner)
-    tid = _new_task(client, alice, owner, pid, assignees=[ravi, sanjita])
+    tid = _new_task(client, alice, owner, pid)
+    _legacy_assign(tid, [ravi, sanjita])
 
     for name in (ravi, sanjita):
         res = client.get(
@@ -433,7 +504,8 @@ def test_assignee_filter_finds_every_assignee_not_only_the_primary(
 
 def test_search_matches_a_non_primary_assignee_once(client, alice, owner, ravi, sanjita):
     pid = _new_project(client, alice, owner)
-    tid = _new_task(client, alice, owner, pid, assignees=[ravi, sanjita])
+    tid = _new_task(client, alice, owner, pid)
+    _legacy_assign(tid, [ravi, sanjita])
 
     res = client.get(
         f"/api/tasks?projectId={pid}&search={sanjita}", headers=_as(alice, owner)
@@ -450,7 +522,8 @@ def test_team_member_task_list_includes_non_primary_tasks(
     client, alice, owner, ravi, sanjita
 ):
     pid = _new_project(client, alice, owner)
-    tid = _new_task(client, alice, owner, pid, assignees=[ravi, sanjita])
+    tid = _new_task(client, alice, owner, pid)
+    _legacy_assign(tid, [ravi, sanjita])
 
     db = SessionLocal()
     try:

@@ -28,9 +28,12 @@ const POLL_INTERVAL_MS = 30_000;
 // Populated asynchronously after the task list renders.
 const _lockCache = {};
 
-// Edit modal assignees, in order (index 0 is the primary), and the team roster
-// offered as typing suggestions.
-let editAssignees = [];
+// The assignees the edit modal opened with, whether its assignee box has been
+// edited since, and the team roster offered as typing suggestions. The list
+// matters for tasks assigned to several people before the one-person rule:
+// they save unchanged until someone types in the box (editAssigneesToSave).
+let editOriginalAssignees = [];
+let editAssigneeTouched = false;
 let rosterNames = [];
 
 async function _refreshLockCache(tasks) {
@@ -144,17 +147,16 @@ function template(isCreator) {
             </label>
             <details class="modal-section" id="editAssigneeSection">
               <summary>
-                Assignees
+                Assignee
                 <span class="section-hint" id="editAssigneeHint">Unassigned</span>
               </summary>
               <div class="section-content">
-                <span style="font-size:.75rem;color:var(--muted);font-style:italic;">Optional, advisory only — type a name and press Enter; add as many as needed.</span>
-                <div class="assignee-input" id="editAssigneeBox">
-                  <span id="editAssigneeChips" class="assignee-chips"></span>
-                  <input type="text" id="editAssignee" list="editAssigneeOptions" autocomplete="off" placeholder="Type a name…">
-                </div>
-                <datalist id="editAssigneeOptions"></datalist>
-                <span style="font-size:.75rem;color:var(--muted);">Leave empty to keep the image unassigned.</span>
+                <span style="font-size:.75rem;color:var(--muted);font-style:italic;">Optional, advisory only — one person per image. Type a name; team members are suggested as you type.</span>
+                <input type="text" id="editAssignee" list="assigneeOptions" autocomplete="off" placeholder="Unassigned — type a name" style="padding:9px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink);">
+                <!-- Shared by this box and the bulk assign box. -->
+                <datalist id="assigneeOptions"></datalist>
+                <span id="editAssigneeLegacy" style="display:none;font-size:.8rem;color:var(--ink);"></span>
+                <span style="font-size:.75rem;color:var(--muted);">Clear the box to unassign the image.</span>
               </div>
             </details>
             <details class="modal-section" id="editHistoryWrap" style="display:none;">
@@ -193,20 +195,10 @@ function template(isCreator) {
         <form id="assignForm">
           <div class="modal-body">
             <label style="display:grid;gap:6px;">
-              <span style="font-size:.85rem;color:var(--muted);">Assignees <span style="font-weight:400;font-style:italic;">(optional, advisory only — hold Ctrl to pick several)</span></span>
-              <select id="assignInput" multiple size="5" style="padding:9px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink);">
-              </select>
+              <span style="font-size:.85rem;color:var(--muted);">Assignee <span style="font-weight:400;font-style:italic;">(optional, advisory only — one person per image)</span></span>
+              <input type="text" id="assignInput" list="assigneeOptions" autocomplete="off" placeholder="Type a name" style="padding:9px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink);">
+              <span style="font-size:.75rem;color:var(--muted);">Replaces whoever is on the selected images. Leave the box empty to unassign them.</span>
             </label>
-            <div style="display:grid;gap:6px;margin-top:12px;font-size:.85rem;">
-              <label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer;">
-                <input type="radio" name="assignMode" value="replace" checked style="margin-top:3px;">
-                <span>Replace — these people become the only assignees. Selecting nobody unassigns the images.</span>
-              </label>
-              <label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer;">
-                <input type="radio" name="assignMode" value="add" style="margin-top:3px;">
-                <span>Add — keep whoever is already assigned and add these people too.</span>
-              </label>
-            </div>
           </div>
           <div style="display:flex;gap:10px;justify-content:flex-end;padding:16px;">
             <button type="button" class="tool-button" id="assignCancel">Cancel</button>
@@ -560,7 +552,7 @@ async function loadTeamForTasks() {
     const team = await res.json();
     
     const byTeam = {};
-    const unassigned = [];
+    const noTeam = [];
     const projectTeamId = ctx?.project?.team_id;
 
     team.forEach((m) => {
@@ -571,60 +563,37 @@ async function loadTeamForTasks() {
       }
       
       if (m.teams && m.teams.length > 0) {
-        // Group by the first team for the dropdown, to avoid duplicates
+        // Group by the first team, to avoid listing anyone twice
         const primaryTeamName = m.teams[0].name;
         if (!byTeam[primaryTeamName]) byTeam[primaryTeamName] = [];
         byTeam[primaryTeamName].push(m);
       } else {
-        unassigned.push(m);
+        noTeam.push(m);
       }
     });
-    
-    const populate = (selectEl) => {
-      // No "Unassigned" placeholder option: these are multi-selects now, and
-      // unassigned is expressed by selecting nothing rather than by a value.
-      selectEl.innerHTML = "";
-      for (const [teamName, members] of Object.entries(byTeam)) {
-        const group = document.createElement("optgroup");
-        group.label = teamName;
-        members.forEach((m) => {
-          const opt = document.createElement("option");
-          opt.value = m.name;
-          opt.textContent = m.name;
-          group.appendChild(opt);
-        });
-        selectEl.appendChild(group);
-      }
-      if (unassigned.length > 0) {
-        const group = document.createElement("optgroup");
-        group.label = "Unassigned";
-        unassigned.forEach((m) => {
-          const opt = document.createElement("option");
-          opt.value = m.name;
-          opt.textContent = m.name;
-          group.appendChild(opt);
-        });
-        selectEl.appendChild(group);
-      }
-    };
-    
-    populate(el("assignInput"));
 
-    // The edit modal takes typed names; the roster only feeds its suggestions.
-    rosterNames = [...Object.values(byTeam).flat(), ...unassigned].map((m) => m.name);
-    const options = el("editAssigneeOptions");
+    // Both assignee boxes take typed names; the roster only feeds the
+    // suggestions, each labelled with the person's team.
+    rosterNames = [];
+    const options = el("assigneeOptions");
     options.innerHTML = "";
-    rosterNames.forEach((name) => {
+    const suggest = (name, label) => {
+      rosterNames.push(name);
       const opt = document.createElement("option");
       opt.value = name;
+      opt.label = label;
       options.appendChild(opt);
-    });
+    };
+    for (const [teamName, members] of Object.entries(byTeam)) {
+      members.forEach((m) => suggest(m.name, teamName));
+    }
+    noTeam.forEach((m) => suggest(m.name, "No team"));
   } catch (err) {
     console.error("Failed to load team", err);
   }
 }
 
-/** Add a typed name to the edit modal's assignee list; true if it was consumed.
+/** The assignee name a typed value stands for, or "" when the box is empty.
  *
  * Names are free text (the server accepts any name). A name that differs from
  * exactly one roster entry only by case takes the roster's spelling, so typing
@@ -632,47 +601,27 @@ async function loadTeamForTasks() {
  * may hold "sanjita" and "Sanjita" as two people (see normalize_names in
  * api/assignments.py), and folding case would merge them.
  */
-function addEditAssignee(raw) {
+function resolveAssigneeName(raw) {
   const typed = (raw || "").trim();
-  if (!typed) return false;
-  let name = typed;
-  if (!rosterNames.includes(typed)) {
-    const lower = typed.toLowerCase();
-    const matches = rosterNames.filter((n) => n.toLowerCase() === lower);
-    if (matches.length === 1) name = matches[0];
-  }
-  if (editAssignees.includes(name)) return true;
-  editAssignees.push(name);
-  renderAssigneeChips();
-  return true;
+  if (!typed || rosterNames.includes(typed)) return typed;
+  const lower = typed.toLowerCase();
+  const matches = rosterNames.filter((n) => n.toLowerCase() === lower);
+  return matches.length === 1 ? matches[0] : typed;
 }
 
-function renderAssigneeChips() {
-  const chips = el("editAssigneeChips");
-  if (!chips) return;
-  const roster = new Set(rosterNames);
-  chips.innerHTML = editAssignees.map((name, i) => {
-    // Still shown, and still saved, when off the roster: a member removed from
-    // the team should not silently drop off the images they hold.
-    const offRoster = rosterNames.length && !roster.has(name);
-    return `<span class="pill assignee-chip"${offRoster ? ' title="Not on this team"' : ""}>`
-      + escapeHTML(name)
-      + `<button type="button" data-remove="${i}" aria-label="Remove ${escapeHTML(name)}">&times;</button></span>`;
-  }).join("");
-  syncAssigneeHint();
-}
-
-/** Selected values of a multi-select, in the order the options are listed.
+/** The assignee list the edit modal will save.
  *
- * Selection order is not recorded by the DOM, so "first selected" means first
- * in the list. The server treats index 0 as the primary assignee, so this is
- * what decides which name the tasks.assignee mirror carries.
+ * Normally the one name in the box, or nobody. A task assigned to several
+ * people before the one-person rule opens with an empty box and a note naming
+ * them; until the box is touched it saves that list unchanged, which the
+ * server accepts, so editing only the status does not reassign the image.
  */
-function selectedNames(selectEl) {
-  if (!selectEl) return [];
-  return Array.from(selectEl.selectedOptions)
-    .map((o) => o.value)
-    .filter(Boolean);
+function editAssigneesToSave() {
+  if (editOriginalAssignees.length > 1 && !editAssigneeTouched) {
+    return [...editOriginalAssignees];
+  }
+  const name = resolveAssigneeName(el("editAssignee").value);
+  return name ? [name] : [];
 }
 
 /** The task's assignee set, tolerating a row that predates multi-assignment.
@@ -697,7 +646,7 @@ function assigneesOf(task) {
 function syncAssigneeHint() {
   const hint = el("editAssigneeHint");
   if (!hint) return;
-  const names = editAssignees;
+  const names = editAssigneesToSave();
   if (!names.length) {
     hint.textContent = "Unassigned";
     return;
@@ -714,9 +663,18 @@ function openEditModal(task) {
   el("editDescription").value = task.description || "";
 
   const current = assigneesOf(task);
-  editAssignees = [...current];
-  el("editAssignee").value = "";
-  renderAssigneeChips();
+  editOriginalAssignees = [...current];
+  editAssigneeTouched = false;
+  const legacy = el("editAssigneeLegacy");
+  if (current.length > 1) {
+    el("editAssignee").value = "";
+    legacy.textContent = `Currently assigned to ${current.join(", ")}. Type one name to replace them.`;
+    legacy.style.display = "block";
+  } else {
+    el("editAssignee").value = current[0] || "";
+    legacy.style.display = "none";
+  }
+  syncAssigneeHint();
 
   // Collapsed by default: the section is optional ("advisory only"), and its
   // 5-row list is one of the two things that pushed the footer off screen.
@@ -896,42 +854,16 @@ function bindEditModal() {
   // Keeps the collapsed summary honest while the section is open: without it
   // the hint still shows the selection the modal was opened with, and reads as
   // stale the moment the section is shut again.
-  const assigneeInput = el("editAssignee");
-  assigneeInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" || e.key === ",") {
-      // Enter would otherwise submit the whole form mid-typing.
-      e.preventDefault();
-      if (addEditAssignee(assigneeInput.value)) assigneeInput.value = "";
-    } else if (e.key === "Backspace" && !assigneeInput.value && editAssignees.length) {
-      editAssignees.pop();
-      renderAssigneeChips();
-    }
-  });
-  // Picking a datalist suggestion fires `input` with the full name and no
-  // keydown, so commit it right away when it matches a roster entry exactly.
-  assigneeInput.addEventListener("input", (e) => {
-    if (e.inputType && e.inputType !== "insertReplacementText") return;
-    if (rosterNames.includes(assigneeInput.value) && addEditAssignee(assigneeInput.value)) {
-      assigneeInput.value = "";
-    }
-  });
-  el("editAssigneeChips").addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-remove]");
-    if (!btn) return;
-    editAssignees.splice(Number(btn.dataset.remove), 1);
-    renderAssigneeChips();
-  });
-  el("editAssigneeBox").addEventListener("click", (e) => {
-    if (e.target === el("editAssigneeBox")) assigneeInput.focus();
+  el("editAssignee").addEventListener("input", () => {
+    editAssigneeTouched = true;
+    syncAssigneeHint();
   });
   el("editModal").addEventListener("click", (e) => { if (e.target === el("editModal")) closeEditModal(); });
 
   el("editForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const id = el("editId").value;
-    // A name typed but not yet confirmed with Enter still counts: the owner
-    // pressing Save expects what is in the box to be saved.
-    if (addEditAssignee(el("editAssignee").value)) el("editAssignee").value = "";
+    const assignees = editAssigneesToSave();
     try {
       const res = await apiFetch(`/api/tasks/${id}`, {
         method: "PATCH",
@@ -941,8 +873,8 @@ function bindEditModal() {
           // `assignees` (the list) is what the server reads; the scalar is sent
           // alongside only so a mid-deploy server still running the previous
           // build applies the primary rather than ignoring the change.
-          assignees: [...editAssignees],
-          assignee: editAssignees[0] || "",
+          assignees,
+          assignee: assignees[0] || "",
           status: el("editStatus").value,
         }),
       });
@@ -1113,9 +1045,7 @@ function bindBulkActions() {
 
   assignBtn.addEventListener("click", () => {
     if (table.getSelection().size === 0) return;
-    Array.from(el("assignInput").options).forEach((o) => { o.selected = false; });
-    const replaceRadio = document.querySelector('input[name="assignMode"][value="replace"]');
-    if (replaceRadio) replaceRadio.checked = true;
+    el("assignInput").value = "";
     el("assignModal").classList.add("is-active");
   });
   el("assignClose").addEventListener("click", () => el("assignModal").classList.remove("is-active"));
@@ -1128,25 +1058,14 @@ function bindBulkActions() {
     e.preventDefault();
     const ids = [...table.getSelection()];
     if (!ids.length) return;
-    const names = selectedNames(el("assignInput"));
-    const mode = document.querySelector('input[name="assignMode"]:checked')?.value || "replace";
-    if (mode === "add" && !names.length) {
-      showError("Pick at least one person to add, or switch to Replace to unassign.");
-      return;
-    }
+    // One person per image: the typed name replaces whoever is on each one,
+    // and an empty box unassigns.
+    const name = resolveAssigneeName(el("assignInput").value);
     try {
       const res = await apiFetch("/api/tasks/bulk-update", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // "add" keeps whoever is already on each image and appends; "replace"
-        // makes this the whole set, so selecting nobody unassigns. The two
-        // cannot be expressed by one field, and doing the add as a
-        // read-modify-write here would race anyone else assigning concurrently.
-        body: JSON.stringify(
-          mode === "add"
-            ? { ids, add_assignees: names }
-            : { ids, assignees: names, assignee: names[0] || "" }
-        ),
+        body: JSON.stringify({ ids, assignees: name ? [name] : [], assignee: name }),
       });
       if (!res) return;
       if (!res.ok) {

@@ -211,11 +211,12 @@ class ProjectReviewer(Base):
     created_at = Column(UTCDateTime, server_default=func.now(), nullable=False)
 
 class TaskAssignee(Base):
-    """One annotator assigned to one task. Several rows per task are expected.
+    """One annotator assigned to one task. This table is the source of truth.
 
-    An image is worked by different people at different times — and sometimes by
-    several at once — so assignment is a set, not a cell. This table is the
-    source of truth for that set.
+    A task is held by one person at a time; `api.assignments.set_task_assignees`
+    refuses any change that would leave more than one row. Tasks assigned to
+    several people before that rule keep their rows until they are reassigned,
+    so readers must still expect more than one row per task.
 
     `tasks.assignee` is kept as a **denormalized mirror of the primary row**
     (the one with the lowest `position`), not as a second source of truth.

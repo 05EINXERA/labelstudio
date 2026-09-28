@@ -19,6 +19,7 @@ that carries it land atomically under one `commit_with_retry` (CLAUDE.md rule 10
 import logging
 from typing import Iterable, List, Optional, Sequence
 
+from fastapi import HTTPException
 from sqlalchemy import exists
 from sqlalchemy.orm import Session
 
@@ -144,6 +145,16 @@ def set_task_assignees(
         if task.assignee != primary:
             task.assignee = primary
         return {"added": [], "removed": [], "primary": primary, "changed": False}
+
+    # One person per task. Checked only for a real change, after the no-op
+    # return above: tasks assigned to several people before this rule stay as
+    # they are, and a client resending that set unchanged (an older tab saving
+    # only its status) still saves. Nothing can make a task multi-assigned.
+    if len(desired) > 1:
+        raise HTTPException(
+            status_code=422,
+            detail="A task can be assigned to one person only.",
+        )
 
     desired_set = set(desired)
     current_set = set(current)

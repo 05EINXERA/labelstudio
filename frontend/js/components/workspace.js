@@ -18,7 +18,7 @@ import {
   shapeHint, saveStatus
 } from "../dom.js?v=2";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
-import { toolAvailability } from "../feature-flags.js?v=10";
+import { toolAvailability } from "../feature-flags.js?v=11";
 
 
 export function setStatus(text, { sticky = false } = {}) {
@@ -1174,15 +1174,10 @@ export async function loadTeamForWorkspace(projectId) {
       if (!task || !task.id) return;
       
       const newAssignee = e.target.value;
-      // Replace the primary but keep the co-assignees: this control changes who
-      // leads the image, not who else is on it. Sending the scalar alone would
-      // make the server collapse the set to one name and quietly drop everybody
-      // else from a task they are still working.
-      const previous = Array.isArray(task.assignees) && task.assignees.length
-        ? task.assignees
-        : (task.assignee ? [task.assignee] : []);
-      const others = previous.slice(1).filter((n) => n !== newAssignee);
-      const nextAssignees = newAssignee ? [newAssignee, ...others] : others;
+      // One person per image: the choice replaces whoever holds it, including
+      // anyone left from before that rule. The server refuses a change that
+      // would leave several people on a task.
+      const nextAssignees = newAssignee ? [newAssignee] : [];
       task.assignees = nextAssignees;
       task.assignee = nextAssignees[0] || "";
       renderAssignee();

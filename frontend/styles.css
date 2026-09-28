@@ -2427,24 +2427,6 @@ table.data-table tbody tr:last-child td { border-bottom: none; }
   font-size: .75rem; font-weight: 600; white-space: nowrap;
   background: var(--panel-2); color: var(--muted); border: 1px solid var(--line);
 }
-.assignee-input {
-  display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
-  padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line);
-  background: var(--panel); cursor: text;
-}
-.assignee-input:focus-within { border-color: var(--accent); }
-.assignee-chips { display: contents; }
-.assignee-input input {
-  flex: 1; min-width: 120px; border: none; outline: none;
-  padding: 4px; background: transparent; color: var(--ink); font: inherit;
-}
-.assignee-chip { display: inline-flex; align-items: center; gap: 4px; color: var(--ink); }
-.assignee-chip button {
-  border: none; background: none; padding: 0 0 0 2px; cursor: pointer;
-  color: var(--muted); font-size: .9rem; line-height: 1;
-}
-.assignee-chip button:hover { color: var(--ink); }
-.assignee-chip[title] { border-style: dashed; }
 .pill[data-action]:hover {
   filter: brightness(0.95);
   border-color: var(--accent);

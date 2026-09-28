@@ -14,9 +14,9 @@ import {
   autoDetectButton, autoTagButton, undoButton, redoButton, deleteButton,
   clearButton, saveButton, stageWrap
 } from "../dom.js?v=2";
-import { setStatus, save, render, manualSaveWithUI } from "./workspace.js?v=12";
+import { setStatus, save, render, manualSaveWithUI } from "./workspace.js?v=13";
 import { autoDetectObjects, autoTagObjects, preloadMagicWand } from "../ai/detect.js?v=2";
-import { finalizePolygon, deleteSelected, undoAction, redoAction, clearStickyHover } from "../canvas/interactions.js?v=20";
+import { finalizePolygon, deleteSelected, undoAction, redoAction, clearStickyHover } from "../canvas/interactions.js?v=21";
 
 /**
  * Initializes Move Objects toggle button and dropdown menu.

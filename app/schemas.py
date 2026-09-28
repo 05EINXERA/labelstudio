@@ -154,9 +154,9 @@ class BulkUpdate(BaseModel):
     assignee: Optional[str] = None
     # Replace each task's assignee set with exactly these names.
     assignees: Optional[List[str]] = None
-    # Add these names to each task's existing set, keeping who is already on it.
-    # "Also give these images to X" cannot be expressed by a replacing assign,
-    # and doing it as a read-modify-write in the client would race other writers.
+    # Add these names to each task's existing set. With one person per task
+    # this only succeeds on unassigned tasks; the current UI no longer sends it,
+    # and it is kept so an older cached tab gets a 422 rather than a crash.
     add_assignees: Optional[List[str]] = None
     status: Optional[str] = None
 

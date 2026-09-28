@@ -1,6 +1,6 @@
 import { canvas, ctx, backgroundImage, staticCanvas, staticCtx } from "../dom.js?v=2";
 import { state, labelById, isAnnotationHidden } from "../state.js?v=4";
-import { annotationSettings, annotationOpacity, zoomScaledRadius } from "../feature-flags.js?v=10";
+import { annotationSettings, annotationOpacity, zoomScaledRadius } from "../feature-flags.js?v=11";
 import { view } from "./view.js?v=3";
 import { annotationPoints, hexToRgba, hiddenGroupVertexFlags } from "./geometry.js?v=10";
 
@@ -507,9 +507,13 @@ export function drawVertexHandles(points, color, targetCtx = ctx, isBeingDrawn =
   // feature-flags.js, which is an identity while vertexZoomScale is 0.
   // hitTestPoint() in interactions.js derives the grab radius from the same
   // curve, so the click target cannot drift from the handle the annotator sees.
-  const radius = zoomScaledRadius(annotationSettings.vertexHandleRadius, view.viewZoom);
+  // A polygon still being drawn gets smaller dots (drawingVertexHandleRadius).
+  const baseRadius = isBeingDrawn
+    ? annotationSettings.drawingVertexHandleRadius
+    : annotationSettings.vertexHandleRadius;
+  const radius = zoomScaledRadius(baseRadius, view.viewZoom);
   targetCtx.strokeStyle = color;
-  targetCtx.lineWidth = 2;
+  targetCtx.lineWidth = isBeingDrawn ? 1.5 : 2;
   points.forEach((point, i) => {
     if (!point) return;
     targetCtx.beginPath();

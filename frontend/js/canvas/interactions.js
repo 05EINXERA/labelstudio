@@ -18,10 +18,10 @@ import { view } from "./view.js?v=3";
 import { draw, drawAllLayers } from "./draw.js?v=7";
 import { canvas, undoButton } from "../dom.js?v=2";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
-import { setStatus, save, render, activateLabel, HOTKEY_LABEL_LIMIT } from "../components/workspace.js?v=12";
+import { setStatus, save, render, activateLabel, HOTKEY_LABEL_LIMIT } from "../components/workspace.js?v=13";
 import { performMagicWandSegmentation } from "../ai/detect.js?v=2";
 import { applyAutoSmooth } from "../fft-controls.js?v=1";
-import { annotationSettings, vertexGrabScreenRadius } from "../feature-flags.js?v=10";
+import { annotationSettings, vertexGrabScreenRadius } from "../feature-flags.js?v=11";
 
 export function canvasPoint(event) {
   const rect = canvas.getBoundingClientRect();
@@ -1364,6 +1364,9 @@ canvas.addEventListener("pointerdown", (event) => {
           if (view.drag.undonePoints) view.drag.undonePoints = [];
         }
       }
+      // Only a press that placed a vertex here may continue as a freehand
+      // trace. See `freehandStroke` in pointermove.
+      view.drag.freehandStroke = true;
       render();
       save();
       return;
@@ -1563,7 +1566,14 @@ canvas.addEventListener("pointermove", (event) => {
     view.drag.preview = end;
     view.drag.previewCanvas = point;
     
-    if (event.buttons === 1) {
+    // Freehand tracing requires the button to have gone down ON the canvas as
+    // a vertex-placing press. Gating on `event.buttons` alone treated any held
+    // button as a trace -- a press that began on the toolbar or class list and
+    // dragged onto the canvas, or a press the canvas consumed without placing
+    // a vertex -- and `appendEvenlySpacedPoints` then filled the whole run from
+    // the last vertex to the cursor with points: an edge the annotator never
+    // drew, appearing on its own.
+    if (event.buttons === 1 && view.drag.freehandStroke) {
       const annotation = state.annotations.find((item) => item.id === view.drag.annotationId);
       if (annotation) {
         const pts = annotation.points || [];
@@ -1899,9 +1909,12 @@ canvas.addEventListener("pointerup", (e) => {
     return;
   }
 
-  if (view.drag?.type === "draw-polygon" && view.drag.needsSave) {
-    view.drag.needsSave = false;
-    save();
+  if (view.drag?.type === "draw-polygon") {
+    view.drag.freehandStroke = false;
+    if (view.drag.needsSave) {
+      view.drag.needsSave = false;
+      save();
+    }
   }
 
   if (view.drag?.draft && view.drag.type === "draw" && state.mode === "draw") {

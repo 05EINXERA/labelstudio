@@ -6,19 +6,19 @@ import { apiFetch } from "./api.js?v=3";
 import { state } from "./state.js?v=4";
 import {
   setStatus, syncToBackend, loadSaved, saveDraft, render, loadTeamForWorkspace
-} from "./components/workspace.js?v=12";
+} from "./components/workspace.js?v=13";
 import {
   syncTimeToServer, setActiveTaskResolver, setConflictHandler, setSaveHaltedHandler,
   handleVisibilityChange as handleTimerVisibility, pauseSessionTimer
 } from "./components/timer.js?v=5";
 import { initBreakControl } from "./components/break.js?v=1";
-import { setZoomChangeHandler } from "./canvas/interactions.js?v=20";
+import { setZoomChangeHandler } from "./canvas/interactions.js?v=21";
 import { initContextMenu } from "./canvas/context-menu.js?v=3";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
 import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=3";
 import { releaseTask, heartbeatTask } from "./task-lock.js?v=1";
 import { initFftControls } from "./fft-controls.js?v=1";
-import { toolAvailability } from "./feature-flags.js?v=10";
+import { toolAvailability } from "./feature-flags.js?v=11";
 import {
   switchImage, initGalleryNavigation, loadWorkspaceTasks, resizeCanvas
 } from "./components/gallery.js?v=10";
