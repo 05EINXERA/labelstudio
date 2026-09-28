@@ -1135,41 +1135,11 @@ canvas {
   backdrop-filter: blur(2px);
 }
 
-/* ─── <= 1200px tweaks (Compact Toolbar) ─── */
+/* ─── <= 1200px tweaks ───
+   The workspace .toolbar deliberately has no breakpoint overrides: it looks
+   the same at every width and wraps onto more rows when space runs out (see
+   "Workspace column + compact grouped toolbar" below). */
 @media (max-width: 1200px) {
-  .toolbar {
-    flex-wrap: nowrap !important;
-    overflow-x: auto;
-    justify-content: flex-start;
-    padding-bottom: 8px;
-    /* Room for scrollbar if needed */
-  }
-
-  /* Hide scrollbar visually but keep functionality */
-  .toolbar::-webkit-scrollbar {
-    height: 4px;
-  }
-
-  .toolbar::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  .toolbar::-webkit-scrollbar-thumb {
-    background: rgba(0, 0, 0, 0.1);
-    border-radius: 4px;
-  }
-
-  .btn-icon {
-    display: inline;
-    /* Show icon */
-    margin-right: 0;
-  }
-
-  .btn-label {
-    display: none;
-    /* Hide text */
-  }
-
   .tool-button,
   .icon-button {
     min-width: 44px;
@@ -1291,17 +1261,6 @@ canvas {
     padding: 12px;
   }
 
-  .toolbar {
-    display: flex;
-    flex-wrap: wrap;
-    overflow-x: auto;
-    white-space: nowrap;
-    gap: 8px;
-    padding: 8px;
-  }
-
-
-
   .stage-wrap {
     min-height: 260px;
   }
@@ -1352,16 +1311,6 @@ canvas {
   .workspace {
     padding: 8px;
     gap: 8px;
-  }
-
-  .toolbar {
-    gap: 6px;
-    padding: 6px;
-    border-radius: 6px;
-  }
-
-  .tool-group {
-    gap: 4px;
   }
 
   .tool-button,
@@ -1457,10 +1406,6 @@ canvas {
 
   h1 {
     font-size: 1.1rem;
-  }
-
-  .toolbar {
-    padding: 4px;
   }
 
   .tool-button,
@@ -1980,6 +1925,13 @@ canvas {
   white-space: nowrap;
 }
 
+/* The generic .tool-button breakpoint rules set touch-size min-widths; the
+   toolbar keeps one size everywhere. */
+.toolbar .tool-button,
+.toolbar .icon-button {
+  min-width: 0;
+}
+
 .toolbar .btn-icon {
   display: inline;
   margin-right: 3px;
@@ -2170,14 +2122,7 @@ canvas {
   margin: 0 2px;
 }
 
-/* On narrow screens the groups wrap onto their own rows, so the vertical
-   separators between them stop reading as separators and just add noise. */
 @media (max-width: 900px) {
-  .tool-group {
-    border-right: none;
-    padding: 0 4px;
-  }
-
   .workspace {
     height: auto;
     max-height: none;
@@ -2848,89 +2793,6 @@ button.switch[aria-checked="true"] .switch-knob {
   margin: 6px 0;
 }
 
-/* --- Connection lost badge ------------------------------------------------
-   A small floating pill in the bottom-right corner, appended to <body> by
-   js/connection.js.
-
-   Deliberately NOT a top bar and deliberately out of the document flow: it is
-   `position: fixed` with no width/height contribution and no body padding, so
-   showing or hiding it never reflows the page and never resizes or moves the
-   annotation canvas. Nothing in this block may add layout-affecting rules to
-   <body>, .app-shell or any canvas ancestor. */
-.connection-banner {
-  position: fixed;
-  top: auto;
-  left: auto;
-  right: 16px;
-  bottom: 16px;
-  width: auto;
-  max-width: min(340px, calc(100vw - 32px));
-  z-index: 4000;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 7px;
-  padding: 7px 12px;
-  border-radius: 999px;
-  background: var(--danger);
-  color: #fff;
-  font-size: 12px;
-  line-height: 1.35;
-  cursor: pointer;
-  box-shadow: 0 6px 18px rgba(23, 32, 38, 0.28);
-}
-
-.connection-banner-dot {
-  flex: 0 0 auto;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #fff;
-  animation: connection-pulse 1.4s ease-in-out infinite;
-}
-
-@keyframes connection-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.25; }
-}
-
-.connection-banner-badge-label {
-  flex: 0 0 auto;
-  font-weight: 600;
-}
-
-.connection-banner-elapsed {
-  flex: 0 0 auto;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  opacity: 0.8;
-  white-space: nowrap;
-}
-
-/* Revealed on click. Grows the pill upward/outward over the canvas — it is
-   inside the fixed element, so it still costs the page no layout. */
-.connection-banner-detail {
-  display: none;
-  flex: 1 0 100%;
-  padding-top: 2px;
-  font-size: 11px;
-  opacity: 0.95;
-}
-
-.connection-banner.show-detail {
-  border-radius: 12px;
-}
-
-.connection-banner.show-detail .connection-banner-detail {
-  display: block;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .connection-banner-dot {
-    animation: none;
-  }
-}
-
 /* --- Print Styles for Tasks Table --- */
 @media print {
   /* Hide all surrounding chrome */
@@ -2992,8 +2854,8 @@ button.switch[aria-checked="true"] .switch-knob {
 /* --- Notification bell in the annotation workspace sidebar -----------------
    The management pages (project/projects/teams) hang this dropdown absolutely
    inside a plain, non-clipping header. The workspace has no such header, and
-   both candidate homes clip it:
-     - .toolbar turns into `overflow-x: auto` under 1200px;
+   both candidate homes are poor fits:
+     - .toolbar is already dense and wraps onto extra rows when narrow;
      - .sidebar is `overflow: hidden` so its panes scroll internally and
        #userPanel stays pinned at the bottom.
    So the bell lives beside logout in the sidebar's user footer, and the

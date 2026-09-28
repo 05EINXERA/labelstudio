@@ -1,14 +1,11 @@
 /**
- * Connection monitor — surfaces a visible warning when the workspace loses its
- * link to the server.
+ * Connection monitor — tracks whether the workspace can reach the server.
  *
- * Why this exists: annotation work is autosaved through `apiFetch`, and every
- * caller in the workspace swallows network failures (console.warn / catch {}) so
- * that a blip never interrupts drawing. That is the right behaviour for the
- * canvas, but it left the annotator with no signal at all — they keep drawing
- * for ten minutes against a dead server and only find out when the tab closes.
- * The per-task localStorage draft (workspace.js) is what actually protects the
- * work; this module is what tells them the draft is currently all there is.
+ * Annotation work is autosaved through `apiFetch`, and callers swallow network
+ * failures so a blip never interrupts drawing. This module turns those outcomes
+ * into an online/offline state that the save-status text consumes
+ * (workspace.js shows "Not saved — offline"). The per-task localStorage draft
+ * is what actually protects the work while disconnected.
  *
  * Two independent signals feed the state:
  *
@@ -20,25 +17,13 @@
  *     unreachable. HTTP error statuses are NOT failures here — a 403 or 500 is a
  *     server that answered, i.e. a live connection.
  *
- * A single failure is not enough to alarm: one aborted request during a large
- * save is normal. The banner appears after FAILURE_THRESHOLD consecutive
- * failures, or immediately on an `offline` event. While down, an unauthenticated
- * `/health` probe runs on an interval so recovery is detected even if the user
- * has stopped interacting.
+ * The state flips to offline after FAILURE_THRESHOLD consecutive failures, or
+ * immediately on an `offline` event. While down, an unauthenticated `/health`
+ * probe runs on an interval so recovery is detected even if the user has
+ * stopped interacting.
  *
- * Presentation is a single floating badge in the bottom-right corner. It is
- * deliberately NOT a top bar and NOT on a timer:
- *
- *  - Nothing is inserted into the document flow. An earlier version pushed the
- *    page down with a body padding-top, which reflowed and resized the canvas
- *    mid-annotation — unacceptable while someone is drawing. The badge is
- *    `position: fixed` and floats over the corner, so the canvas never moves.
- *  - It persists for as long as the connection is actually down. A warning that
- *    times out leaves a disconnected workspace looking identical to a healthy
- *    one, and the annotator keeps drawing against a dead server unaware.
- *
- * Clicking it toggles a one-line explanation that grows the badge upward,
- * still without touching layout. It clears the instant the connection is back.
+ * There is intentionally no floating "Offline" badge: it was removed at the
+ * user's request; the save-status text is the only visible signal.
  */
 
 const FAILURE_THRESHOLD = 2;
@@ -48,9 +33,6 @@ const PROBE_TIMEOUT_MS = 4000;
 let consecutiveFailures = 0;
 let online = true;
 let probeTimer = null;
-let bannerEl = null;
-let offlineSince = null;
-let elapsedTimer = null;
 const listeners = new Set();
 
 /** True while the server is believed reachable. */
@@ -98,13 +80,10 @@ function setOnline(next) {
   online = next;
   if (next) {
     consecutiveFailures = 0;
-    offlineSince = null;
     stopProbing();
   } else {
-    offlineSince = Date.now();
     startProbing();
   }
-  renderBanner();
   emit();
 }
 
@@ -144,71 +123,8 @@ function stopProbing() {
   }
 }
 
-function formatElapsed(ms) {
-  const total = Math.floor(ms / 1000);
-  const mins = Math.floor(total / 60);
-  const secs = total % 60;
-  if (mins === 0) return `${secs}s`;
-  return `${mins}m ${String(secs).padStart(2, '0')}s`;
-}
-
-function ensureBanner() {
-  if (bannerEl) return bannerEl;
-  bannerEl = document.createElement('div');
-  bannerEl.className = 'connection-banner';
-  bannerEl.setAttribute('role', 'alert');
-  bannerEl.setAttribute('aria-live', 'assertive');
-  bannerEl.hidden = true;
-  bannerEl.title =
-    'Connection lost — your work is kept in this browser only and is not saved ' +
-    'to the server. Keep this tab open; it will save automatically when the ' +
-    'connection returns.';
-  bannerEl.innerHTML = `
-    <span class="connection-banner-dot" aria-hidden="true"></span>
-    <span class="connection-banner-badge-label">Offline</span>
-    <span class="connection-banner-elapsed" id="connectionBannerElapsed"></span>
-    <span class="connection-banner-detail">
-      Work saved in this browser only — it will sync when the connection returns.
-    </span>
-  `;
-  // Click reveals the full explanation inline, without moving anything around
-  // it: the detail line is inside the same floating badge, so expanding it
-  // grows the badge upward over the canvas rather than reflowing the page.
-  bannerEl.addEventListener('click', () => {
-    bannerEl.classList.toggle('show-detail');
-  });
-  document.body.appendChild(bannerEl);
-  return bannerEl;
-}
-
-function renderBanner() {
-  if (typeof document === 'undefined' || !document.body) return;
-  const el = ensureBanner();
-
-  if (online) {
-    el.hidden = true;
-    el.classList.remove('show-detail');
-    if (elapsedTimer) {
-      clearInterval(elapsedTimer);
-      elapsedTimer = null;
-    }
-    return;
-  }
-
-  el.hidden = false;
-
-  const elapsedEl = el.querySelector('#connectionBannerElapsed');
-  const tick = () => {
-    if (elapsedEl && offlineSince) {
-      elapsedEl.textContent = `offline for ${formatElapsed(Date.now() - offlineSince)}`;
-    }
-  };
-  tick();
-  if (!elapsedTimer) elapsedTimer = setInterval(tick, 1000);
-}
-
 /**
- * Wire up the banner and the browser-level network events. Safe to call more
+ * Wire up the browser-level network events. Safe to call more
  * than once; only the first call takes effect.
  */
 let started = false;
@@ -221,13 +137,12 @@ export function initConnectionMonitor() {
   window.addEventListener('offline', () => setOnline(false));
 
   // 'online' only means the NIC is back; the server may still be down, so
-  // confirm with a probe rather than clearing the banner on faith.
+  // confirm with a probe rather than flipping back to online on faith.
   window.addEventListener('online', () => { probe(); });
 
   if (navigator.onLine === false) setOnline(false);
 
-  // Coming back to a backgrounded tab is the moment a stale banner is most
-  // likely, and the moment the annotator most needs the truth.
+  // Coming back to a backgrounded tab is when stale state is most likely.
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && !online) probe();
   });

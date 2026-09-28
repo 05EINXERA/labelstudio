@@ -1,6 +1,6 @@
 import { generateUUID, normalizeClassName } from "../utils.js?v=3";
 import { apiFetch } from "../api.js?v=3";
-import { isOnline } from "../connection.js?v=3";
+import { isOnline } from "../connection.js?v=4";
 import {
   state, storageKey, draftKey, colorForName, labelByName, labelById,
   labelDisplayName, snapshot, selectedAnnotation
