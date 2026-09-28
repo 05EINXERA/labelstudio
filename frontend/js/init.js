@@ -12,7 +12,7 @@ import {
   handleVisibilityChange as handleTimerVisibility, pauseSessionTimer
 } from "./components/timer.js?v=5";
 import { initBreakControl } from "./components/break.js?v=1";
-import { setZoomChangeHandler } from "./canvas/interactions.js?v=21";
+import { setZoomChangeHandler } from "./canvas/interactions.js?v=22";
 import { initContextMenu } from "./canvas/context-menu.js?v=3";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
 import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=3";
@@ -23,7 +23,7 @@ import {
   switchImage, initGalleryNavigation, loadWorkspaceTasks, resizeCanvas
 } from "./components/gallery.js?v=10";
 import { initModals } from "./components/modals.js?v=2";
-import { initModeControls } from "./components/mode-controls.js?v=4";
+import { initModeControls } from "./components/mode-controls.js?v=5";
 import { initOpacityControl } from "./components/opacity-control.js?v=1";
 import { initConnectionMonitor, onConnectionChange } from "./connection.js?v=4";
 import { NotificationManager } from "./components/notifications.js?v=4";
