@@ -25,7 +25,7 @@ import {
 import { initModals } from "./components/modals.js?v=2";
 import { initModeControls } from "./components/mode-controls.js?v=3";
 import { initOpacityControl } from "./components/opacity-control.js?v=1";
-import { initConnectionMonitor, onConnectionChange } from "./connection.js?v=3";
+import { initConnectionMonitor, onConnectionChange } from "./connection.js?v=4";
 import { NotificationManager } from "./components/notifications.js?v=4";
 
 if (!localStorage.getItem('logged_in')) {

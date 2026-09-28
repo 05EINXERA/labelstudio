@@ -1,4 +1,4 @@
-import { reportSuccess, reportFailure } from './connection.js?v=3';
+import { reportSuccess, reportFailure } from './connection.js?v=4';
 
 const CSRF_COOKIE = 'csrf_token';
 const CSRF_HEADER = 'X-CSRF-Token';
