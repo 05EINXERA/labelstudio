@@ -12,6 +12,7 @@
  * listeners — `tasks.js` owns those and delegates clicks by `data-action`.
  */
 import { escapeHTML, formatTime } from "../../utils.js?v=2";
+import { thumbUrl } from "../../thumb-url.js?v=1";
 import { canAnnotate, canManage, canReview } from "../../permissions.js?v=1";
 import {
   TASK_STATUSES,
@@ -221,8 +222,12 @@ export function buildColumns({ role, projectId, teamsById, usersById, lockCache,
       label: "",
       sortable: false,
       width: "56px",
+      // A small WebP from /thumbs/, never the original: the original is
+      // ~10 MB and this cell is 40 px tall (thumb-url.js). Lazy, so rows
+      // below the fold cost nothing until scrolled to; a failed thumbnail
+      // becomes a placeholder via installThumbFallback on the table mount.
       render: (r) => r.image_path
-        ? `<img class="task-thumb" src="/${escapeHTML(String(r.image_path).replace(/\\/g, "/"))}" alt="">`
+        ? `<img class="task-thumb" data-thumb src="${escapeHTML(thumbUrl(r.image_path))}" loading="lazy" decoding="async" height="40" alt="">`
         : "",
     },
     {
