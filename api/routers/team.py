@@ -353,9 +353,12 @@ def export_sessions_csv(
 ):
     """Download login/logout history as CSV, for one member or the whole team.
 
-    One row per session so the detail stays auditable; `total_hours_that_day`
-    repeats the per-annotator-per-day total on each of its rows, which is what
-    makes a spreadsheet pivot roll it up without re-deriving anything.
+    One row per annotator per local day: when they first logged in and when
+    they were last seen. The presence heartbeat opens a new session after every
+    gap (closed tab, sleeping laptop, LAN blip), so a per-session export listed
+    the same person many times a day. `duration_hours` is the span from first
+    login to last seen; `total_hours_that_day` is the time actually online
+    (the sum of the day's sessions, so gaps are not counted).
 
     Times are written twice: a local clock string for reading, and the raw UTC
     ISO timestamp so the file survives being opened in another timezone.
@@ -423,11 +426,25 @@ def export_sessions_csv(
             return None
         return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)) + offset
 
-    # Per-annotator-per-day totals, so each row can carry its day's total.
-    totals = {}
+    # Collapse the sessions to one entry per annotator per local day. Rows are
+    # ordered by (member, login_at), so the first session seen for a key holds
+    # the first login and the last one holds the day's closing state.
+    days = {}
     for r in rows:
         key = (r.member_name, local(r.login_at).date())
-        totals[key] = totals.get(key, 0) + _session_seconds(r, now)
+        # An open session's latest sign of life is its last heartbeat.
+        seen = as_utc(r.logout_at) or as_utc(r.last_seen_at) or as_utc(r.login_at)
+        entry = days.get(key)
+        if entry is None:
+            entry = days[key] = {
+                "first_login": as_utc(r.login_at),
+                "last_seen": seen,
+                "online_seconds": 0,
+                "last_session": r,
+            }
+        entry["online_seconds"] += _session_seconds(r, now)
+        entry["last_seen"] = max(entry["last_seen"], seen)
+        entry["last_session"] = r
 
     break_totals = {}
     for b in break_rows:
@@ -437,36 +454,34 @@ def export_sessions_csv(
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow([
-        "annotator", "date", "login_local", "logout_local",
+        # Same column positions as the old per-session layout, so spreadsheet
+        # formulas that address columns by position keep working.
+        "annotator", "date", "first_login_local", "last_seen_local",
         "duration_hours", "duration_minutes", "ended",
-        "total_hours_that_day", "login_utc", "logout_utc",
-        # Appended rather than inserted so existing spreadsheet formulas that
-        # address the columns above by position keep working.
+        "total_hours_that_day", "first_login_utc", "last_seen_utc",
         "break_hours_that_day",
     ])
-    for r in rows:
-        seconds = _session_seconds(r, now)
-        login_local = local(r.login_at)
-        logout_local = local(r.logout_at)
-        day = login_local.date()
-        if r.logout_at is None:
+    for (member_name, day), entry in days.items():
+        last = entry["last_session"]
+        if last.logout_at is None:
             ended = "still logged in"
-        elif r.ended_reason == "inactive":
+        elif last.ended_reason == "inactive":
             ended = "inactive"
         else:
             ended = "logout"
+        span = max(0, int((entry["last_seen"] - entry["first_login"]).total_seconds()))
         writer.writerow([
-            r.member_name,
+            member_name,
             day.isoformat(),
-            login_local.strftime("%H:%M"),
-            logout_local.strftime("%H:%M") if logout_local else "",
-            f"{seconds / 3600:.2f}",
-            round(seconds / 60),
+            local(entry["first_login"]).strftime("%H:%M"),
+            local(entry["last_seen"]).strftime("%H:%M"),
+            f"{span / 3600:.2f}",
+            round(span / 60),
             ended,
-            f"{totals[(r.member_name, day)] / 3600:.2f}",
-            _utc_iso(r.login_at),
-            _utc_iso(r.logout_at),
-            f"{break_totals.get((r.member_name, day), 0) / 3600:.2f}",
+            f"{entry['online_seconds'] / 3600:.2f}",
+            _utc_iso(entry["first_login"]),
+            _utc_iso(entry["last_seen"]),
+            f"{break_totals.get((member_name, day), 0) / 3600:.2f}",
         ])
 
     if start_day == end_day:
