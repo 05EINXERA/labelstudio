@@ -22,20 +22,10 @@ export const view = {
   panStart: { x: 0, y: 0, panX: 0, panY: 0 },
   imageBox: { x: 0, y: 0, width: 0, height: 0, scale: 1 },
   drag: null,
-  // Sticky class only: the polygon finalized most recently, kept "hover-armed"
-  // so moving the pointer back inside it re-selects it for editing and crossing
-  // its boundary releases it and re-arms drawing. Null whenever no polygon is
-  // hover-armed (sticky class off, a new shape started, task changed).
-  stickyHoverId: null,
-  // Whether the pointer is currently inside view.stickyHoverId's boundary.
-  // Tracked separately from the selection so the enter/leave transitions can be
-  // detected without re-deriving them from state.selectedId, which other code
-  // (class panel, annotation list) also writes.
-  stickyHoverInside: false,
   // The polygon finalized most recently, kept so Ctrl+Z can keep trimming its
   // last vertex instead of deleting the whole shape the moment it is closed
-  // (undoLastFinalizedPoint in interactions.js). Unlike stickyHoverId this is
-  // set for every finalized polygon, sticky class or not, and is nulled by any
+  // (undoLastFinalizedPoint in interactions.js). This is set for every
+  // finalized polygon, sticky class or not, and is nulled by any
   // edit that isn't one of those trims (canvas pointerdown, delete, undo).
   lastFinalizedPolygonId: null,
   hoveredLineIndex: -1,

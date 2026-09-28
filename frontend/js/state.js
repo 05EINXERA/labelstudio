@@ -222,10 +222,6 @@ export function resetWorkspaceForNewImage() {
   state.needsLabelSelection = false;
   state.justFinalized = false;
   state.isTaskAssignee = false;
-  // The sticky-class hover arming belongs to one finished polygon on one image;
-  // it must not survive into the next task, where the id would dangle.
-  view.stickyHoverId = null;
-  view.stickyHoverInside = false;
 }
 
 export function selectedAnnotation() {

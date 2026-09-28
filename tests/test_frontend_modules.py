@@ -653,86 +653,30 @@ def test_freehand_corner_floor_respects_the_grab_radius():
     )
 
 
-def test_sticky_class_hover_selects_last_polygon():
-    """Sticky class: the polygon just finalized stays hover-armed.
+def test_sticky_class_does_not_hover_select_last_polygon():
+    """Sticky class: hovering the polygon just finalized must not select it.
 
-    Hovering inside its boundary selects it for editing; crossing the boundary
-    releases it and re-arms drawing so the next click starts a new polygon.
+    Annotators found hover-to-select disruptive -- the canvas flipped into
+    select mode whenever the pointer drifted back over the last shape. After
+    a sticky finalize the canvas stays in draw mode and nothing reacts to hover.
     """
     interactions = os.path.join(FRONTEND_JS_DIR, "canvas", "interactions.js")
     with open(interactions, "r", encoding="utf-8") as f:
         source = f.read()
 
-    view_file = os.path.join(FRONTEND_JS_DIR, "canvas", "view.js")
-    with open(view_file, "r", encoding="utf-8") as f:
-        view_source = f.read()
+    for name in ("armStickyHover", "updateStickyHover", "clearStickyHover", "stickyHover"):
+        assert name not in source, f"sticky hover-select ({name}) must stay removed"
 
-    # The arming lives on the shared view state, not a module-local variable,
-    # so state.js and mode-controls.js can clear it on task change / toggle-off.
-    assert "stickyHoverId" in view_source and "stickyHoverInside" in view_source, (
-        "the hover arming must live on the shared view object so other modules "
-        "can clear it"
-    )
-
-    assert "function armStickyHover" in source, (
-        "finalizePolygon must arm the finished polygon for hover selection"
-    )
-    assert "export function clearStickyHover" in source, (
-        "clearStickyHover must be exported for mode-controls.js to call when "
-        "the sticky-class toggle goes off"
-    )
-    assert "function updateStickyHover" in source
-
-    # Sticky finalize must arm rather than fall straight back to drawing.
-    assert "armStickyHover(annotation.id)" in source, (
-        "the sticky branch of finalizePolygon must hover-arm the new polygon"
-    )
-
-    # Boundary crossing is what flips the state, so it must be a real
-    # point-in-polygon test against that polygon -- not hitTest, which returns
-    # whichever shape is topmost and would arm on an overlapping neighbour.
-    assert "pointInPolygon(imagePoint(point), annotationPoints(annotation))" in source, (
-        "hover state must be decided by this polygon's own boundary, not by "
-        "hitTest, which reports the topmost overlapping shape"
-    )
-
-    # Re-evaluated on every pointer move, before the cursor is chosen, so the
-    # cursor agrees with the mode the move just produced.
     move_handler = source[source.index('canvas.addEventListener("pointermove"'):]
-    # Matched on the call name, not its full argument list: updateCanvasCursor
-    # also takes the Shift-select flag, and pinning the exact arguments here
-    # made an unrelated signature change fail this ordering check.
-    assert move_handler.index("updateStickyHover(point)") < move_handler.index("updateCanvasCursor("), (
-        "the hover state must be updated before the cursor is derived from it"
+    move_handler = move_handler[:move_handler.index("});")]
+    assert 'state.mode = "select"' not in move_handler, (
+        "pointermove must not switch the canvas into select mode"
     )
 
-    # A drag owns the gesture: dragging a vertex outside the shape must not
-    # deselect it mid-drag.
-    assert re.search(r"if \(view\.drag\) return false;", source), (
-        "an in-progress drag must suppress hover re-evaluation"
-    )
-
-    # Clicking inside the armed polygon edits it; only a click outside starts
-    # the next shape.
-    assert "if (view.stickyHoverId && view.stickyHoverInside) {" in source, (
-        "a click inside the armed polygon must fall through to the editing "
-        "blocks instead of starting a new polygon"
-    )
-
-    # Leaving the boundary must hand the canvas back to draw mode.
-    assert 'state.mode = "draw";' in source
-
-    # The arming must not outlive its polygon or its image.
-    state_file = os.path.join(FRONTEND_JS_DIR, "state.js")
-    with open(state_file, "r", encoding="utf-8") as f:
-        state_source = f.read()
-    reset = state_source[state_source.index("export function resetWorkspaceForNewImage"):]
-    assert "view.stickyHoverId = null" in reset, (
-        "a task change must clear the arming, or the id dangles into the next image"
-    )
-    assert "clearStickyHover()" in source[source.index("export function deleteSelected"):], (
-        "deleting the armed polygon must clear the arming"
-    )
+    # Only the non-sticky branch of finalizePolygon drops into select mode.
+    finalize = source[source.index("export function finalizePolygon"):]
+    finalize = finalize[:finalize.index("\n}\n")]
+    assert "if (!state.stickyClass) {" in finalize
 
 
 def test_hidden_objects_indicator_is_wired():

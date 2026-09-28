@@ -19,7 +19,7 @@ import {
 } from "../dom.js?v=2";
 import { setStatus, save, render, manualSaveWithUI } from "./workspace.js?v=13";
 import { autoDetectObjects, autoTagObjects, preloadMagicWand } from "../ai/detect.js?v=2";
-import { finalizePolygon, deleteSelected, undoAction, redoAction, clearStickyHover } from "../canvas/interactions.js?v=21";
+import { finalizePolygon, deleteSelected, undoAction, redoAction } from "../canvas/interactions.js?v=22";
 
 /**
  * Initializes Move Objects toggle button and dropdown menu.
@@ -178,9 +178,6 @@ export function initStickyClassToggle() {
       // Turning it off mid-session must not strand a shape-less "pick a class"
       // gate, and turning it on must clear one that is already pending.
       if (state.stickyClass) state.needsLabelSelection = false;
-      // Hover-arming is a sticky-class-only state; drop it as soon as the
-      // toggle goes off rather than waiting for the next pointer move.
-      if (!state.stickyClass) clearStickyHover();
       renderStickyClassUI();
       setStatus(state.stickyClass ? "Sticky Class: On" : "Sticky Class: Off");
       render();
