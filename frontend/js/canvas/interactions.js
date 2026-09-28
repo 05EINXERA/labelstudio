@@ -1,5 +1,5 @@
 import { generateUUID, clamp, round } from "../utils.js?v=3";
-import { state, snapshot, isAnnotationHidden, labelDisplayName } from "../state.js?v=4";
+import { state, snapshot, isAnnotationHidden, labelDisplayName } from "../state.js?v=5";
 import {
   annotationPoints,
   updateAnnotationBounds,
@@ -1711,7 +1711,11 @@ canvas.addEventListener("dblclick", (event) => {
   //
   // Deliberately scoped to an in-progress polygon in draw mode, so the
   // select-mode vertex deletion below is untouched.
+  //
+  // Optional (state.dblClickClose, the "Close" toolbar toggle). When off, the
+  // two clicks of the gesture simply stay as vertices and drawing continues.
   if (view.drag?.type === "draw-polygon") {
+    if (!state.dblClickClose) return;
     const annotation = state.annotations.find((item) => item.id === view.drag.annotationId);
     const pts = annotation?.points || [];
 

@@ -6,7 +6,7 @@
  */
 import { clientId } from "../utils.js?v=3";
 import { apiFetch } from "../api.js?v=3";
-import { state, resetWorkspaceForNewImage } from "../state.js?v=4";
+import { state, resetWorkspaceForNewImage } from "../state.js?v=5";
 import { view } from "../canvas/view.js?v=3";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
 import {

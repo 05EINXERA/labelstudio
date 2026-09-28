@@ -7,7 +7,7 @@
   <title>Image Annotation</title>
   <link rel="icon" type="image/png" href="logo.png">
   <link rel="stylesheet" href="styles.css?v=35">
-  <link rel="modulepreload" href="js/init.js?v=16">
+  <link rel="modulepreload" href="js/init.js?v=17">
   <!-- sync.js (legacy global annotation-slot sync to /api/data) removed in T3.1.
        Under a shared account the 'image-annotation-mvp-v1' row was last-writer-wins
        across all 25 clients. Per-task localStorage drafts (workspace.js restoreDraft)
@@ -349,6 +349,27 @@
                 <div class="move-objects-row">
                   <span class="move-objects-title">Sticky Class</span>
                   <button type="button" id="stickyClassToggle" class="switch" role="switch" aria-checked="true" aria-label="Sticky Class">
+                    <span class="switch-knob"></span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="tool-group" role="group" aria-label="Polygon closing">
+          <span class="tool-group-label">Close</span>
+          <div class="tool-group-buttons">
+            <div class="dropdown" id="dblClickCloseDropdownContainer">
+              <button class="icon-button" type="button" id="dblClickCloseMenuButton"
+                title="Double-click Close — double-click while drawing a polygon to join it back to its starting point"
+                aria-haspopup="true" aria-expanded="false">
+                <span class="btn-icon">⭘</span><span class="btn-label">Dbl-click</span> ▾
+              </button>
+              <div class="dropdown-content move-objects-menu" style="left: 0; right: auto; min-width: 0; padding: 10px 12px;">
+                <div class="move-objects-row">
+                  <span class="move-objects-title">Double-click to close</span>
+                  <button type="button" id="dblClickCloseToggle" class="switch" role="switch" aria-checked="true" aria-label="Double-click to close polygon">
                     <span class="switch-knob"></span>
                   </button>
                 </div>
@@ -763,7 +784,7 @@
     </div>
   </div>
 
-  <script type="module" src="js/init.js?v=16"></script>
+  <script type="module" src="js/init.js?v=17"></script>
 
 </body>
 

@@ -1,5 +1,5 @@
 import { canvas, ctx, backgroundImage, staticCanvas, staticCtx } from "../dom.js?v=2";
-import { state, labelById, isAnnotationHidden } from "../state.js?v=4";
+import { state, labelById, isAnnotationHidden } from "../state.js?v=5";
 import { annotationSettings, annotationOpacity, zoomScaledRadius } from "../feature-flags.js?v=11";
 import { view } from "./view.js?v=3";
 import { annotationPoints, hexToRgba, hiddenGroupVertexFlags } from "./geometry.js?v=10";

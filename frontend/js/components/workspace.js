@@ -4,7 +4,7 @@ import { isOnline } from "../connection.js?v=4";
 import {
   state, storageKey, draftKey, colorForName, labelByName, labelById,
   labelDisplayName, snapshot, selectedAnnotation
-} from "../state.js?v=4";
+} from "../state.js?v=5";
 import { annotationPoints, updateAnnotationBounds } from "../canvas/geometry.js?v=10";
 import { view } from "../canvas/view.js?v=3";
 import { drainTaskTime } from "./timer.js?v=5";
