@@ -264,7 +264,8 @@ def test_csv_export_for_one_member(client, alice):
         headers = {**alice, "X-Annotator-Name": alice_name}
 
         day = datetime.now(timezone.utc).replace(hour=2, minute=0, second=0, microsecond=0)
-        # Two sessions the same day: the day's total must repeat on both rows.
+        # Three sessions the same day (reconnects after gaps) must collapse to
+        # one row: first login, last seen, online time excluding the gaps.
         db.add(models.LoginSession(
             member_name=alice_name, login_at=day, last_seen_at=day + timedelta(hours=2),
             logout_at=day + timedelta(hours=2), ended_reason="logout"))
@@ -272,6 +273,10 @@ def test_csv_export_for_one_member(client, alice):
             member_name=alice_name, login_at=day + timedelta(hours=3),
             last_seen_at=day + timedelta(hours=4),
             logout_at=day + timedelta(hours=4), ended_reason="inactive"))
+        db.add(models.LoginSession(
+            member_name=alice_name, login_at=day + timedelta(hours=5),
+            last_seen_at=day + timedelta(hours=5, minutes=30),
+            logout_at=day + timedelta(hours=5, minutes=30), ended_reason="logout"))
         db.commit()
 
         res = client.get(
@@ -285,12 +290,45 @@ def test_csv_export_for_one_member(client, alice):
         assert "attachment" in res.headers["content-disposition"]
 
         rows = _csv_rows(res.text)
-        assert len(rows) == 2
-        assert rows[0]["duration_hours"] == "2.00"
-        assert rows[1]["ended"] == "inactive"
-        # Both rows carry the same daily total so a pivot can roll it up.
-        assert rows[0]["total_hours_that_day"] == "3.00"
-        assert rows[1]["total_hours_that_day"] == "3.00"
+        assert len(rows) == 1
+        row = rows[0]
+        assert row["first_login_local"] == "02:00"
+        assert row["last_seen_local"] == "07:30"
+        # Span from first login to last seen, gaps included...
+        assert row["duration_hours"] == "5.50"
+        # ...while the online total counts only the sessions themselves.
+        assert row["total_hours_that_day"] == "3.50"
+        assert row["ended"] == "logout"
+    finally:
+        db.close()
+
+
+def test_csv_export_open_session_reports_last_heartbeat(client, alice):
+    db = SessionLocal()
+    try:
+        alice_name = f"alice_{uuid.uuid4().hex[:6]}"
+        _mk_team_with_members(db, alice_name, [alice_name])
+        headers = {**alice, "X-Annotator-Name": alice_name}
+
+        now = datetime.now(timezone.utc)
+        login = now - timedelta(hours=1)
+        db.add(models.LoginSession(
+            member_name=alice_name, login_at=login, last_seen_at=now - timedelta(seconds=10)))
+        db.commit()
+
+        res = client.get(
+            "/api/team/sessions/export",
+            params={"name": alice_name, "start": login.date().isoformat(),
+                    "end": login.date().isoformat(), "tz_offset": 0},
+            headers=headers,
+        )
+        assert res.status_code == 200
+        rows = _csv_rows(res.text)
+        assert len(rows) == 1
+        assert rows[0]["ended"] == "still logged in"
+        # Last seen is filled from the heartbeat rather than left blank.
+        assert rows[0]["last_seen_utc"] != ""
+        assert rows[0]["first_login_utc"].startswith(login.isoformat()[:19])
     finally:
         db.close()
 
