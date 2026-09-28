@@ -1,11 +1,11 @@
 import { canvas } from "../dom.js?v=2";
-import { state, labelDisplayName } from "../state.js?v=4";
+import { state, labelDisplayName } from "../state.js?v=5";
 import { view } from "./view.js?v=3";
 import { render, relabelSelection } from "../components/workspace.js?v=12";
 import {
   canvasPoint, hitTest,
   sendToBack, sendBackward, bringToFront, bringForward
-} from "./interactions.js?v=20";
+} from "./interactions.js?v=21";
 
 // Right-click menu for annotations: change class, and z-order.
 //

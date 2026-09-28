@@ -1,6 +1,6 @@
 import { generateUUID, round } from "../utils.js?v=3";
 import { apiFetch, pollJob } from "../api.js?v=3";
-import { state, colorForName, labelByName, snapshot, selectedAnnotation } from "../state.js?v=4";
+import { state, colorForName, labelByName, snapshot, selectedAnnotation } from "../state.js?v=5";
 import { updateAnnotationBounds } from "../canvas/geometry.js?v=10";
 import { view } from "../canvas/view.js?v=3";
 import { detectState } from "./detect-state.js?v=1";

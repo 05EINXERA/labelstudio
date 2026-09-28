@@ -35,6 +35,27 @@ export function saveStickyClassPref(on) {
     console.warn("Could not persist sticky-class preference:", err);
   }
 }
+
+// UI preference only (see state.dblClickClose), same fallback rules as above.
+export const dblClickCloseStorageKey = "annotation-dblclick-close-v1";
+
+export function loadDblClickClosePref() {
+  try {
+    const stored = localStorage.getItem(dblClickCloseStorageKey);
+    return stored === null ? true : stored === "1";
+  } catch (err) {
+    console.warn("Could not read double-click-close preference:", err);
+    return true;
+  }
+}
+
+export function saveDblClickClosePref(on) {
+  try {
+    localStorage.setItem(dblClickCloseStorageKey, on ? "1" : "0");
+  } catch (err) {
+    console.warn("Could not persist double-click-close preference:", err);
+  }
+}
 // Vertex handle size moved to feature-flags.js (annotationSettings) so the
 // drawn radius and the click-target radius are configured in one place.
 export const closeThreshold = 1;
@@ -76,6 +97,12 @@ export const state = {
   // needsLabelSelection and the annotator must pick a class again.
   // Persisted per browser in stickyClassStorageKey.
   stickyClass: true,
+  // When true, double-clicking while drawing a polygon joins the last vertex
+  // back to the starting point and finalizes the shape. When false, a
+  // double-click just places vertices like two single clicks, and the polygon
+  // is closed by clicking its first vertex (or Enter / the toolbar).
+  // Persisted per browser in dblClickCloseStorageKey.
+  dblClickClose: true,
   // True only between finalizing a shape and the next canvas click. It exists so
   // that first click can release the finished shape's selection (otherwise picking
   // a class for the *next* shape would re-label the finished one). It must be

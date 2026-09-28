@@ -3,7 +3,7 @@
  */
 import { clientId } from "./utils.js?v=3";
 import { apiFetch } from "./api.js?v=3";
-import { state } from "./state.js?v=4";
+import { state } from "./state.js?v=5";
 import {
   setStatus, syncToBackend, loadSaved, saveDraft, render, loadTeamForWorkspace
 } from "./components/workspace.js?v=12";
@@ -12,7 +12,7 @@ import {
   handleVisibilityChange as handleTimerVisibility, pauseSessionTimer
 } from "./components/timer.js?v=5";
 import { initBreakControl } from "./components/break.js?v=1";
-import { setZoomChangeHandler } from "./canvas/interactions.js?v=20";
+import { setZoomChangeHandler } from "./canvas/interactions.js?v=21";
 import { initContextMenu } from "./canvas/context-menu.js?v=3";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
 import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=3";
@@ -23,7 +23,7 @@ import {
   switchImage, initGalleryNavigation, loadWorkspaceTasks, resizeCanvas
 } from "./components/gallery.js?v=10";
 import { initModals } from "./components/modals.js?v=2";
-import { initModeControls } from "./components/mode-controls.js?v=3";
+import { initModeControls } from "./components/mode-controls.js?v=4";
 import { initOpacityControl } from "./components/opacity-control.js?v=1";
 import { initConnectionMonitor, onConnectionChange } from "./connection.js?v=4";
 import { NotificationManager } from "./components/notifications.js?v=4";

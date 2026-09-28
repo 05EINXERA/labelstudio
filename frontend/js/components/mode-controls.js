@@ -6,7 +6,10 @@
  * move objects lock/unlock toggle, and comment overlay keyboard handling.
  */
 import { generateUUID, round } from "../utils.js?v=3";
-import { state, snapshot, loadStickyClassPref, saveStickyClassPref } from "../state.js?v=4";
+import {
+  state, snapshot, loadStickyClassPref, saveStickyClassPref,
+  loadDblClickClosePref, saveDblClickClosePref
+} from "../state.js?v=5";
 import { view } from "../canvas/view.js?v=3";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
 import {
@@ -16,7 +19,7 @@ import {
 } from "../dom.js?v=2";
 import { setStatus, save, render, manualSaveWithUI } from "./workspace.js?v=12";
 import { autoDetectObjects, autoTagObjects, preloadMagicWand } from "../ai/detect.js?v=2";
-import { finalizePolygon, deleteSelected, undoAction, redoAction, clearStickyHover } from "../canvas/interactions.js?v=20";
+import { finalizePolygon, deleteSelected, undoAction, redoAction, clearStickyHover } from "../canvas/interactions.js?v=21";
 
 /**
  * Initializes Move Objects toggle button and dropdown menu.
@@ -192,6 +195,60 @@ export function initStickyClassToggle() {
   });
 
   renderStickyClassUI();
+}
+
+/**
+ * Initializes the Double-click Close toggle button and dropdown menu.
+ *
+ * When on, double-clicking while drawing a polygon joins the last vertex to the
+ * starting point and finalizes it (see the dblclick handler in interactions.js).
+ */
+export function initDblClickCloseToggle() {
+  const container = document.querySelector("#dblClickCloseDropdownContainer");
+  const menuButton = document.querySelector("#dblClickCloseMenuButton");
+  const toggle = document.querySelector("#dblClickCloseToggle");
+
+  state.dblClickClose = loadDblClickClosePref();
+
+  function renderDblClickCloseUI() {
+    const on = state.dblClickClose;
+    if (toggle) {
+      toggle.classList.toggle("is-on", on);
+      toggle.setAttribute("aria-checked", on ? "true" : "false");
+    }
+    if (menuButton) {
+      const label = menuButton.querySelector(".btn-label");
+      if (label) label.textContent = on ? "Dbl-click" : "Manual";
+      menuButton.classList.toggle("is-active", on);
+    }
+  }
+
+  if (menuButton) {
+    menuButton.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const open = container.classList.toggle("show");
+      menuButton.setAttribute("aria-expanded", open ? "true" : "false");
+    });
+  }
+
+  if (toggle) {
+    toggle.addEventListener("click", (e) => {
+      e.stopPropagation();
+      state.dblClickClose = !state.dblClickClose;
+      saveDblClickClosePref(state.dblClickClose);
+      renderDblClickCloseUI();
+      setStatus(state.dblClickClose ? "Double-click to close polygon: On" : "Double-click to close polygon: Off");
+    });
+  }
+
+  document.addEventListener("click", (e) => {
+    if (container && !container.contains(e.target)) {
+      container.classList.remove("show");
+      if (menuButton) menuButton.setAttribute("aria-expanded", "false");
+    }
+  });
+
+  renderDblClickCloseUI();
 }
 
 /**
@@ -371,5 +428,6 @@ export function initModeControls() {
 
   initMoveObjectsToggle();
   initStickyClassToggle();
+  initDblClickCloseToggle();
   initCommentInput();
 }
