@@ -24,6 +24,17 @@ let _pollTimer = null;
 // made on another machine on the LAN appear without a manual refresh.
 const POLL_INTERVAL_MS = 30_000;
 
+// The table state of the last fetch — data-table.js exposes no getState(), and
+// the background poll needs it to call fetchServerTasks with { silent: true }.
+let _lastState = null;
+// Bumped per fetch so a slow response (e.g. a poll that started before the
+// user paged) cannot overwrite the rows of a newer request.
+let _fetchSeq = 0;
+// What the table currently shows (rows + total + lock badges). A silent poll
+// that returns the same thing skips the re-render, so the table does not
+// flicker or lose hover/focus every 30 s when nothing changed.
+let _shownSignature = null;
+
 // T2.2 — lock status cache: {taskId: {locked: bool, locked_by: str}}
 // Populated asynchronously after the task list renders.
 const _lockCache = {};
@@ -298,7 +309,22 @@ function clearError() {
 
 // --- data --------------------------------------------------------------
 
-async function fetchServerTasks(state) {
+function tableSignature(items, total) {
+  const locks = items.map((t) => (_lockCache[t.id]?.locked ? 1 : 0));
+  return JSON.stringify([total, items, locks]);
+}
+
+/**
+ * Fetch one page of tasks into the table.
+ *
+ * `silent` is for the background poll: no skeleton, a single render only if
+ * something actually changed, and a failed request leaves the current rows in
+ * place instead of emptying the table. User-driven fetches (paging, search,
+ * filters, after a mutation) keep the skeleton so the click visibly lands.
+ */
+async function fetchServerTasks(state, { silent = false } = {}) {
+  _lastState = state;
+  const seq = ++_fetchSeq;
   sessionStorage.setItem(`tasks_table_state_${ctx.projectId}`, JSON.stringify({
     page: state.page,
     pageSize: state.pageSize,
@@ -307,7 +333,10 @@ async function fetchServerTasks(state) {
     sortKey: state.sortKey,
     sortDesc: state.sortDesc
   }));
-  table.showLoading(state.pageSize);
+  if (!silent) {
+    table.showLoading(state.pageSize);
+    _shownSignature = null;
+  }
   const params = new URLSearchParams({
     projectId: ctx.projectId,
     limit: state.pageSize,
@@ -326,29 +355,59 @@ async function fetchServerTasks(state) {
   }
   
   const res = await apiFetch(`/api/tasks?${params.toString()}`);
+  if (seq !== _fetchSeq || !table) return;
   if (!res) {
-    table.setServerData([], 0);
+    if (!silent) table.setServerData([], 0);
     return;
   }
   if (!res.ok) {
     showError(`Could not load tasks (${res.status}).`);
-    table.setServerData([], 0);
+    if (!silent) table.setServerData([], 0);
     return;
   }
   clearError();
   const data = await res.json();
+  if (seq !== _fetchSeq || !table) return;
+
+  // Prevent overwhelming the single-worker backend with hundreds of concurrent
+  // lock-status requests when printing (which sets pageSize to 100,000).
+  const checkLocks = data.items.length <= 50;
+
+  if (silent) {
+    // Resolve locks before rendering so a changed poll paints once, not twice.
+    if (checkLocks) await _refreshLockCache(data.items);
+    if (seq !== _fetchSeq || !table) return;
+    const sig = tableSignature(data.items, data.total);
+    if (sig === _shownSignature) return;
+    _shownSignature = sig;
+    table.setServerData(data.items, data.total);
+    updateBulkBar(table.getSelection());
+    return;
+  }
+
   table.setServerData(data.items, data.total);
   // The rows changed without any checkbox being touched, so the "not shown"
   // part of the count is stale until it is recomputed against the new page.
   updateBulkBar(table.getSelection());
 
-  // Prevent overwhelming the single-worker backend with hundreds of concurrent 
-  // lock-status requests when printing (which sets pageSize to 100,000).
-  if (data.items.length <= 50) {
-    _refreshLockCache(data.items).then(() => table.render());
-  } else {
+  if (checkLocks) {
+    await _refreshLockCache(data.items);
+    if (seq !== _fetchSeq || !table) return;
     table.render();
   }
+  _shownSignature = tableSignature(data.items, data.total);
+}
+
+/** Background refresh: skipped while the tab is hidden. */
+async function pollTasks() {
+  if (document.hidden || !table || !_lastState) return;
+  try { await fetchServerTasks(_lastState, { silent: true }); } catch (err) {
+    console.warn("Background task refresh failed", err);
+  }
+}
+
+function onVisibilityChange() {
+  if (document.visibilityState === "visible") pollTasks();
 }
 
 async function loadTasks() {
@@ -1390,10 +1449,10 @@ export async function mount(hostRoot, hostCtx) {
 
     await Promise.all([loadTeamForTasks(), loadTasks()]);
 
-  // Poll every 30 s so LAN peers see assignee/status changes promptly.
-  _pollTimer = setInterval(async () => {
-    try { await loadTasks(); } catch { /* best-effort */ }
-  }, POLL_INTERVAL_MS);
+  // Poll every 30 s so LAN peers see assignee/status changes promptly; paused
+  // while the tab is hidden and caught up as soon as it is shown again.
+  _pollTimer = setInterval(pollTasks, POLL_INTERVAL_MS);
+  document.addEventListener("visibilitychange", onVisibilityChange);
 }
 
 export function unmount() {
@@ -1401,6 +1460,9 @@ export function unmount() {
     clearInterval(_pollTimer);
     _pollTimer = null;
   }
+  document.removeEventListener("visibilitychange", onVisibilityChange);
+  _lastState = null;
+  _shownSignature = null;
   root = null;
   ctx = null;
   table = null;
