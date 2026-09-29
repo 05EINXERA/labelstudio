@@ -1023,6 +1023,55 @@ def test_shift_click_after_finalize_keeps_selection():
     )
 
 
+def test_vertex_drag_repaints_only_interactive_layer():
+    """A vertex drag must not do a full render() on every pointermove.
+
+    render() rebuilds the sidebar and repaints every shape on the static layer.
+    On tasks with thousands of shapes, doing that per pointermove made vertex
+    editing lag; the dragged shape is selected, so draw() is enough mid-drag
+    and pointerup does the single full render().
+    """
+    source = _interactions_source()
+
+    move = re.search(
+        r'if \(view\.drag\.type === "move-point"\) \{(.*?)'
+        r'if \(view\.drag\.type === "move-shape"\) \{', source, re.S)
+    assert move, "could not find the move-point branch of pointermove"
+    # Statements only: the branch's comment mentions render() by name.
+    assert not re.search(r'^\s*render\(\);', move.group(1), re.M), (
+        "pointermove's move-point branch calls render(): every mouse move "
+        "rebuilds the sidebar and repaints every shape"
+    )
+    assert re.search(r'^\s*draw\(\);', move.group(1), re.M), (
+        "pointermove's move-point branch no longer repaints the dragged shape"
+    )
+
+    release = re.search(
+        r'canvas\.addEventListener\("pointerup".*?'
+        r'if \(view\.drag\?\.type === "move-point"\) \{(.*?)'
+        r'if \(view\.drag\?\.type === "move-shape"\) \{', source, re.S)
+    assert release, "could not find the move-point branch of pointerup"
+    assert re.search(r'\n    render\(\);\n    save\(\);', release.group(1)), (
+        "pointerup must render() unconditionally after a vertex drag, or the "
+        "sidebar and static layer stay stale"
+    )
+
+
+def test_drag_membership_lookup_is_not_linear():
+    """draw.js must not scan drag.originals once per shape per frame.
+
+    Both layers check drag membership for every shape on every frame, so a
+    linear `originals.find` made moving a large selection
+    O(shapes × selection) per frame.
+    """
+    path = os.path.join(FRONTEND_JS_DIR, "canvas", "draw.js")
+    with open(path, "r", encoding="utf-8") as f:
+        source = f.read()
+    assert "originals?.find(" not in source and "originals.find(" not in source, (
+        "draw.js scans drag.originals linearly; use isBeingDragged()"
+    )
+
+
 def test_module_version_pins_are_consistent():
     """Every importer of a module pins the same ?v= version.
 
