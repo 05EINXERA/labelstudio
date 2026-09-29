@@ -51,6 +51,21 @@ function buildGroupMap(annotations) {
   return map;
 }
 
+// Whether `id` is part of the current drag. Both layers ask this for every
+// shape on every frame, and a linear `originals.find` there made moving a
+// large selection O(shapes × selection) per frame. The id set is built once
+// per drag and cached on the drag object, so it is dropped with the drag and
+// cannot go stale; building it here rather than where `originals` is created
+// keeps any future drag that carries `originals` covered too.
+function isBeingDragged(id) {
+  const drag = view.drag;
+  if (!drag) return false;
+  if (drag.annotationId === id) return true;
+  if (!drag.originals) return false;
+  if (!drag.originalIds) drag.originalIds = new Set(drag.originals.map((a) => a.id));
+  return drag.originalIds.has(id);
+}
+
 function isAnnotationVisible(annotation, canvasWidth, canvasHeight) {
   const ax = Number(annotation.x) || 0;
   const ay = Number(annotation.y) || 0;
@@ -234,12 +249,12 @@ export function drawStaticLayer() {
     if (isAnnotationHidden(annotation)) return;
     if (!isAnnotationVisible(annotation, cw, ch)) return;
     const isSelected = state.selectedIds.has(annotation.id);
-    const isDragging = view.drag?.annotationId === annotation.id || view.drag?.originals?.find(a => a.id === annotation.id);
+    const isDragging = isBeingDragged(annotation.id);
     if (!isSelected && !isDragging) {
       if (annotation.groupId) {
         if (!drawnGroups.has(annotation.groupId)) {
           drawnGroups.add(annotation.groupId);
-          const groupAnns = (groupMap.get(annotation.groupId) || []).filter(a => !isAnnotationHidden(a) && !state.selectedIds.has(a.id) && !(view.drag?.annotationId === a.id || view.drag?.originals?.find(orig => orig.id === a.id)));
+          const groupAnns = (groupMap.get(annotation.groupId) || []).filter(a => !isAnnotationHidden(a) && !state.selectedIds.has(a.id) && !isBeingDragged(a.id));
           drawGroupUnion(groupAnns, false, staticCtx);
           groupAnns.forEach(ann => drawAnnotation(ann, false, staticCtx, true, groupAnns));
         }
@@ -296,12 +311,12 @@ function doDrawSync() {
     if (isAnnotationHidden(annotation)) return;
     if (!isAnnotationVisible(annotation, cw, ch)) return;
     const isSelected = state.selectedIds.has(annotation.id);
-    const isDragging = view.drag?.annotationId === annotation.id || view.drag?.originals?.find(a => a.id === annotation.id);
+    const isDragging = isBeingDragged(annotation.id);
     if (isSelected || isDragging) {
       if (annotation.groupId) {
         if (!drawnGroups.has(annotation.groupId)) {
           drawnGroups.add(annotation.groupId);
-          const groupAnns = (groupMap.get(annotation.groupId) || []).filter(a => !isAnnotationHidden(a) && (state.selectedIds.has(a.id) || view.drag?.annotationId === a.id || view.drag?.originals?.find(orig => orig.id === a.id)));
+          const groupAnns = (groupMap.get(annotation.groupId) || []).filter(a => !isAnnotationHidden(a) && (state.selectedIds.has(a.id) || isBeingDragged(a.id)));
           drawGroupUnion(groupAnns, true, ctx);
           groupAnns.forEach(ann => drawAnnotation(ann, true, ctx, true, groupAnns));
         }

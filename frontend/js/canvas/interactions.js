@@ -15,7 +15,7 @@ import {
   smoothUnionCusps
 } from "./geometry.js?v=10";
 import { view } from "./view.js?v=3";
-import { draw, drawAllLayers } from "./draw.js?v=7";
+import { draw, drawAllLayers } from "./draw.js?v=8";
 import { canvas, undoButton } from "../dom.js?v=2";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
 import { setStatus, save, render, activateLabel, HOTKEY_LABEL_LIMIT } from "../components/workspace.js?v=12";
@@ -1534,7 +1534,12 @@ canvas.addEventListener("pointermove", (event) => {
         y: round(clamp(end.y, 0, view.imageElement.naturalHeight))
       };
       updateAnnotationBounds(annotation);
-      render();
+      // draw(), not render(): the dragged shape is selected, so it lives on
+      // the interactive layer and nothing else changes mid-drag. render()
+      // rebuilt the sidebar and repainted every shape on the static layer on
+      // each pointermove — the dominant cost on tasks with thousands of
+      // shapes. pointerup does the one full render() the edit needs.
+      draw();
     }
   }
 
@@ -1745,8 +1750,10 @@ canvas.addEventListener("pointerup", (e) => {
           setStatus("Intersected sides removed");
         }
       }
-      render();
     }
+    // Unconditional: the drag itself only called draw(), so the sidebar and
+    // static layer are stale for every shape, including triangles.
+    render();
     save();
     return;
   }
