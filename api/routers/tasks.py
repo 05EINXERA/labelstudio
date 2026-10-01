@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 import datetime
@@ -9,6 +8,7 @@ from sqlalchemy import case, distinct, false, func
 from sqlalchemy.orm import Session
 
 import config as _cfg
+import fastjson
 import models
 from logging_service import log_event
 from database import get_db, commit_with_retry
@@ -40,6 +40,7 @@ from schemas import (
     TaskUpdate,
 )
 from api.auth import get_current_user, require_csrf
+from api.fast_request import FastJSONRoute
 from api.permissions import (
     ProjectRole,
     accessible_project_ids,
@@ -54,6 +55,8 @@ router = APIRouter(
     prefix="/api/tasks",
     tags=["tasks"],
     dependencies=[Depends(get_current_user), Depends(require_csrf)],
+    # Save bodies are megabytes; parse them with fastjson (api/fast_request.py).
+    route_class=FastJSONRoute,
 )
 
 logger = logging.getLogger(__name__)
@@ -161,7 +164,7 @@ def _parsed(blob: Optional[str]) -> Optional[list]:
         return _PARSE_CACHE[key]
 
     try:
-        parsed = json.loads(blob)
+        parsed = fastjson.loads(blob)
     except (ValueError, TypeError):
         parsed = None
     if not isinstance(parsed, list):
