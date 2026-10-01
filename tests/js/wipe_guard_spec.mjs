@@ -75,9 +75,9 @@ globalThis.fetch = async (url, opts) => {
 
 const js = (p) => new URL(`../../frontend/js/${p}`, import.meta.url);
 const guard = await import(js('wipe-guard.js?v=1'));
-const st = await import(js('state.js?v=13'));
-const timer = await import(js('components/timer.js?v=10'));
-const ws = await import(js('components/workspace.js?v=32'));
+const st = await import(js('state.js?v=14'));
+const timer = await import(js('components/timer.js?v=11'));
+const ws = await import(js('components/workspace.js?v=33'));
 const { timerState } = await import(js('timer-state.js?v=3'));
 
 let pass = 0, fail = 0;

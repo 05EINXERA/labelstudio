@@ -65,8 +65,12 @@ export function _resetForTests() {
  * Run `send` for `taskId`, unless a save for it is already in flight.
  *
  * @param {number|string} taskId
- * @param {() => Promise<any>} send  Performs the actual save. Called at most
- *        once per settled generation.
+ * @param {(info: {immediate: boolean}) => Promise<any>} send  Performs the
+ *        actual save. Called at most once per settled generation. `immediate`
+ *        is true when it runs synchronously inside this call (nothing can have
+ *        changed since the caller looked at the world) and false for the
+ *        follow-up that runs after an earlier save settles, when the world may
+ *        have moved on and anything the caller computed up front is stale.
  * @param {object}   [opts]
  * @param {boolean}  [opts.bypass]  Skip the guard entirely and always send.
  *        Set for the three cases that must never be folded — see below.
@@ -91,7 +95,7 @@ export function coalesce(taskId, send, { bypass = false } = {}) {
   //
   // The caller decides which of these applies; this module only honours the
   // flag, so the policy stays next to the context that knows it.
-  if (bypass) return Promise.resolve(send());
+  if (bypass) return Promise.resolve(send({ immediate: true }));
 
   const current = inFlight.get(key);
   if (current) {
@@ -102,13 +106,13 @@ export function coalesce(taskId, send, { bypass = false } = {}) {
     return current;
   }
 
-  return _start(key, send);
+  return _start(key, send, true);
 }
 
-function _start(key, send) {
+function _start(key, send, immediate) {
   let promise;
   try {
-    promise = Promise.resolve(send());
+    promise = Promise.resolve(send({ immediate }));
   } catch (err) {
     // A synchronous throw must not leave the task permanently marked in-flight,
     // which would suppress every future automatic save for it.
@@ -127,7 +131,7 @@ function _start(key, send) {
       // they have already been answered by the save they were folded into, and
       // a later failure is reported through the offline queue and the save
       // indicator like any other.
-      _start(key, send).catch(() => {});
+      _start(key, send, false).catch(() => {});
     }
     if (failed) throw result;
     return result;

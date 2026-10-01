@@ -15,7 +15,7 @@
  * See .devnotes/feat/hide-vertex/01_DESIGN.md D8.
  */
 
-import { state } from "./state.js?v=13";
+import { state } from "./state.js?v=14";
 
 /**
  * Wires the pill. Call once during app init; a no-op on pages without it.
