@@ -24,6 +24,7 @@ from typing import Any, Optional
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
+import fastjson
 import models
 
 logger = logging.getLogger(__name__)
@@ -83,7 +84,8 @@ def _int_or_none(value: Any) -> Optional[int]:
         return None
 
 
-def dict_to_row_kwargs(ann: dict, task_id: int, known_label_ids=None, seq=None) -> dict:
+def dict_to_row_kwargs(ann: dict, task_id: int, known_label_ids=None, seq=None,
+                       *, with_points: bool = True) -> dict:
     """The `Annotation(**kwargs)` for one annotation dict.
 
     `id` is minted when absent — four annotations in the real data have no id,
@@ -106,6 +108,12 @@ def dict_to_row_kwargs(ann: dict, task_id: int, known_label_ids=None, seq=None) 
     the only clue to what it used to be. NULL matches what the FK's
     `ondelete="SET NULL"` would have done had it always existed, and the
     preserved id keeps the fact recoverable.
+
+    `with_points=False` leaves the `points` key out. Serialising a shape's
+    points is the single most expensive thing a save does -- 38% of all CPU on
+    the live server -- and `sync_task_annotations` only needs the string for
+    a shape that is new or genuinely changed, so it asks for it separately
+    (`points_equal` first, `_json_or_none` only on a difference).
     """
     extra = {k: v for k, v in ann.items() if k not in MODELLED_KEYS and k != "extra"}
     # An `extra` already present in the payload (a round-tripped row) is merged
@@ -120,12 +128,11 @@ def dict_to_row_kwargs(ann: dict, task_id: int, known_label_ids=None, seq=None) 
         extra["_orphanedLabelId"] = label_id
         label_id = None
 
-    return {
+    kwargs = {
         "id": str(ann.get("id") or uuid.uuid4()),
         "task_id": task_id,
         "label_id": label_id,
         "type": ann.get("type"),
-        "points": _json_or_none(ann.get("points")),
         "x": _float_or_none(ann.get("x")),
         "y": _float_or_none(ann.get("y")),
         "width": _float_or_none(ann.get("width")),
@@ -137,6 +144,36 @@ def dict_to_row_kwargs(ann: dict, task_id: int, known_label_ids=None, seq=None) 
         "group_id": ann.get("groupId"),
         "extra": _json_or_none(extra) if extra else None,
     }
+    if with_points:
+        kwargs["points"] = _json_or_none(ann.get("points"))
+    return kwargs
+
+
+def points_equal(stored: Optional[str], incoming: Any) -> bool:
+    """Is the stored `points` text the same value as the incoming `points`?
+
+    Compared by **value**, not by re-serialising the incoming side and
+    comparing strings. The string comparison was the largest single cost of a
+    save (every polygon's whole vertex list dumped to text just to discover it
+    had not moved); parsing the stored text is several times cheaper
+    (`fastjson`), and Python's `==` on the parsed lists is C-speed.
+
+    The failure modes are all in the safe direction. A `False` here only means
+    "may have changed", and the caller then serialises and compares text before
+    writing, so a spurious `False` costs one redundant comparison and can never
+    drop an edit. A `True` means the parsed values are equal, which is exactly
+    "nothing to write" -- whitespace, key order or `3` versus `3.0` in the
+    stored text are representation, not content, and readers parse the column
+    with `json.loads`.
+    """
+    if incoming is None:
+        return stored is None
+    if stored is None:
+        return False
+    try:
+        return fastjson.loads(stored) == incoming
+    except ValueError:
+        return False
 
 
 def row_to_dict(row: "models.Annotation") -> dict:
@@ -154,7 +191,7 @@ def row_to_dict(row: "models.Annotation") -> dict:
         out["labelId"] = row.label_id
     if row.points is not None:
         try:
-            out["points"] = json.loads(row.points)
+            out["points"] = fastjson.loads(row.points)
         except (ValueError, TypeError):
             logger.warning("Annotation %s on task %s has unparseable points",
                            row.id, row.task_id)
@@ -173,7 +210,7 @@ def row_to_dict(row: "models.Annotation") -> dict:
 
     if row.extra:
         try:
-            extra = json.loads(row.extra)
+            extra = fastjson.loads(row.extra)
             if isinstance(extra, dict):
                 extra = dict(extra)
                 # A labelId whose label was deleted before the FK existed. It
@@ -205,6 +242,9 @@ _SYNC_COLUMNS = (
     "label_id", "type", "points", "x", "y", "width", "height",
     "text", "color", "order", "seq", "group_id", "extra",
 )
+# Everything except `points`, which `sync_task_annotations` compares separately
+# (by value, and without serialising it unless it differs).
+_SYNC_SCALAR_COLUMNS = tuple(c for c in _SYNC_COLUMNS if c != "points")
 
 
 def sync_task_annotations(db, task, incoming: list, known_label_ids=None) -> bool:
@@ -239,7 +279,9 @@ def sync_task_annotations(db, task, incoming: list, known_label_ids=None) -> boo
         # `seq` is the payload position, which is what reproduces the JSON
         # array's implicit order. Reassigned on every save so a reordered
         # payload reorders the rows.
-        kwargs = dict_to_row_kwargs(ann, task.id, known_label_ids, seq=position)
+        kwargs = dict_to_row_kwargs(
+            ann, task.id, known_label_ids, seq=position, with_points=False
+        )
         ident = kwargs["id"]
         # A payload that repeats an id would otherwise collide on the primary
         # key. Dropping the later copy is deliberate, and differs from minting
@@ -272,6 +314,7 @@ def sync_task_annotations(db, task, incoming: list, known_label_ids=None) -> boo
             # check-then-insert race is exactly what fails here, and only the
             # database can settle it atomically. Last writer wins, which is the
             # same resolution the blob path had.
+            kwargs["points"] = _json_or_none(ann.get("points"))
             pending_upserts.append(kwargs)
             changed = True
             continue
@@ -280,10 +323,23 @@ def sync_task_annotations(db, task, incoming: list, known_label_ids=None) -> boo
         # the row dirty even when nothing changed, and SQLAlchemy would then
         # UPDATE all of them — which is the whole cost this function exists to
         # avoid.
-        for column in _SYNC_COLUMNS:
+        for column in _SYNC_SCALAR_COLUMNS:
             value = kwargs[column]
             if getattr(row, column) != value:
                 setattr(row, column, value)
+                changed = True
+
+        # `points` last, and by value. This is the line the live profile
+        # pointed at: re-serialising every polygon's vertices to compare text
+        # was 38% of all server CPU, to learn that ~95% of shapes had not moved.
+        # Only a shape whose points really differ is serialised (and then
+        # compared as text once more, so a value that is unequal only because
+        # of how it parses -- NaN, say -- is not rewritten on every save).
+        incoming_points = ann.get("points")
+        if not points_equal(row.points, incoming_points):
+            new_points = _json_or_none(incoming_points)
+            if new_points != row.points:
+                row.points = new_points
                 changed = True
 
     for ident, row in existing.items():
