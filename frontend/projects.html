@@ -6,8 +6,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Projects - Dataset Workspace</title>
   <link rel="icon" type="image/png" href="logo.png">
-  <link rel="stylesheet" href="styles.css?v=10">
-  <link rel="modulepreload" href="js/pages/projects-list.js?v=8">
+  <link rel="stylesheet" href="styles.css?v=11">
+  <link rel="modulepreload" href="js/pages/projects-list.js?v=10">
   <script>
     if (!localStorage.getItem('logged_in')) {
       window.location.replace('/');
@@ -64,6 +64,8 @@
       <button type="button" class="view-tab" id="viewTabTasks" role="tab"
         aria-selected="false" aria-controls="taskTableMount">Find tasks</button>
     </div>
+
+    <div id="projectStatsMount"></div>
 
     <div class="mgmt-toolbar" id="projectToolbar">
       <input type="search" id="searchInput" placeholder="Search projects…" aria-label="Search projects">
@@ -181,7 +183,7 @@
     </div>
   </div>
 
-  <script type="module" src="js/pages/projects-list.js?v=8"></script>
+  <script type="module" src="js/pages/projects-list.js?v=10"></script>
 </body>
 
 </html>

@@ -2319,6 +2319,22 @@ canvas {
 .view-tab:hover { color: var(--ink); }
 .view-tab.is-active { color: var(--accent); border-bottom-color: var(--accent); }
 
+/* Collapsible workspace stats on the projects list (pages/projects-overview.js) */
+.stats-toggle {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 10px 14px; margin-bottom: 14px; cursor: pointer; text-align: left;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  color: var(--ink); font: inherit;
+}
+.stats-toggle:hover { border-color: var(--accent); }
+.stats-toggle-chevron { flex: none; color: var(--muted); transform: rotate(-90deg); transition: transform .15s ease; }
+.stats-toggle.is-open .stats-toggle-chevron { transform: none; }
+.stats-toggle-title {
+  font-size: .78rem; text-transform: uppercase; letter-spacing: .06em;
+  font-weight: 700; color: var(--muted);
+}
+.stats-toggle-summary { margin-left: auto; font-size: .85rem; font-weight: 600; }
+
 /* --- data table --------------------------------------------------------- */
 
 .data-table-wrap {

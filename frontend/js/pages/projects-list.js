@@ -11,6 +11,7 @@ import { escapeHTML, formatTime, statusPillClass } from "../utils.js?v=3";
 import { createDataTable } from "../components/data-table.js?v=3";
 import { NotificationManager } from "../components/notifications.js?v=4";
 import { createTaskSearch } from "./task-search.js?v=2";
+import { createProjectsOverview } from "./projects-overview.js?v=2";
 
 const els = {
   user: document.getElementById("currentUser"),
@@ -20,6 +21,7 @@ const els = {
   status: document.getElementById("statusFilter"),
   pageSize: document.getElementById("pageSizeSelect"),
   mount: document.getElementById("tableMount"),
+  statsMount: document.getElementById("projectStatsMount"),
   newBtn: document.getElementById("newProjectBtn"),
   modal: document.getElementById("projectModal"),
   modalTitle: document.getElementById("projectModalTitle"),
@@ -137,6 +139,8 @@ const table = createDataTable({
   ],
 });
 
+const overview = createProjectsOverview(els.statsMount);
+
 // --- workspace-wide task search --------------------------------------------
 
 const taskSearch = createTaskSearch({
@@ -166,6 +170,7 @@ function setView(view) {
   els.projectToolbar.style.display = tasks ? "none" : "";
   els.taskToolbar.style.display = tasks ? "" : "none";
   els.mount.style.display = tasks ? "none" : "";
+  els.statsMount.style.display = tasks ? "none" : "";
   els.taskMount.style.display = tasks ? "" : "none";
   clearError();
 
@@ -197,6 +202,7 @@ async function loadProjects() {
     clearError();
     const projects = await res.json();
     table.setRows(projects);
+    overview.render(projects);
     // The "Find tasks" project filter lists exactly the projects this page
     // already fetched, so it needs no request of its own and can never offer a
     // project the caller cannot reach.
@@ -479,6 +485,7 @@ els.user.textContent = localStorage.getItem("dataset_username") || "";
 new NotificationManager("notifBell", "notifDropdown", "notifList", "notifBadge");
 
 table.showLoading(6);
+overview.showLoading();
 // loadMembers joins the initial load so the task search's assignee filter is
 // populated before the view is first opened; it used to run only when the
 // transfer modal was opened.

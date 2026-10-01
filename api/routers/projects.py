@@ -233,10 +233,11 @@ def _aggregate_metrics(project_ids: List[int], db: Session) -> dict:
             entry["completed"] += count
         elif status == 'In Progress':
             entry["in_progress"] += count
-        
-        if status not in entry["status_counts"]:
-            entry["status_counts"][status] = 0
-        entry["status_counts"][status] += count
+
+        # A NULL status is shown as "New" everywhere in the UI; keying on None
+        # would also fail the Dict[str, int] response schemas.
+        key = status or "New"
+        entry["status_counts"][key] = entry["status_counts"].get(key, 0) + count
 
         entry["total_time"] += total_time
 
