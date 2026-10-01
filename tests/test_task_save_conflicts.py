@@ -10,6 +10,7 @@ The rule under test: a conflict is only a conflict when a *different* client
 wrote in between. See .devnotes/deployment-hardening/04_ANNOTATION_SAVE_LOSS.md.
 """
 import json
+import time
 
 import pytest
 
@@ -156,6 +157,14 @@ def test_conflict_does_not_lose_the_stored_annotations(client, alice):
     project_id = _project(client, alice)
     task = _create_task(client, alice, project_id)
     stale = task["updated_at"]
+
+    # The server moves `updated_at` by at least 1 ms per change, and a token
+    # within 1 ms of the stored one counts as "the client has the fresh copy".
+    # A save that lands in the very millisecond the task was created therefore
+    # rotates the token by exactly the tolerance and tab-B's stale token still
+    # matches. A real second client is never that close behind; this test, now
+    # that a save is fast enough to be, has to leave a real gap.
+    time.sleep(0.02)
 
     client.post("/api/tasks", json={
         "id": task["id"], "annotations": _annotations(4),

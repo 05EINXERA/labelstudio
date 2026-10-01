@@ -12,7 +12,7 @@ import fastjson
 import models
 from logging_service import log_event
 from database import get_db, commit_with_retry
-from formats.annotation_rows import sync_task_annotations_for_project
+from formats.annotation_rows import load_stored_rows, sync_task_annotations_for_project
 from formats.common import annotation_dicts
 from formats.label_reconcile import apply_label_map, build_label_map
 from schemas import (
@@ -197,19 +197,20 @@ def _stored_annotation_count(db: Session, db_task: models.Task) -> int:
     )
 
 
-def _unexplained_removals(db_task: models.Task, incoming_anns: list, deleted_ids) -> tuple:
+def _unexplained_removals(stored_ids, incoming_anns: list, deleted_ids) -> tuple:
     """`(removed, unexplained)`: stored shapes this save drops, and how many of
     those the client did not list as deliberately deleted.
 
-    Costs no extra parse and no extra query. `incoming_anns` is the payload the
-    save path has already parsed for the row sync, and `annotation_rows` is the
-    collection that sync loads to diff against — reading it here first only
-    moves that load earlier, and the sync then reuses it from the session.
+    `stored_ids` is anything iterable of the ids the task holds -- the save path
+    passes the dict `load_stored_rows` returned, so the ids come from the same
+    single read the diff then reuses (no ORM objects, no second query).
+    `incoming_anns` is the payload the save path has already parsed for the row
+    sync.
 
     Ids are compared as the row mapping stores them (`str(ann["id"])`, with a
     falsy id minted fresh — so such a shape can never match a stored row).
     """
-    stored_ids = {row.id for row in db_task.annotation_rows}
+    stored_ids = set(stored_ids)
     incoming_ids = {
         str(ann["id"])
         for ann in incoming_anns
@@ -1450,9 +1451,15 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
             stored_count = _stored_annotation_count(db, db_task)
             existing_has_work = stored_count > 0
             removed = unexplained = 0
+            # Read once, as plain tuples, and handed to the row sync below: the
+            # guard needs the stored ids and the diff needs the stored values,
+            # and building an ORM object per shape for either was half of what
+            # was left of a save's cost (.devnotes/fix-performance-upgrade/).
+            stored_rows = None
             if existing_has_work:
+                stored_rows = load_stored_rows(db, db_task.id)
                 removed, unexplained = _unexplained_removals(
-                    db_task, incoming_anns, task.deleted_ids
+                    stored_rows, incoming_anns, task.deleted_ids
                 )
             # Partial loss: refused only when the unexplained remainder is both
             # large in absolute terms and a large share of the task, so a bug
@@ -1587,7 +1594,9 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
             # the `changed` signal. It is *more* accurate, not less: two blobs
             # differing only in key order or whitespace used to count as a
             # change and rotate the concurrency token for a no-op write.
-            if sync_task_annotations_for_project(db, db_task, incoming_anns):
+            if sync_task_annotations_for_project(
+                db, db_task, incoming_anns, stored=stored_rows
+            ):
                 changed = True
 
         # Only a write that changed something moves the timestamp. When nothing
