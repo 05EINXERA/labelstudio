@@ -38,7 +38,7 @@ globalThis.Image = class {};
 globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
 
 // Same ?v= as vertex-controls.js imports, or this would be a second state.
-const { state } = await import(new URL('../../frontend/js/state.js?v=13', import.meta.url));
+const { state } = await import(new URL('../../frontend/js/state.js?v=14', import.meta.url));
 const { initVertexControls, syncVertexPill } = await import(new URL('../../frontend/js/vertex-controls.js', import.meta.url));
 
 let pass = 0, fail = 0;

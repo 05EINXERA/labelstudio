@@ -168,6 +168,34 @@ ok('drain carrying annotations is never suppressed', fetchCalls.length === 1);
 ok('supplied annotations are sent',
    JSON.parse(fetchCalls[0].opts.body).annotations === JSON.stringify([{ id: 'a' }]));
 
+// --- 3b. a pre-serialised annotation set is sent as is (F2) ------------------
+// syncToBackend serialises the canvas once and hands the string on; the payload
+// must carry exactly that string, and omitting it must change nothing.
+
+reset({ edited: false });
+t = task();
+{
+  const set = [{ id: 'a', type: 'polygon', points: [{ x: 1, y: 2 }] }];
+  const json = JSON.stringify(set);
+  await timer.drainTaskTime(t, { annotations: set, annotationsJson: json });
+  const body = JSON.parse(fetchCalls[0].opts.body);
+  ok('a supplied annotationsJson is sent verbatim', body.annotations === json);
+  ok('object_count still comes from the array', body.object_count === 1);
+}
+reset({ edited: false });
+t = task();
+{
+  const set = [{ id: 'a' }, { id: 'b' }];
+  await timer.drainTaskTime(t, { annotations: set, annotationsJson: undefined });
+  ok('no annotationsJson: serialised from the array as before',
+     JSON.parse(fetchCalls[0].opts.body).annotations === JSON.stringify(set));
+  reset({ edited: false });
+  t = task();
+  await timer.drainTaskTime(t, { annotations: set, annotationsJson: null });
+  ok('a null annotationsJson (unserialisable upstream) falls back to the array',
+     JSON.parse(fetchCalls[0].opts.body).annotations === JSON.stringify(set));
+}
+
 reset({ edited: false });
 t = task();
 timer.setDeletionTracker({ pending: () => ['a'], accepted: () => {} });

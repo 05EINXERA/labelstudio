@@ -177,5 +177,35 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
   ok('numeric and string ids share one slot', calls === 1);
 }
 
+// 10. The sender is told whether it is running immediately or as a follow-up.
+//     A caller that computed something up front (the serialised canvas) may
+//     reuse it only when nothing could have changed since -- i.e. immediately.
+//     A follow-up runs after an earlier save settled, so anything computed at
+//     call time is stale and must be recomputed.
+{
+  c._resetForTests();
+  const seen = [];
+  const d = deferred();
+  const send = (info) => { seen.push(info && info.immediate); return seen.length === 1 ? d.promise : Promise.resolve(true); };
+  c.coalesce(21, send);
+  c.coalesce(21, send);          // folded
+  d.resolve(true);
+  await tick(); await tick();
+  ok('the first call is reported as immediate', seen[0] === true);
+  ok('the follow-up is reported as NOT immediate', seen.length === 2 && seen[1] === false);
+}
+{
+  c._resetForTests();
+  let info = null;
+  c.coalesce(22, (i) => { info = i; return Promise.resolve(true); }, { bypass: true });
+  ok('a bypassed call is immediate', info && info.immediate === true);
+}
+{
+  c._resetForTests();
+  let calls = 0;
+  c.coalesce(23, () => { calls++; return Promise.resolve(true); });   // sender ignoring its argument
+  ok('a sender that ignores the argument still works', calls === 1);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

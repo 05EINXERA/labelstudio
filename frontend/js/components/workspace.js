@@ -4,17 +4,21 @@ import {
   state, storageKey, draftKey, legacyDraftKey, draftMatchesProject,
   colorForName, labelByName, labelById, resolveAnnotationLabels,
   labelDisplayName, snapshot, selectedAnnotation, hydrationOk, hydrationSaveBlock,
-  annotationsChangedSinceHydration, noteHydratedAnnotations,
+  annotationsChangedSinceHydration, noteHydratedAnnotations, serializeAnnotations,
   pendingDeletedIds, restorePendingDeletions, serverAnnotationIds,
   isAnnotationHidden
-} from "../state.js?v=13";
+} from "../state.js?v=14";
 import { visibleRows, hiddenRowCount } from "../objects-filter.js?v=1";
 import { MAX_CLASS_SHORTCUTS } from "../shortcuts.js?v=7";
 import { pendingCount, retryablePendingCount, isServerUnreachable, peekWrite } from "../offline-queue.js?v=6";
-import { coalesce } from "../save-coalesce.js?v=1";
+import { coalesce, isSaveInFlight } from "../save-coalesce.js?v=2";
+import { pacer, DEBOUNCE_MS } from "../autosave-pacing.js?v=1";
+import {
+  persistDraft, readOverflowDraft, clearOverflowDraft, newerDraft, pruneOverflowDrafts,
+} from "../draft-overflow.js?v=1";
 import { annotationPoints, updateAnnotationBounds } from "../canvas/geometry.js?v=1";
 import { view } from "../canvas/view.js?v=1";
-import { drainTaskTime, DRAIN_SKIPPED, refreshTimerDisplays } from "./timer.js?v=10";
+import { drainTaskTime, DRAIN_SKIPPED, refreshTimerDisplays } from "./timer.js?v=11";
 import { timerState } from "../timer-state.js?v=3";
 import { detectState } from "../ai/detect-state.js?v=3";
 import { draw, drawAllLayers } from "../canvas/draw.js?v=15";
@@ -48,6 +52,14 @@ import { isTerminal } from "../task-status.js?v=3";
  * must reflect whether work is actually on the server.
  */
 function restingStatus() {
+  // Changes that have not reached the server yet are not "Saved". The autosave
+  // waits at least a second and, while the server is slow, up to ten
+  // (autosave-pacing.js) — far longer than the 3 s this indicator holds a
+  // transient message, so without this it would revert to a confident "Saved"
+  // while work sat in a timer. The same applies to a request still in flight.
+  if (window.backendSyncTimeout) return "Saving…";
+  const open = currentTask();
+  if (open && isSaveInFlight(open.id)) return "Saving…";
   const pending = pendingCount();
   if (pending === 0) return "Saved";
   // Only count entries that are actually being retried. Forbidden (permission-
@@ -300,6 +312,16 @@ export function syncToBackend({ useBeacon = false, keepStatus = false, forceStat
   // the next real annotator would see a confusing "In Progress" with no work.
   const canWrite = currentTask.can_write !== false;
 
+  // The open canvas serialised at most once for the checks below and, in the
+  // ordinary case, for the request itself. A large task costs ~100 ms of
+  // blocked main thread per serialise, and this function used to do it three to
+  // four times over the same array (.devnotes/fix-performance-upgrade/, F2).
+  let canvasJson;
+  const currentCanvasJson = () => {
+    if (canvasJson === undefined) canvasJson = serializeAnnotations(state.annotations);
+    return canvasJson;
+  };
+
   // An explicitly chosen status ("Save as Complete") is the user's instruction,
   // not a derived value, so it is read from the argument rather than from
   // `currentTask.status`. Threading it through as data fixes a save that
@@ -341,7 +363,7 @@ export function syncToBackend({ useBeacon = false, keepStatus = false, forceStat
     // NOTE: keepStatus=true bypasses this so "Save as Complete" can lock the
     // status in place rather than having syncToBackend immediately revert it.
     if (isTerminal(taskStatus) &&
-        annotationsChangedSinceHydration(state.annotations)) {
+        annotationsChangedSinceHydration(state.annotations, currentCanvasJson())) {
       taskStatus = 'In Progress';
     }
   }
@@ -377,7 +399,7 @@ export function syncToBackend({ useBeacon = false, keepStatus = false, forceStat
   const nothingToSave = !userInitiated
     && !forceStatus
     && taskStatus === statusBeforeDerivation
-    && !annotationsChangedSinceHydration(state.annotations);
+    && !annotationsChangedSinceHydration(state.annotations, currentCanvasJson());
 
   if (nothingToSave) {
     // Discard the seconds accrued while only looking, and leave the draft and
@@ -425,7 +447,7 @@ export function syncToBackend({ useBeacon = false, keepStatus = false, forceStat
   // inside the sender means it only ever describes the payload that was
   // actually sent, and the follow-up save does its own bookkeeping when it
   // lands.
-  const sendOnce = () => {
+  const sendOnce = ({ immediate = false } = {}) => {
     // Re-read the canvas at SEND time, not at schedule time.
     //
     // This function is called again for the follow-up save after a folded
@@ -446,6 +468,13 @@ export function syncToBackend({ useBeacon = false, keepStatus = false, forceStat
     // given — marking unsent edits as saved, which suppresses the next autosave
     // as "nothing to save" and loses the work.
     const sentAnnotations = currentTask.annotations;
+    // Reuse the string built for the checks above, but only when `coalesce` ran
+    // this synchronously (`immediate`): nothing can have changed the canvas
+    // since. A follow-up save, run after an earlier one settles, re-reads the
+    // canvas and must serialise what it holds *now*.
+    const sentJson = (immediate && canvasJson !== undefined)
+      ? canvasJson
+      : serializeAnnotations(sentAnnotations);
     // Hold back a save the server's wipe guard would refuse: one that drops
     // shapes this tab never deleted. Sending it would only earn a 422 (and an
     // outbox entry) — and task 660 shows what happens when a guard waves it
@@ -457,11 +486,20 @@ export function syncToBackend({ useBeacon = false, keepStatus = false, forceStat
       reportLocalRefusal(refusal.message);
       return Promise.resolve(false);
     }
+    // Pace the *next* automatic save off how long this one takes: the clock for
+    // "when did a save of this task last start" and the server's round trip are
+    // both measured here, around the one place every save goes out
+    // (autosave-pacing.js).
+    const sendStartedAt = performance.now();
+    pacer.noteStart(currentTask.id);
     return Promise.resolve(drainTaskTime(currentTask, {
       status: taskStatus,
       annotations: sentAnnotations,
+      annotationsJson: sentJson === null ? undefined : sentJson,
       useBeacon
     })).then((ok) => {
+      // Only a confirmed, non-beacon save says anything about the server's load.
+      if (ok === true && !useBeacon) pacer.observe(performance.now() - sendStartedAt);
       // The draft exists to cover work the server does not have. Once it has
       // taken the write, the draft is stale and must go, or the next load would
       // "recover" it over fresher server data.
@@ -472,7 +510,7 @@ export function syncToBackend({ useBeacon = false, keepStatus = false, forceStat
         // stays pinned to the original hydration and every later save still
         // counts as an edit — which would demote a just-completed task on the
         // very next time drain.
-        noteHydratedAnnotations(sentAnnotations);
+        noteHydratedAnnotations(sentAnnotations, sentJson);
       }
       return ok;
     });
@@ -513,8 +551,9 @@ export function saveDraft({ task = null, annotations = null } = {}) {
   // "recovered" over the server copy on next open.
   if (!task && !hydrationOk()) return;
 
+  let text;
   try {
-    localStorage.setItem(draftKey(target.id), JSON.stringify({
+    text = JSON.stringify({
       annotations: set,
       // `labels` is deliberately NOT drafted. Classes are project state owned
       // by /api/labels, re-fetched at every boot, and shared by all 25
@@ -539,13 +578,79 @@ export function saveDraft({ task = null, annotations = null } = {}) {
       // the user's, and the wipe guard would refuse to save it.
       deletedIds: pendingDeletedIds(target.id),
       savedAt: Date.now()
-    }));
+    });
   } catch (e) {
-    // Quota exceeded: the draft is best-effort, the server save is the real
-    // path. Losing the net is worth knowing about but must not break editing.
-    console.warn('Could not write local draft', e);
+    console.warn('Could not serialise local draft', e);
+    return;
   }
+
+  // localStorage first (synchronous, so the draft is on disk before `pagehide`
+  // returns), the IndexedDB overflow when that is full. The quota is ~5 MB of
+  // UTF-16 shared by every draft and the offline queue, and a task of about a
+  // thousand polygons already exceeds it — which used to mean no draft at all,
+  // silently, on exactly the large tasks where lost work costs most
+  // (draft-overflow.js; .devnotes/performance-fixes/12_RESIDUAL_AUDIT.md F3).
+  let storage = null;
+  try { storage = localStorage; } catch { /* storage blocked: overflow only */ }
+  const taskId = target.id;
+  persistDraft({
+    key: draftKey(taskId),
+    text,
+    storage: storage || { setItem() { throw new Error('localStorage unavailable'); }, removeItem() {} },
+  }).then((outcome) => {
+    if (outcome === 'failed') reportDraftUnavailable(taskId);
+  });
 }
+
+// Tasks already warned about this page-life, so a task too large for any local
+// store says so once rather than on every edit.
+const draftWarned = new Set();
+
+/**
+ * Say, visibly, that the open task has no local safety net. Before the overflow
+ * existed this was a `console.warn` nobody reads; it still must not be silent.
+ */
+function reportDraftUnavailable(taskId) {
+  if (draftWarned.has(taskId)) return;
+  draftWarned.add(taskId);
+  setStatus("No local backup for this large task — keep saving");
+}
+
+// How long after the last edit the draft is written. Every edit used to
+// serialise the whole canvas into localStorage synchronously (~100 ms on a large
+// task); a trailing debounce keeps the net while removing the per-edit freeze.
+// It is far shorter than the autosave debounce, so the draft is always on disk
+// well before the network save goes out — including when pacing delays that.
+const DRAFT_DEBOUNCE_MS = 400;
+let draftTimer = null;
+
+function scheduleDraft() {
+  if (draftTimer) clearTimeout(draftTimer);
+  draftTimer = setTimeout(() => {
+    draftTimer = null;
+    saveDraft();
+  }, DRAFT_DEBOUNCE_MS);
+}
+
+/** Drop a scheduled draft without writing it (the task it was for is closing). */
+export function cancelPendingDraft() {
+  if (!draftTimer) return;
+  clearTimeout(draftTimer);
+  draftTimer = null;
+}
+
+/**
+ * Write a pending debounced draft now. Called wherever the page could go away
+ * or the open task could change (pagehide, visibilitychange, gallery switch):
+ * a draft that is merely scheduled does not survive a closed tab.
+ */
+export function flushDraft() {
+  if (!draftTimer) return;
+  clearTimeout(draftTimer);
+  draftTimer = null;
+  saveDraft();
+}
+
 
 export function clearDraft(taskId) {
   try {
@@ -553,6 +658,8 @@ export function clearDraft(taskId) {
   } catch (e) {
     console.warn('Could not clear local draft', e);
   }
+  // A draft may live in the overflow store instead (or as well).
+  clearOverflowDraft(draftKey(taskId));
 }
 
 // Drafts older than this with no matching queued write are dropped. A draft's
@@ -599,6 +706,12 @@ export function pruneStaleDrafts() {
   } catch (e) {
     console.warn('Could not prune drafts', e);
   }
+  // The overflow store holds the drafts that did not fit; same rule, same TTL.
+  pruneOverflowDrafts({
+    prefix,
+    ttlMs: DRAFT_TTL_MS,
+    hasPendingWrite: (taskId) => !!peekWrite(taskId),
+  });
   return removed;
 }
 
@@ -628,7 +741,32 @@ export function restoreDraft(task) {
     return false;
   }
   if (!raw) return false;
+  return applyDraftText(task, raw);
+}
 
+/**
+ * Restore the draft held in the IndexedDB overflow store, if it is newer than
+ * whatever localStorage held. Async because IndexedDB is; callers `await` it
+ * right after the synchronous `restoreDraft`.
+ *
+ * `stillOpen` is checked after the read: if the annotator moved to another task
+ * while it was in flight, applying the draft would paint one task's work onto
+ * another.
+ */
+export async function restoreOverflowDraft(task, stillOpen = () => true) {
+  if (!task || !task.id) return false;
+  const raw = await readOverflowDraft(draftKey(task.id));
+  if (!raw || !stillOpen()) return false;
+  let local = null;
+  try { local = localStorage.getItem(draftKey(task.id)); } catch { /* none */ }
+  // A localStorage draft that is as new or newer already had its chance in
+  // restoreDraft(); the overflow copy is then the stale one.
+  if (local && newerDraft(local, raw) !== 'b') return false;
+  return applyDraftText(task, raw);
+}
+
+/** Apply one draft's text to the open task if it holds work the server lacks. */
+function applyDraftText(task, raw) {
   try {
     const draft = JSON.parse(raw);
     if (!Array.isArray(draft.annotations)) {
@@ -671,7 +809,10 @@ export function restoreDraft(task) {
       return false;
     }
     // Same content as the server's copy: nothing to recover.
-    if (JSON.stringify(draft.annotations) === JSON.stringify(state.annotations)) {
+    // Lengths first: sets of different sizes differ without serialising either
+    // (the serialise was 264 ms on a large task, paid on every open).
+    if (draft.annotations.length === state.annotations.length &&
+        JSON.stringify(draft.annotations) === JSON.stringify(state.annotations)) {
       clearDraft(task.id);
       return false;
     }
@@ -768,12 +909,19 @@ export function save() {
     setStatus(block);
     return;
   }
-  saveDraft();
+  scheduleDraft();
   setStatus("Saving…");
 
   if (window.backendSyncTimeout) {
     clearTimeout(window.backendSyncTimeout);
   }
+  // The trailing debounce, stretched while the server is slow so clients back
+  // off instead of piling more full-set uploads onto it. On a healthy server
+  // this is exactly DEBOUNCE_MS, as it always was; never more than 10 s
+  // (autosave-pacing.js). Only this automatic path waits: flushes, beacons,
+  // the Save button and status changes all go straight to syncToBackend.
+  const openTask = currentTask();
+  const wait = pacer.delayFor(openTask ? openTask.id : null, DEBOUNCE_MS);
   window.backendSyncTimeout = setTimeout(() => {
     window.backendSyncTimeout = null;
     // "Saved" is only claimed once the server has actually taken the write.
@@ -783,9 +931,13 @@ export function save() {
     // rather than aspirational — and refreshSaveStatus() keeps the pending count
     // on screen instead of reverting to "Saved" three seconds later.
     Promise.resolve(syncToBackend())
-      .then((ok) => (ok === false ? refreshSaveStatus() : setStatus("Saved")))
+      // Not "Saved" if the annotator has edited again since this save left: a
+      // newer autosave is already scheduled and that work is not on the server.
+      .then((ok) => (ok === false
+        ? refreshSaveStatus()
+        : setStatus(window.backendSyncTimeout ? "Saving…" : "Saved")))
       .catch(() => refreshSaveStatus());
-  }, 1000);
+  }, wait);
 }
 
 /**

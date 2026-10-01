@@ -6,7 +6,7 @@ import {
   hydrationSaveBlock, currentHydrationGeneration, noteHydratedAnnotationCount,
   noteHydratedAnnotations, annotationsChangedSinceHydration, openTaskWasHydrated,
   noteUserRemoved, pendingDeletedIds, acknowledgeDeletedIds, noteServerAnnotationIds
-} from "./state.js?v=13";
+} from "./state.js?v=14";
 import { view } from "./canvas/view.js?v=1";
 import { commentOverlayRefs, clearCommentOverlayAnchor } from "./comment-overlay.js?v=2";
 import { backspaceAction, modeAfterCommentCommit } from "./comment-mode.js?v=1";
@@ -19,9 +19,10 @@ import {
 import { drawAllLayers } from "./canvas/draw.js?v=15";
 import {
   setStatus, syncToBackend, save, loadSaved, saveDraft, restoreDraft,
+  restoreOverflowDraft, flushDraft, cancelPendingDraft,
   render, manualSaveWithUI, refreshSaveStatus, pruneStaleDrafts, unhideAllObjects,
   setLocalRefusalHandler
-} from "./components/workspace.js?v=32";
+} from "./components/workspace.js?v=33";
 import {
   configureQueue, startQueue, subscribe as subscribeQueue, drainQueue,
   enqueueWrite, retryablePendingCount, noteServerReachable, noteServerUnreachable,
@@ -32,7 +33,7 @@ import {
   syncTaskTime, syncTimeToServer, drainTaskTime, setActiveTaskResolver,
   setConflictHandler, resetSessionForTask, refreshTimerDisplays,
   handleVisibilityChange, setFrozenResolver, setEditedResolver, setDeletionTracker
-} from "./components/timer.js?v=10";
+} from "./components/timer.js?v=11";
 import {
   finalizePolygon, deleteSelected, undoAction, redoAction, setZoomChangeHandler,
   toggleVertexHandles
@@ -75,6 +76,9 @@ const logoutBtnApp = document.querySelector("#logoutBtnApp");
 // pending — otherwise time accrued after the last autosave was credited to the
 // user but never to the task (docs/TIMER_AUDIT.md F2).
 function flushPendingSaves({ useBeacon = false } = {}) {
+  // The draft is written on a short trailing debounce, so one may still be
+  // scheduled. A tab that is closing must not take it down with it.
+  flushDraft();
   if (window.backendSyncTimeout) {
     clearTimeout(window.backendSyncTimeout);
     window.backendSyncTimeout = null;
@@ -227,6 +231,12 @@ function showHydrationFailure(index) {
 
 async function switchImage(index) {
   if (index < 0 || index >= state.gallery.length) return;
+
+  // A draft scheduled for the task being left must not fire against the next
+  // one. The outgoing task's own safety net is the explicit saveDraft() below
+  // (written if its save fails) — an implicit write here would find the
+  // hydration gate already shut for the incoming task and be refused anyway.
+  cancelPendingDraft();
 
   // Claim the hydration generation before anything else, and in particular
   // before `state.galleryIndex` moves below. Between the index moving and the
@@ -423,7 +433,14 @@ async function switchImage(index) {
   // Recover anything this browser had for the task that never reached the
   // server (refresh mid-edit, failed save, unresolved conflict). Applied after
   // the server copy is in place, so it only takes effect when it differs.
-  if (restoreDraft(item)) {
+  let recoveredDraft = restoreDraft(item);
+  // A draft too large for localStorage lives in IndexedDB (draft-overflow.js).
+  // Read after the synchronous restore so a newer overflow copy can still win;
+  // abandoned if the annotator has moved on while it was being read.
+  if (await restoreOverflowDraft(item, () => state.gallery[state.galleryIndex] === item)) {
+    recoveredDraft = true;
+  }
+  if (recoveredDraft) {
     setStatus("Recovered draft");
   }
   loadImageFromSource(item.url, item.name);

@@ -160,7 +160,10 @@ function hasActiveTask() {
  * single drain point for timerState.taskSessionSeconds (F4).
  */
 /** Resolves true when the server accepted the write, false otherwise. */
-export async function drainTaskTime(task, { status, annotations, useBeacon = false } = {}) {
+export async function drainTaskTime(
+  task,
+  { status, annotations, useBeacon = false, annotationsJson = undefined } = {}
+) {
   if (!task || !task.id) return false;
 
   // A frozen task takes no writes at all. Returning before the accumulator is
@@ -229,7 +232,14 @@ export async function drainTaskTime(task, { status, annotations, useBeacon = fal
   // time-only save means. `[]` means "make it empty" and must be reserved for
   // callers that really mean it.
   if (annotations !== undefined && Array.isArray(annotations)) {
-    payload.annotations = JSON.stringify(annotations);
+    // `annotationsJson`, when the caller already serialised this exact array
+    // (syncToBackend does, to compare it with the hydration fingerprint), is
+    // used as is. Serialising a large task blocks the main thread for ~100 ms
+    // and used to happen three to four times per save; a caller that does not
+    // pass it gets the previous behaviour.
+    payload.annotations = annotationsJson !== undefined && annotationsJson !== null
+      ? annotationsJson
+      : JSON.stringify(annotations);
     // Name what the user deliberately deleted, so the server's wipe guard can
     // tell a real delete (any size, including delete-all) from a canvas that
     // lost its shapes on its own. Read at payload-build time, so a delete made

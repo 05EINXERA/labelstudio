@@ -104,11 +104,25 @@ class Task(Base):
     # `--reverse` rollback) still just accesses `task.annotations` and pays for
     # one extra SELECT. Removed entirely in Phase F.
     annotations = deferred(Column(Text))
-    # One row per shape. `lazy="selectin"` so loading N tasks costs one extra
-    # query rather than N: the gallery and every export iterate tasks, and a
-    # default lazy load would turn those into per-task round-trips.
+    # One row per shape.
     #
-    # Ordered by `seq` — the position the annotation held in the payload.
+    # `lazy="select"` (load on first access), **not** `selectin`. It was
+    # `selectin` so the gallery and exports cost one query instead of N, and that
+    # is still how they load -- but they now ask for it explicitly with
+    # `selectinload(Task.annotation_rows)`. As a default it taxed every request
+    # that merely *looked a task up*: `require_task` is `db.get(Task, id)`, so a
+    # heartbeat, a claim, a release, a lock-status call and the timer ping each
+    # pulled every shape of the task out of Postgres and built an ORM object per
+    # row, to write one dict key (13% of server CPU on the live profile, and a
+    # 3-second heartbeat). See .devnotes/fix-performance-upgrade/.
+    #
+    # THE RULE: a path that reads `task.annotation_rows` / `annotation_dicts(task)`
+    # for MANY tasks must add `.options(selectinload(Task.annotation_rows))` to
+    # its query, or it becomes one query per task. A path that reads them for one
+    # task needs nothing. tests/test_annotation_load_strategy.py pins the query
+    # counts of the gallery, the export and the single-task read.
+    #
+    # Ordered by `seq` -- the position the annotation held in the payload.
     #
     # The blob was a JSON array, so it carried an implicit order that decides
     # which shape paints over which (formats.common.ordered_annotations) and
@@ -123,7 +137,7 @@ class Task(Base):
         "Annotation",
         cascade="all, delete-orphan",
         passive_deletes=True,
-        lazy="selectin",
+        lazy="select",
         order_by="(Annotation.seq, Annotation.id)",
     )
     # Pixel dimensions of the image at image_path, captured at upload.

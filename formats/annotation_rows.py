@@ -21,9 +21,11 @@ import logging
 import uuid
 from typing import Any, Optional
 
+from sqlalchemy import bindparam, delete, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
+import fastjson
 import models
 
 logger = logging.getLogger(__name__)
@@ -83,7 +85,8 @@ def _int_or_none(value: Any) -> Optional[int]:
         return None
 
 
-def dict_to_row_kwargs(ann: dict, task_id: int, known_label_ids=None, seq=None) -> dict:
+def dict_to_row_kwargs(ann: dict, task_id: int, known_label_ids=None, seq=None,
+                       *, with_points: bool = True) -> dict:
     """The `Annotation(**kwargs)` for one annotation dict.
 
     `id` is minted when absent — four annotations in the real data have no id,
@@ -106,6 +109,12 @@ def dict_to_row_kwargs(ann: dict, task_id: int, known_label_ids=None, seq=None) 
     the only clue to what it used to be. NULL matches what the FK's
     `ondelete="SET NULL"` would have done had it always existed, and the
     preserved id keeps the fact recoverable.
+
+    `with_points=False` leaves the `points` key out. Serialising a shape's
+    points is the single most expensive thing a save does -- 38% of all CPU on
+    the live server -- and `sync_task_annotations` only needs the string for
+    a shape that is new or genuinely changed, so it asks for it separately
+    (`points_equal` first, `_json_or_none` only on a difference).
     """
     extra = {k: v for k, v in ann.items() if k not in MODELLED_KEYS and k != "extra"}
     # An `extra` already present in the payload (a round-tripped row) is merged
@@ -120,12 +129,11 @@ def dict_to_row_kwargs(ann: dict, task_id: int, known_label_ids=None, seq=None) 
         extra["_orphanedLabelId"] = label_id
         label_id = None
 
-    return {
+    kwargs = {
         "id": str(ann.get("id") or uuid.uuid4()),
         "task_id": task_id,
         "label_id": label_id,
         "type": ann.get("type"),
-        "points": _json_or_none(ann.get("points")),
         "x": _float_or_none(ann.get("x")),
         "y": _float_or_none(ann.get("y")),
         "width": _float_or_none(ann.get("width")),
@@ -137,6 +145,36 @@ def dict_to_row_kwargs(ann: dict, task_id: int, known_label_ids=None, seq=None) 
         "group_id": ann.get("groupId"),
         "extra": _json_or_none(extra) if extra else None,
     }
+    if with_points:
+        kwargs["points"] = _json_or_none(ann.get("points"))
+    return kwargs
+
+
+def points_equal(stored: Optional[str], incoming: Any) -> bool:
+    """Is the stored `points` text the same value as the incoming `points`?
+
+    Compared by **value**, not by re-serialising the incoming side and
+    comparing strings. The string comparison was the largest single cost of a
+    save (every polygon's whole vertex list dumped to text just to discover it
+    had not moved); parsing the stored text is several times cheaper
+    (`fastjson`), and Python's `==` on the parsed lists is C-speed.
+
+    The failure modes are all in the safe direction. A `False` here only means
+    "may have changed", and the caller then serialises and compares text before
+    writing, so a spurious `False` costs one redundant comparison and can never
+    drop an edit. A `True` means the parsed values are equal, which is exactly
+    "nothing to write" -- whitespace, key order or `3` versus `3.0` in the
+    stored text are representation, not content, and readers parse the column
+    with `json.loads`.
+    """
+    if incoming is None:
+        return stored is None
+    if stored is None:
+        return False
+    try:
+        return fastjson.loads(stored) == incoming
+    except ValueError:
+        return False
 
 
 def row_to_dict(row: "models.Annotation") -> dict:
@@ -154,7 +192,7 @@ def row_to_dict(row: "models.Annotation") -> dict:
         out["labelId"] = row.label_id
     if row.points is not None:
         try:
-            out["points"] = json.loads(row.points)
+            out["points"] = fastjson.loads(row.points)
         except (ValueError, TypeError):
             logger.warning("Annotation %s on task %s has unparseable points",
                            row.id, row.task_id)
@@ -173,7 +211,7 @@ def row_to_dict(row: "models.Annotation") -> dict:
 
     if row.extra:
         try:
-            extra = json.loads(row.extra)
+            extra = fastjson.loads(row.extra)
             if isinstance(extra, dict):
                 extra = dict(extra)
                 # A labelId whose label was deleted before the FK existed. It
@@ -205,33 +243,89 @@ _SYNC_COLUMNS = (
     "label_id", "type", "points", "x", "y", "width", "height",
     "text", "color", "order", "seq", "group_id", "extra",
 )
+# Everything except `points`, which `sync_task_annotations` compares separately
+# (by value, and without serialising it unless it differs).
+_SYNC_SCALAR_COLUMNS = tuple(c for c in _SYNC_COLUMNS if c != "points")
 
 
-def sync_task_annotations(db, task, incoming: list, known_label_ids=None) -> bool:
+_TABLE = models.Annotation.__table__
+# The columns `load_stored_rows` returns, in order. `id` first so a row's key is
+# `row[0]`; the rest are exactly what `sync_task_annotations` compares.
+_STORED_COLUMNS = ("id",) + _SYNC_COLUMNS
+_STORED_INDEX = {name: index for index, name in enumerate(_STORED_COLUMNS)}
+# Rows removed per DELETE. Postgres allows 65,535 bound parameters and old
+# SQLite builds 999; 500 is comfortably inside both.
+_DELETE_CHUNK = 500
+
+
+def load_stored_rows(db, task_id: int) -> dict:
+    """`{annotation id: row}` for one task, read as plain tuples.
+
+    This is deliberately **not** `task.annotation_rows`. Loading the relationship
+    builds an ORM object (identity map entry, instance state, a descriptor per
+    column) for every shape of the task, and a save only needs to compare each
+    stored value with the incoming one: on the live profile that load and the
+    attribute access on the objects it produced were about half of what remained
+    of a save once the JSON work was gone. A Core `select` returns the same data
+    as tuples, several times cheaper (.devnotes/fix-performance-upgrade/).
+
+    `row[_STORED_INDEX["points"]]` etc. read a column; `row[0]` is the id.
+    """
+    columns = [_TABLE.c[name] for name in _STORED_COLUMNS]
+    statement = select(*columns).where(_TABLE.c.task_id == task_id)
+    return {row[0]: row for row in db.execute(statement)}
+
+
+def _apply_updates(db, task_id: int, updates: dict) -> None:
+    """One UPDATE per distinct set of changed columns, executed as a batch.
+
+    Only the columns that actually changed are written, as the ORM's dirty
+    tracking used to do: deleting an early shape renumbers `seq` on every shape
+    after it, and that must stay a `seq`-only write -- not a rewrite of every
+    polygon's `points` text along with it.
+    """
+    for columns, rows in updates.items():
+        statement = (
+            update(_TABLE)
+            .where(_TABLE.c.id == bindparam("k_id"), _TABLE.c.task_id == task_id)
+            .values({c: bindparam(f"v_{c}") for c in columns})
+        )
+        db.execute(statement, rows)
+
+
+def sync_task_annotations(db, task, incoming: list, known_label_ids=None,
+                          *, stored=None) -> bool:
     """Make `task`'s annotation rows match `incoming`. Returns True if anything changed.
 
     **This is the change that removes the slowdown.** The blob path rewrote the
     task's entire annotation set on every save — 15.6 MB through Postgres for a
     one-shape edit, plus a second copy into the history table. Here, moving one
     shape writes one row: rows absent from the payload are deleted, rows whose
-    columns are unchanged are left strictly alone (SQLAlchemy emits UPDATEs only
-    for genuinely dirty rows), and only new ids are inserted.
+    columns are unchanged are left strictly alone, only the columns that differ
+    are written for a changed row, and only new ids are inserted.
 
-    The caller commits. Nothing here flushes, so the whole save stays one
-    transaction and a later failure rolls the annotations back with it.
+    The caller commits. The statements run inside the caller's transaction, so
+    the whole save stays one transaction and a later failure rolls the
+    annotations back with it.
 
     `incoming` is the already-parsed payload — parsing is the caller's job, and
     doing it here would reintroduce the duplicate parse that
     .devnotes/server-issue-diagnosis/evidence/07_REMAINING_COSTS.md measured at
     121 ms per save.
+
+    `stored` is the result of `load_stored_rows` when the caller already has it
+    (the save path reads it once for the wipe guard and hands it on); omitted,
+    it is loaded here.
     """
-    existing = {row.id: row for row in task.annotation_rows}
+    existing = stored if stored is not None else load_stored_rows(db, task.id)
 
     seen: set = set()
     changed = False
-    # Rows that are new to this session, applied as an upsert after the loop so
+    # Rows that are new to this task, applied as an upsert after the loop so
     # a concurrent save that inserted the same id first cannot 500 this one.
     pending_upserts: list = []
+    # {sorted changed columns: [parameter dict per row]} -- see _apply_updates.
+    updates: dict = {}
 
     for position, ann in enumerate(incoming):
         if not isinstance(ann, dict):
@@ -239,7 +333,9 @@ def sync_task_annotations(db, task, incoming: list, known_label_ids=None) -> boo
         # `seq` is the payload position, which is what reproduces the JSON
         # array's implicit order. Reassigned on every save so a reordered
         # payload reorders the rows.
-        kwargs = dict_to_row_kwargs(ann, task.id, known_label_ids, seq=position)
+        kwargs = dict_to_row_kwargs(
+            ann, task.id, known_label_ids, seq=position, with_points=False
+        )
         ident = kwargs["id"]
         # A payload that repeats an id would otherwise collide on the primary
         # key. Dropping the later copy is deliberate, and differs from minting
@@ -260,9 +356,9 @@ def sync_task_annotations(db, task, incoming: list, known_label_ids=None) -> boo
             # from the debounced autosave, the visibilitychange beacon and the
             # 30s timer drain, and on a large task a save takes long enough
             # that the next one starts before it finishes (task 713 measured
-            # 36s and 39s saves overlapping in production). Both sessions load
-            # the same rows, both see the new shape as absent, and both INSERT
-            # it -- the second violating annotations_pkey and 500ing the save.
+            # 36s and 39s saves overlapping in production). Both saves read the
+            # same rows, both see the new shape as absent, and both INSERT it --
+            # the second violating annotations_pkey and 500ing the save.
             #
             # The blob path could not hit this: a whole-column overwrite has no
             # per-row constraint to violate. Per-row storage introduced it, so
@@ -272,34 +368,53 @@ def sync_task_annotations(db, task, incoming: list, known_label_ids=None) -> boo
             # check-then-insert race is exactly what fails here, and only the
             # database can settle it atomically. Last writer wins, which is the
             # same resolution the blob path had.
+            kwargs["points"] = _json_or_none(ann.get("points"))
             pending_upserts.append(kwargs)
             changed = True
             continue
 
-        # Assign only what actually differs. Assigning every column would mark
-        # the row dirty even when nothing changed, and SQLAlchemy would then
-        # UPDATE all of them — which is the whole cost this function exists to
-        # avoid.
-        for column in _SYNC_COLUMNS:
+        # Collect only what actually differs. Writing every column would turn a
+        # no-op save into an UPDATE per shape -- the whole cost this function
+        # exists to avoid.
+        changes = {}
+        for column in _SYNC_SCALAR_COLUMNS:
             value = kwargs[column]
-            if getattr(row, column) != value:
-                setattr(row, column, value)
-                changed = True
+            if row[_STORED_INDEX[column]] != value:
+                changes[column] = value
 
-    for ident, row in existing.items():
-        if ident not in seen:
-            # delete-orphan on the relationship would also catch this, but the
-            # explicit delete keeps the intent visible and works whether or not
-            # the collection has been loaded.
-            task.annotation_rows.remove(row)
-            db.delete(row)
+        # `points` last, and by value. This is the line the live profile
+        # pointed at: re-serialising every polygon's vertices to compare text
+        # was 38% of all server CPU, to learn that ~95% of shapes had not moved.
+        # Only a shape whose points really differ is serialised (and then
+        # compared as text once more, so a value that is unequal only because
+        # of how it parses -- NaN, say -- is not rewritten on every save).
+        stored_points = row[_STORED_INDEX["points"]]
+        incoming_points = ann.get("points")
+        if not points_equal(stored_points, incoming_points):
+            new_points = _json_or_none(incoming_points)
+            if new_points != stored_points:
+                changes["points"] = new_points
+
+        if changes:
+            params = {"k_id": ident}
+            params.update({f"v_{c}": v for c, v in changes.items()})
+            updates.setdefault(tuple(sorted(changes)), []).append(params)
             changed = True
 
+    # Deletes first, then updates, then upserts: an id can legitimately leave
+    # and re-enter between two saves, and each step must see the one before.
+    removed = [ident for ident in existing if ident not in seen]
+    for start in range(0, len(removed), _DELETE_CHUNK):
+        chunk = removed[start:start + _DELETE_CHUNK]
+        db.execute(delete(_TABLE).where(
+            _TABLE.c.task_id == task.id, _TABLE.c.id.in_(chunk)
+        ))
+        changed = True
+
+    if updates:
+        _apply_updates(db, task.id, updates)
+
     if pending_upserts:
-        # Flush the deletes and updates first: an id can legitimately be
-        # removed and re-added in one payload, and the upsert must land after
-        # the delete, not race it.
-        db.flush()
         # Both dialects spell ON CONFLICT the same way; the constructor differs.
         # Postgres is production, SQLite is dev and the test suite.
         maker = sqlite_insert if db.bind.dialect.name == "sqlite" else pg_insert
@@ -310,14 +425,16 @@ def sync_task_annotations(db, task, incoming: list, known_label_ids=None) -> boo
         chunk = 60 if db.bind.dialect.name == "sqlite" else 500
         for start in range(0, len(pending_upserts), chunk):
             batch = pending_upserts[start:start + chunk]
-            stmt = maker(models.Annotation.__table__).values(batch)
+            stmt = maker(_TABLE).values(batch)
             db.execute(stmt.on_conflict_do_update(
                 index_elements=["id", "task_id"],
                 set_={c: stmt.excluded[c] for c in _SYNC_COLUMNS},
             ))
-        # The rows were written behind the ORM's back, so the collection it
-        # holds is stale. Expire it rather than leaving the caller with a task
-        # whose annotation_rows disagree with the database.
+
+    if changed:
+        # Rows were written behind the ORM's back, so a collection a caller may
+        # already hold is stale. Expiring an attribute that was never loaded --
+        # the save path no longer loads it -- costs nothing.
         db.expire(task, ["annotation_rows"])
 
     # A set emptied to zero rows must also empty the legacy blob.
@@ -340,7 +457,7 @@ def sync_task_annotations(db, task, incoming: list, known_label_ids=None) -> boo
     return changed
 
 
-def sync_task_annotations_for_project(db, task, incoming: list) -> bool:
+def sync_task_annotations_for_project(db, task, incoming: list, *, stored=None) -> bool:
     """`sync_task_annotations`, having first looked up the project's label ids.
 
     The convenience wrapper the routers use. It is here rather than in a router
@@ -360,4 +477,4 @@ def sync_task_annotations_for_project(db, task, incoming: list) -> bool:
         .filter(models.Label.project_id == task.project_id)
         .all()
     }
-    return sync_task_annotations(db, task, incoming, known_label_ids)
+    return sync_task_annotations(db, task, incoming, known_label_ids, stored=stored)
