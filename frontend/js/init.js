@@ -87,6 +87,25 @@ function flushPendingSaves({ useBeacon = false } = {}) {
   syncTimeToServer({ useBeacon });
 }
 
+// Send a scheduled (possibly paced) autosave right now and wait for it, but never
+// hold the annotator on the page for more than `maxMs`: after that the draft and
+// the pagehide flush are the net, as they always were.
+async function settlePendingAutosave(maxMs = 6000) {
+  if (window.backendSyncTimeout) {
+    clearTimeout(window.backendSyncTimeout);
+    window.backendSyncTimeout = null;
+  }
+  flushDraft();
+  try {
+    await Promise.race([
+      Promise.resolve(syncToBackend()),
+      new Promise((resolve) => setTimeout(resolve, maxMs)),
+    ]);
+  } catch {
+    /* the draft and the offline queue already hold it */
+  }
+}
+
 function _releaseCurrentLock({ useBeacon = false } = {}) {
   // T2.2 — release the soft lock on the open task on page hide / unload.
   const task = state.gallery && state.galleryIndex >= 0
@@ -1409,14 +1428,26 @@ async function initWorkspaceContext() {
     backToProject.href =
       `project.html?id=${encodeURIComponent(projectId)}#/tasks${qs ? `?${qs}` : ""}`;
 
-    backToProject.addEventListener("click", (e) => {
+    backToProject.addEventListener("click", async (e) => {
       // Let the browser handle modifier-clicks (open in new tab) normally.
       if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
       // Before the history check, so the href fallback carries a ticket too:
       // that path is an ordinary `navigate` and has no other way to say it is a
       // return rather than a pasted URL.
       markReturnToTasks();
-      if (!cameFromTasksPage()) return;   // no history to pop; follow the href
+      // A paced autosave may still be waiting (up to 10 s on a slow server). The
+      // pagehide beacon that would otherwise carry it is capped at ~64 KB, so on
+      // a large task it silently fails and the edits would sit only in the local
+      // draft. Send it now, as a normal request, before leaving.
+      const pendingAutosave = !!window.backendSyncTimeout;
+      if (pendingAutosave) {
+        e.preventDefault();   // must be synchronous, before the first await
+        await settlePendingAutosave();
+      }
+      if (!cameFromTasksPage()) {          // no history to pop; follow the href
+        if (pendingAutosave) window.location.href = backToProject.href;
+        return;
+      }
 
       // Step back instead of navigating forward. Following the href would push
       // a third entry (tasks → canvas → tasks), leaving the browser Back button

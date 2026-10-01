@@ -91,5 +91,17 @@ function body(src, name) {
      /clearOverflowDraft\(/.test(body(workspace, 'clearDraft')));
 }
 
+// --- leaving the workspace never strands a paced autosave --------------------
+{
+  const settle = body(init, 'settlePendingAutosave');
+  ok('settlePendingAutosave sends the scheduled save', /syncToBackend\(/.test(settle));
+  ok('...but never waits unboundedly', /Promise\.race\(/.test(settle) && /maxMs/.test(settle));
+  ok('"back to project" settles a pending autosave before leaving',
+     /await settlePendingAutosave\(\)/.test(init));
+  ok('...and cancels the default navigation synchronously first',
+     init.indexOf('e.preventDefault();   // must be synchronous') > 0
+     && init.indexOf('e.preventDefault();   // must be synchronous') < init.indexOf('await settlePendingAutosave()'));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
