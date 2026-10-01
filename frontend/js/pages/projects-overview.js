@@ -9,7 +9,15 @@
 import { escapeHTML, formatTime, statusPillClass, TASK_STATUSES } from "../utils.js?v=3";
 
 /** Status of every task across all projects: count, share and a share bar. */
-function statusBreakdown(statuses, total) {
+function statusBreakdown(statuses, total, hasCounts) {
+  // A server older than this panel omits `status_counts`; say so rather than
+  // render a row of zeros that reads as "no tasks in any status".
+  if (!hasCounts) {
+    return `<div class="mgmt-error">
+        Task status counts are unavailable — the server is running an older
+        version. Restart it to see the breakdown.
+      </div>`;
+  }
   const cards = statuses.map(([status, count]) => {
     const pct = total ? Math.round((count / total) * 100) : 0;
     return `<div class="metric-tile"${count ? "" : ' style="opacity:.55;"'}>
@@ -21,9 +29,7 @@ function statusBreakdown(statuses, total) {
         </div>
       </div>`;
   });
-  return `
-    <p class="mgmt-eyebrow" style="margin: 4px 0 8px;">Task status · all projects</p>
-    <div class="metric-grid" style="grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));">
+  return `<div class="metric-grid" style="grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));">
       ${cards.join("")}
     </div>`;
 }
@@ -72,35 +78,39 @@ function orderedStatuses(counts) {
   return Object.entries(counts).sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b));
 }
 
-// Per-viewer preference only, so localStorage (not the server) is the right
-// home. Collapsed unless the viewer has opened it: the panel is tall and the
-// table is what most visits are for.
-const COLLAPSE_KEY = "projects_overview_open";
+// Open/closed state is a per-viewer convenience, so localStorage (not the
+// server) is its home. The whole panel starts collapsed — it is tall and the
+// table is what most visits are for — while sections inside start open.
+const PANEL_KEY = "projects_overview_open";
+const SECTIONS_KEY = "projects_overview_sections";
 
-function readOpen() {
+function readPref(key, fallback) {
   try {
-    return localStorage.getItem(COLLAPSE_KEY) === "1";
+    const raw = localStorage.getItem(key);
+    return raw === null ? fallback : JSON.parse(raw);
   } catch (err) {
-    console.warn("Could not read the stats panel state", err);
-    return false;
+    console.warn(`Could not read ${key}`, err);
+    return fallback;
   }
 }
 
-function writeOpen(open) {
+function writePref(key, value) {
   try {
-    localStorage.setItem(COLLAPSE_KEY, open ? "1" : "0");
+    localStorage.setItem(key, JSON.stringify(value));
   } catch (err) {
-    console.warn("Could not save the stats panel state", err);
+    console.warn(`Could not save ${key}`, err);
   }
 }
+
+const CHEVRON = `<svg class="stats-toggle-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+  stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>`;
 
 export function createProjectsOverview(mount) {
   // The shell (toggle + body) is built once; render() only refills the summary
   // and body, so the 30 s poll never resets the open/closed state.
   mount.innerHTML = `
     <button type="button" class="stats-toggle" aria-expanded="false" aria-controls="projectStatsBody">
-      <svg class="stats-toggle-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-        stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+      ${CHEVRON}
       <span class="stats-toggle-title">Overview · all projects</span>
       <span class="stats-toggle-summary"></span>
     </button>
@@ -116,43 +126,74 @@ export function createProjectsOverview(mount) {
     body.hidden = !open;
   }
 
-  setOpen(readOpen());
+  // `1` is how earlier versions stored "open"; accept it so nobody's choice resets.
+  const savedOpen = readPref(PANEL_KEY, false);
+  setOpen(savedOpen === true || savedOpen === 1);
   toggle.addEventListener("click", () => {
     const open = body.hidden;
     setOpen(open);
-    writeOpen(open);
+    writePref(PANEL_KEY, open);
   });
+
+  // Sections are re-rendered on every poll, so their state lives here and is
+  // written back into each <details open>. `toggle` does not bubble, hence
+  // the capture listener on the stable body element.
+  const sectionOpen = readPref(SECTIONS_KEY, {});
+  body.addEventListener("toggle", (e) => {
+    const key = e.target?.dataset?.section;
+    if (!key) return;
+    sectionOpen[key] = e.target.open;
+    writePref(SECTIONS_KEY, sectionOpen);
+  }, true);
+
+  function section(key, title, hint, content) {
+    const open = sectionOpen[key] !== false;
+    return `<details class="stats-section" data-section="${key}"${open ? " open" : ""}>
+        <summary class="stats-section-head">
+          ${CHEVRON}
+          <span class="stats-toggle-title">${escapeHTML(title)}</span>
+          <span class="stats-section-hint">${escapeHTML(hint)}</span>
+        </summary>
+        <div class="stats-section-body">${content}</div>
+      </details>`;
+  }
 
   function render(projects) {
     const m = aggregate(projects);
     const remaining = Math.max(0, m.total - m.completed);
     const statuses = orderedStatuses(m.status_counts);
+    const hasCounts = projects.every((p) => p.status_counts);
+    const busiest = statuses.filter(([, n]) => n > 0).slice(0, 3)
+      .map(([st, n]) => `${n} ${st}`).join(" · ");
 
     summary.textContent = `${m.progress}% · ${m.completed} / ${m.total} tasks · ${m.projects} project${m.projects === 1 ? "" : "s"}`;
 
-    body.innerHTML = `
-      <div class="metric-tile" style="margin-bottom: 18px;">
-        <p class="label">Completion</p>
-        <div class="progress-cell" style="margin-top: 6px;">
-          <div class="progress-track" style="height: 10px;">
-            <div class="progress-fill" style="width:${m.progress}%"></div>
+    body.innerHTML = [
+      section("completion", "Completion", `${m.progress}% · ${remaining} remaining`, `
+        <div class="metric-tile">
+          <div class="progress-cell">
+            <div class="progress-track" style="height: 10px;">
+              <div class="progress-fill" style="width:${m.progress}%"></div>
+            </div>
+            <span style="font-weight: 800; font-size: 1.1rem;">${m.progress}%</span>
           </div>
-          <span style="font-weight: 800; font-size: 1.1rem;">${m.progress}%</span>
-        </div>
-        <p class="sub">${m.completed} of ${m.total} task${m.total === 1 ? "" : "s"} completed${remaining ? ` · ${remaining} remaining` : ""}</p>
-      </div>
+          <p class="sub">${m.completed} of ${m.total} task${m.total === 1 ? "" : "s"} completed${remaining ? ` · ${remaining} remaining` : ""}</p>
+        </div>`),
 
-      ${statusBreakdown(statuses, m.total)}
+      section("status", "Task status", hasCounts ? (busiest || "No tasks yet") : "Unavailable",
+        statusBreakdown(statuses, m.total, hasCounts)),
 
-      <p class="mgmt-eyebrow" style="margin: 4px 0 8px;">Workspace</p>
-      <div class="metric-grid">
-        ${tile({ label: "Projects", value: m.projects })}
-        ${tile({ label: "Total tasks", value: m.total, sub: "Images across all projects" })}
-        ${tile({ label: "Total classes", value: m.classes })}
-        ${tile({ label: "Comments", value: m.comments })}
-        ${tile({ label: "Time logged", value: formatTime(m.total_time), sub: "Across all tasks" })}
-        ${tile({ label: "Avg per task", value: formatTime(m.avg_time_per_task) })}
-      </div>`;
+      section("workspace", "Workspace",
+        `${m.projects} project${m.projects === 1 ? "" : "s"} · ${formatTime(m.total_time)} logged`, `
+        <div class="metric-grid">
+          ${tile({ label: "Projects", value: m.projects })}
+          ${tile({ label: "Total tasks", value: m.total, sub: "Images across all projects" })}
+          ${tile({ label: "Total classes", value: m.classes })}
+          ${tile({ label: "Comments", value: m.comments })}
+          ${tile({ label: "Time logged", value: formatTime(m.total_time), sub: "Across all tasks" })}
+          ${tile({ label: "Avg per task", value: formatTime(m.avg_time_per_task) })}
+        </div>`),
+    ].join("");
   }
 
   function showLoading() {

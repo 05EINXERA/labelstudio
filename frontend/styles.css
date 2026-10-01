@@ -2334,6 +2334,17 @@ canvas {
   font-weight: 700; color: var(--muted);
 }
 .stats-toggle-summary { margin-left: auto; font-size: .85rem; font-weight: 600; }
+.stats-section { margin-bottom: 12px; }
+.stats-section-head {
+  display: flex; align-items: center; gap: 10px; padding: 6px 4px;
+  cursor: pointer; list-style: none; border-radius: 6px;
+}
+.stats-section-head::-webkit-details-marker { display: none; }
+.stats-section-head:hover { background: var(--panel-2); }
+.stats-section[open] > .stats-section-head .stats-toggle-chevron { transform: none; }
+.stats-section-hint { margin-left: auto; font-size: .8rem; color: var(--muted); font-weight: 600; }
+.stats-section-body { padding-top: 8px; }
+.stats-section-body .metric-grid { margin-bottom: 12px; }
 
 /* --- data table --------------------------------------------------------- */
 
