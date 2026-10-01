@@ -6,7 +6,7 @@ import {
   hydrationSaveBlock, currentHydrationGeneration, noteHydratedAnnotationCount,
   noteHydratedAnnotations, annotationsChangedSinceHydration, openTaskWasHydrated,
   noteUserRemoved, pendingDeletedIds, acknowledgeDeletedIds, noteServerAnnotationIds
-} from "./state.js?v=13";
+} from "./state.js?v=14";
 import { view } from "./canvas/view.js?v=1";
 import { commentOverlayRefs, clearCommentOverlayAnchor } from "./comment-overlay.js?v=2";
 import { backspaceAction, modeAfterCommentCommit } from "./comment-mode.js?v=1";
@@ -19,9 +19,10 @@ import {
 import { drawAllLayers } from "./canvas/draw.js?v=15";
 import {
   setStatus, syncToBackend, save, loadSaved, saveDraft, restoreDraft,
+  restoreOverflowDraft, flushDraft, cancelPendingDraft,
   render, manualSaveWithUI, refreshSaveStatus, pruneStaleDrafts, unhideAllObjects,
   setLocalRefusalHandler
-} from "./components/workspace.js?v=32";
+} from "./components/workspace.js?v=33";
 import {
   configureQueue, startQueue, subscribe as subscribeQueue, drainQueue,
   enqueueWrite, retryablePendingCount, noteServerReachable, noteServerUnreachable,
@@ -32,7 +33,7 @@ import {
   syncTaskTime, syncTimeToServer, drainTaskTime, setActiveTaskResolver,
   setConflictHandler, resetSessionForTask, refreshTimerDisplays,
   handleVisibilityChange, setFrozenResolver, setEditedResolver, setDeletionTracker
-} from "./components/timer.js?v=10";
+} from "./components/timer.js?v=11";
 import {
   finalizePolygon, deleteSelected, undoAction, redoAction, setZoomChangeHandler,
   toggleVertexHandles
@@ -75,12 +76,34 @@ const logoutBtnApp = document.querySelector("#logoutBtnApp");
 // pending — otherwise time accrued after the last autosave was credited to the
 // user but never to the task (docs/TIMER_AUDIT.md F2).
 function flushPendingSaves({ useBeacon = false } = {}) {
+  // The draft is written on a short trailing debounce, so one may still be
+  // scheduled. A tab that is closing must not take it down with it.
+  flushDraft();
   if (window.backendSyncTimeout) {
     clearTimeout(window.backendSyncTimeout);
     window.backendSyncTimeout = null;
   }
   syncToBackend({ useBeacon });
   syncTimeToServer({ useBeacon });
+}
+
+// Send a scheduled (possibly paced) autosave right now and wait for it, but never
+// hold the annotator on the page for more than `maxMs`: after that the draft and
+// the pagehide flush are the net, as they always were.
+async function settlePendingAutosave(maxMs = 6000) {
+  if (window.backendSyncTimeout) {
+    clearTimeout(window.backendSyncTimeout);
+    window.backendSyncTimeout = null;
+  }
+  flushDraft();
+  try {
+    await Promise.race([
+      Promise.resolve(syncToBackend()),
+      new Promise((resolve) => setTimeout(resolve, maxMs)),
+    ]);
+  } catch {
+    /* the draft and the offline queue already hold it */
+  }
 }
 
 function _releaseCurrentLock({ useBeacon = false } = {}) {
@@ -227,6 +250,12 @@ function showHydrationFailure(index) {
 
 async function switchImage(index) {
   if (index < 0 || index >= state.gallery.length) return;
+
+  // A draft scheduled for the task being left must not fire against the next
+  // one. The outgoing task's own safety net is the explicit saveDraft() below
+  // (written if its save fails) — an implicit write here would find the
+  // hydration gate already shut for the incoming task and be refused anyway.
+  cancelPendingDraft();
 
   // Claim the hydration generation before anything else, and in particular
   // before `state.galleryIndex` moves below. Between the index moving and the
@@ -423,7 +452,14 @@ async function switchImage(index) {
   // Recover anything this browser had for the task that never reached the
   // server (refresh mid-edit, failed save, unresolved conflict). Applied after
   // the server copy is in place, so it only takes effect when it differs.
-  if (restoreDraft(item)) {
+  let recoveredDraft = restoreDraft(item);
+  // A draft too large for localStorage lives in IndexedDB (draft-overflow.js).
+  // Read after the synchronous restore so a newer overflow copy can still win;
+  // abandoned if the annotator has moved on while it was being read.
+  if (await restoreOverflowDraft(item, () => state.gallery[state.galleryIndex] === item)) {
+    recoveredDraft = true;
+  }
+  if (recoveredDraft) {
     setStatus("Recovered draft");
   }
   loadImageFromSource(item.url, item.name);
@@ -1392,14 +1428,26 @@ async function initWorkspaceContext() {
     backToProject.href =
       `project.html?id=${encodeURIComponent(projectId)}#/tasks${qs ? `?${qs}` : ""}`;
 
-    backToProject.addEventListener("click", (e) => {
+    backToProject.addEventListener("click", async (e) => {
       // Let the browser handle modifier-clicks (open in new tab) normally.
       if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
       // Before the history check, so the href fallback carries a ticket too:
       // that path is an ordinary `navigate` and has no other way to say it is a
       // return rather than a pasted URL.
       markReturnToTasks();
-      if (!cameFromTasksPage()) return;   // no history to pop; follow the href
+      // A paced autosave may still be waiting (up to 10 s on a slow server). The
+      // pagehide beacon that would otherwise carry it is capped at ~64 KB, so on
+      // a large task it silently fails and the edits would sit only in the local
+      // draft. Send it now, as a normal request, before leaving.
+      const pendingAutosave = !!window.backendSyncTimeout;
+      if (pendingAutosave) {
+        e.preventDefault();   // must be synchronous, before the first await
+        await settlePendingAutosave();
+      }
+      if (!cameFromTasksPage()) {          // no history to pop; follow the href
+        if (pendingAutosave) window.location.href = backToProject.href;
+        return;
+      }
 
       // Step back instead of navigating forward. Following the href would push
       // a third entry (tasks → canvas → tasks), leaving the browser Back button

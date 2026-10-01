@@ -343,3 +343,57 @@ their other work. Keep new filter logic in `objects-filter.js` (pure, no DOM, no
 `state` import) and assert non-mutation, as `tests/js/objects_filter_spec.mjs`
 does. Visibility and selection are also not undoable: no `snapshot()`, no
 `save()`.
+
+---
+
+## 19. `Task.annotation_rows` is lazy — and a task lookup must not touch it
+
+**Where:** `models.py` (`Task.annotation_rows`), `api/permissions.py::require_task`
+(`db.get(models.Task, id)`), `api/routers/tasks.py`, `api/export_service.py`.
+
+**What happens:** the relationship used to be `lazy="selectin"`, so *every*
+`db.get(Task, id)` — which is what `require_task` is, and so what every
+heartbeat, claim, release, lock-status call and timer ping does — loaded every
+shape of the task and built an ORM object per row, to touch one dict key. On the
+live profile that was 13% of server CPU and a 3 s heartbeat. It is now
+`lazy="select"`: nothing loads until `task.annotation_rows` is read.
+
+The flip side is the trap: a path that reads the shapes of **many** tasks and
+forgets the opt-in becomes one query per task (N+1), not an error.
+
+**Do instead:**
+* a path that reads one task's shapes needs nothing (`annotation_dicts(task)`
+  lazy-loads in one query);
+* a path that reads many tasks' shapes adds
+  `.options(selectinload(models.Task.annotation_rows))` to its query — the
+  gallery with `include_annotations=true` and the export already do;
+* the save path does not use the relationship at all: it reads the stored rows
+  once as tuples with `formats.annotation_rows.load_stored_rows` and diffs
+  against those (rule 11b);
+* never `db.get(models.Task, ...)` on a path and then touch `annotation_rows`
+  "just to count" — use a `COUNT`/`GROUP BY` (`_stored_annotation_count`,
+  `_annotation_counts`).
+
+`tests/test_annotation_load_strategy.py` pins the query counts of every one of
+these paths; add a case there for any new endpoint that reads shapes.
+
+---
+
+## 20. `orjson` is optional, and it is not byte-for-byte `json`
+
+**Where:** `fastjson.py`, `api/fast_request.py`, `formats/annotation_rows.py`.
+
+**What happens:** JSON parsing was ~60% of server CPU, so the save path parses
+with `orjson` when it is installed (`fastjson.loads`). Two differences matter:
+`orjson` **rejects** `NaN`/`Infinity` and lone surrogate escapes (handled — every
+`orjson` failure falls through to `json.loads`), and it **silently returns a
+float** for an integer wider than 64 bits where `json` returns the exact int
+(not handled: a guard cost as much as the parse; harmless for a browser client,
+whose numbers are doubles already). Stored `points` text is compared by *value*
+(`points_equal`), never by re-serialising and comparing strings, so the stored
+format is whitespace-agnostic.
+
+**Do instead:** go through `fastjson.loads` for anything on the save path; keep
+`json.loads` for imports and anywhere an exact big integer could matter; never
+compare serialised JSON text for equality; and never make `orjson` a hard
+dependency of correctness — the app and the tests must work without it.

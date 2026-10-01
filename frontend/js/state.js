@@ -433,16 +433,34 @@ export function getHydratedAnnotationCount() {
   return hydratedAnnotationCount;
 }
 
-/** Record the server's annotation set verbatim, for change detection. */
-export function noteHydratedAnnotations(annotations) {
+/**
+ * The annotation set as the string every comparison below is made on, or null
+ * when it cannot be serialised.
+ *
+ * Serialising a large task costs ~100 ms of blocked main thread, and a save used
+ * to do it three to four times over the same array (the demotion check, the
+ * nothing-to-save check, the payload, the post-save fingerprint). Callers that
+ * need the string more than once build it here once and pass it on
+ * (.devnotes/fix-performance-upgrade/, F2).
+ */
+export function serializeAnnotations(annotations) {
   try {
-    hydratedAnnotationFingerprint = JSON.stringify(annotations ?? []);
+    return JSON.stringify(annotations ?? []);
   } catch {
-    // Unserialisable state should not break saving; fall back to "unknown",
-    // which annotationsChangedSinceHydration() treats as "assume edited" —
-    // the same behaviour as before this check existed.
-    hydratedAnnotationFingerprint = null;
+    // Unserialisable state must not break saving; callers treat null as
+    // "unknown", which reads as "assume edited" — the pre-existing behaviour.
+    return null;
   }
+}
+
+/**
+ * Record the server's annotation set verbatim, for change detection.
+ *
+ * `json` is `serializeAnnotations(annotations)` when the caller already has it,
+ * so a save that just serialised the set to send it does not do it again.
+ */
+export function noteHydratedAnnotations(annotations, json = undefined) {
+  hydratedAnnotationFingerprint = json !== undefined ? json : serializeAnnotations(annotations);
 }
 
 /**
@@ -452,13 +470,11 @@ export function noteHydratedAnnotations(annotations) {
  * reports `true`, so the caller behaves exactly as it did before — the status
  * demotion is applied. Only a positive, verified match suppresses it.
  */
-export function annotationsChangedSinceHydration(annotations) {
+export function annotationsChangedSinceHydration(annotations, json = undefined) {
   if (hydratedAnnotationFingerprint === null) return true;
-  try {
-    return JSON.stringify(annotations ?? []) !== hydratedAnnotationFingerprint;
-  } catch {
-    return true;
-  }
+  const current = json !== undefined ? json : serializeAnnotations(annotations);
+  if (current === null) return true;
+  return current !== hydratedAnnotationFingerprint;
 }
 
 // --- Deliberate deletions (the wipe guard) --------------------------------

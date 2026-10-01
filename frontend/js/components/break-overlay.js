@@ -16,7 +16,7 @@
  * owns the interval and the 5-minute idle auto-pause never has to guess at it.
  */
 import { apiFetch } from "../api.js?v=5";
-import { pauseTimerForBreak, resumeTimerAfterBreak } from "./timer.js?v=10";
+import { pauseTimerForBreak, resumeTimerAfterBreak } from "./timer.js?v=11";
 
 let els = null;
 let tickTimer = null;

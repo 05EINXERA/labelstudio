@@ -1,4 +1,3 @@
-import json
 import logging
 import os
 import datetime
@@ -6,13 +5,14 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy import case, distinct, false, func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 import config as _cfg
+import fastjson
 import models
 from logging_service import log_event
 from database import get_db, commit_with_retry
-from formats.annotation_rows import sync_task_annotations_for_project
+from formats.annotation_rows import load_stored_rows, sync_task_annotations_for_project
 from formats.common import annotation_dicts
 from formats.label_reconcile import apply_label_map, build_label_map
 from schemas import (
@@ -40,6 +40,7 @@ from schemas import (
     TaskUpdate,
 )
 from api.auth import get_current_user, require_csrf
+from api.fast_request import FastJSONRoute
 from api.permissions import (
     ProjectRole,
     accessible_project_ids,
@@ -54,6 +55,8 @@ router = APIRouter(
     prefix="/api/tasks",
     tags=["tasks"],
     dependencies=[Depends(get_current_user), Depends(require_csrf)],
+    # Save bodies are megabytes; parse them with fastjson (api/fast_request.py).
+    route_class=FastJSONRoute,
 )
 
 logger = logging.getLogger(__name__)
@@ -161,7 +164,7 @@ def _parsed(blob: Optional[str]) -> Optional[list]:
         return _PARSE_CACHE[key]
 
     try:
-        parsed = json.loads(blob)
+        parsed = fastjson.loads(blob)
     except (ValueError, TypeError):
         parsed = None
     if not isinstance(parsed, list):
@@ -194,19 +197,20 @@ def _stored_annotation_count(db: Session, db_task: models.Task) -> int:
     )
 
 
-def _unexplained_removals(db_task: models.Task, incoming_anns: list, deleted_ids) -> tuple:
+def _unexplained_removals(stored_ids, incoming_anns: list, deleted_ids) -> tuple:
     """`(removed, unexplained)`: stored shapes this save drops, and how many of
     those the client did not list as deliberately deleted.
 
-    Costs no extra parse and no extra query. `incoming_anns` is the payload the
-    save path has already parsed for the row sync, and `annotation_rows` is the
-    collection that sync loads to diff against — reading it here first only
-    moves that load earlier, and the sync then reuses it from the session.
+    `stored_ids` is anything iterable of the ids the task holds -- the save path
+    passes the dict `load_stored_rows` returned, so the ids come from the same
+    single read the diff then reuses (no ORM objects, no second query).
+    `incoming_anns` is the payload the save path has already parsed for the row
+    sync.
 
     Ids are compared as the row mapping stores them (`str(ann["id"])`, with a
     falsy id minted fresh — so such a shape can never match a stored row).
     """
-    stored_ids = {row.id for row in db_task.annotation_rows}
+    stored_ids = set(stored_ids)
     incoming_ids = {
         str(ann["id"])
         for ann in incoming_anns
@@ -811,7 +815,10 @@ def get_tasks(
                  "annotations": []} for t in tasks]
         return _as_page(rows, page, page_size, total)
 
-    tasks = query.all()
+    # Every task's shapes are serialised below, so load them in one batched
+    # query rather than one per task (Task.annotation_rows is lazy -- see
+    # models.py). The annotation-free branch above never touches them.
+    tasks = query.options(selectinload(models.Task.annotation_rows)).all()
     team_names, user_names = _assignment_names(tasks, db)
     result = []
     for t in tasks:
@@ -991,7 +998,7 @@ def search_tasks(
 
     **The projection is the performance design, not a detail.** Selecting
     columns rather than `Task` entities is what keeps `Task.annotation_rows`
-    (`lazy="selectin"`, one extra query per page returning every shape) and the
+    (batch-loaded by `selectinload`, one extra query per page returning every shape) and the
     deferred `Task.annotations` blob (11-18 MB on real rows) out of this query
     altogether. They are unreachable here by construction, which is stronger
     than remembering not to touch them.
@@ -1444,9 +1451,15 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
             stored_count = _stored_annotation_count(db, db_task)
             existing_has_work = stored_count > 0
             removed = unexplained = 0
+            # Read once, as plain tuples, and handed to the row sync below: the
+            # guard needs the stored ids and the diff needs the stored values,
+            # and building an ORM object per shape for either was half of what
+            # was left of a save's cost (.devnotes/fix-performance-upgrade/).
+            stored_rows = None
             if existing_has_work:
+                stored_rows = load_stored_rows(db, db_task.id)
                 removed, unexplained = _unexplained_removals(
-                    db_task, incoming_anns, task.deleted_ids
+                    stored_rows, incoming_anns, task.deleted_ids
                 )
             # Partial loss: refused only when the unexplained remainder is both
             # large in absolute terms and a large share of the task, so a bug
@@ -1581,7 +1594,9 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
             # the `changed` signal. It is *more* accurate, not less: two blobs
             # differing only in key order or whitespace used to count as a
             # change and rotate the concurrency token for a no-op write.
-            if sync_task_annotations_for_project(db, db_task, incoming_anns):
+            if sync_task_annotations_for_project(
+                db, db_task, incoming_anns, stored=stored_rows
+            ):
                 changed = True
 
         # Only a write that changed something moves the timestamp. When nothing
