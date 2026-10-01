@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy import case, distinct, false, func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 import config as _cfg
 import fastjson
@@ -814,7 +814,10 @@ def get_tasks(
                  "annotations": []} for t in tasks]
         return _as_page(rows, page, page_size, total)
 
-    tasks = query.all()
+    # Every task's shapes are serialised below, so load them in one batched
+    # query rather than one per task (Task.annotation_rows is lazy -- see
+    # models.py). The annotation-free branch above never touches them.
+    tasks = query.options(selectinload(models.Task.annotation_rows)).all()
     team_names, user_names = _assignment_names(tasks, db)
     result = []
     for t in tasks:
@@ -994,7 +997,7 @@ def search_tasks(
 
     **The projection is the performance design, not a detail.** Selecting
     columns rather than `Task` entities is what keeps `Task.annotation_rows`
-    (`lazy="selectin"`, one extra query per page returning every shape) and the
+    (batch-loaded by `selectinload`, one extra query per page returning every shape) and the
     deferred `Task.annotations` blob (11-18 MB on real rows) out of this query
     altogether. They are unreachable here by construction, which is stronger
     than remembering not to touch them.

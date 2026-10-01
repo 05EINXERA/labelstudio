@@ -33,7 +33,7 @@ import os
 import zipfile
 from typing import List, Tuple
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 import models
 from formats import annotations_json
@@ -226,7 +226,9 @@ def build_export(db: Session, req: ExportRequest, project_id: int) -> Tuple[byte
     query = db.query(models.Task).filter(models.Task.project_id == project_id)
     if req.statusFilter:
         query = query.filter(models.Task.status.in_(req.statusFilter))
-    tasks = query.all()   # annotation_rows arrive with them (lazy="selectin")
+    # Every task's shapes are read below; one batched query for all of them, not
+    # one per task (Task.annotation_rows is lazy -- see models.py).
+    tasks = query.options(selectinload(models.Task.annotation_rows)).all()
     labels = db.query(models.Label).filter(models.Label.project_id == project_id).all()
     labels_by_id = {l.id: l for l in labels}
     project_archive_name = archive_name(project) if project else f"export-{project_id}.zip"
