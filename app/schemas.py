@@ -131,6 +131,9 @@ class ProjectSummary(BaseModel):
     classes: int = 0
     total_time: int = 0
     avg_time_per_task: int = 0
+    # Task count per status, so the list page can roll up a workspace-wide
+    # breakdown without a request per project.
+    status_counts: Dict[str, int] = Field(default_factory=dict)
 
 class ProjectMetrics(BaseModel):
     total: int
