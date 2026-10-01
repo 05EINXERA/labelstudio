@@ -6,7 +6,27 @@
  * its own metrics, including `status_counts`), so it costs no extra request and
  * refreshes whenever the list does.
  */
-import { escapeHTML, formatTime, TASK_STATUSES } from "../utils.js?v=3";
+import { escapeHTML, formatTime, statusPillClass, TASK_STATUSES } from "../utils.js?v=3";
+
+/** Status of every task across all projects: count, share and a share bar. */
+function statusBreakdown(statuses, total) {
+  const cards = statuses.map(([status, count]) => {
+    const pct = total ? Math.round((count / total) * 100) : 0;
+    return `<div class="metric-tile"${count ? "" : ' style="opacity:.55;"'}>
+        <span class="pill ${statusPillClass(status)}">${escapeHTML(status)}</span>
+        <p class="value" style="margin-top:8px;">${count}</p>
+        <div class="progress-cell" style="min-width:0; margin-top:6px;">
+          <div class="progress-track" style="height:5px;"><div class="progress-fill" style="width:${pct}%"></div></div>
+          <span class="sub" style="margin:0;">${pct}%</span>
+        </div>
+      </div>`;
+  });
+  return `
+    <p class="mgmt-eyebrow" style="margin: 4px 0 8px;">Task status · all projects</p>
+    <div class="metric-grid" style="grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));">
+      ${cards.join("")}
+    </div>`;
+}
 
 function tile({ label, value, sub }) {
   return `<div class="metric-tile">
@@ -41,8 +61,10 @@ function aggregate(projects) {
   return sum;
 }
 
-// Known statuses in workflow order (the shared vocabulary); anything else A–Z.
+// Every known status in workflow order (the shared vocabulary), zeros included
+// so the breakdown always has the same shape; any other status follows A–Z.
 function orderedStatuses(counts) {
+  counts = { ...Object.fromEntries(TASK_STATUSES.map((st) => [st, 0])), ...counts };
   const rank = (s) => {
     const i = TASK_STATUSES.indexOf(s);
     return i === -1 ? TASK_STATUSES.length : i;
@@ -120,14 +142,12 @@ export function createProjectsOverview(mount) {
         <p class="sub">${m.completed} of ${m.total} task${m.total === 1 ? "" : "s"} completed${remaining ? ` · ${remaining} remaining` : ""}</p>
       </div>
 
+      ${statusBreakdown(statuses, m.total)}
+
+      <p class="mgmt-eyebrow" style="margin: 4px 0 8px;">Workspace</p>
       <div class="metric-grid">
         ${tile({ label: "Projects", value: m.projects })}
         ${tile({ label: "Total tasks", value: m.total, sub: "Images across all projects" })}
-        ${
-          statuses.length
-            ? statuses.map(([status, count]) => tile({ label: status, value: count })).join("")
-            : `${tile({ label: "Completed", value: 0 })}${tile({ label: "In Progress", value: 0 })}`
-        }
         ${tile({ label: "Total classes", value: m.classes })}
         ${tile({ label: "Comments", value: m.comments })}
         ${tile({ label: "Time logged", value: formatTime(m.total_time), sub: "Across all tasks" })}
