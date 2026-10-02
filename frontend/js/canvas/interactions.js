@@ -19,8 +19,8 @@ import { draw, drawAllLayers } from "./draw.js?v=9";
 import { canvas, undoButton } from "../dom.js?v=2";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
 import { setStatus, save, render, activateLabel, HOTKEY_LABEL_LIMIT } from "../components/workspace.js?v=13";
-import { performMagicWandSegmentation } from "../ai/detect.js?v=2";
-import { applyAutoSmooth } from "../fft-controls.js?v=1";
+import { performMagicWandSegmentation } from "../ai/detect.js?v=3";
+import { applyAutoSmooth } from "../fft-controls.js?v=2";
 import { annotationSettings, vertexGrabScreenRadius } from "../feature-flags.js?v=11";
 
 export function canvasPoint(event) {

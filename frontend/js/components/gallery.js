@@ -14,9 +14,9 @@ import {
 } from "../dom.js?v=2";
 import { drawAllLayers } from "../canvas/draw.js?v=9";
 import { setStatus, render, restoreDraft, clearStatusHold } from "./workspace.js?v=13";
-import { autoDetectObjects, preloadMagicWand, preloadDetectAndTag } from "../ai/detect.js?v=2";
+import { autoDetectObjects, preloadMagicWand, preloadDetectAndTag } from "../ai/detect.js?v=3";
 import { syncTaskTime, resetSessionForTask, refreshTimerDisplays } from "./timer.js?v=5";
-import { updateZoomDisplay } from "./zoom-control.js?v=3";
+import { updateZoomDisplay } from "./zoom-control.js?v=4";
 import { claimTask, releaseTask } from "../task-lock.js?v=1";
 import { showNotAssignedModal } from "./not-assigned-modal.js?v=1";
 
