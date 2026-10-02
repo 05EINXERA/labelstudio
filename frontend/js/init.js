@@ -25,6 +25,7 @@ import {
 import { initModals } from "./components/modals.js?v=2";
 import { initModeControls } from "./components/mode-controls.js?v=5";
 import { initOpacityControl } from "./components/opacity-control.js?v=1";
+import { initVertexSizeControl } from "./components/vertex-size-control.js?v=1";
 import { initConnectionMonitor, onConnectionChange } from "./connection.js?v=4";
 import { NotificationManager } from "./components/notifications.js?v=4";
 
@@ -301,6 +302,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   initFftControls();
   initOpacityControl();
+  initVertexSizeControl();
   loadSaved();
   resizeCanvas();
   render();
