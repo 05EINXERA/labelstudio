@@ -7,7 +7,7 @@ import { detectState } from "./detect-state.js?v=1";
 import { getImageSrcForAPI } from "./shared.js?v=1";
 import { autoDetectButton } from "../dom.js?v=2";
 import { smoothPolygon, autoTolerance } from "../canvas/fft-smooth.js?v=2";
-import { toolAvailability } from "../feature-flags.js?v=11";
+import { toolAvailability } from "../feature-flags.js?v=12";
 import {
   setStatus, ensureLabel, save, render
 } from "../components/workspace.js?v=13";

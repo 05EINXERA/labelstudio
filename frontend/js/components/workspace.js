@@ -9,7 +9,7 @@ import { annotationPoints, updateAnnotationBounds } from "../canvas/geometry.js?
 import { view } from "../canvas/view.js?v=3";
 import { drainTaskTime } from "./timer.js?v=5";
 import { detectState } from "../ai/detect-state.js?v=1";
-import { draw, drawAllLayers } from "../canvas/draw.js?v=9";
+import { draw, drawAllLayers } from "../canvas/draw.js?v=10";
 import {
   emptyState, classesList, annotationList, annotationCount, hiddenObjectsIndicator, selectedInfo,
   drawMode, selectMode, boxMode, polygonMode, commentMode, magicWandMode,
@@ -18,7 +18,7 @@ import {
   shapeHint, saveStatus
 } from "../dom.js?v=2";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
-import { toolAvailability } from "../feature-flags.js?v=11";
+import { toolAvailability } from "../feature-flags.js?v=12";
 
 
 export function setStatus(text, { sticky = false } = {}) {

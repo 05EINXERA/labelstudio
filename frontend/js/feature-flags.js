@@ -47,12 +47,15 @@ export const toolAvailability = {
  *   annotators see as the gap between vertices growing. 5 is the value that
  *   satisfies all three.
  *
- * drawingVertexHandleRadius
- *   Radius, in on-screen pixels, of the vertex handles on a polygon that is
- *   still BEING DRAWN. Smaller than `vertexHandleRadius` because while tracing
- *   an outline the dots sit right on the edge the annotator is following and
- *   read as too big; once the shape is closed and selected for editing the
- *   normal size applies again. Only the drawn dot shrinks — the click target
+ * drawingVertexHandleRatio
+ *   Fraction of `vertexHandleRadius` used for the vertex handles on a polygon
+ *   that is still BEING DRAWN. Smaller because while tracing an outline the
+ *   dots sit right on the edge the annotator is following and read as too big;
+ *   once the shape is closed and selected for editing the full size applies
+ *   again. A ratio rather than flat pixels so the toolbar vertex-size slider
+ *   (which sets `vertexHandleRadius`) resizes the in-progress dots live too —
+ *   0.7 keeps the default 5px at the 3.5px it used to be. Only the drawn dot
+ *   shrinks — the click target
  *   (including the first-vertex close target) still comes from
  *   `vertexGrabRadius`, so closing the shape is no harder. Passes through the
  *   same `zoomScaledRadius()` clamps, so it cannot go below `minVertexRadius()`.
@@ -218,7 +221,7 @@ export const toolAvailability = {
  */
 export const annotationSettings = {
   vertexHandleRadius: 5,
-  drawingVertexHandleRadius: 3.5,
+  drawingVertexHandleRatio: 0.7,
   // Toggled by the "V" key / Vertex toolbar button; hides handle painting only.
   vertexHandlesHidden: false,
   vertexGrabRadius: 5,
