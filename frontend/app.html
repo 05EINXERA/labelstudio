@@ -7,7 +7,7 @@
   <title>Image Annotation</title>
   <link rel="icon" type="image/png" href="logo.png">
   <link rel="stylesheet" href="styles.css?v=35">
-  <link rel="modulepreload" href="js/init.js?v=18">
+  <link rel="modulepreload" href="js/init.js?v=19">
   <!-- sync.js (legacy global annotation-slot sync to /api/data) removed in T3.1.
        Under a shared account the 'image-annotation-mvp-v1' row was last-writer-wins
        across all 25 clients. Per-task localStorage drafts (workspace.js restoreDraft)
@@ -404,6 +404,16 @@
           </div>
         </div>
 
+        <!-- Vertex handle size tool group -->
+        <div class="tool-group opacity-tool-group" role="group" aria-label="Vertex size">
+          <span class="tool-group-label">Vertex</span>
+          <div class="tool-group-buttons">
+            <input type="range" id="vertexSizeSlider" class="opacity-slider" min="2" max="16" value="5" step="1"
+              title="Size of polygon vertex points (in pixels)">
+            <span id="vertexSizeBadge" class="opacity-badge" title="Vertex size. Double-click to reset.">5px</span>
+          </div>
+        </div>
+
         <div class="tool-group" role="group" aria-label="Selection status">
           <span class="tool-group-label">Selected</span>
           <div class="tool-group-buttons">
@@ -784,7 +794,7 @@
     </div>
   </div>
 
-  <script type="module" src="js/init.js?v=18"></script>
+  <script type="module" src="js/init.js?v=19"></script>
 
 </body>
 
