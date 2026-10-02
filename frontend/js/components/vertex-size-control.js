@@ -5,8 +5,8 @@
  * Toolbar range slider + badge, redraws live, persisted to localStorage.
  */
 
-import { annotationSettings } from "../feature-flags.js?v=10";
-import { drawAllLayers } from "../canvas/draw.js?v=8";
+import { annotationSettings } from "../feature-flags.js?v=11";
+import { drawAllLayers } from "../canvas/draw.js?v=9";
 
 const VERTEX_SIZE_STORAGE_KEY = "annotation_vertex_radius";
 const DEFAULT_RADIUS = annotationSettings.vertexHandleRadius;
@@ -41,7 +41,36 @@ export function setVertexRadius(radius, persist = true) {
   drawAllLayers();
 }
 
+/** Shows or hides vertex handles (drawing only; hit-testing is unchanged). */
+export function setVertexHandlesHidden(hidden) {
+  annotationSettings.vertexHandlesHidden = hidden;
+  const btn = document.getElementById("vertexVisibilityToggle");
+  if (btn) {
+    btn.setAttribute("aria-checked", String(!hidden));
+    btn.classList.toggle("is-active", !hidden);
+    btn.title = hidden ? "Vertices hidden. Show (V)" : "Hide vertices (V)";
+  }
+  drawAllLayers();
+}
+
 export function initVertexSizeControl() {
+  setVertexHandlesHidden(false);
+  document
+    .getElementById("vertexVisibilityToggle")
+    ?.addEventListener("click", () =>
+      setVertexHandlesHidden(!annotationSettings.vertexHandlesHidden));
+  window.addEventListener("keydown", (e) => {
+    const target = e.target;
+    if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target?.isContentEditable) {
+      return;
+    }
+    if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+    if (e.key === "v" || e.key === "V") {
+      e.preventDefault();
+      setVertexHandlesHidden(!annotationSettings.vertexHandlesHidden);
+    }
+  });
+
   const slider = document.getElementById("vertexSizeSlider");
   const badge = document.getElementById("vertexSizeBadge");
 
