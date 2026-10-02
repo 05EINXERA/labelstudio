@@ -22,6 +22,11 @@ function tile({ label, value, sub, href }) {
     : `<div class="metric-tile">${inner}</div>`;
 }
 
+/** Link into the Tasks table with its status filter preset (read by tasks.js). */
+function tasksHref(status) {
+  return `#/tasks?status=${encodeURIComponent(status)}`;
+}
+
 function render(root, project, m) {
   const total = m.total || 0;
   const completed = m.completed || 0;
@@ -47,14 +52,14 @@ function render(root, project, m) {
     </div>
 
     <div class="metric-grid">
-      ${tile({ label: "Total tasks", value: total, sub: "Images in this project", href: "#/tasks" })}
+      ${tile({ label: "Total tasks", value: total, sub: "Images in this project", href: tasksHref("All") })}
       ${
         m.status_counts && Object.keys(m.status_counts).length > 0
-          ? Object.entries(m.status_counts).map(([status, count]) => 
-              tile({ label: status, value: count, href: "#/tasks" })
+          ? Object.entries(m.status_counts).map(([status, count]) =>
+              tile({ label: status, value: count, href: tasksHref(status) })
             ).join('')
-          : `${tile({ label: "Completed", value: 0, href: "#/tasks" })}
-             ${tile({ label: "In progress", value: 0, href: "#/tasks" })}`
+          : `${tile({ label: "Completed", value: 0, href: tasksHref("Completed") })}
+             ${tile({ label: "In progress", value: 0, href: tasksHref("In Progress") })}`
       }
       ${tile({ label: "Total classes", value: m.classes || 0, sub: "Labels available to every task", href: "#/classes" })}
       ${tile({ label: "Comments", value: m.comments || 0 })}

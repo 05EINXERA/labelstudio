@@ -51,8 +51,8 @@ const projectId = new URLSearchParams(window.location.search).get("id");
 
 // View loaders with caching and preloading for instant zero-lag tab switching
 const VIEW_LOADERS = {
-  home: () => import("./home.js?v=2"),
-  tasks: () => import("./tasks.js?v=14"),
+  home: () => import("./home.js?v=3"),
+  tasks: () => import("./tasks.js?v=15"),
   classes: () => import("./classes.js?v=1"),
   imports: () => import("./imports.js?v=1"),
   exports: () => import("./exports.js?v=1"),
@@ -219,7 +219,9 @@ async function init() {
 
   // Normalise a bare/unknown hash so the address bar always shows the real
   // route and a reload lands in the same place.
-  if (!window.location.hash || !VALID_ROUTES.has((window.location.hash || "").replace(/^#\/?/, ""))) {
+  // The query part (e.g. `#/tasks?status=Completed` from a Home tile) is a
+  // view parameter, not part of the route name.
+  if (!window.location.hash || !VALID_ROUTES.has((window.location.hash || "").replace(/^#\/?/, "").split("?")[0])) {
     history.replaceState(null, "", `${window.location.pathname}${window.location.search}#/${DEFAULT_ROUTE}`);
   }
 

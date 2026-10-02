@@ -351,7 +351,13 @@ def get_tasks(
         # cannot reach filters everything out rather than exposing it.
         query = query.filter(models.Task.project_id.in_(projectIds))
     if status and status.lower() != "all":
-        query = query.filter(models.Task.status == status)
+        if status == "New":
+            # A NULL status is shown (and counted in the project metrics'
+            # status_counts) as "New", so the filter must match it too or a
+            # "New" tile on Home links to fewer rows than it reports.
+            query = query.filter(or_(models.Task.status == "New", models.Task.status.is_(None)))
+        else:
+            query = query.filter(models.Task.status == status)
     if assignee:
         query = query.filter(assigned_to(models.TaskAssignee.member_name == assignee))
 

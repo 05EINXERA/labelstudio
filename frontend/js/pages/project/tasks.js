@@ -1163,6 +1163,21 @@ export async function mount(hostRoot, hostCtx) {
     if (saved) initialState = JSON.parse(saved);
   } catch (e) {}
 
+  // A Home metric tile links here as `#/tasks?status=<status>`. That preset
+  // wins over the saved table state (and starts at page 1), then is dropped
+  // from the address bar so a later reload keeps whatever the user picks next
+  // instead of re-applying the tile's filter. replaceState fires no hashchange.
+  const hashQuery = (window.location.hash.split("?")[1]) || "";
+  const presetStatus = new URLSearchParams(hashQuery).get("status");
+  if (presetStatus) {
+    initialState = {
+      ...initialState,
+      page: 1,
+      filters: { ...(initialState.filters || {}), status: presetStatus },
+    };
+    history.replaceState(null, "", `${window.location.pathname}${window.location.search}#/tasks`);
+  }
+
   table = createDataTable({
     mount: el("tableMount"),
     rowId: (r) => r.id,
