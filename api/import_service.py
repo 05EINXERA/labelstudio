@@ -45,6 +45,7 @@ from typing import Dict, List, Optional
 from sqlalchemy.orm import Session
 
 import models
+from config import MAX_IMPORT_ENTRY_BYTES
 from database import commit_with_retry
 from formats import annotations_json
 from formats import coco as coco_format
@@ -70,7 +71,7 @@ _parse_native = annotations_json.parse
 # Zip-bomb guards. The endpoint takes an upload from any project manager, and
 # an archive's uncompressed size is unbounded by its compressed size.
 _ZIP_MAX_ENTRIES = 10_000        # a project writes one JSON per task
-_ZIP_MAX_ENTRY_BYTES = 25 * 1024 * 1024
+_ZIP_MAX_ENTRY_BYTES = MAX_IMPORT_ENTRY_BYTES
 _ZIP_MAX_TOTAL_BYTES = 250 * 1024 * 1024
 
 

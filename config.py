@@ -159,6 +159,9 @@ CORS_ORIGINS = [o.strip() for o in _raw_cors.split(",") if o.strip()] if _raw_co
 # request can hold a worker thread streaming files for an unbounded time.
 MAX_UPLOAD_FILES = int(os.environ.get("MAX_UPLOAD_FILES", "200"))
 MAX_IMPORT_BYTES = int(os.environ.get("MAX_IMPORT_BYTES", str(300 * 1024 * 1024)))
+# Largest single file inside an uploaded annotation/import archive. One JSON
+# per task, so a task with thousands of polygons can exceed the old 25 MB.
+MAX_IMPORT_ENTRY_BYTES = int(os.environ.get("MAX_IMPORT_ENTRY_BYTES", str(50 * 1024 * 1024)))
 
 # --- Heavy jobs (exports, annotation imports) -----------------------------
 # Where an export or import runs. See .devnotes/fix-exports-imports/.
