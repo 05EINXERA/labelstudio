@@ -1025,3 +1025,29 @@ class ManualBreakResponse(BaseModel):
     # an already-rolled day must re-roll it or the two diverge silently.
     local_date: date
     rerolled: bool = False
+
+
+# --- Annotation import jobs ------------------------------------------------
+
+class ImportJobSubmitted(BaseModel):
+    """`POST /api/imports/annotations[/preview]?async=1` → 202."""
+    job_id: str
+    # True when an identical import (same project, mode and file content) was
+    # already queued or running and this request joined it instead of starting
+    # a second one. A second merge would duplicate every imported shape.
+    deduplicated: bool = False
+
+
+class ImportJobStatus(BaseModel):
+    """`GET /api/imports/jobs/{job_id}`."""
+    status: Literal["pending", "completed", "failed"]
+    # While pending: "queued" (with `position` = jobs ahead) or "running".
+    state: Optional[Literal["queued", "running"]] = None
+    position: Optional[int] = None
+    # "preview" or the apply mode ("merge" / "replace").
+    mode: Optional[str] = None
+    # Completed: exactly the body the synchronous endpoint returns.
+    result: Optional[Dict[str, Any]] = None
+    # Failed: the message and the HTTP status the synchronous endpoint uses.
+    error: Optional[str] = None
+    error_status: Optional[int] = None

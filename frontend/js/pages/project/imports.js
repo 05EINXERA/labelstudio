@@ -10,13 +10,23 @@
  *                 match / be created, then apply with merge or replace.
  *
  * Both tabs reuse the apiFetch wrapper (rule 13) and modal CSS (rule 12).
+ *
+ * Annotation preview and apply are submit-then-poll jobs (import-job.js): the
+ * upload is not bound by apiFetch's 45 s timeout, and the job is followed to
+ * its real outcome. An apply's job id is kept in sessionStorage, so a reload
+ * or a trip to another tab resumes it and shows how it ended instead of
+ * inviting a second run. A second merge duplicates every imported shape
+ * (.devnotes/fix-import-timeout/01_PLAN.md).
  */
 import { apiFetch } from "../../api.js?v=5";
 import { escapeHTML } from "../../utils.js?v=2";
+import { describePending, pendingJobKey, pollImportJob, runImportJob } from "./import-job.js?v=1";
 
 let root = null;
 let ctx = null;
 let abortController = null;
+// The poller of the import job being followed, resumed on visibilitychange.
+let activePoller = null;
 
 // Preview state for the annotation tab — held here so "Apply" can re-use the
 // upload result without re-sending the file.
@@ -149,6 +159,7 @@ function template() {
           <p class="label">Step 2 — Review matches</p>
           <div id="annPreviewBody" style="margin-top:10px;"></div>
         </div>
+        <p id="annProgress" style="display:none; font-size:.88rem; color:var(--muted); margin:0 0 10px;"></p>
         <div style="display:flex; gap:10px; justify-content:flex-end;">
           <button type="button" class="tool-button" id="annCancelBtn">Cancel</button>
           <button type="button" class="primary" id="annApplyBtn"
@@ -342,7 +353,131 @@ function resetAnnotationTab() {
   el("annPreviewSection").style.display = "none";
   el("annResultSection").style.display = "none";
   el("annFileName").textContent = "";
+  showProgress("");
+  el("annApplyBtn").disabled = false;
+  el("annApplyBtn").textContent = "Apply import";
+  el("annCancelBtn").disabled = false;
   clearError();
+}
+
+function formatSize(bytes) {
+  if (!bytes) return "";
+  return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.ceil(bytes / 1024)} KB`;
+}
+
+function progressText(p, file) {
+  if (p.phase === "uploading") {
+    return `Uploading ${file?.name || "file"}${file?.size ? ` (${formatSize(file.size)})` : ""}… large files can take a few minutes.`;
+  }
+  return describePending({ state: p.phase, position: p.position });
+}
+
+function showProgress(text) {
+  const node = el("annProgress");
+  if (!node) return;
+  node.textContent = text;
+  node.style.display = text ? "" : "none";
+}
+
+function rememberJob(key, value) {
+  try { sessionStorage.setItem(key, JSON.stringify(value)); } catch (e) {
+    // Storage blocked: the import still runs; only resume-after-reload is lost.
+    console.warn("[imports] could not remember the import job", e);
+  }
+}
+
+function recallJob(key) {
+  try { return JSON.parse(sessionStorage.getItem(key) || "null"); } catch (e) {
+    console.warn("[imports] could not read the remembered import job", e);
+    return null;
+  }
+}
+
+function forgetJob(key) {
+  try { sessionStorage.removeItem(key); } catch (e) {
+    console.warn("[imports] could not clear the remembered import job", e);
+  }
+}
+
+function renderApplied(body) {
+  const skipped = (body.unmatched || []).length;
+  return `
+    <div class="mgmt-empty" style="text-align:left; padding:14px 18px;
+         background:var(--panel-2); border-radius:8px; color:var(--accent-dark);
+         border:1px solid var(--line);">
+      ✓ Import complete —
+      <strong>${body.tasks_updated}</strong> task${body.tasks_updated === 1 ? "" : "s"} updated,
+      <strong>${body.annotations_imported}</strong> annotation${body.annotations_imported === 1 ? "" : "s"} imported.
+      ${skipped ? `<br><span style="color:var(--muted);">${skipped} image${skipped === 1 ? "" : "s"} not matched (skipped).</span>` : ""}
+    </div>`;
+}
+
+/**
+ * Show how an apply ended. The one outcome that must not read as a plain
+ * failure is "lost": the job may well have committed, and a merge re-run
+ * would duplicate every imported shape.
+ */
+function showApplyOutcome(out, { key, file }) {
+  showProgress("");
+  el("annCancelBtn").disabled = false;
+  if (out.ok) {
+    forgetJob(key);
+    el("annPreviewSection").style.display = "none";
+    el("annResultSection").style.display = "";
+    el("annResultBody").innerHTML = renderApplied(out.result);
+    pendingFile = null;
+    pendingPreview = null;
+    el("annFileName").textContent = "";
+    return;
+  }
+  // Lost, failed and refused are all final for this job; a network error
+  // before the upload was accepted never created one.
+  forgetJob(key);
+  if (out.lost) {
+    showError(
+      `The server lost track of the import of ${file || "this file"} (it restarted, or the result expired). ` +
+      "It may already have been applied: open a few of its tasks and check before importing it again, " +
+      "because a second Merge adds every annotation a second time."
+    );
+  } else {
+    showError(out.error || "Could not import annotations.");
+  }
+  el("annApplyBtn").disabled = !pendingPreview;
+  el("annApplyBtn").textContent = "Apply import";
+}
+
+/** On mount: follow an apply that was still running when the page was left. */
+async function resumeRememberedImport() {
+  const key = pendingJobKey(ctx.projectId);
+  const job = recallJob(key);
+  if (!job || !job.jobId) return;
+  el("annPreviewSection").style.display = "none";
+  el("annResultSection").style.display = "none";
+  el("annFileName").textContent = job.file || "";
+  clearError();
+  // The page opens on Classes; an import being followed must be visible.
+  switchTab("annotations");
+  // The progress line lives in the preview section; show just that part.
+  el("annPreviewSection").style.display = "";
+  el("annPreviewBody").innerHTML = `<p style="color:var(--muted); font-size:.88rem;">
+    Following the import of ${escapeHTML(job.file || "a file")} that was started earlier…</p>`;
+  el("annApplyBtn").disabled = true;
+  el("annCancelBtn").disabled = true;
+  const out = await pollImportJob(job.jobId, {
+    apiFetch,
+    signal: abortController?.signal,
+    onProgress: (p) => showProgress(progressText(p)),
+    onPoller: (p) => { activePoller = p; },
+    isHidden: () => document.hidden,
+  });
+  activePoller = null;
+  if (!root || out.aborted) return;
+  showApplyOutcome(out, { key, file: job.file });
+  if (!out.ok) el("annPreviewSection").style.display = "none";
+}
+
+function onVisibilityChange() {
+  if (!document.hidden) activePoller?.resume();
 }
 
 function bindAnnotationImport() {
@@ -361,30 +496,31 @@ function bindAnnotationImport() {
     el("annPreviewBody").innerHTML = `<p style="color:var(--muted); font-size:.88rem;">Loading preview…</p>`;
     el("annPreviewSection").style.display = "";
 
-    const formData = new FormData();
-    formData.append("file", file);
-
-    try {
-      const res = await apiFetch(
-        `/api/imports/annotations/preview?projectId=${encodeURIComponent(ctx.projectId)}`,
-        { method: "POST", body: formData }
-      );
-      if (!res) return;
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        showError(body?.detail || `Preview failed (${res.status}).`);
-        el("annPreviewSection").style.display = "none";
-        return;
-      }
-      pendingPreview = await res.json();
-      el("annPreviewBody").innerHTML = renderPreview(pendingPreview);
-      // Disable Apply if nothing matched
-      el("annApplyBtn").disabled = (pendingPreview.matched || []).length === 0;
-    } catch (err) {
-      console.error("Annotation preview failed", err);
-      showError("Could not preview the file.");
+    el("annApplyBtn").disabled = true;
+    const out = await runImportJob({
+      apiFetch,
+      url: `/api/imports/annotations/preview?projectId=${encodeURIComponent(ctx.projectId)}`,
+      file,
+      signal: abortController?.signal,
+      onProgress: (p) => {
+        if (root) el("annPreviewBody").innerHTML = `<p style="color:var(--muted); font-size:.88rem;">${escapeHTML(progressText(p, file))}</p>`;
+      },
+      onPoller: (p) => { activePoller = p; },
+      isHidden: () => document.hidden,
+    });
+    activePoller = null;
+    if (!root || out.aborted) return;          // left the page, or sent to log in
+    if (!out.ok) {
+      showError(out.lost
+        ? "The preview was lost (the server restarted or the result expired). Choose the file again."
+        : out.error || "Could not preview the file.");
       el("annPreviewSection").style.display = "none";
+      return;
     }
+    pendingPreview = out.result;
+    el("annPreviewBody").innerHTML = renderPreview(pendingPreview);
+    // Disable Apply if nothing matched
+    el("annApplyBtn").disabled = (pendingPreview.matched || []).length === 0;
   });
 
   el("annCancelBtn").addEventListener("click", () => resetAnnotationTab());
@@ -397,47 +533,26 @@ function bindAnnotationImport() {
     const mode = root.querySelector('input[name="annImportMode"]:checked')?.value || "merge";
 
     el("annApplyBtn").disabled = true;
+    el("annCancelBtn").disabled = true;
     el("annApplyBtn").textContent = "Importing…";
+    const file = pendingFile;
+    const key = pendingJobKey(ctx.projectId);
 
-    const formData = new FormData();
-    formData.append("file", pendingFile);
-
-    try {
-      const res = await apiFetch(
-        `/api/imports/annotations?projectId=${encodeURIComponent(ctx.projectId)}&mode=${mode}`,
-        { method: "POST", body: formData }
-      );
-      if (!res) return;
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        showError(body?.detail || `Import failed (${res.status}).`);
-        el("annApplyBtn").disabled = false;
-        el("annApplyBtn").textContent = "Apply import";
-        return;
-      }
-      const body = await res.json();
-      el("annPreviewSection").style.display = "none";
-      el("annResultSection").style.display = "";
-
-      const skipped = (body.unmatched || []).length;
-      el("annResultBody").innerHTML = `
-        <div class="mgmt-empty" style="text-align:left; padding:14px 18px;
-             background:var(--panel-2); border-radius:8px; color:var(--accent-dark);
-             border:1px solid var(--line);">
-          ✓ Import complete —
-          <strong>${body.tasks_updated}</strong> task${body.tasks_updated === 1 ? "" : "s"} updated,
-          <strong>${body.annotations_imported}</strong> annotation${body.annotations_imported === 1 ? "" : "s"} imported.
-          ${skipped ? `<br><span style="color:var(--muted);">${skipped} image${skipped === 1 ? "" : "s"} not matched (skipped).</span>` : ""}
-        </div>`;
-      pendingFile = null;
-      pendingPreview = null;
-      el("annFileName").textContent = "";
-    } catch (err) {
-      console.error("Annotation import failed", err);
-      showError("Could not import annotations.");
-      el("annApplyBtn").disabled = false;
-      el("annApplyBtn").textContent = "Apply import";
-    }
+    const out = await runImportJob({
+      apiFetch,
+      url: `/api/imports/annotations?projectId=${encodeURIComponent(ctx.projectId)}&mode=${mode}`,
+      file,
+      signal: abortController?.signal,
+      onProgress: (p) => showProgress(progressText(p, file)),
+      // From here the server owns the import: remember it, so a reload or a
+      // trip to another tab comes back to its outcome rather than a re-run.
+      onSubmitted: (jobId) => rememberJob(key, { jobId, file: file.name, mode }),
+      onPoller: (p) => { activePoller = p; },
+      isHidden: () => document.hidden,
+    });
+    activePoller = null;
+    if (!root || out.aborted) return;   // left the page: the job is remembered and resumes on return
+    showApplyOutcome(out, { key, file: file.name });
   });
 
   el("annImportAnotherBtn").addEventListener("click", () => resetAnnotationTab());
@@ -456,11 +571,17 @@ export async function mount(hostRoot, hostCtx) {
   bindTabs();
   bindClassImport();
   bindAnnotationImport();
+  document.addEventListener("visibilitychange", onVisibilityChange);
+  resumeRememberedImport();
 }
 
 export function unmount() {
+  // Stops the upload or the polling; a running apply job carries on in the
+  // server and is resumed (from sessionStorage) the next time this tab opens.
   abortController?.abort();
   abortController = null;
+  activePoller = null;
+  document.removeEventListener("visibilitychange", onVisibilityChange);
   pendingFile = null;
   pendingPreview = null;
   root = null;
