@@ -523,6 +523,7 @@ export function drawVertexHandles(points, color, targetCtx = ctx, isBeingDrawn =
   // hitTestPoint() in interactions.js derives the grab radius from the same
   // curve, so the click target cannot drift from the handle the annotator sees.
   // A polygon still being drawn gets smaller dots (drawingVertexHandleRadius).
+  if (annotationSettings.vertexHandlesHidden) return;
   const baseRadius = isBeingDrawn
     ? annotationSettings.drawingVertexHandleRadius
     : annotationSettings.vertexHandleRadius;

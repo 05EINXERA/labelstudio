@@ -219,6 +219,8 @@ export const toolAvailability = {
 export const annotationSettings = {
   vertexHandleRadius: 5,
   drawingVertexHandleRadius: 3.5,
+  // Toggled by the "V" key / Vertex toolbar button; hides handle painting only.
+  vertexHandlesHidden: false,
   vertexGrabRadius: 5,
   edgeGrabRadius: 5,
   freehandPointSpacing: 10,
