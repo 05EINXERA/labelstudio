@@ -6,25 +6,25 @@ import { apiFetch } from "./api.js?v=3";
 import { state } from "./state.js?v=5";
 import {
   setStatus, syncToBackend, loadSaved, saveDraft, render, loadTeamForWorkspace
-} from "./components/workspace.js?v=12";
+} from "./components/workspace.js?v=13";
 import {
   syncTimeToServer, setActiveTaskResolver, setConflictHandler, setSaveHaltedHandler,
   handleVisibilityChange as handleTimerVisibility, pauseSessionTimer
 } from "./components/timer.js?v=5";
 import { initBreakControl } from "./components/break.js?v=1";
-import { setZoomChangeHandler } from "./canvas/interactions.js?v=23";
-import { initContextMenu } from "./canvas/context-menu.js?v=3";
+import { setZoomChangeHandler } from "./canvas/interactions.js?v=24";
+import { initContextMenu } from "./canvas/context-menu.js?v=4";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
-import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=3";
+import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=4";
 import { releaseTask, heartbeatTask } from "./task-lock.js?v=1";
-import { initFftControls } from "./fft-controls.js?v=1";
+import { initFftControls } from "./fft-controls.js?v=2";
 import { toolAvailability } from "./feature-flags.js?v=11";
 import {
   switchImage, initGalleryNavigation, loadWorkspaceTasks, resizeCanvas
-} from "./components/gallery.js?v=10";
-import { initModals } from "./components/modals.js?v=2";
-import { initModeControls } from "./components/mode-controls.js?v=5";
-import { initOpacityControl } from "./components/opacity-control.js?v=1";
+} from "./components/gallery.js?v=11";
+import { initModals } from "./components/modals.js?v=3";
+import { initModeControls } from "./components/mode-controls.js?v=6";
+import { initOpacityControl } from "./components/opacity-control.js?v=2";
 import { initVertexSizeControl } from "./components/vertex-size-control.js?v=2";
 import { initConnectionMonitor, onConnectionChange } from "./connection.js?v=4";
 import { NotificationManager } from "./components/notifications.js?v=4";
