@@ -39,12 +39,16 @@ async def read_capped(file: UploadFile, max_bytes: int = MAX_IMPORT_BYTES) -> by
     return b"".join(chunks)
 
 
-async def save_capped(file: UploadFile, path: str, max_bytes: int = MAX_IMPORT_BYTES) -> int:
+async def save_capped(file: UploadFile, path: str, max_bytes: int = MAX_IMPORT_BYTES,
+                      hasher=None) -> int:
     """Stream an upload to `path`, refusing anything over `max_bytes`.
 
     The heavy-job path: the web process never holds the upload in memory, it
     only copies chunks to disk for the worker to parse. An oversized upload
     is rejected mid-stream and the partial file removed. Returns the byte count.
+
+    `hasher` (a hashlib object) is fed every chunk on the way through, so a
+    caller that needs the content hash gets it without reading the file twice.
     """
     total = 0
     try:
@@ -60,6 +64,8 @@ async def save_capped(file: UploadFile, path: str, max_bytes: int = MAX_IMPORT_B
                         detail=f"Upload exceeds the {max_bytes // (1024 * 1024)} MB limit.",
                     )
                 out.write(chunk)
+                if hasher is not None:
+                    hasher.update(chunk)
     except BaseException:
         if os.path.exists(path):
             os.remove(path)
