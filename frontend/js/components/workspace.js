@@ -686,6 +686,53 @@ let virtualizationState = {
   scrollTop: 0
 };
 
+function renderSelectedInfo() {
+  const selected = state.annotations.find((item) => item.id === state.selectedId);
+  selectedInfo.replaceChildren();
+
+  if (!selected) {
+    selectedInfo.textContent = "None";
+    selectedInfo.title = "None";
+    selectedInfo.setAttribute("aria-label", "Selected annotation: None");
+    return;
+  }
+
+  const label = document.createElement("span");
+  label.className = "selection-chip-label";
+  if (selected.type === "comment") {
+    const author = selected.author || selected.extra?.author || "User";
+    label.textContent = `Comment by ${author}`;
+    selectedInfo.title = label.textContent;
+    selectedInfo.setAttribute("aria-label", `Selected annotation: ${label.textContent}`);
+
+    const editButton = document.createElement("button");
+    editButton.id = "editCommentBtn";
+    editButton.className = "icon-button";
+    editButton.type = "button";
+    editButton.style.fontSize = "0.8rem";
+    editButton.style.marginLeft = "8px";
+    editButton.textContent = "✏️ Edit";
+    editButton.addEventListener("click", () => {
+      view.pendingCommentEditId = selected.id;
+      const screenX = view.imageBox.x + selected.x * view.imageBox.scale;
+      const screenY = view.imageBox.y + selected.y * view.imageBox.scale;
+      commentOverlayRefs.commentOverlay.style.left = `${screenX + 15}px`;
+      commentOverlayRefs.commentOverlay.style.top = `${screenY - 15}px`;
+      commentOverlayRefs.commentOverlayInput.value = selected.text || "";
+      commentOverlayRefs.commentOverlay.classList.remove("is-hidden");
+      commentOverlayRefs.commentOverlayInput.focus();
+    });
+
+    selectedInfo.append(label, editButton);
+    return;
+  }
+
+  label.textContent = labelDisplayName(labelById(selected.labelId));
+  selectedInfo.title = label.textContent;
+  selectedInfo.setAttribute("aria-label", `Selected annotation: ${label.textContent}`);
+  selectedInfo.appendChild(label);
+}
+
 export function renderAnnotations() {
   annotationList.innerHTML = "";
 
@@ -697,27 +744,7 @@ export function renderAnnotations() {
     annotationCount.textContent = "0";
     renderHiddenIndicator();
     
-    const selected = state.annotations.find((item) => item.id === state.selectedId);
-    if (selected) {
-      if (selected.type === "comment") {
-        const author = selected.author || (selected.extra && selected.extra.author) || "User";
-        selectedInfo.innerHTML = `Comment by ${author} <button id="editCommentBtn" class="icon-button" style="font-size: 0.8rem; margin-left: 8px;">✏️ Edit</button>`;
-        document.getElementById('editCommentBtn').addEventListener('click', () => {
-          view.pendingCommentEditId = selected.id;
-          const screenX = view.imageBox.x + selected.x * view.imageBox.scale;
-          const screenY = view.imageBox.y + selected.y * view.imageBox.scale;
-          commentOverlayRefs.commentOverlay.style.left = `${screenX + 15}px`;
-          commentOverlayRefs.commentOverlay.style.top = `${screenY - 15}px`;
-          commentOverlayRefs.commentOverlayInput.value = selected.text || "";
-          commentOverlayRefs.commentOverlay.classList.remove("is-hidden");
-          commentOverlayRefs.commentOverlayInput.focus();
-        });
-      } else {
-        selectedInfo.textContent = labelDisplayName(labelById(selected.labelId));
-      }
-    } else {
-      selectedInfo.textContent = "None";
-    }
+    renderSelectedInfo();
     return;
   }
 
@@ -921,27 +948,7 @@ export function renderAnnotations() {
     annotationList.appendChild(bottomSpacer);
   }
 
-  const selected = state.annotations.find((item) => item.id === state.selectedId);
-  if (selected) {
-    if (selected.type === "comment") {
-      const author = selected.author || (selected.extra && selected.extra.author) || "User";
-      selectedInfo.innerHTML = `Comment by ${author} <button id="editCommentBtn" class="icon-button" style="font-size: 0.8rem; margin-left: 8px;">✏️ Edit</button>`;
-      document.getElementById('editCommentBtn').addEventListener('click', () => {
-        view.pendingCommentEditId = selected.id;
-        const screenX = view.imageBox.x + selected.x * view.imageBox.scale;
-        const screenY = view.imageBox.y + selected.y * view.imageBox.scale;
-        commentOverlayRefs.commentOverlay.style.left = `${screenX + 15}px`;
-        commentOverlayRefs.commentOverlay.style.top = `${screenY - 15}px`;
-        commentOverlayRefs.commentOverlayInput.value = selected.text || "";
-        commentOverlayRefs.commentOverlay.classList.remove("is-hidden");
-        commentOverlayRefs.commentOverlayInput.focus();
-      });
-    } else {
-      selectedInfo.textContent = labelDisplayName(labelById(selected.labelId));
-    }
-  } else {
-    selectedInfo.textContent = "None";
-  }
+  renderSelectedInfo();
 
   if (scrollContainer && virtualizationState.initialized) {
     scrollContainer.scrollTop = virtualizationState.scrollTop;

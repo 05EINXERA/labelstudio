@@ -1895,19 +1895,6 @@ canvas {
   gap: 3px;
 }
 
-/* Divider between the toolbar's wrapped rows. It is a flex item forced to full
-   width, so it pushes everything after it onto a new row and draws the rule. */
-.toolbar-row-break {
-  flex: 0 0 100%;
-  width: 100%;
-  height: 1px;
-  min-height: 1px;
-  max-height: 1px;
-  align-self: center;
-  margin: 1px 0;
-  background: var(--line);
-}
-
 .tool-group.row-end {
   border-right: none;
 }
@@ -1994,11 +1981,8 @@ canvas {
   text-align: center;
 }
 
-/* Selected-annotation readout, inline in the toolbar. Width tracks the class
-   name: it shrink-wraps the text, with a floor so short names ("None") still
-   read as a chip. No max-width cap: long class names are legitimate in
-   annotation projects, and the toolbar already wraps to multiple rows when
-   constrained rather than overflowing. */
+/* Selected-annotation readout, inline in the toolbar. Long class names remain
+   available on hover but cannot force the toolbar onto another row. */
 .selection-chip {
   display: inline-flex;
   align-items: center;
@@ -2006,9 +1990,9 @@ canvas {
   height: 26px;
   width: max-content;
   min-width: 56px;
+  max-width: 180px;
   overflow: hidden;
   white-space: nowrap;
-  text-overflow: ellipsis;
   padding: 0 10px;
   border: 1px dashed var(--line);
   border-radius: 6px;
@@ -2016,13 +2000,20 @@ canvas {
   font-size: 0.72rem;
   font-weight: 600;
   color: var(--ink);
-  justify-content: center;
+  justify-content: flex-start;
+}
+
+.selection-chip-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* The comment "Edit" button is injected into the chip by workspace.js */
 .selection-chip .icon-button {
   height: 18px;
   min-height: 18px;
+  flex: 0 0 auto;
   padding: 0 6px;
   font-size: 0.66rem !important;
   margin-left: 0 !important;
