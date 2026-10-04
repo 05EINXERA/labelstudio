@@ -17,7 +17,7 @@ import {
   autoDetectButton, autoTagButton, undoButton, redoButton, deleteButton,
   clearButton, saveButton, stageWrap
 } from "../dom.js?v=2";
-import { setStatus, save, render, manualSaveWithUI } from "./workspace.js?v=13";
+import { setStatus, save, render, manualSaveWithUI } from "./workspace.js?v=14";
 import { autoDetectObjects, autoTagObjects, preloadMagicWand } from "../ai/detect.js?v=3";
 import { finalizePolygon, deleteSelected, undoAction, redoAction } from "../canvas/interactions.js?v=24";
 
