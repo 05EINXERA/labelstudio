@@ -20,7 +20,7 @@
 import { apiFetch } from "../../api.js?v=5";
 import { escapeHTML } from "../../utils.js?v=2";
 import { createDataTable } from "../../components/data-table.js?v=6";
-import { isOwner } from "../../permissions.js?v=1";
+import { canManage } from "../../permissions.js?v=1";
 import {
   CATEGORY_ORDER,
   categoryClass,
@@ -52,12 +52,12 @@ function el(id) {
 }
 
 function template(role) {
-  // Owner-gated, the same minimum as the view itself, so in practice anyone
+  // Manager-gated, the same minimum as the view itself, so in practice anyone
   // who can see this page can also press the button. The check stays anyway:
   // the router resolves the route from `myRole`, and if that ever loosens, a
   // button that always 403s is worse than no button. Rendering only — the
   // endpoint re-checks regardless (rule 18b).
-  const download = isOwner(role)
+  const download = canManage(role)
     ? `<button type="button" class="tool-button" id="downloadBtn">⬇ Download Excel</button>`
     : "";
 
