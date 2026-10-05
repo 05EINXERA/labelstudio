@@ -110,17 +110,28 @@ def test_no_role_is_404_not_403(client, alice, bob):
     assert _get(client, bob, 999999).status_code == 404
 
 
+def test_manager_may_read_the_table_and_download(client, alice):
+    """Manager is the minimum for both halves (owner-only before 2026-10-05)."""
+    project_id = _project(client, alice)
+    _task(project_id, "a.jpg", *FULL)
+    member = _register(client, "member-mgr-ok")
+    _grant(client, alice, member, project_id, "manager")
+
+    assert _get(client, member, project_id).status_code == 200
+    assert _xlsx(client, member, project_id).status_code == 200
+
+
 def test_owner_may_read_the_table(client, alice):
     project_id = _project(client, alice)
     _task(project_id, "a.jpg", *FULL)
     assert _get(client, alice, project_id).status_code == 200
 
 
-@pytest.mark.parametrize("role", ["viewer", "annotator", "reviewer", "manager"])
+@pytest.mark.parametrize("role", ["viewer", "annotator", "reviewer"])
 def test_every_lesser_role_is_403(client, alice, role):
-    """Owner-only, and stricter than Exports. A whole-project inventory is a
+    """Manager-and-above, and stricter than Exports. A whole-project inventory is a
     management view: it answers 'what did we take delivery of', which is the
-    owner's question, not 'what is in front of me'.
+    project runner's question, not 'what is in front of me'.
 
     403 rather than 404 because the caller has *a* role here — they need an
     actionable message naming what is required, not one implying the project is
@@ -136,7 +147,7 @@ def test_every_lesser_role_is_403(client, alice, role):
 
     res = _get(client, member, project_id)
     assert res.status_code == 403
-    assert "owner" in res.json()["detail"].lower()
+    assert "manager" in res.json()["detail"].lower()
 
 
 # --- categorisation ----------------------------------------------------------
@@ -424,8 +435,8 @@ def _load(res):
     return load_workbook(BytesIO(res.content))
 
 
-@pytest.mark.parametrize("role", ["viewer", "annotator", "reviewer", "manager"])
-def test_download_is_owner_gated_too(client, alice, role):
+@pytest.mark.parametrize("role", ["viewer", "annotator", "reviewer"])
+def test_download_is_manager_gated_too(client, alice, role):
     """The same minimum as the table, deliberately. A view and its own download
     disagreeing about "may I?" is the split that leaves a half-open door behind
     after someone edits one of them."""

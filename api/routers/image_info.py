@@ -10,15 +10,17 @@ largest router in the tree. Nothing here mutates, so it carries
 `get_current_user` but deliberately not `require_csrf` — there is no state to
 protect (CLAUDE.md rule 1a applies to state-changing routers).
 
-OWNER-ONLY, both halves. This is the strictest minimum in the codebase outside
-`grants.py`, and it is a deliberate product decision rather than a
-data-sensitivity one: the whole-project inventory is a management view, not
-something the people annotating in it need. An annotator's question is "what is
-in front of me"; this answers "what did we take delivery of", which is the
-owner's question.
+MANAGER-AND-ABOVE, both halves (owner-only until 2026-10-05; see
+`.devnotes/fix-images-info/01_PLAN.md`). This is a deliberate product decision
+rather than a data-sensitivity one: the whole-project inventory is a management
+view, not something the people annotating in it need. An annotator's question
+is "what is in front of me"; this answers "what did we take delivery of", which
+is the question of whoever runs the project - its owner or manager, the same
+people who may import into it.
 
-That makes it stricter than Exports (`reviewer`), and stricter than the Tasks
-view, which shows the same caller every filename already. The information is
+That makes it equal to Imports (`manager`), stricter than Exports (`reviewer`),
+and stricter than the Tasks view, which shows the same caller every filename
+already. The information is
 therefore not *secret* from a reviewer — they can see every filename and can
 open any image to see its resolution — so this gate is about not putting a
 whole-dataset report in front of people whose job is a single task at a time.
@@ -266,7 +268,7 @@ def get_image_info(
 ):
     """One page of the project's image inventory, plus whole-set category totals.
 
-    **Owner only** — see the module docstring. A caller with any lesser role on
+    **Manager or owner** — see the module docstring. A caller with any lesser role on
     this project gets a 403 naming the role required; one with no role at all
     gets a 404, indistinguishable from a project that does not exist
     (CLAUDE.md rule 1b).
@@ -277,7 +279,7 @@ def get_image_info(
     rows as you paged would make the Unknown count depend on where you had
     browsed. Repair is `scripts/backfill_image_dimensions.py`, run deliberately.
     """
-    require_project(project_id, user, db, minimum=ProjectRole.OWNER)
+    require_project(project_id, user, db, minimum=ProjectRole.MANAGER)
 
     base = _apply_filters(_rows_query(project_id, db), q, category)
 
@@ -504,7 +506,7 @@ def download_image_info(
 ):
     """The filtered inventory as a formatted .xlsx workbook.
 
-    **Owner only**, the same minimum as the table it sits under — see the
+    **Manager or owner**, the same minimum as the table it sits under — see the
     module docstring. Deliberately not one notch below it: a view and its own
     download having different answers to "may I?" is the kind of split that
     leaves a half-open door behind after someone edits one of them.
@@ -519,7 +521,7 @@ def download_image_info(
     `JOBS` is single-worker in-process state (rule 9) that should not grow
     without cause.
     """
-    project = require_project(project_id, user, db, minimum=ProjectRole.OWNER)
+    project = require_project(project_id, user, db, minimum=ProjectRole.MANAGER)
 
     base = _apply_filters(_rows_query(project_id, db), q, category)
     total, by_category = _summary_counts(base)
