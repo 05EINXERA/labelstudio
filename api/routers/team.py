@@ -458,7 +458,7 @@ def export_sessions_csv(
         "annotator", "date", "first_login_local", "last_seen_local",
         "duration_hours", "duration_minutes", "ended",
         "total_hours_that_day", "first_login_utc", "last_seen_utc",
-        "break_hours_that_day",
+        "break_hours_that_day", "break_time_hms_that_day",
     ])
     for (member_name, day), entry in days.items():
         last = entry["last_session"]
@@ -469,6 +469,7 @@ def export_sessions_csv(
         else:
             ended = "logout"
         span = max(0, int((entry["last_seen"] - entry["first_login"]).total_seconds()))
+        break_secs = max(0, int(break_totals.get((member_name, day), 0)))
         writer.writerow([
             member_name,
             day.isoformat(),
@@ -480,7 +481,8 @@ def export_sessions_csv(
             f"{entry['online_seconds'] / 3600:.2f}",
             _utc_iso(entry["first_login"]),
             _utc_iso(entry["last_seen"]),
-            f"{break_totals.get((member_name, day), 0) / 3600:.2f}",
+            f"{break_secs / 3600:.2f}",
+            f"{break_secs // 3600:02d}:{break_secs % 3600 // 60:02d}:{break_secs % 60:02d}",
         ])
 
     if start_day == end_day:
