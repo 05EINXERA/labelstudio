@@ -1789,16 +1789,63 @@ canvas.addEventListener("pointerup", (e) => {
       const startPt = imagePoint({ x: minX, y: minY });
       const endPt = imagePoint({ x: maxX, y: maxY });
       
+      // Returns true if segment (p1→p2) intersects axis-aligned rect [rx1,ry1,rx2,ry2]
+      function segmentIntersectsRect(p1, p2, rx1, ry1, rx2, ry2) {
+        // Cohen-Sutherland outcodes
+        function code(p) {
+          return (p.x < rx1 ? 1 : 0) | (p.x > rx2 ? 2 : 0) | (p.y < ry1 ? 4 : 0) | (p.y > ry2 ? 8 : 0);
+        }
+        let c1 = code(p1), c2 = code(p2);
+        let x1 = p1.x, y1 = p1.y, x2 = p2.x, y2 = p2.y;
+        while (true) {
+          if (!(c1 | c2)) return true;   // both inside
+          if (c1 & c2) return false;     // both outside same half-plane
+          const c = c1 || c2;
+          let x, y;
+          if (c & 8) { x = x1 + (x2 - x1) * (ry2 - y1) / (y2 - y1); y = ry2; }
+          else if (c & 4) { x = x1 + (x2 - x1) * (ry1 - y1) / (y2 - y1); y = ry1; }
+          else if (c & 2) { y = y1 + (y2 - y1) * (rx2 - x1) / (x2 - x1); x = rx2; }
+          else            { y = y1 + (y2 - y1) * (rx1 - x1) / (x2 - x1); x = rx1; }
+          if (c === c1) { x1 = x; y1 = y; c1 = code({ x, y }); }
+          else          { x2 = x; y2 = y; c2 = code({ x, y }); }
+        }
+      }
+
+      // Returns true if the marquee rect touches or overlaps the annotation's actual shape
+      function marqueeHits(ann, mx1, my1, mx2, my2) {
+        if (ann.points && ann.points.length >= 2) {
+          // Check if any vertex is inside the marquee
+          for (const p of ann.points) {
+            if (p.x >= mx1 && p.x <= mx2 && p.y >= my1 && p.y <= my2) return true;
+          }
+          // Check if any edge crosses the marquee boundary
+          for (let i = 0; i < ann.points.length; i++) {
+            const a = ann.points[i];
+            const b = ann.points[(i + 1) % ann.points.length];
+            if (segmentIntersectsRect(a, b, mx1, my1, mx2, my2)) return true;
+          }
+          // Check if the marquee is entirely inside the polygon (marquee corner inside polygon)
+          // via ray-casting on one corner
+          const cx = mx1, cy = my1;
+          let inside = false;
+          for (let i = 0, j = ann.points.length - 1; i < ann.points.length; j = i++) {
+            const xi = ann.points[i].x, yi = ann.points[i].y;
+            const xj = ann.points[j].x, yj = ann.points[j].y;
+            if (((yi > cy) !== (yj > cy)) && (cx < (xj - xi) * (cy - yi) / (yj - yi) + xi)) {
+              inside = !inside;
+            }
+          }
+          return inside;
+        }
+        // Bounding-box fallback for non-polygon shapes (boxes stored without points array)
+        const ax1 = ann.x, ay1 = ann.y, ax2 = ann.x + ann.width, ay2 = ann.y + ann.height;
+        return !(ax2 < mx1 || ax1 > mx2 || ay2 < my1 || ay1 > my2);
+      }
+
       const hitIds = [];
       state.annotations.forEach(ann => {
         if (isAnnotationHidden(ann)) return;
-        const ax1 = ann.x;
-        const ay1 = ann.y;
-        const ax2 = ann.x + ann.width;
-        const ay2 = ann.y + ann.height;
-        
-        // Intersect bounding boxes
-        if (!(ax2 < startPt.x || ax1 > endPt.x || ay2 < startPt.y || ay1 > endPt.y)) {
+        if (marqueeHits(ann, startPt.x, startPt.y, endPt.x, endPt.y)) {
           hitIds.push(ann.id);
         }
       });
