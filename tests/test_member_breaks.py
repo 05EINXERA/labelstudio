@@ -210,7 +210,7 @@ def test_csv_export_carries_break_hours(client, alice):
         assert res.status_code == 200
         header, row = res.text.strip().splitlines()[:2]
         cols = header.split(",")
-        assert cols[-1] == "break_hours_that_day"
-        assert row.split(",")[-1] == "0.50"
+        assert cols[-2:] == ["break_hours_that_day", "break_time_hms_that_day"]
+        assert row.split(",")[-2:] == ["0.50", "00:30:00"]
     finally:
         db.close()
