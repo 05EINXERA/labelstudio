@@ -791,6 +791,7 @@ function openExportSessionsModal() {
   els.exportStartDate.max = today;
   els.exportEndDate.max = today;
   els.exportSessionsModalError.style.display = "none";
+  syncExportPresetHighlight();
   els.exportSessionsModal.classList.add("is-active");
 }
 
@@ -798,8 +799,8 @@ function closeExportSessionsModal() {
   els.exportSessionsModal.classList.remove("is-active");
 }
 
-/** Fill the date inputs from one of the quick-range buttons. */
-function applyExportPreset(preset) {
+/** [start, end] ISO dates for a quick-range preset, ending today. */
+function exportPresetRange(preset) {
   const pad = (n) => String(n).padStart(2, "0");
   const iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   const today = new Date();
@@ -812,8 +813,23 @@ function applyExportPreset(preset) {
     // A numeric preset counts back N days inclusive of today.
     start.setDate(today.getDate() - (Number(preset) - 1));
   }
-  els.exportStartDate.value = iso(start);
-  els.exportEndDate.value = iso(today);
+  return [iso(start), iso(today)];
+}
+
+/** Highlight the quick-range button whose range matches the date inputs, if any. */
+function syncExportPresetHighlight() {
+  const start = els.exportStartDate.value;
+  const end = els.exportEndDate.value;
+  els.exportSessionsForm.querySelectorAll("[data-range]").forEach((btn) => {
+    const [s, e] = exportPresetRange(btn.dataset.range);
+    btn.classList.toggle("is-active", s === start && e === end);
+  });
+}
+
+/** Fill the date inputs from one of the quick-range buttons. */
+function applyExportPreset(preset) {
+  [els.exportStartDate.value, els.exportEndDate.value] = exportPresetRange(preset);
+  syncExportPresetHighlight();
 }
 
 async function openMemberTasksModal(member) {
@@ -872,6 +888,9 @@ if (els.exportSessionsBtn) {
   els.exportSessionsModal.addEventListener("click", (e) => {
     if (e.target === els.exportSessionsModal) closeExportSessionsModal();
   });
+
+  els.exportStartDate.addEventListener("input", syncExportPresetHighlight);
+  els.exportEndDate.addEventListener("input", syncExportPresetHighlight);
 
   els.exportSessionsForm.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-range]");
