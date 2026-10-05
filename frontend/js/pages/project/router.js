@@ -11,7 +11,7 @@
 import { apiFetch } from "../../api.js?v=5";
 import { escapeHTML } from "../../utils.js?v=2";
 import { statusClass } from "../../task-status.js?v=3";
-import { renderNav, setActive, visibleNavItems } from "../../components/project-nav.js?v=5";
+import { renderNav, setActive, visibleNavItems } from "../../components/project-nav.js?v=6";
 import { renderAppNav, revealAdminLinks, wireLogout } from "../../components/app-nav.js?v=5";
 import { getCurrentUser } from "../../session.js?v=2";
 import { wireAccountSettings } from "../../components/account-settings.js?v=2";
@@ -47,7 +47,7 @@ function _sessionStorage() {
 const VIEWS = {
   home: () => import("./home.js?v=7"),
   tasks: () => import("./tasks.js?v=17"),
-  "image-info": () => import("./image-info.js?v=1"),
+  "image-info": () => import("./image-info.js?v=2"),
   classes: () => import("./classes.js?v=3"),
   imports: () => import("./imports.js?v=4"),
   exports: () => import("./exports.js?v=5"),
