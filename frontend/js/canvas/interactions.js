@@ -18,7 +18,7 @@ import { view } from "./view.js?v=3";
 import { draw, drawAllLayers } from "./draw.js?v=9";
 import { canvas, undoButton } from "../dom.js?v=2";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
-import { setStatus, save, render, activateLabel, HOTKEY_LABEL_LIMIT } from "../components/workspace.js?v=14";
+import { setStatus, save, render, activateLabel, openCommentEditor, HOTKEY_LABEL_LIMIT } from "../components/workspace.js?v=17";
 import { performMagicWandSegmentation } from "../ai/detect.js?v=3";
 import { applyAutoSmooth } from "../fft-controls.js?v=2";
 import { annotationSettings, vertexGrabScreenRadius } from "../feature-flags.js?v=11";
@@ -1173,6 +1173,8 @@ canvas.addEventListener("pointerdown", (event) => {
       // edge handles ("move-point"), which are deliberate targets.
       // No snapshot(): selecting is not an undoable edit.
       render();
+      const hitComment = state.annotations.find(a => a.id === hitId);
+      if (hitComment && hitComment.type === "comment" && !event.shiftKey) openCommentEditor(hitComment);
       return;
     }
   }

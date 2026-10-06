@@ -712,16 +712,9 @@ function renderSelectedInfo() {
     editButton.style.fontSize = "0.8rem";
     editButton.style.marginLeft = "8px";
     editButton.textContent = "✏️ Edit";
-    editButton.addEventListener("click", () => {
-      view.pendingCommentEditId = selected.id;
-      const screenX = view.imageBox.x + selected.x * view.imageBox.scale;
-      const screenY = view.imageBox.y + selected.y * view.imageBox.scale;
-      commentOverlayRefs.commentOverlay.style.left = `${screenX + 15}px`;
-      commentOverlayRefs.commentOverlay.style.top = `${screenY - 15}px`;
-      commentOverlayRefs.commentOverlayInput.value = selected.text || "";
-      commentOverlayRefs.commentOverlay.classList.remove("is-hidden");
-      commentOverlayRefs.commentOverlayInput.focus();
-    });
+    editButton.addEventListener("click", () => openCommentEditor(selected));
+    label.style.cursor = "pointer";
+    label.addEventListener("click", () => openCommentEditor(selected));
 
     selectedInfo.append(label, editButton);
     return;
@@ -731,6 +724,17 @@ function renderSelectedInfo() {
   selectedInfo.title = label.textContent;
   selectedInfo.setAttribute("aria-label", `Selected annotation: ${label.textContent}`);
   selectedInfo.appendChild(label);
+}
+
+export function openCommentEditor(comment) {
+  view.pendingCommentEditId = comment.id;
+  const screenX = view.imageBox.x + comment.x * view.imageBox.scale;
+  const screenY = view.imageBox.y + comment.y * view.imageBox.scale;
+  commentOverlayRefs.commentOverlay.style.left = `${screenX + 15}px`;
+  commentOverlayRefs.commentOverlay.style.top = `${screenY - 15}px`;
+  commentOverlayRefs.commentOverlayInput.value = comment.text || "";
+  commentOverlayRefs.commentOverlay.classList.remove("is-hidden");
+  commentOverlayRefs.commentOverlayInput.focus();
 }
 
 export function renderAnnotations() {
@@ -851,6 +855,13 @@ export function renderAnnotations() {
 
     item.querySelector(".edit-ann-btn").addEventListener("click", (e) => {
       e.stopPropagation();
+      if (annotation.type === "comment") {
+        state.selectedId = annotation.id;
+        state.selectedIds = new Set([annotation.id]);
+        render();
+        openCommentEditor(annotation);
+        return;
+      }
       const currentName = label.name;
       const options = state.labels.map(l => `<option value="${escapeHTML(l.name)}"></option>`).join("");
       item.innerHTML = `
@@ -936,6 +947,7 @@ export function renderAnnotations() {
       }
       render();
       draw();
+      if (annotation.type === "comment" && !event.shiftKey) openCommentEditor(annotation);
     });
     annotationList.appendChild(item);
   });
