@@ -351,3 +351,49 @@ export function untangleRing(input, anchor, closed = true) {
 
   return { points, changed };
 }
+
+/**
+ * Split a self-crossing closed ring into every simple loop it encloses.
+ *
+ * Where untangleRing keeps the largest loop and discards the rest, this keeps
+ * all of them, so a part an annotator dragged across the outline becomes an
+ * object of its own instead of being deleted. At the first crossing the ring is
+ * cut into loopA / loopB exactly as untangleRing does, and each loop is split
+ * again until none crosses itself — the crossing point becomes a real vertex of
+ * both neighbours.
+ *
+ * Loops under MIN_LOOP_AREA are slivers and are dropped. Returned largest
+ * first, so the caller can let the biggest keep the original object's identity.
+ * A simple ring comes back as `[input]` (the same array) and a ring whose every
+ * loop is a sliver comes back as `[]`; callers fall back to leaving it alone.
+ *
+ * Only for a *finished* polygon the user just edited by hand — never open
+ * polylines (use untangleRing) and never model output (see the file header).
+ */
+export function splitRing(input) {
+  const ring = input || [];
+  if (ring.length < 4) return [ring];
+  if (!findFirstSelfIntersection(ring, true)) return [ring];
+
+  const out = [];
+  const queue = [ring];
+  // Every cut yields two loops that each have fewer vertices than the ring plus
+  // one, so this terminates; the budget only guards against degenerate input.
+  let budget = ring.length * ring.length + 8;
+  while (queue.length && budget > 0) {
+    budget -= 1;
+    const pts = queue.pop();
+    const hit = pts.length >= 4 ? findFirstSelfIntersection(pts, true) : null;
+    if (!hit) {
+      if (pts.length >= 3 && ringArea(pts) >= MIN_LOOP_AREA) out.push(pts);
+      continue;
+    }
+    const { i, j } = hit;
+    const point = { x: hit.point.x, y: hit.point.y };
+    queue.push(
+      [point, ...pts.slice(i + 1, j + 1)],
+      [point, ...pts.slice(j + 1), ...pts.slice(0, i + 1)]
+    );
+  }
+  return out.sort((a, b) => ringArea(b) - ringArea(a));
+}

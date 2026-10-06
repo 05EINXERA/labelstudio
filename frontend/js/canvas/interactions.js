@@ -1,8 +1,8 @@
 import { generateUUID, clamp, round } from "../utils.js?v=2";
 import { state, snapshot, isAnnotationHidden, labelById, labelDisplayName, noteUserRemoved } from "../state.js?v=14";
 import { annotationPoints, updateAnnotationBounds, pointInPolygon } from "./geometry.js?v=1";
-import { untangleRing } from "./untangle.js?v=3";
-import { unionAll } from "./merge.js?v=4";
+import { untangleRing, splitRing } from "./untangle.js?v=4";
+import { unionAll } from "./merge.js?v=5";
 import { view } from "./view.js?v=1";
 import { draw, drawAllLayers } from "./draw.js?v=15";
 import { canvas, ctx, undoButton } from "../dom.js?v=5";
@@ -183,6 +183,48 @@ function untangleIfPolygon(annotation, anchor, closed = true) {
   }
 
   return true;
+}
+
+// Resolve a finished polygon that a vertex drag just made cross itself by
+// splitting it, not trimming it: every loop the crossing encloses becomes its
+// own polygon of the same class, so the part dragged across the outline can be
+// edited instead of being deleted. The largest loop keeps `annotation` (its id,
+// attributes and z-order); the rest are inserted directly after it as clones
+// with fresh ids. See untangle.js splitRing.
+//
+// Same `type === "polygon"` containment boundary as untangleIfPolygon. Returns
+// the number of polygons the edit produced (0 when nothing changed), and takes
+// no snapshot — the drag's pointerdown already took one, so one Ctrl+Z undoes
+// the move and the split together.
+function splitIfPolygon(annotation) {
+  if (!annotation || annotation.type !== "polygon") return 0;
+  const pts = annotation.points;
+  if (!Array.isArray(pts) || pts.length < 4) return 0;
+
+  const pieces = splitRing(pts);
+  if (!pieces.length || (pieces.length === 1 && pieces[0] === pts)) return 0;
+
+  // A closed ring is rotation-invariant; keep the handle at points[0] where the
+  // annotator first clicked when that vertex survived in the main piece.
+  const EPS = 1e-9;
+  const first = pts[0];
+  let main = pieces[0];
+  const idx = main.findIndex((p) => Math.abs(p.x - first.x) < EPS && Math.abs(p.y - first.y) < EPS);
+  if (idx > 0) main = [...main.slice(idx), ...main.slice(0, idx)];
+  annotation.points = main;
+  updateAnnotationBounds(annotation);
+
+  const extras = pieces.slice(1).map((ring) => {
+    const { id: _id, ...rest } = annotation;
+    const shape = { ...rest, id: generateUUID(), points: ring.map((p) => ({ x: p.x, y: p.y })) };
+    updateAnnotationBounds(shape);
+    return shape;
+  });
+  if (extras.length) {
+    const at = state.annotations.findIndex((a) => a.id === annotation.id);
+    state.annotations.splice(at + 1, 0, ...extras);
+  }
+  return pieces.length;
 }
 
 // Untangle after a vertex or edge removal. Deleting points stitches the two
@@ -1580,18 +1622,15 @@ canvas.addEventListener("pointerup", (e) => {
     // gesture; the crossing stays visible while dragging and resolves when
     // the vertex is dropped.
     const annotation = state.annotations.find((item) => item.id === view.drag.annotationId);
-    // The dragged vertex is the anchor, so a symmetric split keeps the half
-    // the annotator was actually working in.
-    const anchor = annotation?.points?.[view.drag.pointIndex];
-    const untangled = untangleIfPolygon(annotation, anchor);
+    const pieces = splitIfPolygon(annotation);
+    const untangled = pieces > 0;
     if (untangled) {
-      updateAnnotationBounds(annotation);
       // The ring was re-indexed, so any hover/selection referring to the old
       // indices now points at unrelated geometry.
       view.hoveredPointIndex = -1;
       view.hoveredLineIndex = -1;
       view.selectedLineIndex = -1;
-      setStatus("Overlap removed");
+      setStatus(pieces > 1 ? `Overlap split into ${pieces} objects` : "Overlap removed");
     }
     view.drag = null;
     // snapshot() was already taken at pointerdown, so one Ctrl+Z undoes the
