@@ -6,7 +6,7 @@ import { apiFetch } from "./api.js?v=3";
 import { state } from "./state.js?v=5";
 import {
   setStatus, syncToBackend, loadSaved, saveDraft, render, loadTeamForWorkspace
-} from "./components/workspace.js?v=15";
+} from "./components/workspace.js?v=17";
 import {
   syncTimeToServer, setActiveTaskResolver, setConflictHandler, setSaveHaltedHandler,
   handleVisibilityChange as handleTimerVisibility, pauseSessionTimer

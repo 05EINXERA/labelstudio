@@ -948,6 +948,7 @@ export function renderAnnotations() {
       }
       render();
       draw();
+      if (annotation.type === "comment" && !event.shiftKey) openCommentEditor(annotation);
     });
     if (annotation.type === "comment") {
       item.addEventListener("dblclick", () => openCommentEditor(annotation));
