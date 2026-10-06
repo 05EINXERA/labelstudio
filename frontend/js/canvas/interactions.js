@@ -15,10 +15,10 @@ import {
   smoothUnionCusps
 } from "./geometry.js?v=10";
 import { view } from "./view.js?v=3";
-import { draw, drawAllLayers } from "./draw.js?v=10";
-import { canvas, undoButton } from "../dom.js?v=2";
+import { draw, drawAllLayers, COMMENT_DOT_RADIUS, commentPill } from "./draw.js?v=11";
+import { canvas, ctx, undoButton } from "../dom.js?v=2";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
-import { setStatus, save, render, activateLabel, HOTKEY_LABEL_LIMIT } from "../components/workspace.js?v=14";
+import { setStatus, save, render, activateLabel, openCommentEditor, HOTKEY_LABEL_LIMIT } from "../components/workspace.js?v=17";
 import { performMagicWandSegmentation } from "../ai/detect.js?v=3";
 import { applyAutoSmooth } from "../fft-controls.js?v=2";
 import { annotationSettings, vertexGrabScreenRadius } from "../feature-flags.js?v=12";
@@ -38,6 +38,26 @@ export function imagePoint(point) {
   };
 }
 
+// A comment is painted as a fixed-size dot centred on (x, y), but it is stored
+// with a 20x20 image-space width/height/points box. Hit-testing that box would
+// select the comment from empty space beside the dot (and more so the further
+// you zoom in), so comments are tested against the dot itself, in screen space.
+// The extra pixel is half the dot's white outline, which is visibly part of it.
+const COMMENT_HIT_RADIUS = COMMENT_DOT_RADIUS + 1;
+
+function commentContainsPoint(point, annotation) {
+  const sx = view.imageBox.x + (Number(annotation.x) || 0) * view.imageBox.scale;
+  const sy = view.imageBox.y + (Number(annotation.y) || 0) * view.imageBox.scale;
+  if (Math.hypot(point.x - sx, point.y - sy) <= COMMENT_HIT_RADIUS) return true;
+  // The text pill is part of the comment too. ctx is the shared canvas context, so
+  // keep the font change from leaking into the next draw.
+  ctx.save();
+  const { rect } = commentPill(annotation, ctx);
+  ctx.restore();
+  return point.x >= rect.x && point.x <= rect.x + rect.w
+    && point.y >= rect.y && point.y <= rect.y + rect.h;
+}
+
 export function hitTest(point) {
   const img = imagePoint(point);
   for (let index = state.annotations.length - 1; index >= 0; index -= 1) {
@@ -45,6 +65,10 @@ export function hitTest(point) {
     // Hidden annotations are not on screen, so they must not be selectable:
     // clicking empty space should not pick up something invisible.
     if (isAnnotationHidden(annotation)) continue;
+    if (annotation.type === "comment") {
+      if (commentContainsPoint(point, annotation)) return annotation.id;
+      continue;
+    }
     // Fast bbox check (handles simple boxes and any annotations with x/y/width/height)
     const ax = Number(annotation.x) || 0;
     const ay = Number(annotation.y) || 0;
@@ -1674,6 +1698,15 @@ canvas.addEventListener("dblclick", (event) => {
     const hitId = hitTest(point);
     if (hitId) {
       const hitAnnotation = state.annotations.find(a => a.id === hitId);
+      if (hitAnnotation && hitAnnotation.type === "comment") {
+        state.selectedIds.clear();
+        state.selectedIds.add(hitId);
+        state.selectedId = hitId;
+        view.drag = null;
+        render();
+        openCommentEditor(hitAnnotation);
+        return;
+      }
       state.selectedIds.clear();
       // Group-aware, matching the pointerdown selection path: a shape that
       // belongs to a group is never selected alone.
@@ -1813,6 +1846,16 @@ canvas.addEventListener("pointerup", (e) => {
 
       // Returns true if the marquee rect touches or overlaps the annotation's actual shape
       function marqueeHits(ann, mx1, my1, mx2, my2) {
+        if (ann.type === "comment") {
+          // Same rule as hitTest: only the dot counts, not the stored 20x20 box.
+          // The marquee is in image space and the dot is a fixed screen size, so
+          // convert its radius, then compare against the nearest point of the rect.
+          const radius = COMMENT_HIT_RADIUS / view.imageBox.scale;
+          const cx = Number(ann.x) || 0, cy = Number(ann.y) || 0;
+          const nearestX = Math.max(mx1, Math.min(cx, mx2));
+          const nearestY = Math.max(my1, Math.min(cy, my2));
+          return Math.hypot(cx - nearestX, cy - nearestY) <= radius;
+        }
         if (ann.points && ann.points.length >= 2) {
           // Check if any vertex is inside the marquee
           for (const p of ann.points) {

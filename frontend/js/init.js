@@ -6,13 +6,13 @@ import { apiFetch } from "./api.js?v=3";
 import { state } from "./state.js?v=5";
 import {
   setStatus, syncToBackend, loadSaved, saveDraft, render, loadTeamForWorkspace
-} from "./components/workspace.js?v=14";
+} from "./components/workspace.js?v=17";
 import {
   syncTimeToServer, setActiveTaskResolver, setConflictHandler, setSaveHaltedHandler,
   handleVisibilityChange as handleTimerVisibility, pauseSessionTimer
 } from "./components/timer.js?v=5";
 import { initBreakControl } from "./components/break.js?v=1";
-import { setZoomChangeHandler } from "./canvas/interactions.js?v=25";
+import { setZoomChangeHandler } from "./canvas/interactions.js?v=28";
 import { initContextMenu } from "./canvas/context-menu.js?v=4";
 import { initSidebarResize } from "./components/sidebar-resize.js?v=1";
 import { initZoomControl, updateZoomDisplay } from "./components/zoom-control.js?v=4";
