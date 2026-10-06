@@ -561,5 +561,22 @@ for (let k = 0; k < 2000; k += 1) {
 }
 ok('fuzz: 2000 random polylines all resolve to simple, clean open paths', fuzzBad === 0);
 
+// --- splitRing: keep every loop as its own ring --------------------------
+
+{
+  ok('split: simple ring is returned as-is', u.splitRing(square)[0] === square);
+  // Left-middle vertex dragged out past the right edge: upper, lower, tip.
+  const body = [P(0, 0), P(10, 0), P(10, 10), P(0, 10), P(0, 6), P(15, 5), P(0, 4)];
+  const before = JSON.stringify(body);
+  const parts = u.splitRing(body);
+  ok('split: spike becomes its own ring (3 parts)', parts.length === 3);
+  ok('split: every part is simple', parts.every((r) => u.isSimpleRing(r)));
+  ok('split: largest first', u.ringArea(parts[0]) >= u.ringArea(parts[1]));
+  ok('split: keeps more than untangle does',
+    parts.reduce((a, r) => a + u.ringArea(r), 0) > u.ringArea(u.untangleRing(body).points));
+  ok('split: bowtie yields two rings', u.splitRing([P(0, 0), P(10, 10), P(10, 0), P(0, 10)]).length === 2);
+  ok('split: input untouched', JSON.stringify(body) === before);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
