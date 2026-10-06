@@ -91,6 +91,7 @@ old pattern into new code.
 
 ### Workflow
 
+- **`dev` (production) and `dev-stage` differ by one thing: the temporary network-telemetry feature** (`api/routers/telemetry.py`, `api/telemetry_timing.py`, `frontend/js/telemetry/`, `scripts/telemetry_report.py`, `tests/*telemetry*`, `TELEMETRY_*` in `config.py`/`.env.example`, the `boot.js` tag in each `frontend/*.html`, a few lines in `main.py`/`schemas.py`). It must never reach `dev`. So: **never merge `dev-stage` into `dev`**. Branch new work from `dev`, then merge that branch into `dev` (in the production worktree, where `dev` is checked out) and into `dev-stage` separately. Expect a trivial conflict in the `frontend/*.html` script tags on the `dev-stage` merge: keep the telemetry `<script>` and take the new `?v=` pin. Before merging into `dev`, `git diff dev <branch> --stat` must show no telemetry file. Removal is `chore/remove-network-telemetry`; see `.devnotes/frontend-telemetry/06_ROLLBACK_AND_CLEANUP.md`.
 - Branch from `main`: `feat/<slug>`, `fix/<slug>`, `docs/<slug>`.
 - Commits: imperative summary line ≤ 72 chars, conventional prefix (`feat:`, `fix:`, `docs:`, `refactor:`, `chore:`, `test:`).
 - Before pushing: run the app locally (`venv\Scripts\uvicorn.exe main:app --port 8001`, or `scripts/run-dev.ps1` which loads `.env`) and exercise the feature; run `pytest tests/` if tests exist for the area (see
