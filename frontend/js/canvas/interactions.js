@@ -18,7 +18,7 @@ import { view } from "./view.js?v=3";
 import { draw, drawAllLayers } from "./draw.js?v=9";
 import { canvas, undoButton } from "../dom.js?v=2";
 import { commentOverlayRefs } from "../comment-overlay.js?v=1";
-import { setStatus, save, render, activateLabel, HOTKEY_LABEL_LIMIT } from "../components/workspace.js?v=14";
+import { setStatus, save, render, activateLabel, openCommentEditor, HOTKEY_LABEL_LIMIT } from "../components/workspace.js?v=15";
 import { performMagicWandSegmentation } from "../ai/detect.js?v=3";
 import { applyAutoSmooth } from "../fft-controls.js?v=2";
 import { annotationSettings, vertexGrabScreenRadius } from "../feature-flags.js?v=11";
@@ -1664,6 +1664,15 @@ canvas.addEventListener("dblclick", (event) => {
     const hitId = hitTest(point);
     if (hitId) {
       const hitAnnotation = state.annotations.find(a => a.id === hitId);
+      if (hitAnnotation && hitAnnotation.type === "comment") {
+        state.selectedIds.clear();
+        state.selectedIds.add(hitId);
+        state.selectedId = hitId;
+        view.drag = null;
+        render();
+        openCommentEditor(hitAnnotation);
+        return;
+      }
       state.selectedIds.clear();
       // Group-aware, matching the pointerdown selection path: a shape that
       // belongs to a group is never selected alone.
