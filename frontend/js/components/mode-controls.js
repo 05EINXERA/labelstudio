@@ -19,7 +19,7 @@ import {
 } from "../dom.js?v=2";
 import { setStatus, save, render, manualSaveWithUI } from "./workspace.js?v=17";
 import { autoDetectObjects, autoTagObjects, preloadMagicWand } from "../ai/detect.js?v=3";
-import { finalizePolygon, deleteSelected, undoAction, redoAction } from "../canvas/interactions.js?v=26";
+import { finalizePolygon, deleteSelected, undoAction, redoAction } from "../canvas/interactions.js?v=28";
 
 /**
  * Initializes Move Objects toggle button and dropdown menu.

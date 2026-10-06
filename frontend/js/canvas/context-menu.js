@@ -5,7 +5,7 @@ import { render, relabelSelection } from "../components/workspace.js?v=17";
 import {
   canvasPoint, hitTest,
   sendToBack, sendBackward, bringToFront, bringForward
-} from "./interactions.js?v=26";
+} from "./interactions.js?v=28";
 
 // Right-click menu for annotations: change class, and z-order.
 //

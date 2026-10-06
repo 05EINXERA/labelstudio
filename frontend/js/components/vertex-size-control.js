@@ -6,7 +6,7 @@
  */
 
 import { annotationSettings } from "../feature-flags.js?v=11";
-import { drawAllLayers } from "../canvas/draw.js?v=9";
+import { drawAllLayers } from "../canvas/draw.js?v=11";
 
 const VERTEX_SIZE_STORAGE_KEY = "annotation_vertex_radius";
 const DEFAULT_RADIUS = annotationSettings.vertexHandleRadius;

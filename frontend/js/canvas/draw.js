@@ -4,6 +4,11 @@ import { annotationSettings, annotationOpacity, zoomScaledRadius } from "../feat
 import { view } from "./view.js?v=3";
 import { annotationPoints, hexToRgba, hiddenGroupVertexFlags } from "./geometry.js?v=10";
 
+// A comment is painted as a fixed-size dot (screen pixels, independent of zoom).
+// interactions.js hit-tests against the same radius, so the clickable area is
+// exactly the visible dot rather than the box the comment is stored with.
+export const COMMENT_DOT_RADIUS = 8;
+
 let compositeFillCanvas = null;
 let compositeFillCtx = null;
 let compositeStrokeCanvas = null;
@@ -405,6 +410,19 @@ function doDrawSync() {
   }
 }
 
+// The text pill beside a comment's dot, in screen pixels. Sets the font on
+// measureCtx (callers draw with it, and hit-testing doesn't care), so wrap in
+// save()/restore() if the context's font matters.
+export function commentPill(annotation, measureCtx = ctx) {
+  const sx = view.imageBox.x + annotation.x * view.imageBox.scale;
+  const sy = view.imageBox.y + annotation.y * view.imageBox.scale;
+  const author = annotation.author || (annotation.extra && annotation.extra.author) || 'User';
+  const text = `${author}: ${annotation.text}`;
+  measureCtx.font = "600 12px Inter, system-ui, sans-serif";
+  const w = measureCtx.measureText(text).width + 12;
+  return { text, rect: { x: sx + 12, y: sy - 12, w, h: 24 } };
+}
+
 export function drawAnnotation(annotation, selected = false, targetCtx = ctx, skipBaseLayer = false, groupAnns = null) {
   if (annotation.type === "comment") {
     const screenPoint = {
@@ -414,19 +432,16 @@ export function drawAnnotation(annotation, selected = false, targetCtx = ctx, sk
     targetCtx.save();
     targetCtx.fillStyle = selected ? "#f4a261" : "#e85d75";
     targetCtx.beginPath();
-    targetCtx.arc(screenPoint.x, screenPoint.y, 8, 0, Math.PI * 2);
+    targetCtx.arc(screenPoint.x, screenPoint.y, COMMENT_DOT_RADIUS, 0, Math.PI * 2);
     targetCtx.fill();
     targetCtx.strokeStyle = "#ffffff";
     targetCtx.lineWidth = 2;
     targetCtx.stroke();
 
-    const author = annotation.author || (annotation.extra && annotation.extra.author) || 'User';
-    const text = `${author}: ${annotation.text}`;
-    targetCtx.font = "600 12px Inter, system-ui, sans-serif";
-    const tw = targetCtx.measureText(text).width + 12;
+    const { text, rect } = commentPill(annotation, targetCtx);
     targetCtx.fillStyle = "rgba(0,0,0,0.75)";
     targetCtx.beginPath();
-    targetCtx.roundRect(screenPoint.x + 12, screenPoint.y - 12, tw, 24, 4);
+    targetCtx.roundRect(rect.x, rect.y, rect.w, rect.h, 4);
     targetCtx.fill();
     targetCtx.fillStyle = "#ffffff";
     targetCtx.fillText(text, screenPoint.x + 18, screenPoint.y + 4);
