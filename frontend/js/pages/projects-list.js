@@ -58,7 +58,9 @@ const els = {
 
 const ICON_EDIT = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></svg>`;
 const ICON_DELETE = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>`;
-const ICON_TRANSFER = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="m18 8 3 3-3 3"/><path d="M21 11H13"/></svg>`;
+const ICON_HIDE = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/></svg>`;
+const ICON_UNHIDE = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg>`;
+const ICON_TRANSFER =`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="m18 8 3 3-3 3"/><path d="M21 11H13"/></svg>`;
 
 function statusPill(status) {
   const s = status || "New";
@@ -92,6 +94,12 @@ const table = createDataTable({
       render: (r) => `<a class="cell-link" href="project.html?id=${encodeURIComponent(r.id)}">${escapeHTML(r.name || "Untitled")}</a>${
         r.is_reviewer
           ? ` <span class="pill is-role is-role-reviewer" title="You are an appointed reviewer of this project">Reviewer</span>`
+          : ""
+      }${
+        // Only the owner ever receives a hidden project, so this badge is
+        // their reminder that nobody else can see the row.
+        r.hidden
+          ? ` <span class="pill is-role is-role-hidden" title="Hidden from annotators — only you can see this project">Hidden</span>`
           : ""
       }`,
     },
@@ -128,6 +136,9 @@ const table = createDataTable({
           const datasetUsername = localStorage.getItem('dataset_username');
           if (r.creator === datasetUsername) {
             return `<div class="row-actions">
+              ${r.hidden
+                ? `<button type="button" data-action="toggle-hidden" title="Unhide project — make it visible to annotators again">${ICON_UNHIDE}</button>`
+                : `<button type="button" data-action="toggle-hidden" title="Hide project from annotators">${ICON_HIDE}</button>`}
               <button type="button" data-action="transfer" title="Transfer project ownership">${ICON_TRANSFER}</button>
               <button type="button" data-action="edit" title="Edit project">${ICON_EDIT}</button>
               <button type="button" data-action="delete" class="danger" title="Delete project">${ICON_DELETE}</button>
@@ -318,6 +329,29 @@ els.pageSize.addEventListener("change", (e) => table.setPageSize(e.target.value)
 
 table.onAction("edit", (row) => openModal(row));
 table.onAction("transfer", (row) => openTransferModal(row));
+table.onAction("toggle-hidden", async (row) => {
+  const hide = !row.hidden;
+  // Unhiding only restores what was there; hiding pulls the project out from
+  // under people who may be working in it, so that direction asks first.
+  if (hide && !confirm(`Hide "${row.name}" from annotators? Only you will be able to see or open it until you unhide it.`)) return;
+  try {
+    const res = await apiFetch(`/api/projects/${row.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hidden: hide }),
+    });
+    if (!res) return;
+    if (!res.ok) {
+      showError(`Could not ${hide ? "hide" : "unhide"} the project (${res.status}).`);
+      return;
+    }
+    await loadProjects();
+  } catch (err) {
+    console.error("Failed to change project visibility", err);
+    showError(`Could not ${hide ? "hide" : "unhide"} the project.`);
+  }
+});
+
 table.onAction("delete", async (row) => {
   if (!confirm(`Delete "${row.name}" and all of its tasks? This cannot be undone.`)) return;
   try {

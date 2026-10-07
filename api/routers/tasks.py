@@ -33,6 +33,7 @@ from api.routers.projects import (
     get_user_accessible_team_ids,
     is_project_creator,
     is_project_reviewer,
+    visible_project_condition,
 )
 
 router = APIRouter(
@@ -208,8 +209,12 @@ def _accessible_project_ids(user: models.User, db: Session, annotator: Optional[
     if reviewed_pids:
         conditions.append(models.Project.id.in_(reviewed_pids))
 
+    # A hidden project's tasks go with it: without this an assignee could still
+    # open a task by id, or find it in the cross-project search.
     return [
-        pid for (pid,) in db.query(models.Project.id).filter(or_(*conditions)).all()
+        pid for (pid,) in db.query(models.Project.id).filter(
+            or_(*conditions), visible_project_condition(user, annotator)
+        ).all()
     ]
 
 
