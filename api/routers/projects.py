@@ -100,6 +100,7 @@ def get_owned_project(project_id: int, user: models.User, db: Session, annotator
     project = db.query(models.Project).filter(
         models.Project.id == project_id,
         or_(*conditions),
+        visible_project_condition(user, annotator),
     ).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -141,6 +142,44 @@ def caller_annotator_names(user: models.User, annotator: Optional[models.TeamMem
     if annotator and annotator.name:
         return {annotator.name}
     return {user.username}
+
+
+def _acts_as_account(user: models.User, annotator: Optional[models.TeamMember] = None) -> bool:
+    """True when the request carries no annotator profile other than the account itself."""
+    return not (annotator and annotator.name) or annotator.name == user.username
+
+
+def sees_hidden_project(project: models.Project, user: models.User,
+                        annotator: Optional[models.TeamMember] = None) -> bool:
+    """True if the caller is the owner a hidden project stays visible to.
+
+    Stricter than `is_project_creator` on purpose. That check admits
+    `owner_id == user.id` whatever annotator profile is selected, and this
+    deployment shares one login, so it is true for every annotator in the
+    office — a hide keyed on it would hide the project from nobody. Here the
+    selected profile must be the project's `creator`; the account's `owner_id`
+    counts only when no other profile is selected (the same rule as
+    `_creator_project_ids` in tasks.py).
+
+    Like every name-keyed rule on a shared login this shapes what people see;
+    it is not a security boundary, since any client can send any
+    `X-Annotator-Name`.
+    """
+    if project.creator in caller_annotator_names(user, annotator):
+        return True
+    return _acts_as_account(user, annotator) and project.owner_id == user.id
+
+
+def visible_project_condition(user: models.User, annotator: Optional[models.TeamMember] = None):
+    """SQL filter dropping hidden projects for everyone but their owner.
+
+    The query-side twin of `sees_hidden_project`; the two must not drift.
+    AND it onto any query that decides which projects a caller can reach.
+    """
+    owner = [models.Project.creator.in_(caller_annotator_names(user, annotator))]
+    if _acts_as_account(user, annotator):
+        owner.append(models.Project.owner_id == user.id)
+    return or_(models.Project.hidden.is_(False), *owner)
 
 
 def reviewer_names(project_id: int, db: Session) -> List[str]:
@@ -308,8 +347,8 @@ def get_projects(db: Session = Depends(get_db), user: models.User = Depends(get_
 
     query = db.query(models.Project, models.Team.name.label("team_name")).outerjoin(
         models.Team, models.Project.team_id == models.Team.id
-    ).filter(or_(*conditions))
-            
+    ).filter(or_(*conditions), visible_project_condition(user, annotator))
+
     projects_with_teams = query.order_by(models.Project.created_at.desc()).all()
     if not projects_with_teams:
         return []
@@ -323,6 +362,7 @@ def get_projects(db: Session = Depends(get_db), user: models.User = Depends(get_
             creator=p.Project.creator, created_at=p.Project.created_at,
             team_id=p.Project.team_id, team_name=p.team_name,
             is_reviewer=p.Project.id in reviewed_pids,
+            hidden=bool(p.Project.hidden),
             **metrics[p.Project.id],
         )
         for p in projects_with_teams
@@ -338,6 +378,7 @@ def get_project(project_id: int, db: Session = Depends(get_db), user: models.Use
     return {
         "id": p.id, "name": p.name, "slug": p.slug, "type": p.type, "status": p.status,
         "creator": p.creator, "created_at": p.created_at, "team_id": p.team_id,
+        "hidden": bool(p.hidden),
         "is_owner": is_project_creator(p, user, annotator),
         "is_reviewer": is_project_reviewer(p, user, db, annotator),
         "reviewers": reviewer_names(project_id, db),
@@ -480,6 +521,8 @@ def _apply_project_update(db_project: models.Project, project_update: schemas.Pr
         db_project.status = project_update.status
     if "team_id" in fields_set or project_update.team_id is not None:
         db_project.team_id = project_update.team_id
+    if project_update.hidden is not None:
+        db_project.hidden = project_update.hidden
 
 @router.patch("/{project_id}")
 def patch_project(project_id: int, project_update: schemas.ProjectUpdate, request: Request, db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
@@ -488,6 +531,11 @@ def patch_project(project_id: int, project_update: schemas.ProjectUpdate, reques
     # see the note in delete_project. Owner only.
     if not is_project_creator(db_project, user, annotator):
         raise HTTPException(status_code=403, detail="Only the project creator can edit this project.")
+    # Hiding takes the project away from the caller too unless they are the
+    # owner it stays visible to, so it is held to that stricter check: anyone
+    # else who hid it could not see it again to undo it.
+    if project_update.hidden is not None and not sees_hidden_project(db_project, user, annotator):
+        raise HTTPException(status_code=403, detail="Only the project creator can hide or unhide this project.")
     _apply_project_update(db_project, project_update)
     commit_with_retry(db)
     return {"status": "ok"}

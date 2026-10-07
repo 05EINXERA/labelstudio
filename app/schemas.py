@@ -54,6 +54,8 @@ class ProjectUpdate(BaseModel):
     name: Optional[str] = None
     status: Optional[str] = None
     team_id: Optional[int] = None
+    # Omitted leaves visibility alone, which is what the edit form sends.
+    hidden: Optional[bool] = None
 
 class ProjectReviewerCreate(BaseModel):
     """Appoint one annotator as a reviewer of a project.
@@ -123,6 +125,9 @@ class ProjectSummary(BaseModel):
     # The caller's own standing, so the list can badge the role; see
     # api/routers/projects.is_project_reviewer.
     is_reviewer: bool = False
+    # Only ever true in the owner's own list: a hidden project is not listed
+    # for anyone else.
+    hidden: bool = False
     total: int = 0
     completed: int = 0
     in_progress: int = 0

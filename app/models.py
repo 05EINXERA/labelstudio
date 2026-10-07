@@ -1,5 +1,5 @@
 """SQLAlchemy ORM models for database persistence."""
-from sqlalchemy import Column, Integer, String, DateTime, func, Text, ForeignKey, Float, LargeBinary, UniqueConstraint
+from sqlalchemy import Boolean, Column, Integer, String, DateTime, func, Text, ForeignKey, Float, LargeBinary, UniqueConstraint, false
 
 # All timestamp columns store timezone-aware UTC (CLAUDE.md rule 7). Without
 # timezone=True, Postgres silently strips tzinfo on write and hands back a
@@ -39,6 +39,12 @@ class Project(Base):
     owner_id = Column(Integer, ForeignKey("users.id"), index=True)
     created_at = Column(UTCDateTime, server_default=func.now())
     team_id = Column(Integer, ForeignKey("teams.id"), nullable=True, index=True)
+    # Set by the owner to take the project out of everyone else's view without
+    # deleting it or unassigning anyone. While set, only the owner can list or
+    # open the project and its tasks (see `sees_hidden_project` in
+    # api/routers/projects.py); team membership, task assignments and reviewer
+    # appointments are left intact, so unhiding restores access exactly as it was.
+    hidden = Column(Boolean, nullable=False, default=False, server_default=false())
 
 class Task(Base):
     __tablename__ = "tasks"
