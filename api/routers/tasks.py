@@ -33,6 +33,7 @@ from api.routers.projects import (
     get_user_accessible_team_ids,
     is_project_creator,
     is_project_reviewer,
+    reviewed_project_ids,
     visible_project_condition,
 )
 
@@ -50,6 +51,15 @@ logger = logging.getLogger(__name__)
 # frontend/js/pages/project/tasks.js.
 LOCKED_STATUSES = {
     "Completed", "Approved", "Verified", "Passed", "Reviewed", "Monitored",
+}
+
+# Review outcomes: once a task carries one of these it is out of the
+# annotators' hands, and only the project owner and its appointed reviewers can
+# still list or open it (see _review_visibility_filter). 'Completed' and
+# 'Declined' are deliberately absent — the annotator must still see work they
+# have finished and work that was sent back to them.
+REVIEW_HIDDEN_STATUSES = {
+    "Approved", "Verified", "Checked", "Passed", "Monitored", "Reviewed",
 }
 
 # Columns GET /api/tasks may be ordered by. Anything else falls back to
@@ -237,6 +247,39 @@ def _creator_project_ids(user: models.User, db: Session, annotator: Optional[mod
     ]
 
 
+def _review_project_ids(user: models.User, db: Session, annotator: Optional[models.TeamMember] = None) -> set:
+    """Ids of the projects whose reviewed tasks the caller may still see.
+
+    The owner and appointed reviewers. Ownership is `_creator_project_ids`, the
+    profile-strict rule, not `is_project_creator`: that one admits the shared
+    login's `owner_id` under any annotator profile, so on this deployment it
+    is true for every annotator and would hide the tasks from nobody.
+    """
+    return set(_creator_project_ids(user, db, annotator)) | set(
+        reviewed_project_ids(user, db, annotator)
+    )
+
+
+def _review_visibility_filter(user: models.User, db: Session, annotator: Optional[models.TeamMember] = None):
+    """SQL filter dropping tasks in a review-outcome status for plain annotators.
+
+    Applied to the read paths only (list, sequence, detail). The save path is
+    left alone on purpose: an annotator may have the task open with unsaved
+    work when the owner approves it, and turning their next autosave into a 404
+    would strand that work (04_ANNOTATION_SAVE_LOSS.md).
+    """
+    # NULL-safe: a bare NOT IN is NULL for a task with no status, which would
+    # silently drop every never-touched task from the list.
+    not_reviewed = or_(
+        models.Task.status.is_(None),
+        models.Task.status.notin_(REVIEW_HIDDEN_STATUSES),
+    )
+    privileged = _review_project_ids(user, db, annotator)
+    if privileged:
+        return or_(models.Task.project_id.in_(privileged), not_reviewed)
+    return not_reviewed
+
+
 def _is_task_editor(task: models.Task, user: models.User, db: Session, annotator: Optional[models.TeamMember] = None) -> bool:
     """True if the caller may edit `task` — any of its assignees, the owner, or a reviewer.
 
@@ -342,6 +385,7 @@ def get_tasks(
         query = db.query(models.Task).filter(
             models.Task.project_id.in_(_accessible_project_ids(user, db, annotator))
         )
+    query = query.filter(_review_visibility_filter(user, db, annotator))
 
     if search:
         query = query.filter(
@@ -449,7 +493,10 @@ def get_tasks(
 @router.get("/sequence/{projectId}", response_model=List[TaskSequenceItem])
 def get_task_sequence(projectId: int, db: Session = Depends(get_db), user: models.User = Depends(get_current_user), annotator: Optional[models.TeamMember] = Depends(get_current_annotator)):
     get_owned_project(projectId, user, db, annotator)
-    tasks = db.query(models.Task).filter(models.Task.project_id == projectId).order_by(models.Task.id).with_entities(models.Task.id, models.Task.description, models.Task.image_path).all()
+    tasks = db.query(models.Task).filter(
+        models.Task.project_id == projectId,
+        _review_visibility_filter(user, db, annotator),
+    ).order_by(models.Task.id).with_entities(models.Task.id, models.Task.description, models.Task.image_path).all()
     return [{"id": t.id, "description": t.description, "image_path": t.image_path} for t in tasks]
 
 @router.get("/label-usage/{projectId}")
@@ -477,6 +524,13 @@ def get_task(task_id: int, db: Session = Depends(get_db), user: models.User = De
     # _get_owned_task does not eager-load annotations, but since it's one task, lazy load is fine.
     # Pydantic TaskDetail response_model will handle serialization of `task.annotations`.
     task = _get_owned_task(task_id, user, db, annotator, require_edit=False)
+    # 404, not 403, to match the list: for an annotator a reviewed task is
+    # simply not there.
+    if (
+        task.status in REVIEW_HIDDEN_STATUSES
+        and task.project_id not in _review_project_ids(user, db, annotator)
+    ):
+        raise HTTPException(status_code=404, detail="Task not found")
     return TaskDetail(
         id=task.id,
         description=task.description,
