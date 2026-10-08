@@ -17,6 +17,8 @@ from formats.common import annotation_dicts
 from formats.label_reconcile import apply_label_map, build_label_map
 from schemas import (
     APPROVED_STATUSES,
+    AssignmentEventOut,
+    AssignmentSide,
     is_approved,
     REVIEW_ACTION_STATUS,
     REVIEW_STATUSES,
@@ -2011,6 +2013,72 @@ def list_task_reviews(
         .all()
     )
     return [_review_out(review, username) for review, username in rows]
+
+
+# Newest events kept when a task has more than this (H-25): a task reassigned
+# this often is a bug worth seeing, not a list worth paging.
+ASSIGNMENT_HISTORY_LIMIT = 500
+
+
+def _as_utc(value: datetime.datetime) -> datetime.datetime:
+    """SQLite hands timezone-aware columns back naive; Postgres does not.
+
+    A naive value would serialise without an offset and the browser would read
+    it as local time. Everything is stored as UTC, so say so explicitly.
+    """
+    if value.tzinfo is None:
+        return value.replace(tzinfo=datetime.timezone.utc)
+    return value.astimezone(datetime.timezone.utc)
+
+
+@router.get(
+    "/{task_id}/assignment-history",
+    response_model=List[AssignmentEventOut],
+    response_model_by_alias=True,
+)
+def get_assignment_history(
+    task_id: int,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """Who a task was assigned to and when, oldest first. Read-only.
+
+    Manager and above: the same people who can see the Assign button. The log
+    is `TaskAssignmentEvent`; current state stays on the task row
+    (.devnotes/features/task-assignment-history/02_DESIGN.md).
+    """
+    require_task(task_id, user, db, minimum=ProjectRole.MANAGER)
+
+    E = models.TaskAssignmentEvent
+    # Newest N, then re-ordered oldest-first for display.
+    rows = (
+        db.query(E, models.User.username)
+        .outerjoin(models.User, models.User.id == E.changed_by_id)
+        .filter(E.task_id == task_id)
+        .order_by(E.created_at.desc(), E.id.desc())
+        .limit(ASSIGNMENT_HISTORY_LIMIT)
+        .all()
+    )
+    rows.reverse()
+    return [
+        AssignmentEventOut(
+            id=e.id,
+            created_at=_as_utc(e.created_at),
+            source=e.source,
+            changed_by_username=username,
+            **{
+                "from": AssignmentSide(
+                    team=e.team_from_name, team_id=e.team_from_id,
+                    user=e.user_from_name, user_id=e.user_from_id,
+                ),
+            },
+            to=AssignmentSide(
+                team=e.team_to_name, team_id=e.team_to_id,
+                user=e.user_to_name, user_id=e.user_to_id,
+            ),
+        )
+        for e, username in rows
+    ]
 
 
 # ---------------------------------------------------------------------------
