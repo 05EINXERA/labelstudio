@@ -134,6 +134,8 @@ def world(client, alice):
                 headers=alice,
             )
             assert s.status_code == 200, s.text
+        # The setup save above went through the real hook; start from a clean tracker.
+        ws.reset_for_tests()
         return tid
 
     return {"uid": uid, "make_task": make_task, "client": client, "auth": alice}
