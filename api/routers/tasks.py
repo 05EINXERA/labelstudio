@@ -40,6 +40,12 @@ from schemas import (
     TaskUpdate,
 )
 from api.auth import get_current_user, require_csrf
+from api.assignment_history import (
+    SOURCE_ASSIGN,
+    SOURCE_BULK_ASSIGN,
+    record as record_assignment,
+    snapshot as assignment_snapshot,
+)
 from api.fast_request import FastJSONRoute
 from api.permissions import (
     ProjectRole,
@@ -2105,6 +2111,15 @@ def update_task_assignment(
         assignee_to=new_user,
         warnings=len(warnings) or None,
     )
+    # History is written in the same transaction as the change (no second
+    # commit) and only when something actually changed.
+    record_assignment(
+        db,
+        {task.id: (task.assigned_team_id, task.assignee_user_id)},
+        (new_team, new_user),
+        actor_id=user.id,
+        source=SOURCE_ASSIGN,
+    )
     task.assigned_team_id = new_team
     task.assignee_user_id = new_user
     commit_with_retry(db)
@@ -2165,9 +2180,23 @@ def bulk_assign_tasks(
         update_data[models.Task.assignee_user_id] = payload.assignee_user_id
 
     if update_data:
+        # Read the old values first: the UPDATE below never loads the rows.
+        before = assignment_snapshot(db, models.Task.id.in_(allowed))
+        # A field that was not sent leaves each task's own value alone, so the
+        # new state is computed per task rather than as one tuple.
+        after = {
+            tid: (
+                payload.assigned_team_id if "assigned_team_id" in sent else team,
+                payload.assignee_user_id if "assignee_user_id" in sent else person,
+            )
+            for tid, (team, person) in before.items()
+        }
         update_data[models.Task.updated_at] = datetime.datetime.now(datetime.timezone.utc)
         db.query(models.Task).filter(models.Task.id.in_(allowed)).update(
             update_data, synchronize_session=False
+        )
+        record_assignment(
+            db, before, after, actor_id=user.id, source=SOURCE_BULK_ASSIGN
         )
         commit_with_retry(db)
 
