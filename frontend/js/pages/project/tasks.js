@@ -22,6 +22,7 @@ import { createDataTable } from "../../components/data-table.js?v=6";
 import { fillTeamSelect } from "../../components/team-picker.js?v=2";
 import { canManage, canReview } from "../../permissions.js?v=1";
 import { openAssignDialog } from "./assign-modal.js?v=2";
+import { openAssignmentHistory } from "./assignment-history.js?v=1";
 import { matchAssignees, isSearchFilterValue } from "./assignee-search.js?v=1";
 import {
   RETURN_TICKET_KEY,
@@ -37,7 +38,7 @@ import {
   showsSelection,
   showsUpload,
   statusPill,
-} from "./task-columns.js?v=11";
+} from "./task-columns.js?v=12";
 import { installThumbFallback, thumbUrl } from "../../thumb-url.js?v=1";
 
 let root = null;
@@ -1144,6 +1145,7 @@ export async function mount(hostRoot, hostCtx, hashParams, { inPageNavigation = 
   });
 
   table.onAction("assign", (row) => assignTasks(row));
+  table.onAction("history", (row) => openAssignmentHistory(row));
   // The one-click ✓ approves into the default batch. Approving into a specific
   // batch (Verified, Checked, …) is done from the row's status dropdown, or in
   // bulk from the toolbar — a per-row button per batch would crowd the row for
