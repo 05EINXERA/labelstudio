@@ -40,7 +40,7 @@ from api.middleware import ServiceLogMiddleware  # noqa: E402
 from api.compression import RequestDecompressionMiddleware  # noqa: E402
 from api.telemetry_timing import ServerTimeMiddleware  # noqa: E402
 from jobs.runner import get_runner  # noqa: E402
-from api.routers import projects, tasks, team, teams, grants, time_logs, data, detect, label_studio, labels, auth, imports, exports, image_info, attendance, telemetry, thumbs  # noqa: E402
+from api.routers import projects, tasks, team, teams, grants, time_logs, data, detect, label_studio, labels, auth, imports, exports, image_info, attendance, telemetry, thumbs, team_activity  # noqa: E402
 from database import engine  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -77,6 +77,13 @@ async def _set_threadpool_capacity() -> None:
     except Exception as exc:  # pragma: no cover - attendance never breaks startup
         logger.warning("Could not start the attendance drain (%s)", exc)
 
+    # Work-session drain (team monitoring). A no-op while MONITOR_ENABLED is off.
+    try:
+        from api import work_sessions
+        work_sessions.start_drain()
+    except Exception as exc:  # pragma: no cover - monitoring never breaks startup
+        logger.warning("Could not start the work-session drain (%s)", exc)
+
     # Build the heavy-job runner now, which clears job files a previous
     # process left behind (no export or import survives a restart).
     runner = get_runner()
@@ -97,6 +104,12 @@ async def _flush_attendance() -> None:
         await attendance.stop_drain()
     except Exception as exc:  # pragma: no cover - never worth failing shutdown
         logger.warning("Attendance shutdown flush failed (%s)", exc)
+
+    try:
+        from api import work_sessions
+        await work_sessions.stop_drain()
+    except Exception as exc:  # pragma: no cover - never worth failing shutdown
+        logger.warning("Work-session shutdown flush failed (%s)", exc)
 
     # A stopping server must not leave export/import children running.
     get_runner().shutdown()
@@ -287,6 +300,7 @@ app.include_router(projects.router)
 app.include_router(tasks.router)
 app.include_router(teams.router)
 app.include_router(grants.router)
+app.include_router(team_activity.router)
 app.include_router(time_logs.router)
 # Deprecated alias for /api/time-logs, kept one release for cached JS bundles.
 app.include_router(team.router)
@@ -333,11 +347,20 @@ def health():
         logger.warning("Could not read attendance drain status (%s)", exc)
         attendance_health = {"enabled": None, "healthy": None, "error": str(exc)}
 
+    monitor_health = {"enabled": False}
+    try:
+        from api import work_sessions
+        monitor_health = work_sessions.drain_status()
+    except Exception as exc:  # pragma: no cover - health must never 500
+        logger.warning("Could not read work-session drain status (%s)", exc)
+        monitor_health = {"enabled": None, "healthy": None, "error": str(exc)}
+
     return {
         "status": "ok" if db_ok else "degraded",
         "database": "up" if db_ok else "down",
         "environment": "production" if IS_PRODUCTION else "development",
         "attendance": attendance_health,
+        "monitor": monitor_health,
         # Exports and imports in flight. A large `oldest_running_s` with
         # nothing finishing is a stuck job; health-check.ps1 can alert on it.
         "heavy_jobs": get_runner().health(),

@@ -34,7 +34,7 @@ async function init() {
   // Loaded lazily so the list page never pulls in the team shell's four views,
   // and vice versa. Literal paths keep the imports statically analysable.
   if (showTeam) {
-    const mod = await import("./team/router.js?v=16");
+    const mod = await import("./team/router.js?v=17");
     await mod.start(Number(teamId), user);
   } else {
     const mod = await import("./teams-list.js?v=2");

@@ -1090,3 +1090,64 @@ class ImportJobStatus(BaseModel):
     # Failed: the message and the HTTP status the synchronous endpoint uses.
     error: Optional[str] = None
     error_status: Optional[int] = None
+
+
+# --- Team monitoring (.devnotes/feature/team-monitoring/02_DESIGN.md § 4) ----
+
+class WorkSessionSummaryRow(BaseModel):
+    """All of one member's stretches on one task in the range, pivoted to a row."""
+    user_id: int
+    username: str
+    task_id: Optional[int] = None
+    task_name: Optional[str] = None
+    active_seconds: int
+    sessions: int
+    first_start: datetime
+    last_end: datetime
+    # Task totals at the first stretch's start / last stretch's end. None = not
+    # measured; never 0. Not authorship: annotations carry no author.
+    objects_start: Optional[int] = None
+    objects_end: Optional[int] = None
+    objects_delta: Optional[int] = None
+
+
+class WorkSessionRow(BaseModel):
+    """One stretch, for the expanded view of a summary row."""
+    id: int
+    user_id: Optional[int] = None
+    task_id: Optional[int] = None
+    task_name: Optional[str] = None
+    started_at: datetime
+    last_at: datetime
+    active_seconds: int
+    objects_start: Optional[int] = None
+    objects_end: Optional[int] = None
+
+
+class IdleMember(BaseModel):
+    user_id: int
+    username: str
+
+
+class WorkSessionSummaryResponse(BaseModel):
+    enabled: bool
+    team_id: int
+    team_name: str
+    timezone: str
+    date_from: date
+    date_to: date
+    as_of: Optional[datetime] = None
+    # Earliest stretch ever recorded for these members: tells an owner why a
+    # range before the feature shipped is empty.
+    monitoring_since: Optional[datetime] = None
+    truncated: bool = False
+    rows: List[WorkSessionSummaryRow] = []
+    idle_members: List[IdleMember] = []
+
+
+class WorkSessionListResponse(BaseModel):
+    enabled: bool
+    team_id: int
+    timezone: str
+    truncated: bool = False
+    rows: List[WorkSessionRow] = []

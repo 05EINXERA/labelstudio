@@ -20,6 +20,7 @@ import { canManageTeam } from "../../permissions.js?v=1";
 const NAV_ITEMS = [
   { route: "members", label: "Members", icon: "👥", title: "Team roster", minRole: "member" },
   { route: "projects", label: "Projects", icon: "📁", title: "Projects this team can reach", minRole: "member" },
+  { route: "activity", label: "Activity", icon: "⏱️", title: "What each member worked on", minRole: "manager" },
   { route: "settings", label: "Settings", icon: "⚙️", title: "Rename, transfer, delete", minRole: "manager" },
 ];
 
@@ -28,6 +29,7 @@ const DEFAULT_ROUTE = "members";
 const VIEWS = {
   members: () => import("./members.js?v=2"),
   projects: () => import("./projects.js?v=2"),
+  activity: () => import("./activity.js?v=1"),
   settings: () => import("./settings.js?v=2"),
 };
 

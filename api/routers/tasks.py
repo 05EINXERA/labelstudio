@@ -41,6 +41,7 @@ from schemas import (
     TaskSearchRow,
     TaskUpdate,
 )
+from api import work_sessions
 from api.auth import get_current_user, require_csrf
 from api.assignment_history import (
     SOURCE_ASSIGN,
@@ -1245,6 +1246,10 @@ def get_lock_status(task_id: int,
 def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(None), db: Session = Depends(get_db), user: models.User = Depends(get_current_user)):
     # The count memo is keyed on string identity, so it must not span requests.
     _reset_parse_cache()
+    # Set in the update branch for a save that carries an annotation set, and
+    # handed to the work-session tracker only after the final commit: a refused
+    # (409/422/403) or failed save must leave no count behind.
+    monitor_save = None
     if task.id:
         db_task = require_task(task.id, user, db, minimum=ProjectRole.ANNOTATOR)
 
@@ -1631,6 +1636,8 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
             if task.annotations is not None
             else objects_prev
         )
+        if task.annotations is not None:
+            monitor_save = (db_task.id, objects_prev, objects_now)
         log_event(
             "task.save",
             task=db_task.id,
@@ -1746,6 +1753,10 @@ def update_or_create_task(task: TaskUpdate, projectId: Optional[int] = Query(Non
         
     _sync_project_status(db_task.project_id, db)
     commit_with_retry(db)
+    if monitor_save is not None:
+        # After the commit, dict operations only (api/work_sessions.py): costs the
+        # save no query and cannot lengthen or roll back its transaction.
+        work_sessions.note_save(user.id, *monitor_save)
     return {"id": task_id, "status": "ok", "updated_at": new_updated_at.isoformat()}
 
 @router.patch("/{task_id}")

@@ -119,8 +119,8 @@ MAX_DECOMPRESSED_BODY = int(
 # (40 + 5 = 45 minimum; default Postgres is 100, which is fine).
 #
 # NOTE — multi-worker gate (D3): the app must stay a single uvicorn worker
-#   because JOBS, _models, and _TASK_LOCKS are in-process state (CLAUDE.md
-#   rule 9). Do not add --workers N until that state is moved out of process.
+#   because JOBS, _models, _TASK_LOCKS and the work-session tracker are in-process
+#   state (CLAUDE.md rule 9). Do not add --workers N until that state is moved out of process.
 DB_POOL_SIZE = int(os.environ.get("DB_POOL_SIZE", "20"))
 DB_MAX_OVERFLOW = int(os.environ.get("DB_MAX_OVERFLOW", "20"))
 DB_POOL_TIMEOUT = int(os.environ.get("DB_POOL_TIMEOUT", "30"))
@@ -365,6 +365,28 @@ TELEMETRY_DIR = (
 # Restrict capture to these client IPs (comma-separated); empty means all.
 # Used for the one-seat soak before the whole office is enabled.
 TELEMETRY_ONLY_IPS = _csv("TELEMETRY_ONLY_IPS", "")
+# --- Team monitoring ---------------------------------------------------------
+#
+# Per-member working stretches for team owners (.devnotes/feature/team-monitoring/).
+# Default OFF: ships dark, and the flag is the whole rollback story. Site-local
+# day bucketing reuses ATTENDANCE_TZ rather than adding a second zone setting
+# that could disagree with it.
+MONITOR_ENABLED = _flag("MONITOR_ENABLED", False)
+
+# A silence this long (or longer) ends a stretch. 5 minutes, matching the
+# annotation timer's idle pause (timer.js IDLE_TIMEOUT_MS) and the attendance
+# IDLE_GAP, so the three mechanisms agree about when someone stopped.
+MONITOR_SESSION_GAP_SECONDS = int(os.environ.get("MONITOR_SESSION_GAP_SECONDS", "300"))
+
+# Checkpoint interval of the background drain. Bounds both how stale the page
+# can be and how much a crash loses.
+MONITOR_FLUSH_SECONDS = int(os.environ.get("MONITOR_FLUSH_SECONDS", "60"))
+
+# Hard ceiling on in-memory stretches; past it the oldest closed ones are dropped.
+MONITOR_BUFFER_MAX = int(os.environ.get("MONITOR_BUFFER_MAX", "2000"))
+
+# Widest range one request may read, in days.
+MONITOR_MAX_RANGE_DAYS = int(os.environ.get("MONITOR_MAX_RANGE_DAYS", "31"))
 
 
 class ConfigError(RuntimeError):

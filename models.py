@@ -623,3 +623,42 @@ class AttendanceDay(Base):
             "user_id", "local_date", "instance_id", name="uq_attendance_day"
         ),
     )
+
+
+class WorkSession(Base):
+    """One user's continuous working stretch on one task.
+
+    The storage behind the team Activity tab (.devnotes/feature/team-monitoring/).
+    A stretch is a run of timer pings / accepted saves for one (user, task) with
+    no gap of MONITOR_SESSION_GAP_SECONDS or more. Filled write-behind by
+    `api/work_sessions.py`; nothing on the save or ping request path writes it.
+    """
+
+    __tablename__ = "work_sessions"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    # SET NULL on both FKs: deleting a task or an account must not destroy the
+    # fact that someone worked (same reasoning as AttendanceObservation).
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    # index=True is load-bearing, not tidiness. On Postgres, deleting tasks with
+    # no index on this referencing column scans this whole table once per
+    # deleted task, and bulk task deletion is a normal operation here.
+    task_id = Column(
+        Integer, ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # Snapshot of tasks.description when the row was first written, so a row
+    # stays legible after its task is deleted.
+    task_name = Column(String(255), nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=False)
+    last_at = Column(DateTime(timezone=True), nullable=False)
+    # Sum of timer-ping seconds: the client's active clock, idle already rolled
+    # back. Not last_at - started_at, which includes in-gap idle.
+    active_seconds = Column(Integer, nullable=False, default=0)
+    # The task's stored shape count when the stretch began / after its last
+    # accepted save. NULL means "not measured" and must never be written as 0.
+    # These are task totals, not authorship: annotations carry no author.
+    objects_start = Column(Integer, nullable=True)
+    objects_end = Column(Integer, nullable=True)
+
+    __table_args__ = (
+        Index("ix_work_sessions_user_started", "user_id", "started_at"),
+    )
