@@ -340,6 +340,14 @@ TASK_STATUSES = [
     "Verified", "Checked", "Passed", "Reviewed", "Monitored",
 ]
 
+# Statuses that count a task as done for project progress and for the project
+# status rollup: finished by the annotator, or carrying a positive review
+# outcome. 'Declined' is absent: the work was sent back.
+DONE_TASK_STATUSES = frozenset({
+    "Completed", "Approved", "Verified", "Monitored", "Passed", "Reviewed",
+    "Checked",
+})
+
 # ---------------------------------------------------------------------------
 # Image size vocabulary (Image Inventory)
 # ---------------------------------------------------------------------------

@@ -268,7 +268,7 @@ def _aggregate_metrics(project_ids: List[int], db: Session) -> dict:
             continue
         entry = metrics[pid]
         entry["total"] += count
-        if status == 'Completed':
+        if status in schemas.DONE_TASK_STATUSES:
             entry["completed"] += count
         elif status == 'In Progress':
             entry["in_progress"] += count
