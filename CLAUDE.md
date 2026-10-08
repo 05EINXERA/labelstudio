@@ -47,6 +47,68 @@ These are prescriptive. Where existing code disagrees with a rule, the rule
 wins; fix the old code opportunistically when you touch it, and never copy the
 old pattern into new code.
 
+### How to work here (read this first)
+
+The rules below say *what* this codebase requires. This section says how to
+work so that you actually satisfy them instead of believing you have. Every
+item is here because it has already gone wrong in this repo, usually expensively.
+
+**A. Verify instead of recalling. Your memory of this codebase is a guess.**
+Before you state how something behaves, open the file that decides it. "JS
+changes need a hard reload" sat in rule 13 for months and was false — the
+`no-cache` middleware in `main.py` had made an ordinary reload sufficient, and
+nobody re-read the header. A claim about this system is worth exactly as much
+as the file, test run or command output you can point at. If you did not look,
+say you did not look.
+
+**B. Report what happened, not what you intended.** When you say a test was
+added, a suite passed, or a file was edited, that must describe a result you
+observed — not the action you attempted. A string-replace that silently matches
+nothing, a stale log read as if it were fresh, a suite whose exit code you never
+checked: each produces a confident, false report, and a false green is far more
+expensive than a red. If a step was skipped, blocked or unverified, say so in
+the same breath as the thing that worked.
+
+**C. Measure before you optimise, and look at the real data.** The server stall
+was not guessed; it was found by timing the blob parse at ~185 ms of GIL-held
+CPU (`.devnotes/server-issue-diagnosis/`). The backup truncation turned out to
+be a laptop on battery and Task Scheduler, not anything in the dump code
+(`08_BACKUP_TRUNCATION.md`). Both were invisible from the source and obvious
+from the data. Reach for a measurement, a row count, an actual payload.
+
+**D. Prefer the boring solution; earn every abstraction.** This codebase is
+deliberately plain — vanilla JS, no build step, one router per resource, pure
+modules you can run under `node` in a second. That is a feature. Do not add a
+framework, a layer, a config switch, a cache or a generalisation on the first
+occurrence of a problem. Write the direct version, make it correct, and let the
+*second* real case tell you what the abstraction should be. A clever structure
+that one person understands is a liability in a shared repo.
+
+**E. Solve the problem in front of you, at its actual size.** Fix the bug that
+was reported; do not quietly rewrite the subsystem around it. If you discover
+a second, larger problem, say so and let the reader decide — do not fold it
+into the change. A diff that does one thing can be reviewed; one that does four
+cannot, and this is a repo where unreviewable changes have destroyed annotator
+work.
+
+**F. Assume your change is wrong until something external says otherwise.**
+Run the suite, run the node spec, exercise the real path. The pure modules
+(`untangle.js`, `merge.js`, `objects-filter.js`, `formats/`) exist precisely so
+that this is cheap — a spec runs in well under a second. Favour a failing test
+you can watch go green over an argument about why the code must be correct.
+
+**G. Treat silent correctness as the enemy.** The worst failures here have all
+been quiet: a draft that stopped saving past ~1,000 polygons because
+localStorage filled, a timestamp-only conflict check that dropped a second
+annotator's work, a save that removed shapes nobody deleted. When you write a
+path that can fail, make the failure visible (rule 3) — never leave the system
+confidently doing the wrong thing.
+
+**H. Say when you are unsure, and stop at the real boundary.** "I think this is
+right but I did not run it" is useful; false confidence is not. For anything
+touching production data, the `dev` branch, backups, migrations or a destructive
+git operation, state the risk and ask rather than proceeding on assumption.
+
 ### Backend
 
 1. **All `/api/*` routes require auth** via `dependencies=[Depends(get_current_user)]` on the router — except `/api/auth/*`. This now holds across every router (the old `tasks.py`/`data.py`/`label_studio.py` gaps are closed). Any new router must include the auth dependency.
@@ -70,7 +132,7 @@ old pattern into new code.
 
 ### Frontend
 
-13. **All frontend code lives in ES modules under `frontend/js/`**, imported from the page scripts. The old `frontend/app.js` monolith is gone — the canvas page is fully decomposed (`init.js` is the entry point, with `components/`, `canvas/`, `pages/` beneath it); do not recreate a catch-all file. Module imports are version-pinned (`./foo.js?v=1`); a JS change that clients must pick up needs a hard reload (content-hashing is a deferred item — see tasks.md D4). **Bump the pin at *every* import site of a changed module, plus the entry `<script>` tag in the page** — a partial bump ships clients a mix of old and new modules.
+13. **All frontend code lives in ES modules under `frontend/js/`**, imported from the page scripts. The old `frontend/app.js` monolith is gone — the canvas page is fully decomposed (`init.js` is the entry point, with `components/`, `canvas/`, `pages/` beneath it); do not recreate a catch-all file. Module imports are version-pinned (`./foo.js?v=1`); the pin is the only invalidation mechanism (content-hashing is a deferred item — see tasks.md D4). **Bump the pin at *every* import site of a changed module, plus the entry `<script>` tag in the page** — a partial bump ships clients a mix of old and new modules. Annotators then need an ordinary reload, **not** a hard reload: `main.py`'s middleware serves HTML/JS/CSS as `Cache-Control: no-cache`, so the browser revalidates the page on every load, gets the new pins, and fetches the changed modules as new URLs. What a reload cannot do is reach a tab nobody reloads — an open canvas keeps running the old modules until someone reloads it, so a behavioural change does not take effect across the floor until then.
 14. **Auth state lives in the httpOnly cookie.** `localStorage['logged_in']` is only a UI hint for redirects — never treat it as security.
 15. **Modals:** toggle with `classList.add/remove('is-active')`, never `style.display` (CSS transitions depend on the class — see `.agents/AGENTS.md`).
 16. All backend calls from authenticated pages go through the `apiFetch` wrapper (handles 401 → redirect), not raw `fetch`.
@@ -92,17 +154,55 @@ old pattern into new code.
 ### Workflow
 
 - **`dev` (production) and `dev-stage` differ by one thing: the temporary network-telemetry feature** (`api/routers/telemetry.py`, `api/telemetry_timing.py`, `frontend/js/telemetry/`, `scripts/telemetry_report.py`, `tests/*telemetry*`, `TELEMETRY_*` in `config.py`/`.env.example`, the `boot.js` tag in each `frontend/*.html`, a few lines in `main.py`/`schemas.py`). It must never reach `dev`. So: **never merge `dev-stage` into `dev`**. Branch new work from `dev`, then merge that branch into `dev` (in the production worktree, where `dev` is checked out) and into `dev-stage` separately. Expect a trivial conflict in the `frontend/*.html` script tags on the `dev-stage` merge: keep the telemetry `<script>` and take the new `?v=` pin. Before merging into `dev`, `git diff dev <branch> --stat` must show no telemetry file. Removal is `chore/remove-network-telemetry`; see `.devnotes/frontend-telemetry/06_ROLLBACK_AND_CLEANUP.md`.
-- Branch from `main`: `feat/<slug>`, `fix/<slug>`, `docs/<slug>`.
+- **Branch from `dev`**, never from `main`: `feat/<slug>`, `fix/<slug>`, `docs/<slug>`. `main` is abandoned at the initial commit (2026-07-19) and is hundreds of commits behind; branching from it produces a diff against the wrong world. `dev` is the production branch. Parts of `docs/DEVELOPMENT_GUIDE.md` still say `main` and are wrong on that point — this rule wins.
 - Commits: imperative summary line ≤ 72 chars, conventional prefix (`feat:`, `fix:`, `docs:`, `refactor:`, `chore:`, `test:`).
 - Before pushing: run the app locally (`venv\Scripts\uvicorn.exe main:app --port 8001`, or `scripts/run-dev.ps1` which loads `.env`) and exercise the feature; run `pytest tests/` if tests exist for the area (see
   *Running the tests* below — bare `pytest` does not work here).
-- Full workflow: `docs/DEVELOPMENT_GUIDE.md`.
+- Full workflow: `docs/DEVELOPMENT_GUIDE.md` (note: its branch instructions still say `main` and are stale — see the branching rule above).
+
+### Keeping this file true
+
+This file is the first thing every agent reads and the only context many of them
+get. A wrong line here is worse than a missing one: it is believed and acted on.
+It has drifted before — it told people to branch from an abandoned `main`, and
+claimed JS changes needed a hard reload long after that stopped being true.
+
+**Update CLAUDE.md in the same commit as the change** when your work does any of:
+
+- changes a rule above, or makes one false (rule 13's reload claim is the cautionary example);
+- adds or removes a router, a top-level module, or a directory named in the key file map;
+- changes the branch/merge/deploy workflow, or anything about `dev` vs `dev-stage`;
+- establishes a new invariant someone could unknowingly break — especially one
+  mirrored in two places (`permissions.py`/`permissions.js`,
+  `schemas.py`/`task-status.js`, `config.py`/`wipe-guard.js`);
+- removes a deprecated alias this file still says exists, or completes a phase
+  it describes as pending (`get_owned_project` F5, `dataset_username` F3, the
+  telemetry removal);
+- changes how the tests are run, or materially changes the pre-existing-failure count.
+
+**Do not** add a line for an ordinary bug fix, a new endpoint that follows the
+existing rules, or anything already obvious from the code. This file is a map of
+the things you cannot infer by reading — decisions, traps and deliberate
+weirdness. Length is a cost: every line competes for attention with the rules
+that matter.
+
+**When you find a line here that is wrong, fix it then** — do not route around
+it silently. A stale rule that everyone has learned to ignore is the failure
+mode this section exists to prevent. Keep `AGENTS.md` pointing here rather than
+restating anything; it is a pointer precisely because the duplicate copy drifted
+for months.
+
+**Mid-session staleness is handled for you.** `.claude/hooks/claude_md_freshness.py`
+re-injects a diff when this file changes on disk after a session started (the
+system-prompt copy is a snapshot and is never refreshed). If you see a
+`[project-instructions-changed]` block, that diff wins over your system prompt.
 
 ### Running the tests
 
-**Gather everything in one pass.** The suite takes ~3 minutes, so do not run it,
-read the failures, and then run it again to check them against a baseline. Set
-up the comparison *before* the first run and get both results together:
+**Gather everything in one pass.** The suite takes ~5m40s (measured 2026-10-06,
+1,607 tests), so do not run it, read the failures, and then run it again to
+check them against a baseline. Set up the comparison *before* the first run and
+get both results together:
 
 ```bash
 # Baseline in a worktree at the pre-change commit, current tree in place.
@@ -129,8 +229,13 @@ Points that will otherwise cost a re-run:
   error that looks like a real failure and is not. An explicit basetemp also
   keeps two concurrent runs from sharing one temp root. Delete the directory
   afterwards; it is not gitignored.
-- **The suite has ~33 pre-existing failures** (export, mask, YOLO and
-  image-output fixtures). Diff against a baseline before attributing any of them
+- **The suite has 35 pre-existing failures** (`35 failed, 1568 passed, 4 skipped`,
+  measured 2026-10-06 on `dev-stage`). They are not only the format fixtures:
+  masks 11, import/export formats 6, YOLO 5, labels_bulk 3, image_outputs 3,
+  exports 2, and one each in task_save_conflicts, logging_service, imports,
+  import_yolo_and_rejections and deployment_hardening. Re-measure rather than
+  trusting this count if it looks stale — it is a snapshot, not an invariant.
+  Diff against a baseline before attributing any of them
   to your change, and be aware at least one is order-dependent and flaky
   (`test_class_set_file_is_redirected_to_classes_import`) — confirm a suspect by
   re-running it alone rather than assuming a diff of one is meaningful.
@@ -158,13 +263,14 @@ Points that will otherwise cost a re-run:
 | `api/auth.py` | JWT creation/validation, password hashing, `get_current_user`, `require_csrf`, session/CSRF cookies |
 | `api/permissions.py` | **The authorization resolver.** `ProjectRole`/`TeamRole`, `effective_project_role`, `require_project`, `require_task`, `require_team`, `accessible_project_ids`, `can_write_task`. Imports only `models`/`database`/`fastapi` — never a router |
 | `api/rate_limit.py` | In-process sliding-window limiter (single-worker only, rule 9); used by add-member |
-| `api/routers/` | One router per resource (projects, tasks, labels, teams, grants, time_logs, data, detect, auth, label_studio, exports, imports). `tasks.py` also holds the per-task detail endpoint, the review/assignment endpoints, and the in-process soft lock (`_TASK_LOCKS`). `team.py` is a deprecated alias for `time_logs.py` (F6) |
+| `api/routers/` | One router per resource (projects, tasks, labels, teams, grants, time_logs, data, detect, auth, label_studio, exports, imports, attendance, image_info, thumbs, and — on `dev-stage` only — telemetry). `tasks.py` also holds the per-task detail endpoint, the review/assignment endpoints, and the in-process soft lock (`_TASK_LOCKS`). `team.py` is a deprecated alias for `time_logs.py` (F6) |
 | `api/routers/teams.py` | Team CRUD and rosters — the *team* axis (who is in a team). Says nothing about project access |
 | `api/routers/grants.py` | `/api/projects/{id}/grants` — the *access* axis (what a team may do on one project). Owner-only |
 | `formats/` | Import/export format logic (COCO, task JSON, YOLO, masks), one module per format; pure, testable without a server. See docs/ARCHITECTURE.md § 2.1 |
 | `formats/annotation_rows.py` | The dict ⇄ `Annotation` row mapping, and `sync_task_annotations*` — the diffing writer that makes a one-shape edit write one row. The single boundary between the wire format and storage |
 | `detector.py` | ML model loading + inference (YOLO, SAM, CLIP) |
 | `frontend/app.html` | The annotation canvas page. Markup only — its behaviour is `frontend/js/init.js` and the modules it imports |
+| `frontend/js/canvas/` | The canvas engine, split by job: `interactions.js` (all pointer/key handling — the big one), `draw.js` (rendering), `geometry.js` (points, bounds, hit-testing), `view.js` (zoom/pan/drag state), `untangle.js` (polygon self-intersection: trim via `untangleRing`, split via `splitRing`), `merge.js` (ring union), `marquee.js`, `context-menu.js`, `comment-geometry.js`, `handle-size.js`. `untangle.js`/`merge.js`/`geometry.js` are pure and unit-tested under plain node (`tests/js/*_spec.mjs`) — keep them that way |
 | `frontend/js/objects-filter.js` | Which rows the Objects panel lists (selection filter / hidden filter) and the hidden count. Pure: no DOM, no `state` import — filtering must never reach the saved annotation set (GOTCHAS #18) |
 | `frontend/js/` | Shared ES modules — new frontend code goes here (`utils.js`, `state.js`, `task-lock.js`, `components/`, `pages/`) |
 | `frontend/js/permissions.js` | Client-side role ranking. Deliberate mirror of `api/permissions.py`; **rendering only**, never a security boundary (rule 18b) |
@@ -179,5 +285,6 @@ Points that will otherwise cost a re-run:
 | `.devnotes/deployment-hardening/` | Deployment audit, phased task list, the annotation-save-loss postmortem, and the resilience plan/implementation record (`06_RESILIENCE_PLAN.md`, `07_RESILIENCE_IMPLEMENTATION.md`) |
 | `.devnotes/performance-fixes/` | Why annotations were normalised out of the blob, what was measured, the phased implementation record (`06_PROGRESS.md`) and the production runbook (`07_PRODUCTION_ROLLOUT.md`) |
 | `.devnotes/teams/` | The Teams feature: design, schema, API/permission map, UI spec, 30 edge cases, phasing and the deviations actually made (`PLAN.md` §8) |
+| `.devnotes/<slug>/` | ~45 more of these, one per feature or investigation (`fix-untangle/`, `bulk-loss-guard/`, `server-issue-diagnosis/`, `frontend-telemetry/`, `merge-objects/`, …). The rows above are only the ones worth reading before touching core systems. **Before changing any non-trivial subsystem, `ls .devnotes/` and read the matching folder** — it usually records what was already tried and why the obvious approach was rejected |
 | `models/` | ML weight files (gitignored) — *not* Python code; `models.py` is the DB models |
 | `alembic/` | Database migrations |
