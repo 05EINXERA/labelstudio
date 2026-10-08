@@ -4,12 +4,19 @@
  *
  * Built purely from the rows GET /api/projects already returns (each carries
  * its own metrics, including `status_counts`), so it costs no extra request and
- * refreshes whenever the list does.
+ * refreshes whenever the list does. The one exception is the task table a
+ * status tile opens, which pages through GET /api/tasks on demand.
  */
+import { apiFetch } from "../api.js?v=3";
 import { escapeHTML, formatTime, statusPillClass, TASK_STATUSES } from "../utils.js?v=3";
+import { createDataTable } from "../components/data-table.js?v=3";
+import { TASK_COLUMNS, taskQueryParams } from "./task-search.js?v=3";
 
-/** Status of every task across all projects: count, share and a share bar. */
-function statusBreakdown(statuses, total, hasCounts) {
+/**
+ * Status of every task across all projects: count, share and a share bar.
+ * Each tile is a button that lists the tasks in that status beneath the grid.
+ */
+function statusBreakdown(statuses, total, hasCounts, selected) {
   // A server older than this panel omits `status_counts`; say so rather than
   // render a row of zeros that reads as "no tasks in any status".
   if (!hasCounts) {
@@ -20,14 +27,16 @@ function statusBreakdown(statuses, total, hasCounts) {
   }
   const cards = statuses.map(([status, count]) => {
     const pct = total ? Math.round((count / total) * 100) : 0;
-    return `<div class="metric-tile"${count ? "" : ' style="opacity:.55;"'}>
+    const on = status === selected;
+    return `<button type="button" class="metric-tile${on ? " is-selected" : ""}" data-status="${escapeHTML(status)}"
+          aria-pressed="${on}" title="Show ${escapeHTML(status)} tasks"${count ? "" : ' style="opacity:.55;"'}>
         <span class="pill ${statusPillClass(status)}">${escapeHTML(status)}</span>
         <p class="value" style="margin-top:8px;">${count}</p>
         <div class="progress-cell" style="min-width:0; margin-top:6px;">
           <div class="progress-track" style="height:5px;"><div class="progress-fill" style="width:${pct}%"></div></div>
           <span class="sub" style="margin:0;">${pct}%</span>
         </div>
-      </div>`;
+      </button>`;
   });
   return `<div class="metric-grid" style="grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));">
       ${cards.join("")}
@@ -146,6 +155,95 @@ export function createProjectsOverview(mount) {
     writePref(SECTIONS_KEY, sectionOpen);
   }, true);
 
+  // --- tasks of the clicked status tile -------------------------------------
+
+  // Built once and re-attached after every render: the section it sits in is
+  // rebuilt on each poll, and a fresh table would drop the page and sort the
+  // viewer had chosen.
+  const panel = document.createElement("div");
+  panel.className = "status-tasks";
+  panel.innerHTML = `
+    <div class="status-tasks-head">
+      <span class="status-tasks-title"></span>
+      <button type="button" class="tool-button" data-role="close-status-tasks">Close</button>
+    </div>
+    <div class="status-tasks-table"></div>`;
+  const panelTitle = panel.querySelector(".status-tasks-title");
+  const tableMount = panel.querySelector(".status-tasks-table");
+
+  let selectedStatus = null;
+  // Monotonic request id: a slow response for a tile the viewer has since left
+  // must not overwrite the tasks of the tile they are looking at.
+  let requestSeq = 0;
+
+  function showTasksError(message) {
+    tableMount.innerHTML = `<div class="mgmt-error">${escapeHTML(message)}</div>`;
+  }
+
+  async function fetchTasks(state) {
+    const seq = ++requestSeq;
+    try {
+      const res = await apiFetch(`/api/tasks?${taskQueryParams(state)}`);
+      if (!res) return; // apiFetch redirected to login
+      if (seq !== requestSeq) return;
+      if (!res.ok) {
+        showTasksError(`Could not load tasks (${res.status}).`);
+        return;
+      }
+      const data = await res.json();
+      if (seq !== requestSeq) return;
+      taskTable.setServerData(data.items || [], data.total || 0);
+    } catch (err) {
+      console.error("Failed to load tasks by status", err);
+      if (seq === requestSeq) showTasksError("Could not reach the server while loading tasks.");
+    }
+  }
+
+  const taskTable = createDataTable({
+    mount: tableMount,
+    rowId: (row) => row.id,
+    sortKey: "updated_at",
+    sortDesc: true,
+    pageSize: 10,
+    onFetchData: fetchTasks,
+    emptyMessage: "No tasks in this status.",
+    columns: TASK_COLUMNS,
+  });
+
+  function attachPanel() {
+    body.querySelector('[data-section="status"] .stats-section-body')?.appendChild(panel);
+  }
+
+  function selectStatus(status) {
+    selectedStatus = status;
+    body.querySelectorAll("[data-status]").forEach((tile) => {
+      const on = tile.dataset.status === status;
+      tile.classList.toggle("is-selected", on);
+      tile.setAttribute("aria-pressed", String(on));
+    });
+    if (!status) {
+      requestSeq++; // abandon any in-flight load
+      panel.remove();
+      return;
+    }
+    panelTitle.textContent = `${status} tasks`;
+    attachPanel();
+    taskTable.showLoading(5);
+    taskTable.setFilter("status", status);
+    panel.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+
+  body.addEventListener("click", (e) => {
+    if (e.target.closest('[data-role="close-status-tasks"]')) {
+      selectStatus(null);
+      return;
+    }
+    const tile = e.target.closest("[data-status]");
+    if (!tile) return;
+    // Clicking the open tile again closes its table.
+    selectStatus(tile.dataset.status === selectedStatus ? null : tile.dataset.status);
+  });
+
   function section(key, title, hint, content) {
     const open = sectionOpen[key] !== false;
     return `<details class="stats-section" data-section="${key}"${open ? " open" : ""}>
@@ -181,7 +279,7 @@ export function createProjectsOverview(mount) {
         </div>`),
 
       section("status", "Task status", hasCounts ? (busiest || "No tasks yet") : "Unavailable",
-        statusBreakdown(statuses, m.total, hasCounts)),
+        statusBreakdown(statuses, m.total, hasCounts, selectedStatus)),
 
       section("workspace", "Workspace",
         `${m.projects} project${m.projects === 1 ? "" : "s"} · ${formatTime(m.total_time)} logged`, `
@@ -194,6 +292,13 @@ export function createProjectsOverview(mount) {
           ${tile({ label: "Avg per task", value: formatTime(m.avg_time_per_task) })}
         </div>`),
     ].join("");
+
+    // The rebuild above detached the open task table; put it back and refresh
+    // it so its rows age at the same rate as the counts on the tiles.
+    if (selectedStatus) {
+      attachPanel();
+      taskTable.reload();
+    }
   }
 
   function showLoading() {

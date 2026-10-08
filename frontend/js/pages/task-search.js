@@ -41,6 +41,72 @@ function relativeTime(value) {
   return `${Math.floor(secs / 86400)}d ago`;
 }
 
+/** Query string for `GET /api/tasks` from a server-paged table's state. */
+export function taskQueryParams(state) {
+  const params = new URLSearchParams();
+  params.set("limit", String(state.pageSize));
+  params.set("offset", String((state.page - 1) * state.pageSize));
+  if (state.query && state.query.trim()) params.set("search", state.query.trim());
+  if (state.filters.status && state.filters.status !== "All") {
+    params.set("status", state.filters.status);
+  }
+  if (state.filters.assignee && state.filters.assignee !== "All") {
+    params.set("assignee", state.filters.assignee);
+  }
+  if (state.filters.project_id && state.filters.project_id !== "All") {
+    params.set("projectIds", String(state.filters.project_id));
+  }
+  if (state.sortKey) {
+    params.set("sort_by", state.sortKey);
+    params.set("sort_desc", String(Boolean(state.sortDesc)));
+  }
+  return params.toString();
+}
+
+/** Columns of a cross-project task table: every row names its project. */
+export const TASK_COLUMNS = [
+  {
+    key: "image_path",
+    label: "",
+    sortable: false,
+    width: "56px",
+    render: (r) => r.image_path
+      ? `<img src="/${escapeHTML(String(r.image_path).replace(/\\/g, "/"))}" alt="" style="height:40px;border-radius:4px;border:1px solid var(--line);">`
+      : "",
+  },
+  {
+    key: "description",
+    label: "Task",
+    render: (r) => `<a class="cell-link" href="app.html?projectId=${encodeURIComponent(r.project_id)}&taskId=${encodeURIComponent(r.id)}" title="${escapeHTML(r.description || "")}" style="max-width:300px;display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle;">${escapeHTML(r.description || "Untitled")}</a>`,
+  },
+  {
+    // The column this whole view exists for.
+    key: "project_id",
+    label: "Project",
+    render: (r) => r.project_id
+      ? `<a class="cell-link" href="project.html?id=${encodeURIComponent(r.project_id)}">${escapeHTML(r.project_name || `Project ${r.project_id}`)}</a>`
+      : `<span style="color:var(--muted);">—</span>`,
+  },
+  {
+    key: "assignee",
+    label: "Assignee",
+    render: (r) => r.assignee ? escapeHTML(r.assignee) : `<span style="color:var(--muted);">—</span>`,
+  },
+  { key: "status", label: "Status", render: (r) => statusPill(r.status) },
+  {
+    key: "time_spent",
+    label: "Time",
+    render: (r) => r.time_spent
+      ? `<span style="font-family:monospace;font-size:.85rem;">${formatTime(r.time_spent)}</span>`
+      : `<span style="color:var(--muted);">—</span>`,
+  },
+  {
+    key: "updated_at",
+    label: "Updated",
+    render: (r) => `<span style="color:var(--muted);">${escapeHTML(relativeTime(r.updated_at))}</span>`,
+  },
+];
+
 /**
  * @param {object} opts
  * @param {HTMLElement} opts.mount            container for the results table
@@ -73,26 +139,8 @@ export function createTaskSearch(opts) {
 
   async function fetchTasks(state) {
     const seq = ++requestSeq;
-    const params = new URLSearchParams();
-    params.set("limit", String(state.pageSize));
-    params.set("offset", String((state.page - 1) * state.pageSize));
-    if (state.query && state.query.trim()) params.set("search", state.query.trim());
-    if (state.filters.status && state.filters.status !== "All") {
-      params.set("status", state.filters.status);
-    }
-    if (state.filters.assignee && state.filters.assignee !== "All") {
-      params.set("assignee", state.filters.assignee);
-    }
-    if (state.filters.project_id && state.filters.project_id !== "All") {
-      params.set("projectIds", String(state.filters.project_id));
-    }
-    if (state.sortKey) {
-      params.set("sort_by", state.sortKey);
-      params.set("sort_desc", String(Boolean(state.sortDesc)));
-    }
-
     try {
-      const res = await apiFetch(`/api/tasks?${params.toString()}`);
+      const res = await apiFetch(`/api/tasks?${taskQueryParams(state)}`);
       if (!res) return; // apiFetch redirected to login
       if (seq !== requestSeq) return; // a newer query has already been issued
       if (!res.ok) {
@@ -117,48 +165,7 @@ export function createTaskSearch(opts) {
     pageSize: 25,
     onFetchData: fetchTasks,
     emptyMessage: "No tasks match your search.",
-    columns: [
-      {
-        key: "image_path",
-        label: "",
-        sortable: false,
-        width: "56px",
-        render: (r) => r.image_path
-          ? `<img src="/${escapeHTML(String(r.image_path).replace(/\\/g, "/"))}" alt="" style="height:40px;border-radius:4px;border:1px solid var(--line);">`
-          : "",
-      },
-      {
-        key: "description",
-        label: "Task",
-        render: (r) => `<a class="cell-link" href="app.html?projectId=${encodeURIComponent(r.project_id)}&taskId=${encodeURIComponent(r.id)}" title="${escapeHTML(r.description || "")}" style="max-width:300px;display:inline-block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle;">${escapeHTML(r.description || "Untitled")}</a>`,
-      },
-      {
-        // The column this whole view exists for.
-        key: "project_id",
-        label: "Project",
-        render: (r) => r.project_id
-          ? `<a class="cell-link" href="project.html?id=${encodeURIComponent(r.project_id)}">${escapeHTML(r.project_name || `Project ${r.project_id}`)}</a>`
-          : `<span style="color:var(--muted);">—</span>`,
-      },
-      {
-        key: "assignee",
-        label: "Assignee",
-        render: (r) => r.assignee ? escapeHTML(r.assignee) : `<span style="color:var(--muted);">—</span>`,
-      },
-      { key: "status", label: "Status", render: (r) => statusPill(r.status) },
-      {
-        key: "time_spent",
-        label: "Time",
-        render: (r) => r.time_spent
-          ? `<span style="font-family:monospace;font-size:.85rem;">${formatTime(r.time_spent)}</span>`
-          : `<span style="color:var(--muted);">—</span>`,
-      },
-      {
-        key: "updated_at",
-        label: "Updated",
-        render: (r) => `<span style="color:var(--muted);">${escapeHTML(relativeTime(r.updated_at))}</span>`,
-      },
-    ],
+    columns: TASK_COLUMNS,
   });
 
   // --- filter population ---------------------------------------------------
