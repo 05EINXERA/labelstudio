@@ -20,7 +20,7 @@
 import { apiFetch } from "../../api.js?v=5";
 import { escapeHTML } from "../../utils.js?v=2";
 import { createDataTable } from "../../components/data-table.js?v=6";
-import { buildColumns, STATUSES } from "./task-columns.js?v=11";
+import { buildColumns, STATUSES } from "./task-columns.js?v=12";
 import { installThumbFallback } from "../../thumb-url.js?v=1";
 
 const PAGE_SIZE = 10;

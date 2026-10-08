@@ -17,6 +17,8 @@ from formats.common import annotation_dicts
 from formats.label_reconcile import apply_label_map, build_label_map
 from schemas import (
     APPROVED_STATUSES,
+    AssignmentEventOut,
+    AssignmentSide,
     is_approved,
     REVIEW_ACTION_STATUS,
     REVIEW_STATUSES,
@@ -40,6 +42,12 @@ from schemas import (
     TaskUpdate,
 )
 from api.auth import get_current_user, require_csrf
+from api.assignment_history import (
+    SOURCE_ASSIGN,
+    SOURCE_BULK_ASSIGN,
+    record as record_assignment,
+    snapshot as assignment_snapshot,
+)
 from api.fast_request import FastJSONRoute
 from api.permissions import (
     ProjectRole,
@@ -2007,6 +2015,72 @@ def list_task_reviews(
     return [_review_out(review, username) for review, username in rows]
 
 
+# Newest events kept when a task has more than this (H-25): a task reassigned
+# this often is a bug worth seeing, not a list worth paging.
+ASSIGNMENT_HISTORY_LIMIT = 500
+
+
+def _as_utc(value: datetime.datetime) -> datetime.datetime:
+    """SQLite hands timezone-aware columns back naive; Postgres does not.
+
+    A naive value would serialise without an offset and the browser would read
+    it as local time. Everything is stored as UTC, so say so explicitly.
+    """
+    if value.tzinfo is None:
+        return value.replace(tzinfo=datetime.timezone.utc)
+    return value.astimezone(datetime.timezone.utc)
+
+
+@router.get(
+    "/{task_id}/assignment-history",
+    response_model=List[AssignmentEventOut],
+    response_model_by_alias=True,
+)
+def get_assignment_history(
+    task_id: int,
+    db: Session = Depends(get_db),
+    user: models.User = Depends(get_current_user),
+):
+    """Who a task was assigned to and when, oldest first. Read-only.
+
+    Manager and above: the same people who can see the Assign button. The log
+    is `TaskAssignmentEvent`; current state stays on the task row
+    (.devnotes/features/task-assignment-history/02_DESIGN.md).
+    """
+    require_task(task_id, user, db, minimum=ProjectRole.MANAGER)
+
+    E = models.TaskAssignmentEvent
+    # Newest N, then re-ordered oldest-first for display.
+    rows = (
+        db.query(E, models.User.username)
+        .outerjoin(models.User, models.User.id == E.changed_by_id)
+        .filter(E.task_id == task_id)
+        .order_by(E.created_at.desc(), E.id.desc())
+        .limit(ASSIGNMENT_HISTORY_LIMIT)
+        .all()
+    )
+    rows.reverse()
+    return [
+        AssignmentEventOut(
+            id=e.id,
+            created_at=_as_utc(e.created_at),
+            source=e.source,
+            changed_by_username=username,
+            **{
+                "from": AssignmentSide(
+                    team=e.team_from_name, team_id=e.team_from_id,
+                    user=e.user_from_name, user_id=e.user_from_id,
+                ),
+            },
+            to=AssignmentSide(
+                team=e.team_to_name, team_id=e.team_to_id,
+                user=e.user_to_name, user_id=e.user_to_id,
+            ),
+        )
+        for e, username in rows
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Task assignment (.devnotes/teams/03_API.md § 4.3)
 # ---------------------------------------------------------------------------
@@ -2105,6 +2179,15 @@ def update_task_assignment(
         assignee_to=new_user,
         warnings=len(warnings) or None,
     )
+    # History is written in the same transaction as the change (no second
+    # commit) and only when something actually changed.
+    record_assignment(
+        db,
+        {task.id: (task.assigned_team_id, task.assignee_user_id)},
+        (new_team, new_user),
+        actor_id=user.id,
+        source=SOURCE_ASSIGN,
+    )
     task.assigned_team_id = new_team
     task.assignee_user_id = new_user
     commit_with_retry(db)
@@ -2165,9 +2248,23 @@ def bulk_assign_tasks(
         update_data[models.Task.assignee_user_id] = payload.assignee_user_id
 
     if update_data:
+        # Read the old values first: the UPDATE below never loads the rows.
+        before = assignment_snapshot(db, models.Task.id.in_(allowed))
+        # A field that was not sent leaves each task's own value alone, so the
+        # new state is computed per task rather than as one tuple.
+        after = {
+            tid: (
+                payload.assigned_team_id if "assigned_team_id" in sent else team,
+                payload.assignee_user_id if "assignee_user_id" in sent else person,
+            )
+            for tid, (team, person) in before.items()
+        }
         update_data[models.Task.updated_at] = datetime.datetime.now(datetime.timezone.utc)
         db.query(models.Task).filter(models.Task.id.in_(allowed)).update(
             update_data, synchronize_session=False
+        )
+        record_assignment(
+            db, before, after, actor_id=user.id, source=SOURCE_BULK_ASSIGN
         )
         commit_with_retry(db)
 

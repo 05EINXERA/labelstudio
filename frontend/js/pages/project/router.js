@@ -46,7 +46,7 @@ function _sessionStorage() {
 // it stays statically analysable.
 const VIEWS = {
   home: () => import("./home.js?v=7"),
-  tasks: () => import("./tasks.js?v=17"),
+  tasks: () => import("./tasks.js?v=18"),
   "image-info": () => import("./image-info.js?v=2"),
   classes: () => import("./classes.js?v=3"),
   imports: () => import("./imports.js?v=4"),
