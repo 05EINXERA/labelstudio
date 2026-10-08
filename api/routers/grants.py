@@ -21,6 +21,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 import models
+from api.assignment_history import (
+    SOURCE_GRANT_REVOKED,
+    record as record_assignment,
+    snapshot as assignment_snapshot,
+)
 from api.auth import get_current_user, require_csrf
 from logging_service import log_event
 from api.permissions import ProjectRole, require_project, require_team
@@ -216,6 +221,11 @@ def revoke_grant(
             detail="That team does not have access to this project.",
         )
 
+    held = assignment_snapshot(
+        db,
+        models.Task.project_id == project_id,
+        models.Task.assigned_team_id == team_id,
+    )
     tasks_unassigned = (
         db.query(models.Task)
         .filter(
@@ -223,6 +233,10 @@ def revoke_grant(
             models.Task.assigned_team_id == team_id,
         )
         .update({models.Task.assigned_team_id: None}, synchronize_session=False)
+    )
+    record_assignment(
+        db, held, {tid: (None, person) for tid, (_, person) in held.items()},
+        actor_id=user.id, source=SOURCE_GRANT_REVOKED,
     )
     # WARN: revoking access is how a whole team silently loses sight of work,
     # and it returns their tasks to the pool. Both facts belong in the trail.

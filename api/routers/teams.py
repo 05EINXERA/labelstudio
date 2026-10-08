@@ -25,6 +25,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 import models
+from api.assignment_history import (
+    SOURCE_MEMBER_LEFT,
+    SOURCE_MEMBER_REMOVED,
+    SOURCE_TEAM_DELETED,
+    record as record_assignment,
+    snapshot as assignment_snapshot,
+)
 from api.auth import get_current_user, require_csrf
 from api.permissions import TeamRole, require_team
 from api.rate_limit import check_rate_limit
@@ -291,10 +298,17 @@ def delete_team(
     )
     # SET NULL, never delete: a task assigned to this team returns to the shared
     # pool. Deleting them here would destroy annotation work.
+    held = assignment_snapshot(db, models.Task.assigned_team_id == team_id)
     tasks_unassigned = (
         db.query(models.Task)
         .filter(models.Task.assigned_team_id == team_id)
         .update({models.Task.assigned_team_id: None}, synchronize_session=False)
+    )
+    # Team cleared, person kept — exactly what the UPDATE above did. Recorded
+    # before the team row is deleted so its name can be snapshotted.
+    record_assignment(
+        db, held, {tid: (None, person) for tid, (_, person) in held.items()},
+        actor_id=user.id, source=SOURCE_TEAM_DELETED,
     )
     members_removed = (
         db.query(models.TeamMembership)
@@ -477,11 +491,15 @@ def leave_team(
     # deliberate act. A task handed to a specific person who is now gone should
     # be fully unassigned so a manager must consciously re-distribute it.
     # Annotations are never touched.
+    held = assignment_snapshot(db, models.Task.assignee_user_id == user.id)
     db.query(models.Task).filter(
         models.Task.assignee_user_id == user.id,
     ).update(
         {models.Task.assignee_user_id: None, models.Task.assigned_team_id: None},
         synchronize_session=False,
+    )
+    record_assignment(
+        db, held, (None, None), actor_id=user.id, source=SOURCE_MEMBER_LEFT
     )
 
     log_event("team.leave", level="WARN", team=team_id)
@@ -522,11 +540,15 @@ def remove_member(
     # deliberate act. A task handed to a specific person who is now gone should
     # be fully unassigned so a manager must consciously re-distribute it.
     # Annotations are never touched.
+    held = assignment_snapshot(db, models.Task.assignee_user_id == user_id)
     db.query(models.Task).filter(
         models.Task.assignee_user_id == user_id,
     ).update(
         {models.Task.assignee_user_id: None, models.Task.assigned_team_id: None},
         synchronize_session=False,
+    )
+    record_assignment(
+        db, held, (None, None), actor_id=user.id, source=SOURCE_MEMBER_REMOVED
     )
 
     log_event("team.member_remove", level="WARN", team=team_id, account=user_id)

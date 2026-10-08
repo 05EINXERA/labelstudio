@@ -823,6 +823,33 @@ class ReviewOut(BaseModel):
     created_at: Optional[datetime] = None
 
 
+class AssignmentSide(BaseModel):
+    """One end of an assignment change: a team and/or a person, by name.
+
+    Names are the snapshot taken when the change was recorded, so they stay
+    readable after the team or user is gone. `*_id` is only a link and is null
+    once the row it pointed at has been deleted.
+    """
+    team: Optional[str] = None
+    team_id: Optional[int] = None
+    user: Optional[str] = None
+    user_id: Optional[int] = None
+
+
+class AssignmentEventOut(BaseModel):
+    id: int
+    created_at: datetime
+    # assign | bulk_assign | team_deleted | grant_revoked | member_left |
+    # member_removed | backfill
+    source: str
+    changed_by_username: Optional[str] = None
+    # `from` is a Python keyword; the wire name is set by the alias below.
+    from_: AssignmentSide = Field(alias="from")
+    to: AssignmentSide
+
+    model_config = {"populate_by_name": True}
+
+
 class ReviewResult(BaseModel):
     status: str
     task_id: int

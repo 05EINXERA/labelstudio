@@ -360,6 +360,43 @@ class TaskReview(Base):
     )
 
 
+class TaskAssignmentEvent(Base):
+    """Append-only log of changes to a task's (team, person) assignment.
+
+    Not the authority on current state — `Task.assigned_team_id` /
+    `assignee_user_id` are. Written in the same transaction as the change it
+    records by `api/assignment_history.py`; no UPDATE and no DELETE from
+    application code. Names are snapshotted because teams get deleted and ids
+    can be reused, so an id alone may later resolve to the wrong thing.
+    See .devnotes/features/task-assignment-history/.
+    """
+
+    __tablename__ = "task_assignment_events"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    # CASCADE: history of a deleted task is meaningless (same call as task_reviews).
+    task_id = Column(
+        Integer, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    # NULL for the migration backfill. No cascade: the line survives the user.
+    changed_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    source = Column(String(20), nullable=False)
+    team_from_id = Column(Integer, ForeignKey("teams.id", ondelete="SET NULL"), nullable=True)
+    team_to_id = Column(Integer, ForeignKey("teams.id", ondelete="SET NULL"), nullable=True)
+    user_from_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    user_to_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    team_from_name = Column(String, nullable=True)
+    team_to_name = Column(String, nullable=True)
+    user_from_name = Column(String, nullable=True)
+    user_to_name = Column(String, nullable=True)
+
+    __table_args__ = (
+        Index("ix_task_assignment_events_task_created", "task_id", "created_at", "id"),
+    )
+
+
 class Annotation(Base):
     """One annotation shape, one row.
 

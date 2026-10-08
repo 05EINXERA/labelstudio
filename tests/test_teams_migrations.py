@@ -53,6 +53,7 @@ EXPECTED_TABLES = {
     "team_memberships",
     "project_grants",
     "task_reviews",
+    "task_assignment_events",
 }
 
 

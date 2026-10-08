@@ -3476,3 +3476,23 @@ body.is-read-only #deleteButton {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+
+/* Assignment history dialog (pages/project/assignment-history.js) */
+.assignment-history-modal { max-width: 640px; }
+.assignment-history-list { list-style: none; margin: 0; padding: 0; }
+.ah-row {
+  display: grid; grid-template-columns: 11.5em 1fr; gap: 12px;
+  padding: 10px 0; border-bottom: 1px solid var(--line);
+}
+.ah-row:last-child { border-bottom: none; }
+.ah-stamp { font-size: .82rem; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ah-arrow { margin: 0 6px; color: var(--muted); }
+.ah-to { font-weight: 600; }
+.ah-from { color: var(--muted); }
+.ah-note { font-size: .78rem; color: var(--muted); margin-top: 2px; }
+.ah-tag {
+  font-size: .7rem; padding: 1px 6px; border-radius: 999px;
+  background: var(--panel-2); color: var(--muted); border: 1px solid var(--line);
+}
+.ah-error { color: #e05260; }
+@media (max-width: 520px) { .ah-row { grid-template-columns: 1fr; gap: 2px; } }
