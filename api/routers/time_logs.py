@@ -16,7 +16,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy.orm import Session
 
 import models
-from api import attendance
+from api import attendance, work_sessions
 from api.auth import get_current_user, require_csrf
 from api.permissions import (
     TeamRole,
@@ -222,4 +222,8 @@ def update_time_logged(
 
     row.time_logged = (row.time_logged or 0) + payload.time_logged
     commit_with_retry(db)
+    # Only seconds the system actually banked are monitored: the not-writable
+    # branch above returned earlier. Dict operations only, after the commit.
+    if payload.task_id is not None:
+        work_sessions.note_time(current_user.id, payload.task_id, payload.time_logged)
     return TimeLogUpdateResult(status="ok", time_logged=row.time_logged)
