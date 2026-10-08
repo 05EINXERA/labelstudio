@@ -10,8 +10,8 @@ import { apiFetch } from "../api.js?v=3";
 import { escapeHTML, formatTime, statusPillClass } from "../utils.js?v=3";
 import { createDataTable } from "../components/data-table.js?v=3";
 import { NotificationManager } from "../components/notifications.js?v=4";
-import { createTaskSearch } from "./task-search.js?v=2";
-import { createProjectsOverview } from "./projects-overview.js?v=6";
+import { createTaskSearch } from "./task-search.js?v=3";
+import { createProjectsOverview } from "./projects-overview.js?v=7";
 
 const els = {
   user: document.getElementById("currentUser"),
