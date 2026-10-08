@@ -21,6 +21,7 @@ from database import get_db, commit_with_retry, SessionLocal
 from schemas import (
     TaskUpdate, BulkDelete, BulkUpdate, TaskDetail, PaginatedTasks, TaskSequenceItem,
     TaskMove, TaskMoveResult, TaskMoveSkip, TaskAssignmentHistory,
+    DONE_TASK_STATUSES,
 )
 from api.auth import get_current_user, require_csrf, get_current_annotator
 from api.assignments import (
@@ -1296,7 +1297,7 @@ def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: 
             db.flush()
             counts = db.query(
                 func.count(models.Task.id),
-                func.sum(case((models.Task.status == 'Completed', 1), else_=0)),
+                func.sum(case((models.Task.status.in_(DONE_TASK_STATUSES), 1), else_=0)),
             ).filter(models.Task.project_id == project_id).one()
             total, completed = counts[0] or 0, counts[1] or 0
 
