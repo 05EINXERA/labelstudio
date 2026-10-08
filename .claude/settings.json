@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -I \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/claude_md_freshness.py\" UserPromptSubmit",
+            "timeout": 10,
+            "statusMessage": "Checking project instructions are current"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python -I \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/claude_md_freshness.py\" PostToolUse",
+            "timeout": 10,
+            "statusMessage": "Checking project instructions are current"
+          }
+        ]
+      }
+    ]
+  }
+}
