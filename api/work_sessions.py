@@ -161,6 +161,11 @@ def note_save(user_id, task_id, objects_prev, objects_now, now=None) -> None:
         logger.warning("work_sessions.note_save failed", exc_info=True)
 
 
+def last_flush_at():
+    """When the tracker last checkpointed, or None. Lets the page say 'as of'."""
+    return datetime.fromtimestamp(_LAST_FLUSH, tz=timezone.utc) if _LAST_FLUSH else None
+
+
 def live_for_users(user_ids=None) -> list:
     """Read-only view of the stretches in progress, for a 'working now' hint.
 
