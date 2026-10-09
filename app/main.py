@@ -65,6 +65,7 @@ from api.routers import (
     projects,
     tasks,
     team,
+    team_activity,
     teams,
 )
 
@@ -192,6 +193,7 @@ app.include_router(projects.router)
 app.include_router(tasks.router)
 app.include_router(team.router)
 app.include_router(teams.router)
+app.include_router(team_activity.router)
 app.include_router(detect.router)
 app.include_router(label_studio.router)
 app.include_router(labels.router)
