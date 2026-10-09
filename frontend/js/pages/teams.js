@@ -2,6 +2,7 @@ import { apiFetch } from "../api.js?v=3";
 import { escapeHTML } from "../utils.js?v=3";
 import { createDataTable } from "../components/data-table.js?v=3";
 import { NotificationManager } from "../components/notifications.js?v=4";
+import { mount as mountActivity, unmount as unmountActivity } from "./team/activity.js?v=1";
 
 const els = {
   user: document.getElementById("currentUser"),
@@ -67,6 +68,11 @@ const els = {
   transferTeamName: document.getElementById("transferTeamName"),
   transferNewOwnerSelect: document.getElementById("transferNewOwnerSelect"),
   transferFormCancel: document.getElementById("transferFormCancel"),
+
+  activityModal: document.getElementById("activityModal"),
+  activityModalClose: document.getElementById("activityModalClose"),
+  activityModalTitle: document.getElementById("activityModalTitle"),
+  activityMount: document.getElementById("activityMount"),
 };
 
 let teamsTable;
@@ -373,6 +379,8 @@ const ICON_DELETE = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none"
 const ICON_EDIT = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></svg>`;
 const ICON_TRANSFER = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="m18 8 3 3-3 3"/><path d="M21 11H13"/></svg>`;
 
+const ICON_ACTIVITY = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`;
+
 function initTables() {
   teamsTable = createDataTable({
     mount: els.teamsMount,
@@ -399,11 +407,11 @@ function initTables() {
         }
       },
       {
-        key: "actions", label: "", sortable: false, align: "right", width: "80px",
+        key: "actions", label: "", sortable: false, align: "right", width: "112px",
         render: (r) => {
           const datasetUsername = localStorage.getItem('dataset_username');
           if (r.creator === datasetUsername) {
-            return `<div class="row-actions"><button type="button" data-action="transfer" title="Transfer Team Ownership">${ICON_TRANSFER}</button><button type="button" data-action="delete" class="danger" title="Delete Team">${ICON_DELETE}</button></div>`;
+            return `<div class="row-actions"><button type="button" data-action="activity" title="Team activity">${ICON_ACTIVITY}</button><button type="button" data-action="transfer" title="Transfer Team Ownership">${ICON_TRANSFER}</button><button type="button" data-action="delete" class="danger" title="Delete Team">${ICON_DELETE}</button></div>`;
           }
           return '';
         }
@@ -413,6 +421,10 @@ function initTables() {
 
   teamsTable.onAction("filter-team", (row) => {
     selectOrToggleTeam(row);
+  });
+
+  teamsTable.onAction("activity", (row) => {
+    openActivityModal(row);
   });
 
   teamsTable.onAction("transfer", (row) => {
@@ -1005,6 +1017,29 @@ function openTransferModal(team) {
 function closeTransferModal() {
   els.transferModal.classList.remove("is-active");
 }
+
+function openActivityModal(team) {
+  els.activityModalTitle.textContent = `Activity — ${team.name}`;
+  const names = new Set(
+    membersCache.filter((m) => (m.teams || []).some((t) => t.id === team.id)).map((m) => m.name)
+  );
+  mountActivity(els.activityMount, {
+    teamId: team.id,
+    teamName: team.name,
+    members: [...names].sort((a, b) => a.localeCompare(b)),
+  });
+  els.activityModal.classList.add("is-active");
+}
+
+function closeActivityModal() {
+  els.activityModal.classList.remove("is-active");
+  unmountActivity();
+}
+
+els.activityModalClose.addEventListener("click", closeActivityModal);
+els.activityModal.addEventListener("click", (e) => {
+  if (e.target === els.activityModal) closeActivityModal();
+});
 
 els.transferModalClose.addEventListener("click", closeTransferModal);
 els.transferFormCancel.addEventListener("click", closeTransferModal);

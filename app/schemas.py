@@ -699,3 +699,62 @@ class TaskSequenceItem(BaseModel):
     id: int
     description: Optional[str] = None
     image_path: Optional[str] = None
+
+
+class WorkSessionSummaryRow(BaseModel):
+    """One member's work on one task in the requested period (all stretches collapsed)."""
+    member_name: str
+    task_id: Optional[int] = None
+    task_name: Optional[str] = None
+    active_seconds: int
+    sessions: int
+    first_start: datetime
+    last_end: datetime
+    # Task object counts at the start of the first / end of the last stretch.
+    # None means unknown -- never 0, which would claim the task was empty.
+    objects_start: Optional[int] = None
+    objects_end: Optional[int] = None
+    objects_delta: Optional[int] = None
+
+
+class WorkSessionRow(BaseModel):
+    """One continuous stretch."""
+    id: int
+    member_name: str
+    task_id: Optional[int] = None
+    task_name: Optional[str] = None
+    started_at: datetime
+    last_at: datetime
+    active_seconds: int
+    objects_start: Optional[int] = None
+    objects_end: Optional[int] = None
+
+
+class IdleMember(BaseModel):
+    member_name: str
+
+
+class WorkSessionSummaryResponse(BaseModel):
+    # False when monitoring is switched off: lets the UI say so instead of
+    # showing an empty table that reads as "nobody worked".
+    enabled: bool
+    team_id: int
+    team_name: Optional[str] = None
+    tz_offset: int = 0
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    # When the tracker last checkpointed (data is up to a flush interval stale).
+    as_of: Optional[datetime] = None
+    # Earliest recorded stretch for these members; explains an empty old range.
+    monitoring_since: Optional[datetime] = None
+    truncated: bool = False
+    rows: List[WorkSessionSummaryRow] = Field(default_factory=list)
+    idle_members: List[IdleMember] = Field(default_factory=list)
+
+
+class WorkSessionListResponse(BaseModel):
+    enabled: bool
+    team_id: int
+    tz_offset: int = 0
+    truncated: bool = False
+    rows: List[WorkSessionRow] = Field(default_factory=list)

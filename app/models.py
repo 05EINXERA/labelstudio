@@ -1,5 +1,5 @@
 """SQLAlchemy ORM models for database persistence."""
-from sqlalchemy import Boolean, Column, Integer, String, DateTime, func, Text, ForeignKey, Float, LargeBinary, UniqueConstraint, false
+from sqlalchemy import Boolean, Column, Index, Integer, String, DateTime, func, Text, ForeignKey, Float, LargeBinary, UniqueConstraint, false
 
 # All timestamp columns store timezone-aware UTC (CLAUDE.md rule 7). Without
 # timezone=True, Postgres silently strips tzinfo on write and hands back a
@@ -342,3 +342,39 @@ class ExportJob(Base):
     meta_info = Column(Text, nullable=True) # JSON payload containing task_count, format, etc.
     error = Column(Text, nullable=True)
     created_at = Column(UTCDateTime, server_default=func.now(), nullable=False, index=True)
+
+
+class WorkSession(Base):
+    """One continuous stretch of one user working on one task.
+
+    Captured from the task save (see api/work_sessions.py), held in memory and
+    checkpointed here by a background drain, so nothing is added to the save
+    transaction. A stretch ends when the user is silent on the task for
+    MONITOR_SESSION_GAP_SECONDS; the next save then opens a new row.
+
+    `active_seconds` is the sum of the saves' `time_spent_delta` (the client's
+    active clock, idle already rolled back), not `last_at - started_at`.
+    `objects_start` / `objects_end` are the task's non-comment annotation count
+    when the stretch began / after its last accepted save. They are task totals,
+    not authorship, and NULL means unknown -- never 0, which would claim the task
+    was empty.
+
+    `user_id` and `task_id` are SET NULL on delete so history survives either
+    being removed; `member_name` and `task_name` are snapshots that keep the row
+    legible afterwards. `member_name` is the username, which is also what
+    team_member_associations.member_name stores, so team views join on it.
+    `task_id` is indexed: without it a bulk task delete scans this table once per
+    task on Postgres.
+    """
+    __tablename__ = "work_sessions"
+    __table_args__ = (Index("ix_work_sessions_member_started", "member_name", "started_at"),)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    member_name = Column(String, nullable=False)
+    task_id = Column(Integer, ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True, index=True)
+    task_name = Column(String(255), nullable=True)
+    started_at = Column(UTCDateTime, nullable=False)
+    last_at = Column(UTCDateTime, nullable=False)
+    active_seconds = Column(Integer, nullable=False, default=0, server_default="0")
+    objects_start = Column(Integer, nullable=True)
+    objects_end = Column(Integer, nullable=True)

@@ -14,8 +14,9 @@ HTML5 canvas. AI assistance comes from local models: YOLOv8 / YOLO-World
 - **Frontend:** Vanilla JS + HTML5 Canvas, served as static files from `frontend/`. No build step, no framework.
 - **ML:** `ml/` package (`ml.yolo`, `ml.sam`, `ml.clip`, `ml.weights`, `ml.images`, `ml.common`) loads and runs models; `detector.py` provides backward compatibility. Inference runs through an in-process background job queue (`api/routers/detect.py`).
 - **Deploy target:** one PC on an office LAN, one uvicorn process, serving ~20–25
-  annotators who **share a single login** (classes/images uploaded once are
-  visible to all; per-person task assignment is advisory). Postgres runs on the
+  annotators, each with their own account (classes/images uploaded once are
+  visible to all; per-person task assignment keys on the username string and
+  the editable `X-Annotator-Name` header, so treat it as advisory). Postgres runs on the
   same box. Plain HTTP on the trusted LAN (TLS deferred).
 
 **Deployment/hardening state lives in `.devnotes/deployment-hardening/`** — read
@@ -47,7 +48,7 @@ old pattern into new code.
 6. **Declare `response_model` with a Pydantic schema** for new endpoints instead of returning hand-built dicts (e.g. `TaskDetail` on `GET /api/tasks/{id}`).
 7. **Datetimes:** always timezone-aware UTC — `datetime.now(timezone.utc)`, never `datetime.utcnow()` (deprecated, returns naive datetimes).
 8. **Schema changes go through Alembic** (`alembic revision --autogenerate`), not by relying on `Base.metadata.create_all` (which only creates missing tables, never alters existing ones). The migration chain must build the schema on an **empty** database (Postgres deploys start empty) — do not write migrations that only `ALTER` pre-existing tables.
-9. **Never touch `JOBS`/`_models`/`_TASK_LOCKS` from a second process/worker.** These are in-process dicts (the AI job queue, loaded ML models, and the soft task lock in `tasks.py`). The app must run as exactly one uvicorn worker until this state is moved out of process. **Do not add `--workers N`.**
+9. **Never touch `JOBS`/`_models`/`_TASK_LOCKS` or the work-session tracker (`api/work_sessions.py`) from a second process/worker.** These are in-process state (the AI job queue, loaded ML models, the soft task lock in `tasks.py`, and the team-activity session buffer; under >1 worker the last would silently split sessions). The app must run as exactly one uvicorn worker until this state is moved out of process. **Do not add `--workers N`.**
 10. **Concurrent-write commits use `commit_with_retry(db)`** (from `database.py`), not raw `db.commit()` — it backs off on lock/deadlock/serialization contention. All router commits route through it.
 11. **Task save conflict model:** writes carry a per-tab `client_id`; `tasks.last_client_id` records the last writer. A conflict (409) is only raised when a *different* client wrote since the caller read — a client never conflicts with itself. Do not reintroduce a timestamp-only check, and never disable client-side saving on a 409. See `.devnotes/deployment-hardening/04_ANNOTATION_SAVE_LOSS.md`.
 12. **Configuration comes from `config.py`**, which loads `.env` for every entry point (uvicorn, alembic, scripts) — never read `os.environ` for deployment settings elsewhere, and never rely on the launcher script to have loaded `.env`.
@@ -94,6 +95,7 @@ old pattern into new code.
 | `frontend/js/` | Shared ES modules — new frontend code goes here (`utils.js`, `state.js`, `task-lock.js`, `components/`, `pages/`) |
 | `scripts/` | Ops + one-off tooling: `migrate_sqlite_to_postgres.py`, `backup.py`, `schedule-backup.ps1`, `install-service.ps1`, `run.ps1`, `restore_drill.py`, `verify-resilience.ps1`, `health-check.ps1`, `schedule-health-check.ps1` |
 | `.devnotes/deployment-hardening/` | Deployment audit, phased task list, the annotation-save-loss postmortem, and the resilience plan/implementation record (`06_RESILIENCE_PLAN.md`, `07_RESILIENCE_IMPLEMENTATION.md`) |
+| `api/work_sessions.py` | Team-activity tracker: in-memory work sessions fed by the task-save hook (`tasks.py`), checkpointed to `work_sessions` by a background drain. Off unless `MONITOR_ENABLED`. Design in `.devnotes/team-monitoring/` |
 | `models/` | ML weight files (gitignored) — *not* Python code; `models.py` is the DB models |
 | `alembic/` | Database migrations |
 

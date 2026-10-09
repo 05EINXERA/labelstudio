@@ -163,6 +163,22 @@ if IS_PRODUCTION and "PYTEST_CURRENT_TEST" not in os.environ and "pytest" not in
     os.environ.setdefault("HF_HUB_OFFLINE", "1")
 
 # --- Auth -----------------------------------------------------------------
+# --- Team work-activity monitoring ----------------------------------------
+# Master switch AND rollback switch: off => the save hook returns immediately,
+# the drain is not started, the API reports enabled:false. Read at startup.
+# State is held in-process, so this only works under the single uvicorn worker
+# (CLAUDE.md rule 9). See .devnotes/team-monitoring/.
+MONITOR_ENABLED = os.environ.get("MONITOR_ENABLED", "0").strip().lower() in ("1", "true", "yes")
+# Silence on a task longer than this ends a stretch. Keep equal to the client's
+# IDLE_TIMEOUT_MS (frontend/js/components/timer.js) or the figures disagree.
+MONITOR_SESSION_GAP_SECONDS = int(os.environ.get("MONITOR_SESSION_GAP_SECONDS", "300"))
+# Checkpoint interval: bounds page staleness and what a crash can lose.
+MONITOR_FLUSH_SECONDS = int(os.environ.get("MONITOR_FLUSH_SECONDS", "60"))
+# In-memory ceiling for live + unflushed stretches.
+MONITOR_BUFFER_MAX = int(os.environ.get("MONITOR_BUFFER_MAX", "2000"))
+# Widest date range one activity request may cover.
+MONITOR_MAX_RANGE_DAYS = int(os.environ.get("MONITOR_MAX_RANGE_DAYS", "31"))
+
 JWT_SECRET = os.environ.get("JWT_SECRET", "").strip()
 
 # Open self-registration is fine for a single-user dev box and wrong on a LAN,

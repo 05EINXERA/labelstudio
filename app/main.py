@@ -52,6 +52,7 @@ except ImportError:
 validate_config()
 configure_logging()
 
+from api import work_sessions
 from api.routers import (
     auth,
     data,
@@ -64,6 +65,7 @@ from api.routers import (
     projects,
     tasks,
     team,
+    team_activity,
     teams,
 )
 
@@ -86,7 +88,20 @@ async def lifespan(app: FastAPI):
     except Exception as exc:  # pragma: no cover - never worth failing startup
         logger.warning("Could not set threadpool cap (%s); using anyio default", exc)
 
+    # Team work-activity checkpointing. Wrapped so monitoring can never fail
+    # startup; it is a no-op unless MONITOR_ENABLED.
+    try:
+        work_sessions.start_drain()
+    except Exception:
+        logger.exception("Could not start work-session drain; monitoring is inactive")
+
     yield
+
+    # Flush what monitoring holds before the pool goes away.
+    try:
+        await work_sessions.stop_drain()
+    except Exception:
+        logger.exception("Work-session drain did not stop cleanly")
 
     # Shutdown: cleanly dispose of SQLAlchemy connection pool
     try:
@@ -178,6 +193,7 @@ app.include_router(projects.router)
 app.include_router(tasks.router)
 app.include_router(team.router)
 app.include_router(teams.router)
+app.include_router(team_activity.router)
 app.include_router(detect.router)
 app.include_router(label_studio.router)
 app.include_router(labels.router)
@@ -202,10 +218,15 @@ def health():
         db_ok = False
         logger.error("Health check database probe failed: %s", exc)
 
+    monitoring = work_sessions.drain_status()
     return {
         "status": "ok" if db_ok else "degraded",
         "database": "up" if db_ok else "down",
         "environment": "production" if IS_PRODUCTION else "development",
+        "monitoring": {
+            "enabled": monitoring["enabled"],
+            "healthy": monitoring["healthy"],
+        },
     }
 
 
