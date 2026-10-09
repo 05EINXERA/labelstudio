@@ -102,6 +102,19 @@ def unique_label_id(prefix="lbl"):
 from database import SessionLocal
 from sqlalchemy import text
 
+@pytest.fixture
+def monitor_on(monkeypatch):
+    """Team monitoring enabled with the default 300 s gap."""
+    import config
+    from api import work_sessions
+    monkeypatch.setattr(config, "MONITOR_ENABLED", True)
+    monkeypatch.setattr(config, "MONITOR_SESSION_GAP_SECONDS", 300)
+    monkeypatch.setattr(config, "MONITOR_BUFFER_MAX", 2000)
+    work_sessions.reset_for_tests()
+    yield
+    work_sessions.reset_for_tests()
+
+
 @pytest.fixture(autouse=True)
 def clear_db():
     yield
@@ -112,6 +125,7 @@ def clear_db():
         # pragma is on, so the order is what keeps the suite deterministic.
         db.execute(text("DELETE FROM task_assignees;"))
         db.execute(text("DELETE FROM task_assignment_events;"))
+        db.execute(text("DELETE FROM work_sessions;"))
         db.execute(text("DELETE FROM tasks;"))
         db.execute(text("DELETE FROM labels;"))
         db.execute(text("DELETE FROM projects;"))
@@ -121,3 +135,6 @@ def clear_db():
         db.execute(text("DELETE FROM notifications;"))
         db.execute(text("DELETE FROM team_members;"))
         db.commit()
+    # The save hook records into process-local state; don't leak it across tests.
+    from api import work_sessions
+    work_sessions.reset_for_tests()
