@@ -7,7 +7,7 @@
   <title>Teams - Dataset Workspace</title>
   <link rel="icon" type="image/png" href="logo.png">
   <link rel="stylesheet" href="styles.css?v=8">
-  <link rel="modulepreload" href="js/pages/teams.js?v=16">
+  <link rel="modulepreload" href="js/pages/teams.js?v=17">
   <script>
     if (!localStorage.getItem('logged_in')) {
       window.location.replace('/');
@@ -261,7 +261,18 @@
     </div>
   </div>
 
-  <script type="module" src="js/pages/teams.js?v=16"></script>
+  <!-- Team activity modal -->
+  <div class="modal-overlay" id="activityModal">
+    <div class="modal-content" style="max-width: 1000px; width: 95vw;">
+      <div class="modal-header">
+        <h2 id="activityModalTitle">Activity</h2>
+        <button class="modal-close" id="activityModalClose" type="button">&times;</button>
+      </div>
+      <div class="modal-body" id="activityMount" style="max-height: 70vh; overflow: auto;"></div>
+    </div>
+  </div>
+
+  <script type="module" src="js/pages/teams.js?v=17"></script>
 </body>
 
 </html>
