@@ -28,6 +28,7 @@ from api.assignments import (
     get_assignees, get_assignees_map, get_history, get_participants,
     get_project_history, normalize_names, set_task_assignees,
 )
+from api import work_sessions
 from api.notifications import notify_task_assigned, notify_task_status_changed
 from api.routers.projects import (
     get_owned_project,
@@ -918,6 +919,12 @@ def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: 
     # project-rollup block near the end, which only needs to recompute when the
     # project's spread of task statuses can actually have moved.
     is_create = not task.id
+    # What the work-session tracker is told after the commit (api/work_sessions.py).
+    # Reset per attempt like the values above: the retry loop re-enters this
+    # function, and only the attempt that commits may report anything.
+    monitor_save = None
+    monitor_prev: Optional[int] = None
+    monitor_now: Optional[int] = None
 
     if task.id:
         # for_update: serialise concurrent saves of this task. Taken here,
@@ -1045,6 +1052,9 @@ def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: 
             try:
                 anns = json.loads(task.annotations)
                 existing_map = {a.id: a for a in db_task.annotations}
+                # "Objects" exclude comments. Counted from the list already
+                # loaded here, before any mutation: no extra query on the save.
+                monitor_prev = sum(1 for a in existing_map.values() if a.type != 'comment')
 
                 # Refuse a save that would wipe a substantial task outright, or
                 # drop most of it in one shot.
@@ -1186,6 +1196,9 @@ def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: 
         db_task.updated_at = datetime.datetime.now(datetime.timezone.utc)
         task_id = db_task.id
         new_updated_at = db_task.updated_at
+        if task.annotations is not None:
+            monitor_now = sum(1 for a in anns if isinstance(a, dict) and a.get('type', 'polygon') != 'comment')
+        monitor_save = (db_task.id, task.time_spent_delta or 0)
     else:
         if projectId is None:
             raise HTTPException(status_code=422, detail="Query param 'projectId' is required to create a task.")
@@ -1312,6 +1325,13 @@ def _update_or_create_task_impl(task: TaskUpdate, projectId: Optional[int], db: 
                     project.status = new_status
 
     commit_with_retry(db)
+
+    # Same rule for the work-session tracker: dict operations only, and only
+    # now, so a refused or rolled-back save leaves no time or count behind.
+    if monitor_save:
+        work_sessions.note_save(
+            user.id, user.username, monitor_save[0], monitor_save[1], monitor_prev, monitor_now,
+        )
 
     # Notify AFTER the commit, never before: this whole function is re-run by
     # the retry loop in update_or_create_task on contention, so an emit placed
