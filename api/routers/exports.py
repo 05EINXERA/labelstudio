@@ -53,7 +53,7 @@ from typing import List, Tuple, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import Response
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, defer, selectinload
 import datetime
 
 import models
@@ -437,10 +437,18 @@ def create_export(req: ExportRequest, background_tasks: BackgroundTasks, db: Ses
 @router.get("/{job_id}")
 def get_export_status(job_id: str, db: Session = Depends(get_db)):
     _cleanup_stale_jobs(db)
-    job = db.query(models.ExportJob).filter(models.ExportJob.id == job_id).first()
+    # Never load `content` here: the page polls this every second, and a
+    # finished archive can be hundreds of MB. Reading it on each poll ran the
+    # database out of memory and restarted it for every user (2026-10-12).
+    job = (
+        db.query(models.ExportJob)
+        .options(defer(models.ExportJob.content))
+        .filter(models.ExportJob.id == job_id)
+        .first()
+    )
     if not job:
         raise HTTPException(status_code=404, detail="Export job not found or expired")
-    
+
     if job.status == "completed":
         meta = json.loads(job.meta_info or "{}")
         return {
