@@ -114,3 +114,23 @@ def test_enabled_endpoint_queues_a_job(client, alice, monkeypatch, tmp_path):
     job_id = res.json()["job_id"]
     status = client.get(f"/api/detect/status/{job_id}", headers=alice).json()
     assert status == {"status": "completed", "result": stub}
+
+
+def test_architectures_return_logits_at_input_size():
+    """Both checkpoint architectures rebuild and keep the {"out": logits} contract."""
+    import torch
+    from ml.semseg_arch import STRIDE, build_semseg_net
+
+    for arch in ("unet_resnet34", "deeplabv3_mobilenet_v3_large"):
+        model = build_semseg_net(arch, num_classes=8).eval()
+        with torch.no_grad():
+            out = model(torch.zeros(1, 3, STRIDE * 2, STRIDE * 3))["out"]
+        assert out.shape == (1, 8, STRIDE * 2, STRIDE * 3), arch
+
+
+def test_unknown_architecture_is_rejected():
+    import pytest
+    from ml.semseg_arch import build_semseg_net
+
+    with pytest.raises(ValueError):
+        build_semseg_net("not-a-model", 8)
