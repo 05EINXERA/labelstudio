@@ -6,8 +6,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Image Annotation</title>
   <link rel="icon" type="image/png" href="logo.png">
-  <link rel="stylesheet" href="styles.css?v=36">
-  <link rel="modulepreload" href="js/init.js?v=20">
+  <link rel="stylesheet" href="styles.css?v=37">
+  <link rel="modulepreload" href="js/init.js?v=21">
   <!-- sync.js (legacy global annotation-slot sync to /api/data) removed in T3.1.
        Under a shared account the 'image-annotation-mvp-v1' row was last-writer-wins
        across all 25 clients. Per-task localStorage drafts (workspace.js restoreDraft)
@@ -297,6 +297,7 @@
           </div>
           <button class="tool-button primary" id="autoDetectButton" type="button" title="Detect objects with AI"><span class="btn-icon">🔍</span><span class="btn-label">Detect</span></button>
           <button class="tool-button" id="autoTagButton" type="button" title="Auto-tag image with AI"><span class="btn-icon">🏷️</span><span class="btn-label">Auto-Tag</span></button>
+          <button class="tool-button" id="hullDetectButton" type="button" title="Segment hull-condition classes with AI" hidden><span class="btn-icon">🚢</span><span class="btn-label">Hull</span></button>
           </div>
         </div>
         <div class="tool-group" role="group" aria-label="Edit controls">
@@ -794,7 +795,7 @@
     </div>
   </div>
 
-  <script type="module" src="js/init.js?v=20"></script>
+  <script type="module" src="js/init.js?v=21"></script>
 
 </body>
 

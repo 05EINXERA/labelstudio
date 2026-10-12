@@ -43,6 +43,10 @@ from .sam import (
     embed_image,
     segment_point,
 )
+from .semseg import (
+    segment_semantic,
+    semseg_available,
+)
 
 __all__ = [
     "DATA_DIR",
@@ -76,4 +80,6 @@ __all__ = [
     "classify_image",
     "embed_image",
     "segment_point",
+    "segment_semantic",
+    "semseg_available",
 ]

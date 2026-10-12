@@ -299,6 +299,12 @@ class EmbedPayload(BaseModel):
     image: str
     sam_model: Optional[str] = None
 
+class SemanticPayload(BaseModel):
+    image: str
+
+class AIJobCreated(BaseModel):
+    job_id: str
+
 class LabelStudioPayload(BaseModel):
     projectId: Optional[str] = None
     taskId: Optional[str] = None

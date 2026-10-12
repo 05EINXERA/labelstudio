@@ -138,6 +138,17 @@ AI_FEATURES_ENABLED = os.environ.get("AI_FEATURES_ENABLED", "1").strip().lower()
 # under simultaneous AI requests from multiple annotators.
 MAX_INFERENCE_CONCURRENCY = int(os.environ.get("MAX_INFERENCE_CONCURRENCY", "1"))
 
+# Hull-condition semantic segmentation (ml/semseg.py, POST /api/detect/semantic).
+# Off by default: the endpoint refuses and the frontend hides its button until
+# this is set AND the weights file exists. SEMSEG_MODEL is a file name inside
+# models/detector/ or an absolute path. The two limits keep a dense mask from
+# flooding the canvas: regions smaller than SEMSEG_MIN_AREA_PX (source-image
+# pixels) are dropped and at most SEMSEG_MAX_POLYGONS (largest first) returned.
+SEMSEG_ENABLED = os.environ.get("SEMSEG_ENABLED", "0").strip().lower() in ("1", "true", "yes")
+SEMSEG_MODEL = os.environ.get("SEMSEG_MODEL", "hull_semseg.pt").strip()
+SEMSEG_MIN_AREA_PX = int(os.environ.get("SEMSEG_MIN_AREA_PX", "600"))
+SEMSEG_MAX_POLYGONS = int(os.environ.get("SEMSEG_MAX_POLYGONS", "200"))
+
 # Hugging Face models (CLIP, SAM) are already cached under ~/.cache/huggingface
 # after first download, but `from_pretrained` still makes a round trip per file
 # to huggingface.co to check the cache is current unless told not to. On the

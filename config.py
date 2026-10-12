@@ -43,6 +43,10 @@ from app.config import (
     MONITOR_MAX_RANGE_DAYS,
     MONITOR_SESSION_GAP_SECONDS,
     PROXY_HEADERS,
+    SEMSEG_ENABLED,
+    SEMSEG_MAX_POLYGONS,
+    SEMSEG_MIN_AREA_PX,
+    SEMSEG_MODEL,
     THREADPOOL_CAP,
     validate_config,
 )
@@ -82,6 +86,10 @@ __all__ = [
     "MONITOR_MAX_RANGE_DAYS",
     "MONITOR_SESSION_GAP_SECONDS",
     "PROXY_HEADERS",
+    "SEMSEG_ENABLED",
+    "SEMSEG_MAX_POLYGONS",
+    "SEMSEG_MIN_AREA_PX",
+    "SEMSEG_MODEL",
     "THREADPOOL_CAP",
     "validate_config",
 ]
