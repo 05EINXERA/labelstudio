@@ -52,7 +52,8 @@ import zipfile
 from typing import List, Tuple, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
-from fastapi.responses import Response
+from fastapi.responses import StreamingResponse
+from sqlalchemy import func
 from sqlalchemy.orm import Session, defer, selectinload
 import datetime
 
@@ -80,6 +81,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/exports", tags=["exports"], dependencies=[Depends(get_current_user), Depends(require_csrf)])
 
 JOB_TTL_SECONDS = 3600.0  # 1 hour
+
+# A finished archive is read out of `export_jobs.content` this many bytes at a
+# time. One whole-column read of a 245 MB export cost the database and this
+# process several times that in memory, and took longer than the frontend's
+# 10 s wait for response headers, so the browser gave up before a byte arrived.
+DOWNLOAD_CHUNK_BYTES = 4 * 1024 * 1024
 
 def _cleanup_stale_jobs(db: Optional[Session] = None, max_age_seconds: float = JOB_TTL_SECONDS) -> int:
     close_on_exit = False
@@ -463,21 +470,52 @@ def get_export_status(job_id: str, db: Session = Depends(get_db)):
     return {"status": "pending"}
 
 
+def _stream_archive(job_id: str, size: int):
+    """Yield a job's archive in slices, then delete the job.
+
+    Owns its session: the request's is closed before the body is sent. The job
+    is deleted only once every byte has been handed over, so a download the
+    browser abandons can be retried until the job expires.
+    """
+    db = SessionLocal()
+    try:
+        position = 1  # SQL substr is 1-based
+        while position <= size:
+            piece = (
+                db.query(func.substr(models.ExportJob.content, position, DOWNLOAD_CHUNK_BYTES))
+                .filter(models.ExportJob.id == job_id)
+                .scalar()
+            )
+            if not piece:
+                # Expired or removed mid-download. Raising breaks the connection
+                # so the browser reports a failed download; returning would end
+                # the body cleanly and pass a truncated archive off as complete.
+                raise RuntimeError(f"Export job {job_id} vanished during download at byte {position}")
+            yield bytes(piece)
+            position += DOWNLOAD_CHUNK_BYTES
+        db.query(models.ExportJob).filter(models.ExportJob.id == job_id).delete(synchronize_session=False)
+        commit_with_retry(db)
+    finally:
+        db.close()
+
+
 @router.get("/{job_id}/download")
 def download_export(job_id: str, db: Session = Depends(get_db)):
-    job = db.query(models.ExportJob).filter(models.ExportJob.id == job_id).first()
-    if not job or job.status != "completed":
+    row = (
+        db.query(models.ExportJob.status, models.ExportJob.media_type, models.ExportJob.filename,
+                 func.length(models.ExportJob.content))
+        .filter(models.ExportJob.id == job_id)
+        .first()
+    )
+    if not row or row[0] != "completed":
         raise HTTPException(status_code=404, detail="Export not ready or expired")
-    
-    content = job.content
-    media_type = job.media_type
-    filename = job.filename
-    
-    # one-shot download
-    db.delete(job)
-    commit_with_retry(db)
-    
-    return Response(
-        content=content, media_type=media_type,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    _, media_type, filename, size = row
+    size = size or 0
+
+    return StreamingResponse(
+        _stream_archive(job_id, size), media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(size),
+        },
     )

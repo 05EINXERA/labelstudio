@@ -54,3 +54,83 @@ def test_download_still_returns_the_archive(client, alice):
     res = client.get(f"/api/exports/{job_id}/download", headers=alice)
     assert res.status_code == 200, res.text
     assert res.content == b"archive-bytes"
+
+
+def _job_exists(job_id: str) -> bool:
+    db = SessionLocal()
+    try:
+        return db.query(models.ExportJob.id).filter(models.ExportJob.id == job_id).first() is not None
+    finally:
+        db.close()
+
+
+def test_download_streams_in_chunks_and_then_deletes_the_job(client, alice, monkeypatch):
+    """An archive larger than one chunk arrives intact and the one-shot job is
+    removed afterwards."""
+    from api.routers import exports
+
+    monkeypatch.setattr(exports, "DOWNLOAD_CHUNK_BYTES", 1000)
+    payload = bytes(range(256)) * 13  # 3328 bytes: three full chunks and a remainder
+    job_id = _make_job(payload)
+
+    res = client.get(f"/api/exports/{job_id}/download", headers=alice)
+    assert res.status_code == 200, res.text
+    assert res.content == payload
+    assert 'filename="x.zip"' in res.headers["content-disposition"]
+    assert not _job_exists(job_id)
+    assert client.get(f"/api/exports/{job_id}/download", headers=alice).status_code == 404
+
+
+def test_download_never_selects_the_whole_archive(client, alice, monkeypatch):
+    from api.routers import exports
+
+    monkeypatch.setattr(exports, "DOWNLOAD_CHUNK_BYTES", 1000)
+    job_id = _make_job(b"q" * 2500)
+    statements = []
+
+    def record(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", record)
+    try:
+        res = client.get(f"/api/exports/{job_id}/download", headers=alice)
+    finally:
+        event.remove(engine, "before_cursor_execute", record)
+    assert res.content == b"q" * 2500
+    selects = [s for s in statements if s.lstrip().upper().startswith("SELECT") and "export_jobs" in s]
+    assert selects
+    assert not any("export_jobs.content AS" in s or "SELECT export_jobs.content" in s for s in selects), selects
+
+
+def test_abandoned_download_keeps_the_job_for_a_retry():
+    """Closing the stream early (a browser that gave up) must not delete it."""
+    from api.routers import exports
+
+    job_id = _make_job(b"r" * (exports.DOWNLOAD_CHUNK_BYTES + 10))
+    stream = exports._stream_archive(job_id, exports.DOWNLOAD_CHUNK_BYTES + 10)
+    assert len(next(stream)) == exports.DOWNLOAD_CHUNK_BYTES
+    stream.close()
+    assert _job_exists(job_id)
+
+
+def test_download_of_a_pending_job_is_refused(client, alice):
+    job_id = str(uuid.uuid4())
+    db = SessionLocal()
+    try:
+        db.add(models.ExportJob(id=job_id, status="pending"))
+        db.commit()
+    finally:
+        db.close()
+    assert client.get(f"/api/exports/{job_id}/download", headers=alice).status_code == 404
+
+
+def test_job_vanishing_mid_download_breaks_the_stream():
+    """A truncated archive must not look like a finished one."""
+    import pytest
+    from api.routers import exports
+
+    job_id = _make_job(b"s" * 10)
+    stream = exports._stream_archive(job_id, exports.DOWNLOAD_CHUNK_BYTES + 10)  # claims more than exists
+    assert next(stream) == b"s" * 10
+    with pytest.raises(RuntimeError):
+        next(stream)
