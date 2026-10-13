@@ -55,7 +55,7 @@ const VIEW_LOADERS = {
   tasks: () => import("./tasks.js?v=15"),
   classes: () => import("./classes.js?v=1"),
   imports: () => import("./imports.js?v=1"),
-  exports: () => import("./exports.js?v=1"),
+  exports: () => import("./exports.js?v=2"),
   images: () => import("./images.js?v=1"),
 };
 

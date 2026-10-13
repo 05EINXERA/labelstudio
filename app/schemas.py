@@ -443,16 +443,19 @@ EXPORT_INCLUDE_OPTIONS = ["annotations_only"]
 
 # An export is two independent axes: an annotation FORMAT and an IMAGE OUTPUT,
 # bundled into one project-named ZIP. Either axis can be chosen without the
-# other (image output "none" = annotations only, the historical behaviour).
+# other: image output "none" = annotations only (the historical behaviour),
+# format "none" = images only. Both "none" is rejected — there is nothing to
+# export.
 # See .devnotes/data-refactor/02_IMAGE_OUTPUT_PLAN.md.
 
-# Axis A — annotation format.
+# Axis A — annotation format. "none" writes no annotation files (images only).
 #
 # "coco" and "annotations_json" are both JSON but are different documents: COCO
 # is {images, categories, annotations}, while annotations_json is an array of
 # task objects. The old code called the former "json", which left no name for
 # the latter — hence the rename.
 EXPORT_FORMATS = [
+    "none",
     "coco",                 # COCO JSON, one file
     "annotations_json",     # array of task objects, one file
     "annotations_pertask",  # one task object per file

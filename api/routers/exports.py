@@ -2,10 +2,13 @@
 
 An export is two independent axes bundled into one ZIP:
 
-- an annotation FORMAT — COCO, task JSON (single array or per-task), or YOLO
-  segmentation (plus legacy CSV);
+- an annotation FORMAT — none, COCO, task JSON (single array or per-task), or
+  YOLO segmentation (plus legacy CSV);
 - an IMAGE OUTPUT — none, the original image, the annotated image, or a mask
   (direct / index colour / binary).
+
+Either axis may be "none" (annotations only, or images only), but not both:
+that request is rejected with a 422 rather than producing an empty archive.
 
 Each axis lives in its own named top-level folder (`coco/`, `yolo/`,
 `mask_direct_color/`, `annotated_image/`, …) so the two never collide. Format
@@ -146,6 +149,7 @@ _entries_pertask = annotations_json.build_entries
 
 # Annotation-format axis -> (folder prefix, builder). Each builder follows the
 # `build(tasks, labels, db) -> (entries, skipped)` contract, entries bare.
+# "none" has no folder.
 FORMAT_FOLDERS = {
     "coco": "coco/",
     "annotations_json": "json/",
@@ -340,9 +344,10 @@ def _run_export_job(job_id: str, req: ExportRequest, project_id: int):
         entries: List[Tuple[str, bytes]] = []
         skipped: List[dict] = []
 
-        fmt_entries, fmt_skipped = _format_entries(fmt, tasks, labels, values, db)
-        entries += _prefixed(fmt_entries, FORMAT_FOLDERS[fmt])
-        skipped += fmt_skipped
+        if fmt != "none":
+            fmt_entries, fmt_skipped = _format_entries(fmt, tasks, labels, values, db)
+            entries += _prefixed(fmt_entries, FORMAT_FOLDERS[fmt])
+            skipped += fmt_skipped
 
         if image_output != "none":
             img_entries, img_skipped = _image_entries(image_output, tasks, labels, db)
@@ -385,6 +390,13 @@ def create_export(req: ExportRequest, background_tasks: BackgroundTasks, db: Ses
         raise HTTPException(status_code=422, detail=f"format must be one of {EXPORT_FORMATS}.")
     if image_output not in IMAGE_OUTPUTS:
         raise HTTPException(status_code=422, detail=f"imageOutput must be one of {IMAGE_OUTPUTS}.")
+    if fmt == "none" and image_output == "none":
+        # Each axis is optional on its own, but an export with neither has
+        # nothing in it. Reject it rather than hand back an empty archive.
+        raise HTTPException(
+            status_code=422,
+            detail="Nothing to export: choose an annotation format, an image output, or both.",
+        )
     if req.include not in EXPORT_INCLUDE_OPTIONS:
         raise HTTPException(
             status_code=422,

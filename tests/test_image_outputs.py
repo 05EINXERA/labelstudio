@@ -6,7 +6,7 @@ Exports carry two independent axes bundled into one project-named ZIP:
 
 Each axis lands in its own top-level folder. This file exercises the image
 outputs (original / annotated / binary), the folder layout when both axes are
-present, the deprecated single-axis aliases (json, pertask, masks_direct,
+present, the images-only export (format "none"), the deprecated single-axis aliases (json, pertask, masks_direct,
 masks_index), and the compat carve-outs that stay a bare .json / .csv.
 
 The mask-pixel semantics of the direct/index outputs are pinned in
@@ -221,6 +221,53 @@ def test_archive_is_named_after_the_project(client, alice):
     header = download.headers.get("Content-Disposition", "")
     assert "my-proj-" in header
     assert header.rstrip('"').endswith(".zip")
+
+
+# ---------------------------------------------------------------------------
+# Either axis is optional (format "none" = images only), but not both
+# ---------------------------------------------------------------------------
+
+def test_format_none_exports_images_only(client, alice):
+    pid = _new_project(client, alice)
+    _new_label(client, alice, pid, "l", "Thing")
+    _upload_png(client, alice, pid, "only.png", 15, 15)
+
+    download, status = _export(client, alice, pid, format="none", imageOutput="original")
+    assert status["format"] == "none"
+    assert status["image_output"] == "original"
+    names = _zip(download).namelist()
+    assert names == ["original_image/only.png"]
+
+
+def test_format_none_with_a_mask_output_has_no_annotation_folder(client, alice):
+    pid = _new_project(client, alice)
+    lid = _new_label(client, alice, pid, "l", "Thing")
+    _upload_png(client, alice, pid, "m.png", 20, 20)
+    _set_annotations(client, alice, pid, "m.png", [
+        {"id": "a1", "labelId": lid, "type": "bbox", "points": _square(2, 2, 10, 10)},
+    ])
+
+    download, _ = _export(client, alice, pid, format="none", imageOutput="mask_binary")
+    top = {n.split("/", 1)[0] for n in _zip(download).namelist()}
+    assert top == {"mask_binary_color"}
+
+
+def test_both_axes_none_is_rejected(client, alice):
+    pid = _new_project(client, alice)
+    res = client.post(
+        "/api/exports",
+        json={"projectId": pid, "format": "none", "imageOutput": "none"},
+        headers=alice,
+    )
+    assert res.status_code == 422
+    assert "Nothing to export" in res.json()["detail"]
+
+
+def test_format_none_without_an_image_output_is_rejected(client, alice):
+    """imageOutput defaults to "none", so format="none" alone is also empty."""
+    pid = _new_project(client, alice)
+    res = client.post("/api/exports", json={"projectId": pid, "format": "none"}, headers=alice)
+    assert res.status_code == 422
 
 
 # ---------------------------------------------------------------------------

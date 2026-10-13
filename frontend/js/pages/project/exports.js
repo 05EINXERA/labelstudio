@@ -4,9 +4,13 @@
  * Builder UI for creating an annotation export job on two independent axes,
  * bundled into one project-named ZIP:
  *   - Status filter: any subset of schemas.TASK_STATUSES (none checked = all)
- *   - Format (pick one): COCO | Task JSON (single / per-task) | YOLO
+ *   - Format (pick one): none | COCO | Task JSON (single / per-task) | YOLO
  *   - Image output (pick one): none | original | annotated | mask (direct /
  *                              index / binary)
+ *
+ * Either axis may be "none" (annotations only, or images only) but not both:
+ * the Create button is disabled while there is nothing to export, and the
+ * backend rejects the same request with a 422.
  *
  * Each axis lands in its own top-level folder in the zip. Image outputs are
  * rendered from the polygons and are export-only; a caveat note shows when a
@@ -114,9 +118,13 @@ function template() {
       <div class="metric-tile" style="margin-bottom:16px;">
         <p class="label">Annotation format</p>
         <p style="font-size:.85rem; color:var(--muted); margin:6px 0 10px;">
-          The annotation data lands in its own folder inside the export.
+          Optional. The annotation data lands in its own folder inside the export.
         </p>
         <div style="display:flex; flex-direction:column; gap:10px;">
+          <label style="display:flex; align-items:center; gap:8px; font-size:.9rem;" title="No annotation files — images only">
+            <input type="radio" name="format" value="none">
+            None
+          </label>
           <label style="display:flex; align-items:center; gap:8px; font-size:.9rem;" title="COCO JSON: {images, categories, annotations} in one file">
             <input type="radio" name="format" value="coco" checked>
             COCO JSON
@@ -139,7 +147,7 @@ function template() {
       <div class="metric-tile" style="margin-bottom:24px;">
         <p class="label">Image output</p>
         <p style="font-size:.85rem; color:var(--muted); margin:6px 0 10px;">
-          Optionally bundle images alongside the annotations, in their own folder.
+          Optional. Bundle images in their own folder, with or without the annotations.
         </p>
         <div style="display:flex; flex-direction:column; gap:10px;">
           <label style="display:flex; align-items:center; gap:8px; font-size:.9rem;" title="No images — annotations only">
@@ -176,7 +184,10 @@ function template() {
         </p>
       </div>
 
-      <div style="display:flex; gap:10px; justify-content:flex-end;">
+      <div style="display:flex; gap:10px; justify-content:flex-end; align-items:center;">
+        <span id="nothingSelectedNote" style="font-size:.85rem; color:var(--muted); display:none;">
+          Choose an annotation format, an image output, or both.
+        </span>
         <button type="button" class="primary" id="exportBtn"
           style="padding:9px 18px; border-radius:8px; font-weight:600;">
           Create export
@@ -328,6 +339,15 @@ function updateMaskNote() {
   if (note) note.style.display = MASK_OUTPUTS.has(imageOutput) ? "" : "none";
 }
 
+// Both axes are optional, but "None" on both leaves nothing to export. Block
+// it here so the user sees why instead of bouncing off the backend's 422.
+function updateExportAvailability() {
+  const { format, imageOutput } = getFormData();
+  const nothingSelected = format === "none" && imageOutput === "none";
+  el("exportBtn").disabled = nothingSelected;
+  el("nothingSelectedNote").style.display = nothingSelected ? "" : "none";
+}
+
 function bindExportBuilder() {
   el("exportBtn").addEventListener("click", createExport);
   // Show the mask caveat only when a mask image output is selected.
@@ -335,6 +355,11 @@ function bindExportBuilder() {
     radio.addEventListener("change", updateMaskNote);
   });
   updateMaskNote();
+
+  root.querySelectorAll('input[name="format"], input[name="imageOutput"]').forEach((radio) => {
+    radio.addEventListener("change", updateExportAvailability);
+  });
+  updateExportAvailability();
 
   // "Current" and the status boxes are ANDed by the backend, so leaving both
   // set is a live trap: tick Current on an "In Progress" task with "Completed"
@@ -402,12 +427,17 @@ function renderJobStatus() {
     const fmtLabel = FORMAT_LABELS[currentJob.format] || currentJob.format;
     const imgOut = currentJob.imageOutput || "none";
     const imgLabel = IMAGE_OUTPUT_LABELS[imgOut] || imgOut;
-    const imgSuffix = imgOut === "none" ? "" : ` + ${escapeHTML(imgLabel)}`;
+    // Name only the axes that are in the export: an images-only export reads
+    // "original image", not "no annotations + original image".
+    const contents = [
+      currentJob.format === "none" ? "" : escapeHTML(fmtLabel),
+      imgOut === "none" ? "" : escapeHTML(imgLabel),
+    ].filter(Boolean).join(" + ");
     statusEl.innerHTML = `
       <p style="font-size:.9rem; color:var(--accent-dark);">
         ✓ <strong>Export ready</strong> —
         ${currentJob.task_count} task${currentJob.task_count === 1 ? "" : "s"},
-        ${escapeHTML(fmtLabel)}${imgSuffix}.
+        ${contents}.
       </p>${skippedHtml}`;
     downloadBtn.disabled = false;
   } else if (currentJob.status === "failed") {
