@@ -1,0 +1,10 @@
+waiting for the dataset build to finish (17:14)
+dataset ready, training starts (17:14)
+unet_resnet34 on cuda | train 403 photos (394 with a rare class), val 93 | 201 it/epoch | class weights [0.33, 0.82, 0.7, 1.26, 0.72, 1.33, 1.06, 1.79]
+epoch 1/150 loss 2.871 defect-mIoU 0.059 * | any-defect IoU 0.266 P 0.28 R 0.87 | gpu 1.88G | 182s
+epoch 2/150 loss 2.418 defect-mIoU 0.093 * | any-defect IoU 0.343 P 0.37 R 0.80 | gpu 1.88G | 154s
+epoch 3/150 loss 2.187 defect-mIoU 0.131 * | any-defect IoU 0.395 P 0.44 R 0.81 | gpu 1.88G | 145s
+epoch 4/150 loss 1.959 defect-mIoU 0.150 * | any-defect IoU 0.389 P 0.45 R 0.75 | gpu 1.88G | 145s
+epoch 5/150 loss 1.722 defect-mIoU 0.163 * | any-defect IoU 0.421 P 0.52 R 0.69 | gpu 1.88G | 137s
+epoch 6/150 loss 1.547 defect-mIoU 0.181 * | any-defect IoU 0.448 P 0.64 R 0.60 | gpu 1.88G | 154s
+epoch 7/150 loss 1.478 defect-mIoU 0.190 * | any-defect IoU 0.428 P 0.65 R 0.56 | gpu 1.88G | 181s
