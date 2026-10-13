@@ -21,11 +21,16 @@
  * Uses the job-queue pattern from detect.py — polls /api/exports/{job_id}
  * until complete, then offers /api/exports/{job_id}/download.
  *
- * The download is handed to the browser as a plain link rather than fetched
- * into a Blob: a large archive (hundreds of MB) then streams straight to disk
- * with the browser's own progress bar, instead of sitting in page memory with
- * nothing on screen. The finished job stays downloadable until it expires, so
- * the panel stays up after a download instead of returning to the builder.
+ * The download goes through apiFetch, not a plain link. A link carries only
+ * the session cookie, and that cookie does not outlive the browser session
+ * while the bearer token in localStorage does — so for anyone who has reopened
+ * their browser since logging in, a link gets a 401 and the browser saves the
+ * error body as "download.json" (2026-10-13). The body is read as a stream so
+ * the panel can show progress; a large archive takes minutes, and a silent
+ * Download button gets clicked again.
+ *
+ * The finished job stays downloadable until it expires, so the panel stays up
+ * after a download instead of returning to the builder.
  */
 import { apiFetch } from "../../api.js?v=3";
 import { escapeHTML } from "../../utils.js?v=3";
@@ -34,9 +39,11 @@ let root = null;
 let ctx = null;
 let abortController = null;
 let pollInterval = null;
+// Aborts the archive download in flight, if any (leaving the panel, unmount).
+let downloadController = null;
 
 // Job state: null | { job_id, status, format, imageOutput, task_count,
-//                    downloadStarted }
+//                    downloading, downloaded }
 let currentJob = null;
 
 // The task the workspace's Export button was pressed from, taken from the
@@ -263,10 +270,16 @@ function stopPolling() {
   }
 }
 
+function stopDownload() {
+  downloadController?.abort();
+  downloadController = null;
+}
+
 function showBuilder() {
   el("builderSection").style.display = "";
   el("jobSection").style.display = "none";
   stopPolling();
+  stopDownload();
   currentJob = null;
 }
 
@@ -398,8 +411,9 @@ function renderJobStatus() {
 
   const statusEl = el("jobStatus");
   const downloadBtn = el("downloadBtn");
-  // Leaving a finished job is not cancelling anything.
-  el("cancelJobBtn").textContent = currentJob.status === "pending" ? "Cancel" : "New export";
+  // Leaving a finished job is not cancelling anything, unless it is downloading.
+  el("cancelJobBtn").textContent =
+    currentJob.status === "pending" || currentJob.downloading ? "Cancel" : "New export";
 
   if (currentJob.status === "pending") {
     statusEl.innerHTML = `
@@ -447,13 +461,13 @@ function renderJobStatus() {
         ✓ <strong>Export ready</strong> —
         ${currentJob.task_count} task${currentJob.task_count === 1 ? "" : "s"},
         ${contents}.
-      </p>${skippedHtml}${currentJob.downloadStarted ? `
-      <p style="font-size:.85rem; color:var(--muted); margin-top:8px;">
-        Download started — follow it in your browser's downloads. A large export
-        can take a few minutes. It stays available here for about an hour after
-        it was created.
-      </p>` : ""}`;
-    downloadBtn.disabled = false;
+      </p>${skippedHtml}
+      <p id="downloadNote" style="font-size:.85rem; color:var(--muted); margin-top:8px;">${
+        currentJob.downloading ? "Downloading…"
+        : currentJob.downloaded ? "Downloaded. It stays available here for about an hour after it was created."
+        : ""}</p>`;
+    downloadBtn.disabled = !!currentJob.downloading;
+    downloadBtn.textContent = currentJob.downloading ? "Downloading…" : "Download";
   } else if (currentJob.status === "failed") {
     stopPolling();
     statusEl.innerHTML = `
@@ -506,18 +520,82 @@ function startPolling() {
   pollJobStatus(); // immediate first call
 }
 
-async function downloadExport() {
-  if (!currentJob || currentJob.status !== "completed") return;
-  clearError();
-  const jobId = currentJob.job_id;
+/** The server names the file; prefer that over guessing so the two can't drift. */
+function filenameFromResponse(res) {
+  const header = res.headers.get("Content-Disposition");
+  if (!header) return null;
+  const match = /filename="?([^";]+)"?/i.exec(header);
+  return match ? match[1].trim() : null;
+}
 
-  // The link below is followed by the browser itself, so a failure there shows
-  // up only as a failed entry in its downloads list. Check the job (and the
-  // session — apiFetch redirects on a 401) here first, where it can be
-  // explained.
+/**
+ * Fallback only — used if the response carries no Content-Disposition.
+ * Mirrors the backend's carve-out: a single-file annotation format with no
+ * image output is a bare .json; everything else is the project-named zip.
+ */
+function localFilename(job) {
+  const singleFile = job.format === "coco" || job.format === "annotations_json";
+  if (singleFile && (job.imageOutput || "none") === "none") {
+    return `export-${ctx.projectId}.json`;
+  }
+  return `export-${ctx.projectId}.zip`;
+}
+
+// Received chunks are folded into a Blob this often. Blobs are held by the
+// browser (and spilled to disk when large) rather than on the JS heap, so a
+// several-hundred-MB archive does not sit in page memory as raw buffers.
+const DOWNLOAD_FOLD_BYTES = 32 * 1024 * 1024;
+
+/**
+ * Read a response body into a Blob, reporting (receivedBytes, totalBytes) as
+ * it arrives. totalBytes is 0 when the server sent no Content-Length.
+ */
+export async function readBodyWithProgress(res, onProgress) {
+  const type = res.headers.get("Content-Type") || "application/octet-stream";
+  if (!res.body) return res.blob();
+  const total = Number(res.headers.get("Content-Length")) || 0;
+  const reader = res.body.getReader();
+  const parts = [];
+  let pending = [];
+  let pendingBytes = 0;
+  let received = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    pending.push(value);
+    pendingBytes += value.length;
+    received += value.length;
+    if (pendingBytes >= DOWNLOAD_FOLD_BYTES) {
+      parts.push(new Blob(pending));
+      pending = [];
+      pendingBytes = 0;
+    }
+    onProgress(received, total);
+  }
+  if (pending.length) parts.push(new Blob(pending));
+  return new Blob(parts, { type });
+}
+
+function megabytes(bytes) {
+  const mb = bytes / (1024 * 1024);
+  return mb < 10 ? mb.toFixed(1) : String(Math.round(mb));
+}
+
+async function downloadExport() {
+  if (!currentJob || currentJob.status !== "completed" || currentJob.downloading) return;
+  clearError();
+  const job = currentJob;
+  // Still this job's download, and the view is still mounted.
+  const current = () => root !== null && currentJob === job;
+
+  downloadController = new AbortController();
+  const { signal } = downloadController;
+  job.downloading = true;
+  renderJobStatus();
+
   try {
-    const res = await apiFetch(`/api/exports/${jobId}`, { signal: abortController.signal });
-    if (!res || !root || currentJob?.job_id !== jobId) return;
+    const res = await apiFetch(`/api/exports/${job.job_id}/download`, { signal });
+    if (!res || !current()) return;
     if (res.status === 404) {
       showBuilder();
       showError("This export has expired. Create it again.");
@@ -527,24 +605,41 @@ async function downloadExport() {
       showError(`Download failed (${res.status}).`);
       return;
     }
+
+    let lastPaint = 0;
+    const blob = await readBodyWithProgress(res, (received, total) => {
+      const now = Date.now();
+      if (now - lastPaint < 200 || !current()) return;
+      lastPaint = now;
+      const note = el("downloadNote");
+      if (!note) return;
+      note.textContent = total
+        ? `Downloading… ${megabytes(received)} of ${megabytes(total)} MB (${Math.floor((received / total) * 100)}%)`
+        : `Downloading… ${megabytes(received)} MB`;
+    });
+    if (!current()) return;
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filenameFromResponse(res) || localFilename(job);
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // Revoking straight away can cancel the save of a large Blob in some
+    // browsers; give the download a moment to take hold of it.
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+
+    job.downloaded = true;
   } catch (err) {
     if (err.name === "AbortError") return;
-    console.error("Download check failed", err);
-    if (root) showError("Could not reach the server to download the export.");
-    return;
+    console.error("Download failed", err);
+    if (current()) showError("Could not download the export. Try Download again.");
+  } finally {
+    job.downloading = false;
+    if (downloadController?.signal === signal) downloadController = null;
+    if (current()) renderJobStatus();
   }
-
-  // Same-origin, so the session cookie authenticates it; the server names the
-  // file through Content-Disposition.
-  const a = document.createElement("a");
-  a.href = `/api/exports/${encodeURIComponent(jobId)}/download`;
-  a.download = "";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-
-  currentJob.downloadStarted = true;
-  renderJobStatus();
 }
 
 function bindJobSection() {
@@ -604,6 +699,7 @@ async function hydrateCurrentTaskName() {
 
 export function unmount() {
   stopPolling();
+  stopDownload();
   abortController?.abort();
   abortController = null;
   currentJob = null;

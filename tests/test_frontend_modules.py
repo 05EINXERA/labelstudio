@@ -1141,3 +1141,22 @@ def test_not_assigned_warning_dialog_skips_owner_and_reviewer():
         html = f.read()
     for element_id in ("notAssignedModal", "notAssignedOkBtn", "notAssignedAssignees"):
         assert f'id="{element_id}"' in html
+
+
+def test_export_download_goes_through_apifetch():
+    """The archive download must carry the bearer token.
+
+    Handing the browser a plain link to /api/exports/{id}/download sends only
+    the session cookie. Anyone who has reopened their browser since logging in
+    has no cookie, gets a 401, and the browser saves the JSON error body as
+    "download.json" instead of the .zip (2026-10-13).
+    """
+    path = os.path.join(FRONTEND_JS_DIR, "pages", "project", "exports.js")
+    with open(path, "r", encoding="utf-8") as f:
+        source = f.read()
+
+    assert "apiFetch(`/api/exports/${job.job_id}/download`" in source
+    assert not re.search(r"\.href\s*=\s*[`'\"]/api/exports", source), (
+        "exports.js points a link straight at the download endpoint; "
+        "it must fetch it through apiFetch so the request is authenticated"
+    )

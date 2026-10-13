@@ -118,20 +118,21 @@ def test_download_is_not_gzipped_and_keeps_its_length(client, alice):
     assert res.content == payload
 
 
-def test_download_authenticates_with_the_session_cookie_alone(client):
-    """The Exports page hands the download to the browser as a plain link, so
-    no Authorization or X-Annotator-Name header rides along — only the cookie."""
-    res = client.post("/api/auth/register", json={"username": f"dl-{uuid.uuid4().hex[:8]}", "password": "pw-12345"})
-    assert res.status_code == 200, res.text
-    assert client.cookies.get("access_token"), "registration should set the session cookie"
-    job_id = _make_job(b"cookie-only")
+def test_download_without_the_bearer_header_is_a_json_401(client, alice):
+    """The session cookie does not outlive the browser session, but the bearer
+    token the page keeps in localStorage does. A browser that has been reopened
+    since login therefore authenticates by header only, and a plain link to the
+    download (which can carry no header) gets this 401 — which the browser
+    saves as "download.json". The page must download through apiFetch."""
+    job_id = _make_job(b"archive-bytes")
 
-    res = client.get(f"/api/exports/{job_id}/download")
-    assert res.status_code == 200, res.text
-    assert res.content == b"cookie-only"
+    bare = client.get(f"/api/exports/{job_id}/download")
+    assert bare.status_code == 401
+    assert bare.headers["content-type"].startswith("application/json")
 
-    client.cookies.clear()
-    assert client.get(f"/api/exports/{job_id}/download").status_code == 401
+    res = client.get(f"/api/exports/{job_id}/download", headers=alice)
+    assert res.status_code == 200, res.text
+    assert res.content == b"archive-bytes"
 
 
 def test_download_never_selects_the_whole_archive(client, alice, monkeypatch):
