@@ -86,8 +86,11 @@ def get_semseg_model():
     return _model, _classes, _device, _scale
 
 
-def mask_to_predictions(class_map, confidence, classes, scale, min_area, max_polygons):
+def mask_to_predictions(class_map, confidence, classes, scale, min_area, max_polygons, min_confidence=0.0):
     """Class-id map -> polygon predictions in source-image pixels.
+
+    Pixels predicted with less than `min_confidence` count as background, so a
+    higher value trades regions found for regions that are right.
 
     `class_map` and `confidence` are model-resolution arrays; `scale` is
     model pixels per source pixel. Class 0 (background / sound) yields nothing.
@@ -95,6 +98,8 @@ def mask_to_predictions(class_map, confidence, classes, scale, min_area, max_pol
     island inside a region is filled.
     """
     inverse = 1.0 / scale
+    if min_confidence > 0:
+        class_map = np.where(confidence >= min_confidence, class_map, 0)
     found = []
     for class_id in range(1, len(classes)):
         selected = class_map == class_id
@@ -145,5 +150,6 @@ def segment_semantic(image_data):
     predictions = mask_to_predictions(
         class_map.cpu().numpy(), confidence.cpu().numpy(), classes,
         size[0] / image.width, config.SEMSEG_MIN_AREA_PX, config.SEMSEG_MAX_POLYGONS,
+        min_confidence=config.SEMSEG_MIN_CONFIDENCE,
     )
     return {"predictions": predictions}

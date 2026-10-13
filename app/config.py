@@ -148,6 +148,11 @@ SEMSEG_ENABLED = os.environ.get("SEMSEG_ENABLED", "0").strip().lower() in ("1", 
 SEMSEG_MODEL = os.environ.get("SEMSEG_MODEL", "hull_semseg.pt").strip()
 SEMSEG_MIN_AREA_PX = int(os.environ.get("SEMSEG_MIN_AREA_PX", "600"))
 SEMSEG_MAX_POLYGONS = int(os.environ.get("SEMSEG_MAX_POLYGONS", "200"))
+# Optional confidence cut-off, off by default (0). Pixels the model is less
+# sure of than this (0-1) are left as sound hull, so a higher value draws
+# fewer, more reliable regions: on the 2026-10-13 validation set 0.6 gave
+# precision 0.81 / recall 0.44, against 0.75 / 0.63 with no cut-off.
+SEMSEG_MIN_CONFIDENCE = float(os.environ.get("SEMSEG_MIN_CONFIDENCE", "0"))
 
 # Hugging Face models (CLIP, SAM) are already cached under ~/.cache/huggingface
 # after first download, but `from_pretrained` still makes a round trip per file
