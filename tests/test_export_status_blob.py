@@ -64,9 +64,9 @@ def _job_exists(job_id: str) -> bool:
         db.close()
 
 
-def test_download_streams_in_chunks_and_then_deletes_the_job(client, alice, monkeypatch):
-    """An archive larger than one chunk arrives intact and the one-shot job is
-    removed afterwards."""
+def test_download_streams_in_chunks_and_keeps_the_job(client, alice, monkeypatch):
+    """An archive larger than one chunk arrives intact, and downloading does
+    not consume the job: it stays until it expires."""
     from api.routers import exports
 
     monkeypatch.setattr(exports, "DOWNLOAD_CHUNK_BYTES", 1000)
@@ -77,8 +77,61 @@ def test_download_streams_in_chunks_and_then_deletes_the_job(client, alice, monk
     assert res.status_code == 200, res.text
     assert res.content == payload
     assert 'filename="x.zip"' in res.headers["content-disposition"]
-    assert not _job_exists(job_id)
-    assert client.get(f"/api/exports/{job_id}/download", headers=alice).status_code == 404
+    assert _job_exists(job_id)
+
+    # A second click on Download gets the same archive, not a 404.
+    again = client.get(f"/api/exports/{job_id}/download", headers=alice)
+    assert again.status_code == 200, again.text
+    assert again.content == payload
+
+
+def test_a_finished_stream_does_not_break_one_still_running():
+    """Repeat clicks on Download run parallel streams of one job. The first to
+    finish used to delete the row, so the others died mid-archive
+    ("vanished during download") and the next click got a 404."""
+    from api.routers import exports
+
+    size = exports.DOWNLOAD_CHUNK_BYTES + 10
+    job_id = _make_job(b"p" * size)
+    slow = exports._stream_archive(job_id, size)
+    first_chunk = next(slow)
+
+    assert b"".join(exports._stream_archive(job_id, size)) == b"p" * size
+
+    assert first_chunk + b"".join(slow) == b"p" * size
+
+
+def test_download_is_not_gzipped_and_keeps_its_length(client, alice):
+    """The archive is already compressed. Letting GZipMiddleware re-compress it
+    costs event-loop time for every other request and drops Content-Length, so
+    the browser cannot show download progress."""
+    payload = b"z" * 5000  # over the middleware's 1000-byte minimum
+    job_id = _make_job(payload)
+
+    res = client.get(
+        f"/api/exports/{job_id}/download",
+        headers={**alice, "Accept-Encoding": "gzip"},
+    )
+    assert res.status_code == 200, res.text
+    assert res.headers.get("content-encoding") != "gzip"
+    assert res.headers["content-length"] == str(len(payload))
+    assert res.content == payload
+
+
+def test_download_authenticates_with_the_session_cookie_alone(client):
+    """The Exports page hands the download to the browser as a plain link, so
+    no Authorization or X-Annotator-Name header rides along — only the cookie."""
+    res = client.post("/api/auth/register", json={"username": f"dl-{uuid.uuid4().hex[:8]}", "password": "pw-12345"})
+    assert res.status_code == 200, res.text
+    assert client.cookies.get("access_token"), "registration should set the session cookie"
+    job_id = _make_job(b"cookie-only")
+
+    res = client.get(f"/api/exports/{job_id}/download")
+    assert res.status_code == 200, res.text
+    assert res.content == b"cookie-only"
+
+    client.cookies.clear()
+    assert client.get(f"/api/exports/{job_id}/download").status_code == 401
 
 
 def test_download_never_selects_the_whole_archive(client, alice, monkeypatch):

@@ -29,6 +29,9 @@ a bare download.
 A builder's `skipped` list (YOLO and the masks need image dimensions) is
 threaded through the job status to the UI so a short export is never silent.
 
+A finished archive can be downloaded any number of times until the job expires
+(JOB_TTL_SECONDS after it was created); downloading does not consume it.
+
 Uses the in-process background-job pattern from detect.py (JOBS dict +
 BackgroundTasks). Rasterizing images is the slow path, so the job plumbing
 earns its keep; the task cap (checked before the job starts) keeps a request
@@ -483,11 +486,16 @@ def get_export_status(job_id: str, db: Session = Depends(get_db)):
 
 
 def _stream_archive(job_id: str, size: int):
-    """Yield a job's archive in slices, then delete the job.
+    """Yield a job's archive in slices.
 
-    Owns its session: the request's is closed before the body is sent. The job
-    is deleted only once every byte has been handed over, so a download the
-    browser abandons can be retried until the job expires.
+    Owns its session: the request's is closed before the body is sent.
+
+    The job is left in place and expires with JOB_TTL_SECONDS. It used to be
+    deleted as soon as one stream finished, which broke every other stream of
+    the same job: a large archive takes minutes, the page showed no progress,
+    and repeat clicks on Download started parallel streams — the first to
+    finish deleted the row under the rest, and the next click got a 404
+    (2026-10-13, six parallel streams of one ~230 MB export).
     """
     db = SessionLocal()
     try:
@@ -505,8 +513,6 @@ def _stream_archive(job_id: str, size: int):
                 raise RuntimeError(f"Export job {job_id} vanished during download at byte {position}")
             yield bytes(piece)
             position += DOWNLOAD_CHUNK_BYTES
-        db.query(models.ExportJob).filter(models.ExportJob.id == job_id).delete(synchronize_session=False)
-        commit_with_retry(db)
     finally:
         db.close()
 
@@ -529,5 +535,11 @@ def download_export(job_id: str, db: Session = Depends(get_db)):
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
             "Content-Length": str(size),
+            # Keeps GZipMiddleware off this response. Without it the archive
+            # (already compressed) is gzipped again on the event loop, 4 MB at
+            # a time, stalling every other request for the length of the
+            # download, and Content-Length is dropped so the browser cannot
+            # show progress.
+            "Content-Encoding": "identity",
         },
     )

@@ -19,7 +19,13 @@
  * backend's `skipped` list rather than letting a short export be silent.
  *
  * Uses the job-queue pattern from detect.py — polls /api/exports/{job_id}
- * until complete, then offers /api/exports/{job_id}/download (one-shot).
+ * until complete, then offers /api/exports/{job_id}/download.
+ *
+ * The download is handed to the browser as a plain link rather than fetched
+ * into a Blob: a large archive (hundreds of MB) then streams straight to disk
+ * with the browser's own progress bar, instead of sitting in page memory with
+ * nothing on screen. The finished job stays downloadable until it expires, so
+ * the panel stays up after a download instead of returning to the builder.
  */
 import { apiFetch } from "../../api.js?v=3";
 import { escapeHTML } from "../../utils.js?v=3";
@@ -29,7 +35,8 @@ let ctx = null;
 let abortController = null;
 let pollInterval = null;
 
-// Job state: null | { job_id, status, format, imageOutput, task_count }
+// Job state: null | { job_id, status, format, imageOutput, task_count,
+//                    downloadStarted }
 let currentJob = null;
 
 // The task the workspace's Export button was pressed from, taken from the
@@ -391,6 +398,8 @@ function renderJobStatus() {
 
   const statusEl = el("jobStatus");
   const downloadBtn = el("downloadBtn");
+  // Leaving a finished job is not cancelling anything.
+  el("cancelJobBtn").textContent = currentJob.status === "pending" ? "Cancel" : "New export";
 
   if (currentJob.status === "pending") {
     statusEl.innerHTML = `
@@ -438,7 +447,12 @@ function renderJobStatus() {
         ✓ <strong>Export ready</strong> —
         ${currentJob.task_count} task${currentJob.task_count === 1 ? "" : "s"},
         ${contents}.
-      </p>${skippedHtml}`;
+      </p>${skippedHtml}${currentJob.downloadStarted ? `
+      <p style="font-size:.85rem; color:var(--muted); margin-top:8px;">
+        Download started — follow it in your browser's downloads. A large export
+        can take a few minutes. It stays available here for about an hour after
+        it was created.
+      </p>` : ""}`;
     downloadBtn.disabled = false;
   } else if (currentJob.status === "failed") {
     stopPolling();
@@ -492,54 +506,45 @@ function startPolling() {
   pollJobStatus(); // immediate first call
 }
 
-/** The server names the file; prefer that over guessing so the two can't drift. */
-function filenameFromResponse(res) {
-  const header = res.headers.get("Content-Disposition");
-  if (!header) return null;
-  const match = /filename="?([^";]+)"?/i.exec(header);
-  return match ? match[1].trim() : null;
-}
-
-/**
- * Fallback only — used if the response carries no Content-Disposition.
- * Mirrors the backend's carve-out: a single-file annotation format with no
- * image output is a bare .json; everything else is the project-named zip.
- */
-function localFilename() {
-  const singleFile = currentJob.format === "coco" || currentJob.format === "annotations_json";
-  if (singleFile && (currentJob.imageOutput || "none") === "none") {
-    return `export-${ctx.projectId}.json`;
-  }
-  return `export-${ctx.projectId}.zip`;
-}
-
 async function downloadExport() {
   if (!currentJob || currentJob.status !== "completed") return;
+  clearError();
+  const jobId = currentJob.job_id;
 
+  // The link below is followed by the browser itself, so a failure there shows
+  // up only as a failed entry in its downloads list. Check the job (and the
+  // session — apiFetch redirects on a 401) here first, where it can be
+  // explained.
   try {
-    const res = await apiFetch(`/api/exports/${currentJob.job_id}/download`);
-    if (!res) return;
+    const res = await apiFetch(`/api/exports/${jobId}`, { signal: abortController.signal });
+    if (!res || !root || currentJob?.job_id !== jobId) return;
+    if (res.status === 404) {
+      showBuilder();
+      showError("This export has expired. Create it again.");
+      return;
+    }
     if (!res.ok) {
       showError(`Download failed (${res.status}).`);
       return;
     }
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filenameFromResponse(res) || localFilename();
-
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-
-    // Job is one-shot; return to builder
-    showBuilder();
   } catch (err) {
-    console.error("Download failed", err);
-    showError("Could not download the export.");
+    if (err.name === "AbortError") return;
+    console.error("Download check failed", err);
+    if (root) showError("Could not reach the server to download the export.");
+    return;
   }
+
+  // Same-origin, so the session cookie authenticates it; the server names the
+  // file through Content-Disposition.
+  const a = document.createElement("a");
+  a.href = `/api/exports/${encodeURIComponent(jobId)}/download`;
+  a.download = "";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+
+  currentJob.downloadStarted = true;
+  renderJobStatus();
 }
 
 function bindJobSection() {
