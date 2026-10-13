@@ -1,0 +1,4 @@
+epoch,train_loss,miou,miou_defects,defect_iou,defect_precision,defect_recall,iou_background_sound,iou_af_paint_deterioration,iou_dirt1,iou_dirt2,iou_exposed_ac_paint,iou_exposed_steel_plate,iou_marine_organisms,iou_rust,gpu_gb,sec
+1,2.6622,0.1048,0.0365,0.1951,0.2015,0.8598,0.583,0.0092,0.0655,0.0001,0.1799,0.0003,0.0007,0.0001,1.88,49
+2,2.1205,0.1747,0.0783,0.3487,0.4101,0.6995,0.8492,0.1074,0.1302,0.0,0.2859,0.0005,0.024,0.0,1.88,46
+3,1.9571,0.1909,0.0938,0.375,0.4582,0.674,0.8708,0.1072,0.1423,0.0,0.3134,0.0002,0.0937,0.0,1.88,49
