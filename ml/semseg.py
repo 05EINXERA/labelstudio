@@ -36,6 +36,9 @@ LABEL_PREFIXES = {
     "af_paint_deterioration": "af paint",
     "dirt1": "dirt 1",
     "dirt2": "dirt 2",
+    # Checkpoints trained with Dirt 1 and Dirt 2 merged (build_semseg_dataset.py
+    # --merge) predict one "dirt" class; its regions go on the Dirt 1 label.
+    "dirt": "dirt 1",
     "exposed_ac_paint": "exposed ac",
     "exposed_steel_plate": "exposed steel",
     "marine_organisms": "residual marine",

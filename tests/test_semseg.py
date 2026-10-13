@@ -152,3 +152,11 @@ def test_unknown_architecture_is_rejected():
 
     with pytest.raises(ValueError):
         build_semseg_net("not-a-model", 8)
+
+
+def test_merged_dirt_class_maps_to_the_dirt_1_label():
+    class_map, confidence = _maps()
+    class_map[10:50, 20:80] = 1
+    classes = [{"name": "background_sound"}, {"name": "dirt"}]
+    region = semseg.mask_to_predictions(class_map, confidence, classes, 1.0, 0, 10)[0]
+    assert (region["class"], region["label_prefix"]) == ("dirt", "dirt 1")

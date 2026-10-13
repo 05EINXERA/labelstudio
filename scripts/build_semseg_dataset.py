@@ -57,6 +57,39 @@ IMAGE_EXTS = (".jpg", ".jpeg", ".png")
 # Project-name prefix for hand-supplied pairs, so they never collide with a DB project.
 EXTRA_PREFIX = "extra:"
 
+# What is written to disk. `--merge` replaces these: OUTPUT_CLASSES is then the
+# shorter class list and REMAP a 256-entry table from CLASSES ids to its ids.
+OUTPUT_CLASSES = CLASSES
+REMAP = None
+
+
+def apply_merges(specs: list[str]) -> None:
+    """Fold classes together, e.g. "dirt1+dirt2=dirt".
+
+    The merged class takes the place and colour of its first member. Used when
+    annotators do not separate two classes consistently enough to learn them.
+    """
+    global OUTPUT_CLASSES, REMAP
+    names = [name for name, _ in CLASSES]
+    target = {}  # member name -> (merged name, first member)
+    for spec in specs:
+        members, _, merged = spec.partition("=")
+        parts = [m.strip() for m in members.split("+") if m.strip()]
+        unknown = [m for m in parts if m not in names]
+        if len(parts) < 2 or not merged.strip() or unknown:
+            sys.exit(f"Error: bad --merge {spec!r} (classes: {', '.join(names[1:])})")
+        for m in parts:
+            target[m] = (merged.strip(), parts[0])
+    output, lookup = [], list(range(256))
+    for old_id, (name, colour) in enumerate(CLASSES):
+        merged, first = target.get(name, (name, name))
+        if name == first:
+            output.append((merged, colour))
+            lookup[old_id] = len(output) - 1
+        else:
+            lookup[old_id] = [n for n, _ in output].index(merged)
+    OUTPUT_CLASSES, REMAP = output, lookup
+
 
 def class_of_label(name: str) -> int | None:
     low = (name or "").strip().lower()
@@ -93,11 +126,14 @@ def pack_mask(sample: dict, mask: Image.Image) -> None:
     Hundreds of full-size masks held as images would need gigabytes of RAM;
     as PNG a mask is a few tens of kilobytes.
     """
+    if REMAP is not None:
+        mask = mask.point(REMAP)
     buffer = io.BytesIO()
     mask.save(buffer, format="PNG")
     sample["mask_png"] = buffer.getvalue()
     sample["mask_size"] = mask.size
-    sample["pixels"] = np.bincount(np.asarray(mask).ravel(), minlength=len(CLASSES))[: len(CLASSES)]
+    n = len(OUTPUT_CLASSES)
+    sample["pixels"] = np.bincount(np.asarray(mask).ravel(), minlength=n)[:n]
 
 
 def load_db_samples(scale: float, min_polygons: int, statuses: set[str], exclude: set[str]):
@@ -198,13 +234,13 @@ def pick_val_projects(by_project: dict[str, int], fraction: float, seed: int) ->
 
 
 def write_overlay_sheet(dst: Path, items: list[tuple[Path, Path]]) -> None:
-    colours = [c for _, c in CLASSES]
+    colours = [c for _, c in OUTPUT_CLASSES]
     tiles = []
     for img_path, mask_path in items:
         im = Image.open(img_path).convert("RGB")
         ids = np.asarray(Image.open(mask_path))
         arr = np.asarray(im).astype(np.float32)
-        for cid in range(1, len(CLASSES)):
+        for cid in range(1, len(OUTPUT_CLASSES)):
             sel = ids == cid
             arr[sel] = 0.45 * arr[sel] + 0.55 * np.array(colours[cid], np.float32)
         tiles.append(Image.fromarray(arr.astype(np.uint8)).resize((648, 486)))
@@ -227,8 +263,12 @@ def main() -> None:
     ap.add_argument("--val-fraction", type=float, default=0.18)
     ap.add_argument("--val-projects", help="comma-separated project names to validate on (fixed split; "
                                            "keeps scores comparable between builds). Overrides --val-fraction")
+    ap.add_argument("--merge", action="append", default=[], metavar="A+B=NAME",
+                    help="fold classes into one, e.g. dirt1+dirt2=dirt (repeatable)")
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
+    if args.merge:
+        apply_merges(args.merge)
 
     dst = Path(args.dst)
     statuses = {x.strip() for x in args.statuses.split(",") if x.strip()}
@@ -263,7 +303,7 @@ def main() -> None:
     if dst.exists():
         shutil.rmtree(dst)
 
-    pixels = {"train": np.zeros(len(CLASSES), np.int64), "val": np.zeros(len(CLASSES), np.int64)}
+    pixels = {split: np.zeros(len(OUTPUT_CLASSES), np.int64) for split in ("train", "val")}
     counts, written, used = Counter(), [], set()
     for s in samples:
         split = "val" if s["project"] in val_projects else "train"
@@ -286,13 +326,14 @@ def main() -> None:
         written.append((ipath, mpath))
 
     (dst / "classes.json").write_text(json.dumps(
-        [{"id": i, "name": n, "rgb": list(c)} for i, (n, c) in enumerate(CLASSES)], indent=2), encoding="utf-8")
+        [{"id": i, "name": n, "rgb": list(c)} for i, (n, c) in enumerate(OUTPUT_CLASSES)], indent=2),
+        encoding="utf-8")
     print(f"validation projects: {sorted(val_projects)}")
     print("photos per project: " + ", ".join(f"{k}={v}" for k, v in sorted(by_project.items())))
     for split in ("train", "val"):
         share = pixels[split] / max(1, pixels[split].sum()) * 100
         print(f"{split}: {counts[split]} images | pixel share % " +
-              ", ".join(f"{CLASSES[i][0]}={share[i]:.2f}" for i in range(len(CLASSES))))
+              ", ".join(f"{OUTPUT_CLASSES[i][0]}={share[i]:.2f}" for i in range(len(OUTPUT_CLASSES))))
 
     if args.exports:
         have = {Path(s["image_path"]).stem for s in samples} | {s["stem"] for s in samples}
