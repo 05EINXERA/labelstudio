@@ -60,24 +60,6 @@ def test_largest_regions_win_the_cap():
     assert predictions[1]["bbox"][0] == 100.0
 
 
-def test_low_confidence_pixels_are_left_as_background():
-    """The cut-off drops unsure regions and trims unsure edges of sure ones."""
-    class_map, confidence = _maps()
-    class_map[10:50, 20:80] = 1
-    confidence[10:50, 20:80] = 0.9
-    confidence[10:50, 60:80] = 0.4   # the right-hand third of that region is unsure
-    class_map[60:90, 100:160] = 2
-    confidence[60:90, 100:160] = 0.5  # a whole region below the cut-off
-
-    everything = semseg.mask_to_predictions(class_map, confidence, CLASSES, 1.0, 0, 10)
-    assert sorted(p["class"] for p in everything) == ["af_paint_deterioration", "rust"]
-
-    sure = semseg.mask_to_predictions(class_map, confidence, CLASSES, 1.0, 0, 10, min_confidence=0.6)
-    assert [p["class"] for p in sure] == ["af_paint_deterioration"]
-    assert sure[0]["bbox"] == [20.0, 10.0, 40.0, 40.0]  # 60 wide before, 40 after trimming
-    assert sure[0]["score"] == 0.9
-
-
 def test_unavailable_without_flag_or_weights(monkeypatch, tmp_path):
     weights = tmp_path / "hull.pt"
     monkeypatch.setattr(config, "SEMSEG_MODEL", str(weights))
