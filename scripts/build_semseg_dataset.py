@@ -14,6 +14,7 @@ unlabelled background in exported masks, so the two are one class), 1..7 defects
 import argparse
 import csv
 import hashlib
+import io
 import json
 import os
 import random
@@ -53,6 +54,8 @@ MIN_MAPPED_LABELS = 6  # a project must carry at least this many standard classe
 # model that unlabelled damage is background.
 FINISHED_STATUSES = ("Completed", "Passed", "Reviewed", "Approved", "Monitored", "Checked")
 IMAGE_EXTS = (".jpg", ".jpeg", ".png")
+# Project-name prefix for hand-supplied pairs, so they never collide with a DB project.
+EXTRA_PREFIX = "extra:"
 
 
 def class_of_label(name: str) -> int | None:
@@ -82,6 +85,19 @@ def render_task(task, label_class: dict, size: tuple[int, int], scale: float) ->
             continue
         draw.polygon([(x * scale, y * scale) for x, y in poly], fill=cid)
     return mask
+
+
+def pack_mask(sample: dict, mask: Image.Image) -> None:
+    """Keep a rendered mask as PNG bytes plus its class pixel counts.
+
+    Hundreds of full-size masks held as images would need gigabytes of RAM;
+    as PNG a mask is a few tens of kilobytes.
+    """
+    buffer = io.BytesIO()
+    mask.save(buffer, format="PNG")
+    sample["mask_png"] = buffer.getvalue()
+    sample["mask_size"] = mask.size
+    sample["pixels"] = np.bincount(np.asarray(mask).ravel(), minlength=len(CLASSES))[: len(CLASSES)]
 
 
 def load_db_samples(scale: float, min_polygons: int, statuses: set[str], exclude: set[str]):
@@ -115,7 +131,7 @@ def load_db_samples(scale: float, min_polygons: int, statuses: set[str], exclude
         for s in samples:
             with Image.open(s["image_path"]) as im:
                 s["size"] = im.size
-            s["mask"] = render_task(s["task"], s["label_class"], s["size"], scale)
+            pack_mask(s, render_task(s["task"], s["label_class"], s["size"], scale))
             del s["task"]
         return samples
     finally:
@@ -133,24 +149,35 @@ def rgb_mask_to_ids(rgb: np.ndarray) -> tuple[np.ndarray, int]:
 
 
 def load_extra(folder: Path, scale: float):
+    """Hand-supplied pairs: <folder>/<project>/images/*.jpg + masks/*.png.
+
+    A project sub-folder keeps ships apart (camera file names repeat). A bare
+    <folder>/images + masks is accepted as a single project called "extra".
+    """
+    roots = [d for d in sorted(folder.iterdir()) if (d / "images").is_dir()] if folder.is_dir() else []
+    if (folder / "images").is_dir():
+        roots.append(folder)
     samples, unknown = [], 0
-    for img in sorted((folder / "images").glob("*")):
-        if img.suffix.lower() not in IMAGE_EXTS:
-            continue
-        mpath = folder / "masks" / (img.stem + ".png")
-        if not mpath.is_file():
-            print(f"extra: no mask for {img.name}, skipped")
-            continue
-        with Image.open(img) as im, Image.open(mpath) as mk:
-            if im.size != mk.size:
-                print(f"extra: size mismatch {img.name} {im.size} vs {mk.size}, skipped")
+    for root in roots:
+        project = EXTRA_PREFIX + ("extra" if root == folder else root.name)
+        for img in sorted((root / "images").glob("*")):
+            if img.suffix.lower() not in IMAGE_EXTS:
                 continue
-            ids, bad = rgb_mask_to_ids(np.asarray(mk.convert("RGB")))
-            size = im.size
-        unknown += bad
-        mask = Image.fromarray(ids).resize((round(size[0] * scale), round(size[1] * scale)), Image.NEAREST)
-        samples.append({"project": "extra", "stem": img.stem, "image_path": str(img),
-                        "polygons": -1, "size": size, "mask": mask})
+            mpath = root / "masks" / (img.stem + ".png")
+            if not mpath.is_file():
+                print(f"extra: no mask for {root.name}/{img.name}, skipped")
+                continue
+            with Image.open(img) as im, Image.open(mpath) as mk:
+                if im.size != mk.size:
+                    print(f"extra: size mismatch {root.name}/{img.name} {im.size} vs {mk.size}, skipped")
+                    continue
+                ids, bad = rgb_mask_to_ids(np.asarray(mk.convert("RGB")))
+                size = im.size
+            unknown += bad
+            sample = {"project": project, "stem": img.stem, "image_path": str(img), "polygons": -1, "size": size}
+            pack_mask(sample, Image.fromarray(ids).resize(
+                (round(size[0] * scale), round(size[1] * scale)), Image.NEAREST))
+            samples.append(sample)
     if unknown:
         print(f"extra: {unknown} mask pixels had a colour outside the class palette (treated as background)")
     return samples
@@ -163,8 +190,8 @@ def pick_val_projects(by_project: dict[str, int], fraction: float, seed: int) ->
     for name in names:
         if got / total >= target:
             break
-        if name == "extra":
-            continue
+        if name.startswith(EXTRA_PREFIX):
+            continue  # hand-supplied data always trains
         chosen.add(name)
         got += by_project[name]
     return chosen
@@ -190,7 +217,7 @@ def write_overlay_sheet(dst: Path, items: list[tuple[Path, Path]]) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dst", required=True, help="output folder (recreated)")
-    ap.add_argument("--extra", help="folder with images/ and masks/ (direct-colour PNG) to add to train")
+    ap.add_argument("--extra", help="folder of <project>/images + <project>/masks (direct-colour PNG) to add to train")
     ap.add_argument("--exports", help="folder of exported semantic PNGs; masks without a photo go to missing_photos.csv")
     ap.add_argument("--scale", type=float, default=0.5, help="resize factor stored on disk (default 0.5)")
     ap.add_argument("--min-polygons", type=int, default=20, help="skip tasks with fewer polygons")
@@ -198,6 +225,8 @@ def main() -> None:
                     help="comma-separated task statuses to keep; empty string keeps all")
     ap.add_argument("--exclude-projects", default="test,ai test", help="comma-separated project names to skip")
     ap.add_argument("--val-fraction", type=float, default=0.18)
+    ap.add_argument("--val-projects", help="comma-separated project names to validate on (fixed split; "
+                                           "keeps scores comparable between builds). Overrides --val-fraction")
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
 
@@ -218,11 +247,19 @@ def main() -> None:
     samples = list(best.values())
     if args.extra:
         extra = load_extra(Path(args.extra), args.scale)
-        print(f"extra: {len(extra)} pairs")
-        samples += extra
+        # A photo already in the database is taken from there (its mask is the live annotation).
+        fresh = [s for s in extra if file_md5(s["image_path"]) not in best]
+        print(f"extra: {len(extra)} pairs, {len(extra) - len(fresh)} already in the database and skipped")
+        samples += fresh
 
     by_project = Counter(s["project"] for s in samples)
-    val_projects = pick_val_projects(by_project, args.val_fraction, args.seed)
+    if args.val_projects:
+        wanted = {x.strip() for x in args.val_projects.split(",") if x.strip()}
+        val_projects = wanted & set(by_project)
+        if wanted - val_projects:
+            print(f"WARNING: validation projects with no usable photos: {sorted(wanted - val_projects)}")
+    else:
+        val_projects = pick_val_projects(by_project, args.val_fraction, args.seed)
     if dst.exists():
         shutil.rmtree(dst)
 
@@ -238,19 +275,20 @@ def main() -> None:
         (dst / "masks" / split).mkdir(parents=True, exist_ok=True)
         ipath = dst / "images" / split / (name + ".jpg")
         with Image.open(s["image_path"]) as im:
-            if im.size == s["mask"].size and im.format == "JPEG":
+            if im.size == s["mask_size"] and im.format == "JPEG":
                 shutil.copyfile(s["image_path"], ipath)  # full size: keep the original bytes
             else:
-                im.convert("RGB").resize(s["mask"].size, Image.LANCZOS).save(ipath, quality=95)
+                im.convert("RGB").resize(s["mask_size"], Image.LANCZOS).save(ipath, quality=95)
         mpath = dst / "masks" / split / (name + ".png")
-        s["mask"].save(mpath)
-        pixels[split] += np.bincount(np.asarray(s["mask"]).ravel(), minlength=len(CLASSES))[: len(CLASSES)]
+        mpath.write_bytes(s["mask_png"])
+        pixels[split] += s["pixels"]
         counts[split] += 1
         written.append((ipath, mpath))
 
     (dst / "classes.json").write_text(json.dumps(
         [{"id": i, "name": n, "rgb": list(c)} for i, (n, c) in enumerate(CLASSES)], indent=2), encoding="utf-8")
     print(f"validation projects: {sorted(val_projects)}")
+    print("photos per project: " + ", ".join(f"{k}={v}" for k, v in sorted(by_project.items())))
     for split in ("train", "val"):
         share = pixels[split] / max(1, pixels[split].sum()) * 100
         print(f"{split}: {counts[split]} images | pixel share % " +
