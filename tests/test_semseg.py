@@ -4,6 +4,7 @@ The model itself is not loaded here (no weights, no GPU in CI); the polygon
 extraction is pure numpy/OpenCV and is what decides what reaches the canvas.
 """
 import numpy as np
+import pytest
 
 import config
 from ml import semseg
@@ -25,12 +26,14 @@ def test_regions_become_polygons_in_source_pixels():
     region = predictions[0]
     assert region["class"] == "af_paint_deterioration"
     assert region["label_prefix"] == "af paint"
-    # scale 0.5 means source coordinates are twice the model's.
-    assert region["bbox"] == [40.0, 20.0, 120.0, 80.0]
+    # scale 0.5 means source coordinates are twice the model's: the region
+    # covers x 40-160, y 20-100. Outlines run through boundary pixel centres
+    # and their corners are rounded, so allow a couple of pixels.
+    assert region["bbox"] == pytest.approx([40.0, 20.0, 120.0, 80.0], abs=3)
     xs = [p["x"] for p in region["points"]]
     ys = [p["y"] for p in region["points"]]
-    assert min(xs) == 40.0 and max(xs) == 158.0
-    assert min(ys) == 20.0 and max(ys) == 98.0
+    assert min(xs) == pytest.approx(41, abs=1.5) and max(xs) == pytest.approx(159, abs=1.5)
+    assert min(ys) == pytest.approx(21, abs=1.5) and max(ys) == pytest.approx(99, abs=1.5)
     assert region["score"] == 0.9
 
 
@@ -46,7 +49,7 @@ def test_small_regions_are_dropped_by_source_area():
     predictions = semseg.mask_to_predictions(class_map, confidence, CLASSES, 0.5,
                                              min_area=600, max_polygons=10)
     assert [p["class"] for p in predictions] == ["rust"]
-    assert predictions[0]["bbox"][0] == 40.0
+    assert predictions[0]["bbox"][0] == pytest.approx(40.0, abs=2)
 
 
 def test_largest_regions_win_the_cap():
@@ -57,7 +60,7 @@ def test_largest_regions_win_the_cap():
     predictions = semseg.mask_to_predictions(class_map, confidence, CLASSES, 1.0,
                                              min_area=0, max_polygons=2)
     assert [p["class"] for p in predictions] == ["rust", "af_paint_deterioration"]
-    assert predictions[1]["bbox"][0] == 100.0
+    assert predictions[1]["bbox"][0] == pytest.approx(100.0, abs=2)
 
 
 def test_low_confidence_pixels_are_left_as_background():
@@ -74,7 +77,8 @@ def test_low_confidence_pixels_are_left_as_background():
 
     sure = semseg.mask_to_predictions(class_map, confidence, CLASSES, 1.0, 0, 10, min_confidence=0.6)
     assert [p["class"] for p in sure] == ["af_paint_deterioration"]
-    assert sure[0]["bbox"] == [20.0, 10.0, 40.0, 40.0]  # 60 wide before, 40 after trimming
+    # 60 wide before, 40 after trimming
+    assert sure[0]["bbox"] == pytest.approx([20.0, 10.0, 40.0, 40.0], abs=2)
     assert sure[0]["score"] == 0.9
 
 
@@ -160,3 +164,55 @@ def test_merged_dirt_class_maps_to_the_dirt_1_label():
     classes = [{"name": "background_sound"}, {"name": "dirt"}]
     region = semseg.mask_to_predictions(class_map, confidence, classes, 1.0, 0, 10)[0]
     assert (region["class"], region["label_prefix"]) == ("dirt", "dirt 1")
+
+
+def _turn_degrees(points):
+    """Absolute turning angle at each vertex of a closed polygon."""
+    p = np.array([[q["x"], q["y"]] for q in points])
+    a, b = p - np.roll(p, 1, axis=0), np.roll(p, -1, axis=0) - p
+    cos = (a * b).sum(1) / (np.linalg.norm(a, axis=1) * np.linalg.norm(b, axis=1))
+    return np.degrees(np.arccos(np.clip(cos, -1, 1)))
+
+
+def test_staircase_edge_becomes_smooth_and_evenly_spaced():
+    """A diagonal edge of a pixel mask is a staircase of 90-degree steps; the
+    outline must not reproduce those steps as sharp vertices."""
+    class_map, confidence = _maps(200, 200)
+    for row in range(20, 180):
+        class_map[row, 20:20 + (row - 20)] = 1  # right triangle with a stepped hypotenuse
+    region = semseg.mask_to_predictions(class_map, confidence, CLASSES, 1.0, 0, 10, vertex_spacing=10)[0]
+    turns = _turn_degrees(region["points"])
+    # Only the three real corners may turn sharply (each is rounded over a
+    # couple of vertices); along the stepped edge the outline runs straight.
+    assert (turns > 45).sum() <= 6, sorted(turns)[-8:]
+    assert np.median(turns) < 2, np.median(turns)
+    p = np.array([[q["x"], q["y"]] for q in region["points"]])
+    gaps = np.linalg.norm(p - np.roll(p, -1, axis=0), axis=1)
+    # Even spacing along the outline; the straight-line gap only shrinks where
+    # it cuts across a rounded corner.
+    assert np.median(gaps) == pytest.approx(10, abs=0.5) and gaps.max() < 11, (np.median(gaps), gaps.max())
+    assert gaps.min() > 5, gaps.min()
+
+
+def test_vertex_spacing_sets_the_vertex_count():
+    class_map, confidence = _maps(300, 300)
+    class_map[50:250, 50:250] = 1  # perimeter about 800 source pixels
+    for spacing, expected in ((10, 80), (20, 40)):
+        region = semseg.mask_to_predictions(class_map, confidence, CLASSES, 1.0, 0, 10, vertex_spacing=spacing)[0]
+        assert abs(len(region["points"]) - expected) <= 4, (spacing, len(region["points"]))
+
+
+def test_smoothing_keeps_the_region_where_it_was():
+    """Area and position survive smoothing: no shrinking or drifting."""
+    class_map, confidence = _maps(300, 300)
+    class_map[50:250, 80:200] = 1
+    region = semseg.mask_to_predictions(class_map, confidence, CLASSES, 1.0, 0, 10)[0]
+    p = np.array([[q["x"], q["y"]] for q in region["points"]])
+    area = 0.5 * abs(np.dot(p[:, 0], np.roll(p[:, 1], 1)) - np.dot(p[:, 1], np.roll(p[:, 0], 1)))
+    assert area == pytest.approx(200 * 120, rel=0.03)
+    assert p.mean(axis=0) == pytest.approx([140, 150], abs=1.5)
+
+
+def test_tiny_regions_still_get_a_usable_polygon():
+    outline = semseg.smooth_outline(np.array([[0, 0], [1, 0], [1, 1], [0, 1]], float) * 4, spacing=10)
+    assert len(outline) == semseg._MIN_VERTICES

@@ -153,6 +153,10 @@ SEMSEG_MAX_POLYGONS = int(os.environ.get("SEMSEG_MAX_POLYGONS", "200"))
 # fewer, more reliable regions: on the 2026-10-13 validation set 0.6 gave
 # precision 0.81 / recall 0.44, against 0.75 / 0.63 with no cut-off.
 SEMSEG_MIN_CONFIDENCE = float(os.environ.get("SEMSEG_MIN_CONFIDENCE", "0"))
+# Distance between vertices on Hull outlines, in source-image pixels. Outlines
+# are smoothed and resampled to this spacing, like freehand drawing, instead of
+# following the pixel staircase of the model's mask.
+SEMSEG_VERTEX_SPACING_PX = float(os.environ.get("SEMSEG_VERTEX_SPACING_PX", "10"))
 
 # Hugging Face models (CLIP, SAM) are already cached under ~/.cache/huggingface
 # after first download, but `from_pretrained` still makes a round trip per file

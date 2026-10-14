@@ -26,8 +26,20 @@ DEFAULT_SCALE = 0.5
 DEFAULT_ARCH = "deeplabv3_mobilenet_v3_large"
 _MEAN = np.array([0.485, 0.456, 0.406], np.float32)
 _STD = np.array([0.229, 0.224, 0.225], np.float32)
-# Contour simplification tolerance, in model-resolution pixels.
-_APPROX_EPSILON = 1.0
+# Outline smoothing (see smooth_outline). The class probabilities are blurred
+# by this much (model pixels) before each pixel takes its class, so region
+# borders do not zig-zag pixel by pixel between two classes.
+_PROBABILITY_SIGMA = 1.0
+# Outlines are smoothed along their length over about this many source pixels.
+# 5 removed the most spikes without visibly rounding real shapes (2026-10-14,
+# compared at 3, 5, 8 and 12 on a P2 photo).
+_OUTLINE_SIGMA_PX = 5.0
+# Each class mask is closed then opened with this kernel (model pixels) before
+# outlining: one-pixel spurs, bridges and notches are what turn into needle
+# peaks and deep V-cuts on the outline.
+_CLEANUP_KERNEL = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+# Fewest vertices an outline is given, however small the region.
+_MIN_VERTICES = 6
 
 # Model class name -> lower-case prefix of the project label it stands for.
 # Projects spell the labels out in full ("AF Paint Deterioration / Peeling"),
@@ -89,7 +101,44 @@ def get_semseg_model():
     return _model, _classes, _device, _scale
 
 
-def mask_to_predictions(class_map, confidence, classes, scale, min_area, max_polygons, min_confidence=0.0):
+def smooth_outline(points: np.ndarray, spacing: float, sigma: float = _OUTLINE_SIGMA_PX) -> np.ndarray:
+    """Pixel-staircase outline -> smooth, evenly spaced vertices.
+
+    `points` is a closed outline (N, 2) in source pixels, one point per
+    boundary pixel, as cv2.CHAIN_APPROX_NONE gives it. Two steps:
+
+    1. Gaussian smoothing along the outline (wrapping around, since it is
+       closed). This removes the one-pixel steps and spikes of a pixel mask
+       while keeping bends wider than about `sigma` pixels.
+    2. Resampling at equal arc-length steps of about `spacing` pixels, so the
+       vertices are spread the way freehand drawing lays them down
+       (geometry.js appendSpacedPoints) instead of crowding on every pixel
+       corner.
+    """
+    points = np.asarray(points, dtype=np.float64)
+    if len(points) < 3:
+        return points
+    step = float(np.mean(np.linalg.norm(np.diff(np.vstack([points, points[:1]]), axis=0), axis=1))) or 1.0
+    sigma_steps = sigma / step
+    if sigma_steps >= 0.5:
+        radius = min(int(np.ceil(3 * sigma_steps)), (len(points) - 1) // 2)
+        offsets = np.arange(-radius, radius + 1)
+        kernel = np.exp(-0.5 * (offsets / sigma_steps) ** 2)
+        kernel /= kernel.sum()
+        padded = np.concatenate([points[-radius:], points, points[:radius]]) if radius else points
+        points = np.stack([np.convolve(padded[:, axis], kernel, mode="valid") for axis in (0, 1)], axis=1)
+    closed = np.vstack([points, points[:1]])
+    travelled = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(closed, axis=0), axis=1))])
+    perimeter = travelled[-1]
+    if perimeter <= 0:
+        return points[:1]
+    count = max(_MIN_VERTICES, int(round(perimeter / spacing)))
+    targets = np.arange(count) * (perimeter / count)
+    return np.stack([np.interp(targets, travelled, closed[:, axis]) for axis in (0, 1)], axis=1)
+
+
+def mask_to_predictions(class_map, confidence, classes, scale, min_area, max_polygons, min_confidence=0.0,
+                        vertex_spacing=10.0):
     """Class-id map -> polygon predictions in source-image pixels.
 
     Pixels predicted with less than `min_confidence` count as background, so a
@@ -98,7 +147,8 @@ def mask_to_predictions(class_map, confidence, classes, scale, min_area, max_pol
     `class_map` and `confidence` are model-resolution arrays; `scale` is
     model pixels per source pixel. Class 0 (background / sound) yields nothing.
     Only outer contours are kept: the canvas has no holes, so a background
-    island inside a region is filled.
+    island inside a region is filled. Outlines are smoothed and given a vertex
+    about every `vertex_spacing` source pixels (smooth_outline).
     """
     inverse = 1.0 / scale
     if min_confidence > 0:
@@ -108,24 +158,32 @@ def mask_to_predictions(class_map, confidence, classes, scale, min_area, max_pol
         selected = class_map == class_id
         if not selected.any():
             continue
+        cleaned = cv2.morphologyEx(selected.astype(np.uint8), cv2.MORPH_CLOSE, _CLEANUP_KERNEL)
+        selected = cv2.morphologyEx(cleaned, cv2.MORPH_OPEN, _CLEANUP_KERNEL).astype(bool)
+        if not selected.any():
+            continue
         name = classes[class_id]["name"]
-        contours, _ = cv2.findContours(selected.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours, _ = cv2.findContours(selected.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
         for contour in contours:
             area = cv2.contourArea(contour) * inverse * inverse
             if area < min_area:
                 continue
-            approx = cv2.approxPolyDP(contour, _APPROX_EPSILON, True)
-            if len(approx) < 3:
+            # +0.5: pixel centres, so the outline sits on the region rather than
+            # half a pixel up and to the left of it.
+            outline = smooth_outline((contour[:, 0, :] + 0.5) * inverse, vertex_spacing)
+            if len(outline) < 3:
                 continue
             x, y, w, h = cv2.boundingRect(contour)
             inside = selected[y:y + h, x:x + w]
             score = float(confidence[y:y + h, x:x + w][inside].mean())
+            left, top = outline.min(axis=0)
+            right, bottom = outline.max(axis=0)
             found.append((area, {
                 "class": name,
                 "label_prefix": LABEL_PREFIXES.get(name, name.replace("_", " ")),
                 "score": round(score, 4),
-                "bbox": [x * inverse, y * inverse, w * inverse, h * inverse],
-                "points": [{"x": float(p[0][0]) * inverse, "y": float(p[0][1]) * inverse} for p in approx],
+                "bbox": [float(left), float(top), float(right - left), float(bottom - top)],
+                "points": [{"x": float(px), "y": float(py)} for px, py in outline],
             }))
     found.sort(key=lambda item: item[0], reverse=True)
     return [prediction for _, prediction in found[:max_polygons]]
@@ -149,10 +207,12 @@ def segment_semantic(image_data):
     tensor = torch.from_numpy(array.transpose(2, 0, 1))[None].to(device)
     with torch.inference_mode(), torch.autocast(device.type, enabled=device.type == "cuda"):
         probabilities = model(tensor)["out"].float().softmax(1)[0, :, :size[1], :size[0]]
-    confidence, class_map = probabilities.max(0)
+    probabilities = probabilities.cpu().numpy()
+    for channel in probabilities:  # in place: smooth borders before argmax
+        cv2.GaussianBlur(channel, (0, 0), _PROBABILITY_SIGMA, dst=channel)
     predictions = mask_to_predictions(
-        class_map.cpu().numpy(), confidence.cpu().numpy(), classes,
+        probabilities.argmax(0), probabilities.max(0), classes,
         size[0] / image.width, config.SEMSEG_MIN_AREA_PX, config.SEMSEG_MAX_POLYGONS,
-        min_confidence=config.SEMSEG_MIN_CONFIDENCE,
+        min_confidence=config.SEMSEG_MIN_CONFIDENCE, vertex_spacing=config.SEMSEG_VERTEX_SPACING_PX,
     )
     return {"predictions": predictions}
