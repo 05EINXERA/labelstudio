@@ -299,8 +299,30 @@ class EmbedPayload(BaseModel):
     image: str
     sam_model: Optional[str] = None
 
+# Bounds on the polygons a Hull request may carry (a dense photo has a few
+# hundred regions of a few hundred vertices each).
+MAX_SEMANTIC_POLYGON_POINTS = 500_000
+
+class SemanticPoint(BaseModel):
+    x: float
+    y: float
+
 class SemanticPayload(BaseModel):
     image: str
+    # Regions already on the canvas, in image pixels. `keep`: drawn or edited
+    # by the annotator, nothing new goes over them. `refine`: earlier Hull
+    # regions nobody touched, redrawn. `repeat`: Hull already ran on this
+    # photo (see ml.semseg.compose_repeat).
+    keep: List[List[SemanticPoint]] = Field(default_factory=list)
+    refine: List[List[SemanticPoint]] = Field(default_factory=list)
+    repeat: bool = False
+
+    @field_validator("keep", "refine")
+    @classmethod
+    def _bounded(cls, polygons):
+        if sum(len(polygon) for polygon in polygons) > MAX_SEMANTIC_POLYGON_POINTS:
+            raise ValueError(f"at most {MAX_SEMANTIC_POLYGON_POINTS} polygon points")
+        return polygons
 
 class AIJobCreated(BaseModel):
     job_id: str

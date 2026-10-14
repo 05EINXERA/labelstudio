@@ -153,6 +153,12 @@ SEMSEG_MAX_POLYGONS = int(os.environ.get("SEMSEG_MAX_POLYGONS", "200"))
 # fewer, more reliable regions: on the 2026-10-13 validation set 0.6 gave
 # precision 0.81 / recall 0.44, against 0.75 / 0.63 with no cut-off.
 SEMSEG_MIN_CONFIDENCE = float(os.environ.get("SEMSEG_MIN_CONFIDENCE", "0"))
+# Hull pressed again: in undrawn areas a damage class is drawn from this
+# probability on (ml.semseg.compose_repeat). Measured 2026-10-14 on 43
+# validation photos (hull_v5_own): at 0.4 a third of what it adds is damage
+# and it finds 2.8 % more of the labelled damage; at 0.3, 28 % and +5.4 %.
+# Above 1 switches gap filling off (a second press then only redraws).
+SEMSEG_GAP_MIN_PROBABILITY = float(os.environ.get("SEMSEG_GAP_MIN_PROBABILITY", "0.4"))
 # Distance between vertices on Hull outlines, in source-image pixels. Outlines
 # are smoothed and resampled to this spacing, like freehand drawing, instead of
 # following the pixel staircase of the model's mask.

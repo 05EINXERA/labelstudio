@@ -176,7 +176,8 @@ def test_enabled_endpoint_queues_a_job(client, alice, monkeypatch, tmp_path):
     stub = {"predictions": [{"class": "rust", "label_prefix": "rust", "score": 0.8,
                              "bbox": [0, 0, 4, 4], "points": [{"x": 0, "y": 0}, {"x": 4, "y": 0}, {"x": 4, "y": 4}]}],
             "model": {"name": "hull_test", "epoch": 7}}
-    monkeypatch.setattr(detect, "segment_semantic", lambda image: stub)
+    calls = []
+    monkeypatch.setattr(detect, "segment_semantic", lambda image, **kwargs: calls.append(kwargs) or stub)
 
     assert client.get("/api/detect/availability", headers=alice).json() == {
         "enabled": True, "semantic": True, "semantic_model": {"name": "hull_test", "epoch": 7}}
@@ -185,6 +186,156 @@ def test_enabled_endpoint_queues_a_job(client, alice, monkeypatch, tmp_path):
     job_id = res.json()["job_id"]
     status = client.get(f"/api/detect/status/{job_id}", headers=alice).json()
     assert status == {"status": "completed", "result": stub}
+    assert calls == [{"keep": [], "refine": [], "repeat": False}]  # a first press
+
+
+def test_repeat_request_passes_regions_to_the_model(client, alice, monkeypatch, tmp_path):
+    from api.routers import detect
+
+    weights = _checkpoint(tmp_path / "hull.pt", name="hull_test", epoch=7)
+    monkeypatch.setattr(config, "SEMSEG_MODEL", str(weights))
+    monkeypatch.setattr(config, "SEMSEG_ENABLED", True)
+    monkeypatch.setattr(config, "AI_FEATURES_ENABLED", True)
+    calls = []
+    monkeypatch.setattr(detect, "segment_semantic",
+                        lambda image, **kwargs: calls.append(kwargs) or {"predictions": [], "model": None})
+    square = [{"x": 0, "y": 0}, {"x": 10, "y": 0}, {"x": 10, "y": 10}]
+    res = client.post("/api/detect/semantic", headers=alice,
+                      json={"image": IMAGE, "keep": [square], "refine": [square, square], "repeat": True})
+    assert res.status_code == 200, res.text
+    client.get(f"/api/detect/status/{res.json()['job_id']}", headers=alice)
+    corners = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0)]
+    assert calls == [{"keep": [corners], "refine": [corners, corners], "repeat": True}]
+
+
+def test_oversized_region_list_is_rejected(client, alice, monkeypatch):
+    from app import schemas
+
+    monkeypatch.setattr(config, "AI_FEATURES_ENABLED", True)
+    monkeypatch.setattr(schemas, "MAX_SEMANTIC_POLYGON_POINTS", 5)
+    square = [{"x": 0, "y": 0}, {"x": 10, "y": 0}, {"x": 10, "y": 10}]
+    res = client.post("/api/detect/semantic", headers=alice, json={"image": IMAGE, "keep": [square, square]})
+    assert res.status_code == 422, res.text
+
+
+# --- Hull pressed again (compose_repeat) -------------------------------------
+
+def _probs(height=40, width=60, classes=3):
+    """Probabilities that say "sound hull" everywhere, to paint regions into."""
+    p = np.zeros((classes, height, width), np.float32)
+    p[0] = 1.0
+    return p
+
+
+def _paint(p, rows, cols, cls, probability):
+    """Damage class `cls` at `probability`, the rest on sound hull."""
+    p[:, rows, cols] = 0.0
+    p[0, rows, cols] = 1.0 - probability
+    p[cls, rows, cols] = probability
+
+
+def test_polygons_mask_scales_source_pixels_to_the_model_grid():
+    mask = semseg.polygons_mask([[(20, 20), (60, 20), (60, 60), (20, 60)]], 0.5, (40, 60))
+    ys, xs = np.nonzero(mask)
+    assert (xs.min(), xs.max(), ys.min(), ys.max()) == (10, 30, 10, 30)
+    grown = semseg.polygons_mask([[(20, 20), (60, 20), (60, 60), (20, 60)]], 0.5, (40, 60), margin=2)
+    assert grown.sum() > mask.sum() and grown[10, 8] and not mask[10, 8]
+    assert not semseg.polygons_mask([[(1, 1), (5, 5)]], 1.0, (10, 10)).any()  # not an area
+
+
+def test_repeat_redraws_untouched_keeps_edited_and_leaves_deleted_empty():
+    rows_a, cols_a = slice(5, 15), slice(5, 15)     # untouched earlier region (AF paint)
+    rows_c, cols_c = slice(5, 15), slice(30, 40)    # earlier region the annotator deleted (rust)
+    rows_k, cols_k = slice(25, 35), slice(5, 15)    # the annotator's own region
+    rows_g, cols_g = slice(25, 35), slice(40, 55)   # never flagged: a gap
+    standard, refined = _probs(), _probs()
+    _paint(standard, rows_a, cols_a, 1, 0.9)
+    _paint(standard, rows_c, cols_c, 2, 0.9)
+    _paint(refined, slice(4, 16), slice(4, 16), 1, 0.8)  # the sharper pass grows A a little
+    _paint(refined, rows_c, cols_c, 2, 0.8)
+    _paint(refined, rows_k, cols_k, 1, 0.8)
+    _paint(refined, rows_g, cols_g, 2, 0.35)              # unsure: sound still the likeliest
+    _paint(refined, slice(36, 40), slice(40, 55), 2, 0.1)  # too unsure even for a gap
+    kept = np.zeros((40, 60), bool)
+    kept[rows_k, cols_k] = True
+    redraw = np.zeros((40, 60), bool)
+    redraw[2:18, 2:18] = True  # A plus REDRAW_MARGIN
+
+    class_map, confidence = semseg.compose_repeat(standard, refined, kept, redraw, gap_min_probability=0.3)
+
+    assert (class_map[4:16, 4:16] == 1).all()   # A redrawn, with the sharper outline
+    assert (class_map[rows_c, cols_c] == 0).all()  # deleted stays deleted
+    assert (class_map[rows_k, cols_k] == 0).all()  # nothing over the annotator's region
+    assert (class_map[rows_g, cols_g] == 2).all()  # found in the gap below the usual bar
+    assert confidence[30, 45] == pytest.approx(0.35)
+    assert (class_map[37:40, 40:55] == 0).all()
+
+
+def test_repeat_applies_the_confidence_cut_off_to_redrawn_regions_only():
+    standard, refined = _probs(), _probs()
+    _paint(standard, slice(5, 15), slice(5, 15), 1, 0.9)
+    _paint(refined, slice(5, 15), slice(5, 15), 1, 0.5)
+    _paint(refined, slice(25, 35), slice(40, 55), 2, 0.35)
+    redraw = np.zeros((40, 60), bool)
+    redraw[2:18, 2:18] = True
+    class_map, _ = semseg.compose_repeat(standard, refined, np.zeros((40, 60), bool), redraw,
+                                         min_confidence=0.6, gap_min_probability=0.3)
+    assert (class_map[5:15, 5:15] == 0).all()     # redrawn region below the cut-off
+    assert (class_map[25:35, 40:55] == 2).all()   # gaps use their own bar
+
+
+def test_gap_filling_is_off_above_one():
+    refined = _probs()
+    _paint(refined, slice(25, 35), slice(40, 55), 2, 0.99)
+    nothing = np.zeros((40, 60), bool)
+    class_map, _ = semseg.compose_repeat(_probs(), refined, nothing, nothing, gap_min_probability=1.01)
+    assert not class_map.any()
+
+
+def _stub_model(monkeypatch, standard, refined=None):
+    """segment_semantic with fixed probabilities instead of the network."""
+    import base64
+    import io
+    from PIL import Image
+
+    calls = []
+
+    def fake(model, image, scale, device, flips=""):
+        calls.append(flips)
+        return (refined if flips and refined is not None else standard).copy()
+
+    monkeypatch.setattr(config, "SEMSEG_ENABLED", True)
+    monkeypatch.setattr(config, "SEMSEG_MIN_AREA_PX", 0)
+    monkeypatch.setattr(config, "SEMSEG_MIN_CONFIDENCE", 0)
+    monkeypatch.setattr(semseg, "semseg_available", lambda: True)
+    monkeypatch.setattr(semseg, "get_semseg_model", lambda: (None, CLASSES, None, 0.5))
+    monkeypatch.setattr(semseg, "_probabilities", fake)
+    buffer = io.BytesIO()
+    Image.new("RGB", (120, 80)).save(buffer, format="PNG")
+    return "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode(), calls
+
+
+def test_first_press_draws_nothing_over_existing_regions(monkeypatch):
+    standard = _probs()
+    _paint(standard, slice(5, 35), slice(5, 55), 1, 0.9)  # one big region on the model grid
+    image, calls = _stub_model(monkeypatch, standard)
+    everything = semseg.segment_semantic(image)["predictions"]
+    # The annotator already drew the left half of it (source pixels, scale 0.5).
+    left = [(0, 0), (60, 0), (60, 80), (0, 80)]
+    rest = semseg.segment_semantic(image, keep=[left])["predictions"]
+    assert calls == ["", ""]  # one plain pass each, no flips on a first press
+    assert len(everything) == 1 and everything[0]["bbox"][0] < 15
+    assert len(rest) == 1 and rest[0]["bbox"][0] >= 60  # starts right of the kept half
+
+
+def test_repeat_press_runs_the_flipped_passes(monkeypatch):
+    standard = _probs()
+    _paint(standard, slice(5, 15), slice(5, 15), 1, 0.9)
+    image, calls = _stub_model(monkeypatch, standard, refined=standard)
+    region = [(10, 10), (30, 10), (30, 30), (10, 30)]
+    predictions = semseg.segment_semantic(image, refine=[region], repeat=True)["predictions"]
+    assert calls == ["", *semseg.REFINE_FLIPS]
+    assert [p["class"] for p in predictions] == ["af_paint_deterioration"]
 
 
 def test_architectures_return_logits_at_input_size():

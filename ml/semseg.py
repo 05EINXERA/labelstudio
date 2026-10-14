@@ -42,6 +42,20 @@ _CLEANUP_KERNEL = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
 # Fewest vertices an outline is given, however small the region.
 _MIN_VERTICES = 6
 
+# Hull pressed again on the same photo (compose_repeat). The refined pass
+# averages the plain pass with these mirrored ones. Measured 2026-10-14 on 43
+# validation photos (hull_v5_own): defect mIoU 0.477 plain, 0.482 with the
+# left-right and up-down mirrors; adding the third mirror gained nothing.
+# Full resolution was not tried in the app: it needs about 3 GB of RAM per
+# pass on the CPU and ran this PC out of memory.
+REFINE_FLIPS = ("h", "v")
+# Margins in model pixels: new regions keep this far from kept ones; an
+# untouched region may be redrawn this far beyond its old outline; the rim of
+# a deleted region is left empty this far out.
+KEEP_MARGIN = 2
+REDRAW_MARGIN = 6
+EARLIER_MARGIN = 3
+
 # Model class name -> lower-case prefix of the project label it stands for.
 # Projects spell the labels out in full ("AF Paint Deterioration / Peeling"),
 # so the frontend matches on the prefix instead of creating new labels.
@@ -236,15 +250,69 @@ def mask_to_predictions(class_map, confidence, classes, scale, min_area, max_pol
     return [prediction for _, prediction in found[:max_polygons]]
 
 
-def segment_semantic(image_data):
-    """Segment a whole image into hull-condition polygons."""
-    if not semseg_available():
-        raise DetectionClientError("Semantic segmentation is not enabled on this server.")
+def polygons_mask(polygons, ratio: float, shape: tuple[int, int], margin: int = 0) -> np.ndarray:
+    """Fill source-pixel polygons [(x, y), ...] into a boolean mask on the model grid.
+
+    `ratio` is model pixels per source pixel; `margin` grows the result by that
+    many model pixels.
+    """
+    mask = np.zeros(shape, np.uint8)
+    for polygon in polygons:
+        if len(polygon) >= 3:
+            points = np.round(np.asarray(polygon, np.float64) * ratio).astype(np.int32)
+            cv2.fillPoly(mask, [points], 1)
+    if margin > 0 and mask.any():
+        mask = cv2.dilate(mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * margin + 1,) * 2))
+    return mask.astype(bool)
+
+
+def compose_repeat(standard, refined, kept, redraw, min_confidence=0.0, gap_min_probability=0.4):
+    """Class and confidence maps for Hull pressed again on the same photo.
+
+    All inputs are on the model grid: `standard` and `refined` are (classes,
+    h, w) probabilities of the plain and the flip-averaged pass; `kept` marks
+    what the annotator drew or edited (grown by KEEP_MARGIN), `redraw` the
+    earlier Hull regions nobody has touched (grown by REDRAW_MARGIN).
+
+    - Kept areas get nothing new.
+    - Untouched earlier regions are redrawn from the refined pass.
+    - What the standard pass flagged outside `redraw` was Hull's earlier answer
+      and the annotator deleted it, so it stays empty.
+    - Everywhere else is a gap: the likeliest damage class is drawn wherever
+      it reaches `gap_min_probability`, below the usual "more likely than
+      sound" bar, because repeating that bar would repeat the first answer.
+      Expect most of these to be wrong (config.SEMSEG_GAP_MIN_PROBABILITY);
+      above 1 draws none.
+    """
+    earlier = standard.argmax(0) > 0
+    if min_confidence > 0:
+        earlier &= standard.max(0) >= min_confidence
+    if earlier.any():
+        earlier = cv2.dilate(earlier.astype(np.uint8), cv2.getStructuringElement(
+            cv2.MORPH_ELLIPSE, (2 * EARLIER_MARGIN + 1,) * 2)).astype(bool)
+    redraw = redraw & ~kept
+    gap = ~(kept | redraw | earlier)
+
+    class_map = np.zeros(standard.shape[1:], np.int64)
+    confidence = refined.max(0)
+    best = refined.argmax(0)
+    sure = redraw & (confidence >= min_confidence) if min_confidence > 0 else redraw
+    class_map[sure] = best[sure]
+
+    damage = refined[1:].argmax(0) + 1
+    damage_probability = np.take_along_axis(refined, damage[None], 0)[0]
+    found = gap & (damage_probability >= gap_min_probability)
+    class_map[found] = damage[found]
+    confidence = np.where(found, damage_probability, confidence)
+    return class_map, confidence
+
+
+def _probabilities(model, image: Image.Image, scale: float, device, flips: str = ""):
+    """Blurred class probabilities (classes, h, w) at `scale`; `flips` "h"/"v"/"hv"
+    runs the network on a mirrored photo and mirrors the answer back."""
     import torch  # see get_semseg_model
     from .semseg_arch import STRIDE
 
-    image = decode_image(image_data)
-    model, classes, device, scale = get_semseg_model()
     size = (max(STRIDE, round(image.width * scale)), max(STRIDE, round(image.height * scale)))
     resized = np.asarray(image.resize(size, Image.BILINEAR))
     # The network needs sides divisible by its stride; pad, then cut the pad off.
@@ -252,14 +320,54 @@ def segment_semantic(image_data):
     padded = np.pad(resized, ((0, pad_h), (0, pad_w), (0, 0)), mode="reflect")
     array = (padded.astype(np.float32) / 255.0 - _MEAN) / _STD
     tensor = torch.from_numpy(array.transpose(2, 0, 1))[None].to(device)
+    dims = [dim for flag, dim in (("h", -1), ("v", -2)) if flag in flips]
+    if dims:
+        # Flipping the padded tensor moves the pad to the other side; flip
+        # back before cutting it off.
+        tensor = tensor.flip(dims)
     with torch.inference_mode(), torch.autocast(device.type, enabled=device.type == "cuda"):
-        probabilities = model(tensor)["out"].float().softmax(1)[0, :, :size[1], :size[0]]
+        logits = model(tensor)["out"]
+        if dims:
+            logits = logits.flip(dims)
+        probabilities = logits.float().softmax(1)[0, :, :size[1], :size[0]]
     probabilities = probabilities.cpu().numpy()
     for channel in probabilities:  # in place: smooth borders before argmax
         cv2.GaussianBlur(channel, (0, 0), _PROBABILITY_SIGMA, dst=channel)
+    return probabilities
+
+
+def segment_semantic(image_data, keep=(), refine=(), repeat=False):
+    """Segment a whole image into hull-condition polygons.
+
+    `keep` and `refine` are polygons [(x, y), ...] in source pixels: regions
+    the annotator drew or edited (nothing new is drawn over them), and earlier
+    Hull regions nobody has touched (redrawn). `repeat` says Hull already ran
+    on this photo; see compose_repeat for what a repeat press draws.
+    """
+    if not semseg_available():
+        raise DetectionClientError("Semantic segmentation is not enabled on this server.")
+
+    image = decode_image(image_data)
+    model, classes, device, scale = get_semseg_model()
+    standard = _probabilities(model, image, scale, device)
+    shape = standard.shape[1:]
+    ratio = shape[1] / image.width
+    kept = polygons_mask(keep, ratio, shape, KEEP_MARGIN)
+    min_confidence = config.SEMSEG_MIN_CONFIDENCE
+    if repeat:
+        refined = standard.copy()
+        for flips in REFINE_FLIPS:
+            refined += _probabilities(model, image, scale, device, flips)
+        refined /= 1 + len(REFINE_FLIPS)
+        class_map, confidence = compose_repeat(
+            standard, refined, kept, polygons_mask(refine, ratio, shape, REDRAW_MARGIN), min_confidence,
+            gap_min_probability=config.SEMSEG_GAP_MIN_PROBABILITY)
+        min_confidence = 0.0  # compose_repeat applied it where it belongs
+    else:
+        class_map, confidence = standard.argmax(0), standard.max(0)
+        class_map[kept] = 0
     predictions = mask_to_predictions(
-        probabilities.argmax(0), probabilities.max(0), classes,
-        size[0] / image.width, config.SEMSEG_MIN_AREA_PX, config.SEMSEG_MAX_POLYGONS,
-        min_confidence=config.SEMSEG_MIN_CONFIDENCE, vertex_spacing=config.SEMSEG_VERTEX_SPACING_PX,
+        class_map, confidence, classes, ratio, config.SEMSEG_MIN_AREA_PX, config.SEMSEG_MAX_POLYGONS,
+        min_confidence=min_confidence, vertex_spacing=config.SEMSEG_VERTEX_SPACING_PX,
     )
     return {"predictions": predictions, "model": _info}

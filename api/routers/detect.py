@@ -160,7 +160,15 @@ def run_embed_job(job_id: str, payload: EmbedPayload):
 
 
 def run_semantic_job(job_id: str, payload: SemanticPayload):
-    _run_inference_job(job_id, "Semantic segmentation", lambda: segment_semantic(payload.image))
+    def polygons(items):
+        return [[(point.x, point.y) for point in polygon] for polygon in items]
+
+    _run_inference_job(job_id, "Semantic segmentation", lambda: segment_semantic(
+        payload.image,
+        keep=polygons(payload.keep),
+        refine=polygons(payload.refine),
+        repeat=payload.repeat,
+    ))
 
 
 @router.get("/status/{job_id}")
