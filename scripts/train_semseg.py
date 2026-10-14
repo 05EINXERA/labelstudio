@@ -316,7 +316,7 @@ def main() -> None:
                              round(d_iou, 4), round(d_prec, 4), round(d_rec, 4)]
                             + [round(float(v), 4) for v in iou] + [round(gpu, 2), round(time.time() - start)])
             fh.flush()
-            state = {"model": scored.state_dict(), "classes": classes, "arch": args.arch,
+            state = {"model": scored.state_dict(), "classes": classes, "arch": args.arch, "name": args.name,
                      "scale": args.eval_scale, "epoch": epoch, "miou_defects": defects}
             torch.save(state, out / "last.pt")
             if defects > best:

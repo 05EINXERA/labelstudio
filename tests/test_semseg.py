@@ -3,14 +3,23 @@
 The model itself is not loaded here (no weights, no GPU in CI); the polygon
 extraction is pure numpy/OpenCV and is what decides what reaches the canvas.
 """
+import os
+
 import numpy as np
 import pytest
+import torch
 
 import config
 from ml import semseg
 
 CLASSES = [{"name": "background_sound"}, {"name": "af_paint_deterioration"}, {"name": "rust"}]
 IMAGE = "data:image/png;base64,iVBORw0KGgo="
+
+
+def _checkpoint(path, **meta):
+    """A weights file carrying only the metadata the app reads without loading the model."""
+    torch.save({"model": {}, "classes": CLASSES, **meta}, path)
+    return path
 
 
 def _maps(height=100, width=200):
@@ -93,6 +102,44 @@ def test_unavailable_without_flag_or_weights(monkeypatch, tmp_path):
     assert semseg.semseg_available() is False  # file present, flag off
 
 
+def test_model_info_names_the_training_run(monkeypatch, tmp_path):
+    weights = _checkpoint(tmp_path / "hull_semseg.pt", name="hull_v5_own", epoch=126)
+    monkeypatch.setattr(config, "SEMSEG_MODEL", str(weights))
+    monkeypatch.setattr(config, "SEMSEG_ENABLED", True)
+    assert semseg.semseg_model_info() == {"name": "hull_v5_own", "epoch": 126}
+
+
+def test_model_info_falls_back_to_file_name_and_rereads_a_replaced_file(monkeypatch, tmp_path):
+    """Checkpoints from before the `name` key show their file name; a new
+    file at the same path is picked up without a restart."""
+    weights = _checkpoint(tmp_path / "hull_semseg.pt", epoch=3)
+    monkeypatch.setattr(config, "SEMSEG_MODEL", str(weights))
+    monkeypatch.setattr(config, "SEMSEG_ENABLED", True)
+    assert semseg.semseg_model_info() == {"name": "hull_semseg", "epoch": 3}
+    _checkpoint(weights, name="hull_next", epoch=9)
+    stat = os.stat(weights)
+    os.utime(weights, ns=(stat.st_atime_ns, stat.st_mtime_ns + 10**9))  # coarse clocks: force a new mtime
+    assert semseg.semseg_model_info() == {"name": "hull_next", "epoch": 9}
+
+
+def test_model_info_reports_the_loaded_model(monkeypatch, tmp_path):
+    """Once loaded, the model in memory is what runs, whatever the file now holds."""
+    weights = _checkpoint(tmp_path / "hull_semseg.pt", name="on_disk", epoch=1)
+    monkeypatch.setattr(config, "SEMSEG_MODEL", str(weights))
+    monkeypatch.setattr(config, "SEMSEG_ENABLED", True)
+    monkeypatch.setattr(semseg, "_info", {"name": "in_memory", "epoch": 2})
+    assert semseg.semseg_model_info() == {"name": "in_memory", "epoch": 2}
+
+
+def test_model_info_is_none_for_unreadable_or_missing_weights(monkeypatch, tmp_path):
+    weights = tmp_path / "hull.pt"
+    monkeypatch.setattr(config, "SEMSEG_MODEL", str(weights))
+    monkeypatch.setattr(config, "SEMSEG_ENABLED", True)
+    assert semseg.semseg_model_info() is None  # no file
+    weights.write_bytes(b"not a checkpoint")
+    assert semseg.semseg_model_info() is None
+
+
 def test_endpoint_refuses_when_not_enabled(client, alice, monkeypatch):
     monkeypatch.setattr(config, "AI_FEATURES_ENABLED", True)
     monkeypatch.setattr(config, "SEMSEG_ENABLED", False)
@@ -108,7 +155,8 @@ def test_endpoint_refused_by_ai_kill_switch(client, alice, monkeypatch, tmp_path
     monkeypatch.setattr(config, "AI_FEATURES_ENABLED", False)
     res = client.post("/api/detect/semantic", json={"image": IMAGE}, headers=alice)
     assert res.status_code == 503, res.text
-    assert client.get("/api/detect/availability", headers=alice).json() == {"enabled": False, "semantic": False}
+    assert client.get("/api/detect/availability", headers=alice).json() == {
+        "enabled": False, "semantic": False, "semantic_model": None}
 
 
 def test_endpoint_requires_auth(client):
@@ -121,16 +169,17 @@ def test_enabled_endpoint_queues_a_job(client, alice, monkeypatch, tmp_path):
     the (stubbed) model, returning its predictions through the status poll."""
     from api.routers import detect
 
-    weights = tmp_path / "hull.pt"
-    weights.write_bytes(b"x")
+    weights = _checkpoint(tmp_path / "hull.pt", name="hull_test", epoch=7)
     monkeypatch.setattr(config, "SEMSEG_MODEL", str(weights))
     monkeypatch.setattr(config, "SEMSEG_ENABLED", True)
     monkeypatch.setattr(config, "AI_FEATURES_ENABLED", True)
     stub = {"predictions": [{"class": "rust", "label_prefix": "rust", "score": 0.8,
-                             "bbox": [0, 0, 4, 4], "points": [{"x": 0, "y": 0}, {"x": 4, "y": 0}, {"x": 4, "y": 4}]}]}
+                             "bbox": [0, 0, 4, 4], "points": [{"x": 0, "y": 0}, {"x": 4, "y": 0}, {"x": 4, "y": 4}]}],
+            "model": {"name": "hull_test", "epoch": 7}}
     monkeypatch.setattr(detect, "segment_semantic", lambda image: stub)
 
-    assert client.get("/api/detect/availability", headers=alice).json() == {"enabled": True, "semantic": True}
+    assert client.get("/api/detect/availability", headers=alice).json() == {
+        "enabled": True, "semantic": True, "semantic_model": {"name": "hull_test", "epoch": 7}}
     res = client.post("/api/detect/semantic", json={"image": IMAGE}, headers=alice)
     assert res.status_code == 200, res.text
     job_id = res.json()["job_id"]

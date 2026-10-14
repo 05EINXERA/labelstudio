@@ -46,6 +46,7 @@ from .sam import (
 from .semseg import (
     segment_semantic,
     semseg_available,
+    semseg_model_info,
 )
 
 __all__ = [
@@ -82,4 +83,5 @@ __all__ = [
     "segment_point",
     "segment_semantic",
     "semseg_available",
+    "semseg_model_info",
 ]

@@ -28,7 +28,7 @@ import { initOpacityControl } from "./components/opacity-control.js?v=2";
 import { initVertexSizeControl } from "./components/vertex-size-control.js?v=2";
 import { initConnectionMonitor, onConnectionChange } from "./connection.js?v=4";
 import { NotificationManager } from "./components/notifications.js?v=4";
-import { initHullDetect, setHullDetectAvailable } from "./ai/semseg.js?v=1";
+import { initHullDetect, setHullDetectAvailable } from "./ai/semseg.js?v=2";
 
 if (!localStorage.getItem('logged_in')) {
   window.location.replace('/');
@@ -161,7 +161,7 @@ async function fetchAiAvailability() {
     if (res && res.ok) {
       const data = await res.json();
       toolAvailability.ai = data.enabled !== false;
-      setHullDetectAvailable(data.semantic === true);
+      setHullDetectAvailable(data.semantic === true, data.semantic_model);
       render();
     }
   } catch (err) {

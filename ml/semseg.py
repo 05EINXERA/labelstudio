@@ -7,6 +7,7 @@ them the same way. Off unless config.SEMSEG_ENABLED and the weights exist.
 """
 import logging
 import os
+import pickle
 import threading
 
 import cv2
@@ -61,7 +62,11 @@ _model = None
 _classes = None
 _device = None
 _scale = DEFAULT_SCALE
+_info = None  # semseg_model_info() of the loaded checkpoint
 _model_lock = threading.RLock()
+# Details of the weights file before the model is loaded, keyed on
+# (path, mtime, size) so a swapped file is read again.
+_file_info = {}
 
 
 def semseg_weights_path() -> str:
@@ -74,9 +79,49 @@ def semseg_available() -> bool:
     return bool(config.SEMSEG_ENABLED) and os.path.isfile(semseg_weights_path())
 
 
+def _checkpoint_info(checkpoint: dict, path: str) -> dict:
+    """The model's identity as the app shows it.
+
+    `name` is the training run (train_semseg.py --name). Checkpoints that
+    predate it fall back to the weights file name.
+    """
+    epoch = checkpoint.get("epoch")
+    return {
+        "name": str(checkpoint.get("name") or os.path.splitext(os.path.basename(path))[0]),
+        "epoch": int(epoch) if epoch is not None else None,
+    }
+
+
+def semseg_model_info():
+    """{"name", "epoch"} of the hull model, or None when it is unavailable.
+
+    Once the model is loaded this describes the one in memory: the weights
+    file can be replaced while the app runs, but only a restart loads it.
+    Before that the file's metadata is read memory-mapped (the weights are
+    not pulled into RAM) and cached until the file changes.
+    """
+    if _info is not None:
+        return _info
+    if not semseg_available():
+        return None
+    path = semseg_weights_path()
+    try:
+        stat = os.stat(path)
+        key = (path, stat.st_mtime_ns, stat.st_size)
+        if key not in _file_info:
+            import torch  # see get_semseg_model
+            checkpoint = torch.load(path, map_location="cpu", weights_only=True, mmap=True)
+            _file_info.clear()
+            _file_info[key] = _checkpoint_info(checkpoint, path)
+        return _file_info[key]
+    except (ImportError, OSError, RuntimeError, pickle.UnpicklingError) as error:
+        logger.warning("Could not read hull model details from %s: %s", path, error)
+        return None
+
+
 def get_semseg_model():
     """Load the checkpoint once; returns (model, classes, device, scale)."""
-    global _model, _classes, _device, _scale
+    global _model, _classes, _device, _scale, _info
     if _model is None:
         with _model_lock:
             if _model is None:
@@ -97,7 +142,9 @@ def get_semseg_model():
                 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
                 _classes, _device = classes, device
                 _scale = float(checkpoint.get("scale", DEFAULT_SCALE))
+                _info = _checkpoint_info(checkpoint, path)
                 _model = model.to(device).eval()
+                logger.info("Hull model %s (epoch %s) loaded", _info["name"], _info["epoch"])
     return _model, _classes, _device, _scale
 
 
@@ -215,4 +262,4 @@ def segment_semantic(image_data):
         size[0] / image.width, config.SEMSEG_MIN_AREA_PX, config.SEMSEG_MAX_POLYGONS,
         min_confidence=config.SEMSEG_MIN_CONFIDENCE, vertex_spacing=config.SEMSEG_VERTEX_SPACING_PX,
     )
-    return {"predictions": predictions}
+    return {"predictions": predictions, "model": _info}

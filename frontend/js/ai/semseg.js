@@ -19,6 +19,23 @@ const SOURCE = "hull-detect";
 const TIMEOUT_MS = 120000;
 
 const button = document.querySelector("#hullDetectButton");
+const BASE_TITLE = button ? button.title : "";
+// Name of the server's hull model ("hull_v5_own"), from availability and
+// refreshed by each result; shown on the button and in the status line.
+let modelName = "";
+
+function showModel(model) {
+  if (!model || !model.name) return;
+  modelName = model.name;
+  if (button) {
+    const epoch = model.epoch == null ? "" : ` (epoch ${model.epoch})`;
+    button.title = `${BASE_TITLE}\nModel: ${model.name}${epoch}`;
+  }
+}
+
+function withModel(text) {
+  return modelName ? `${text} · ${modelName}` : text;
+}
 
 function setBusy(isBusy) {
   detectState.detectionBusy = isBusy;
@@ -62,7 +79,7 @@ export async function detectHullCondition() {
   if (!view.imageLoaded || detectState.detectionBusy) return 0;
 
   setBusy(true);
-  setStatus("Segmenting hull");
+  setStatus(withModel("Segmenting hull"));
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
@@ -78,6 +95,7 @@ export async function detectHullCondition() {
       throw new Error(typeof payload.detail === "string" ? payload.detail : `Segmentation failed (${response.status})`);
     }
     const result = await pollJob(payload.job_id, controller);
+    showModel(result.model);
 
     const predictions = result.predictions || [];
     const detected = [];
@@ -96,7 +114,7 @@ export async function detectHullCondition() {
     state.selectedId = null;
     render();
     save();
-    setStatus(detected.length ? `${detected.length} regions` : "No regions");
+    setStatus(withModel(detected.length ? `${detected.length} regions` : "No regions"));
     return detected.length;
   } catch (error) {
     console.error(error);
@@ -116,6 +134,7 @@ export function initHullDetect() {
 }
 
 /** Show or hide the button from the server's availability answer. */
-export function setHullDetectAvailable(available) {
+export function setHullDetectAvailable(available, model) {
   if (button) button.hidden = !available;
+  if (available) showModel(model);
 }

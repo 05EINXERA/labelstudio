@@ -21,6 +21,7 @@ from ml import (
     segment_point,
     segment_semantic,
     semseg_available,
+    semseg_model_info,
     get_inference_semaphore,
 )
 from schemas import (
@@ -202,11 +203,15 @@ def get_ai_availability():
     letting every click fail with a 503 — and the per-task preload in
     ai/detect.js can skip two requests it knows would be refused.
     """
+    semantic = config.AI_FEATURES_ENABLED and semseg_available()
     return {
         "enabled": config.AI_FEATURES_ENABLED,
         # Separate from `enabled`: the hull-condition model is optional and off
         # by default, and its button stays hidden unless this is true.
-        "semantic": config.AI_FEATURES_ENABLED and semseg_available(),
+        "semantic": semantic,
+        # {"name", "epoch"} shown on the Hull button, so users can tell which
+        # model produced their regions.
+        "semantic_model": semseg_model_info() if semantic else None,
     }
 
 
