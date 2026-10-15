@@ -1,0 +1,135 @@
+=== start 2026-10-15 10:27
+unet_resnet34 on cuda | train 608 photos (581 with a rare class), val 94 | 304 it/epoch | class weights [0.34, 0.84, 0.7, 0.74, 1.54, 1.09, 1.76]
+epoch 1/120 loss 2.588 defect-mIoU 0.110 * | any-defect IoU 0.331 P 0.35 R 0.89 | gpu 1.88G | 236s
+epoch 2/120 loss 2.137 defect-mIoU 0.179 * | any-defect IoU 0.425 P 0.47 R 0.83 | gpu 1.88G | 205s
+epoch 3/120 loss 1.819 defect-mIoU 0.244 * | any-defect IoU 0.516 P 0.62 R 0.76 | gpu 1.88G | 190s
+epoch 4/120 loss 1.529 defect-mIoU 0.278 * | any-defect IoU 0.534 P 0.70 R 0.69 | gpu 1.88G | 169s
+epoch 5/120 loss 1.368 defect-mIoU 0.307 * | any-defect IoU 0.524 P 0.74 R 0.64 | gpu 1.88G | 177s
+epoch 6/120 loss 1.316 defect-mIoU 0.292 | any-defect IoU 0.532 P 0.75 R 0.64 | gpu 1.88G | 191s
+epoch 7/120 loss 1.245 defect-mIoU 0.318 * | any-defect IoU 0.537 P 0.77 R 0.64 | gpu 1.88G | 169s
+epoch 8/120 loss 1.294 defect-mIoU 0.307 | any-defect IoU 0.530 P 0.74 R 0.65 | gpu 1.88G | 174s
+epoch 9/120 loss 1.213 defect-mIoU 0.321 * | any-defect IoU 0.532 P 0.76 R 0.64 | gpu 1.88G | 179s
+epoch 10/120 loss 1.206 defect-mIoU 0.329 * | any-defect IoU 0.541 P 0.75 R 0.66 | gpu 1.88G | 169s
+epoch 11/120 loss 1.178 defect-mIoU 0.328 | any-defect IoU 0.541 P 0.75 R 0.66 | gpu 1.88G | 161s
+epoch 12/120 loss 1.152 defect-mIoU 0.332 * | any-defect IoU 0.549 P 0.75 R 0.67 | gpu 1.88G | 160s
+epoch 13/120 loss 1.145 defect-mIoU 0.333 * | any-defect IoU 0.553 P 0.75 R 0.68 | gpu 1.88G | 158s
+epoch 14/120 loss 1.141 defect-mIoU 0.337 * | any-defect IoU 0.556 P 0.75 R 0.68 | gpu 1.88G | 160s
+epoch 15/120 loss 1.128 defect-mIoU 0.342 * | any-defect IoU 0.560 P 0.76 R 0.68 | gpu 1.88G | 204s
+epoch 16/120 loss 1.094 defect-mIoU 0.347 * | any-defect IoU 0.568 P 0.76 R 0.69 | gpu 1.88G | 179s
+epoch 17/120 loss 1.078 defect-mIoU 0.352 * | any-defect IoU 0.574 P 0.77 R 0.69 | gpu 1.88G | 162s
+epoch 18/120 loss 1.088 defect-mIoU 0.357 * | any-defect IoU 0.584 P 0.76 R 0.72 | gpu 1.88G | 170s
+epoch 19/120 loss 1.081 defect-mIoU 0.357 | any-defect IoU 0.585 P 0.76 R 0.72 | gpu 1.88G | 178s
+epoch 20/120 loss 1.079 defect-mIoU 0.355 | any-defect IoU 0.589 P 0.75 R 0.74 | gpu 1.88G | 186s
+epoch 21/120 loss 1.054 defect-mIoU 0.357 * | any-defect IoU 0.589 P 0.75 R 0.74 | gpu 1.88G | 197s
+epoch 22/120 loss 1.015 defect-mIoU 0.365 * | any-defect IoU 0.592 P 0.75 R 0.74 | gpu 1.88G | 230s
+epoch 23/120 loss 1.055 defect-mIoU 0.361 | any-defect IoU 0.593 P 0.75 R 0.74 | gpu 1.88G | 183s
+epoch 24/120 loss 1.036 defect-mIoU 0.361 | any-defect IoU 0.595 P 0.75 R 0.74 | gpu 1.88G | 158s
+epoch 25/120 loss 0.984 defect-mIoU 0.367 * | any-defect IoU 0.598 P 0.75 R 0.75 | gpu 1.88G | 163s
+epoch 26/120 loss 1.033 defect-mIoU 0.365 | any-defect IoU 0.599 P 0.75 R 0.75 | gpu 1.88G | 168s
+epoch 27/120 loss 1.006 defect-mIoU 0.372 * | any-defect IoU 0.601 P 0.75 R 0.75 | gpu 1.88G | 163s
+epoch 28/120 loss 0.994 defect-mIoU 0.376 * | any-defect IoU 0.601 P 0.75 R 0.75 | gpu 1.88G | 156s
+epoch 29/120 loss 1.007 defect-mIoU 0.380 * | any-defect IoU 0.606 P 0.75 R 0.76 | gpu 1.88G | 168s
+epoch 30/120 loss 0.989 defect-mIoU 0.381 * | any-defect IoU 0.608 P 0.75 R 0.76 | gpu 1.88G | 172s
+epoch 31/120 loss 0.993 defect-mIoU 0.382 * | any-defect IoU 0.608 P 0.75 R 0.76 | gpu 1.88G | 165s
+epoch 32/120 loss 0.976 defect-mIoU 0.386 * | any-defect IoU 0.610 P 0.75 R 0.76 | gpu 1.88G | 180s
+epoch 33/120 loss 0.974 defect-mIoU 0.390 * | any-defect IoU 0.612 P 0.75 R 0.77 | gpu 1.88G | 173s
+epoch 34/120 loss 0.950 defect-mIoU 0.391 * | any-defect IoU 0.615 P 0.75 R 0.77 | gpu 1.88G | 198s
+epoch 35/120 loss 0.945 defect-mIoU 0.394 * | any-defect IoU 0.616 P 0.75 R 0.77 | gpu 1.88G | 190s
+epoch 36/120 loss 0.931 defect-mIoU 0.394 | any-defect IoU 0.618 P 0.75 R 0.78 | gpu 1.88G | 203s
+epoch 37/120 loss 0.913 defect-mIoU 0.395 * | any-defect IoU 0.619 P 0.75 R 0.78 | gpu 1.88G | 162s
+epoch 38/120 loss 0.979 defect-mIoU 0.398 * | any-defect IoU 0.620 P 0.76 R 0.77 | gpu 1.88G | 206s
+epoch 39/120 loss 0.925 defect-mIoU 0.400 * | any-defect IoU 0.618 P 0.76 R 0.77 | gpu 1.88G | 210s
+epoch 40/120 loss 0.968 defect-mIoU 0.400 * | any-defect IoU 0.620 P 0.76 R 0.77 | gpu 1.88G | 185s
+epoch 41/120 loss 0.913 defect-mIoU 0.398 | any-defect IoU 0.621 P 0.75 R 0.78 | gpu 1.88G | 190s
+epoch 42/120 loss 0.949 defect-mIoU 0.403 * | any-defect IoU 0.622 P 0.75 R 0.78 | gpu 1.88G | 174s
+epoch 43/120 loss 0.924 defect-mIoU 0.404 * | any-defect IoU 0.623 P 0.76 R 0.78 | gpu 1.88G | 192s
+epoch 44/120 loss 0.903 defect-mIoU 0.407 * | any-defect IoU 0.625 P 0.75 R 0.79 | gpu 1.88G | 166s
+epoch 45/120 loss 0.908 defect-mIoU 0.410 * | any-defect IoU 0.627 P 0.75 R 0.79 | gpu 1.88G | 156s
+epoch 46/120 loss 0.897 defect-mIoU 0.410 * | any-defect IoU 0.628 P 0.75 R 0.79 | gpu 1.88G | 156s
+epoch 47/120 loss 0.880 defect-mIoU 0.411 * | any-defect IoU 0.628 P 0.75 R 0.80 | gpu 1.88G | 157s
+epoch 48/120 loss 0.879 defect-mIoU 0.413 * | any-defect IoU 0.629 P 0.75 R 0.80 | gpu 1.88G | 175s
+epoch 49/120 loss 0.868 defect-mIoU 0.414 * | any-defect IoU 0.631 P 0.75 R 0.80 | gpu 1.88G | 161s
+epoch 50/120 loss 0.865 defect-mIoU 0.414 | any-defect IoU 0.632 P 0.75 R 0.80 | gpu 1.88G | 150s
+epoch 51/120 loss 0.904 defect-mIoU 0.417 * | any-defect IoU 0.634 P 0.75 R 0.80 | gpu 1.88G | 151s
+epoch 52/120 loss 0.895 defect-mIoU 0.419 * | any-defect IoU 0.635 P 0.75 R 0.80 | gpu 1.88G | 150s
+epoch 53/120 loss 0.892 defect-mIoU 0.420 * | any-defect IoU 0.635 P 0.76 R 0.80 | gpu 1.88G | 167s
+epoch 54/120 loss 0.889 defect-mIoU 0.421 * | any-defect IoU 0.635 P 0.75 R 0.80 | gpu 1.88G | 165s
+epoch 55/120 loss 0.880 defect-mIoU 0.423 * | any-defect IoU 0.635 P 0.75 R 0.80 | gpu 1.88G | 152s
+epoch 56/120 loss 0.868 defect-mIoU 0.420 | any-defect IoU 0.632 P 0.75 R 0.80 | gpu 1.88G | 151s
+epoch 57/120 loss 0.871 defect-mIoU 0.421 | any-defect IoU 0.635 P 0.75 R 0.81 | gpu 1.88G | 172s
+epoch 58/120 loss 0.843 defect-mIoU 0.422 | any-defect IoU 0.636 P 0.75 R 0.80 | gpu 1.88G | 146s
+epoch 59/120 loss 0.875 defect-mIoU 0.422 | any-defect IoU 0.638 P 0.75 R 0.80 | gpu 1.88G | 146s
+epoch 60/120 loss 0.863 defect-mIoU 0.421 | any-defect IoU 0.639 P 0.76 R 0.80 | gpu 1.88G | 146s
+epoch 61/120 loss 0.822 defect-mIoU 0.422 | any-defect IoU 0.640 P 0.76 R 0.80 | gpu 1.88G | 144s
+epoch 62/120 loss 0.819 defect-mIoU 0.421 | any-defect IoU 0.640 P 0.76 R 0.81 | gpu 1.88G | 142s
+epoch 63/120 loss 0.851 defect-mIoU 0.421 | any-defect IoU 0.640 P 0.76 R 0.80 | gpu 1.88G | 143s
+epoch 64/120 loss 0.850 defect-mIoU 0.425 * | any-defect IoU 0.641 P 0.76 R 0.80 | gpu 1.88G | 149s
+epoch 65/120 loss 0.810 defect-mIoU 0.426 * | any-defect IoU 0.642 P 0.76 R 0.81 | gpu 1.88G | 150s
+epoch 66/120 loss 0.842 defect-mIoU 0.428 * | any-defect IoU 0.642 P 0.76 R 0.81 | gpu 1.88G | 149s
+epoch 67/120 loss 0.829 defect-mIoU 0.430 * | any-defect IoU 0.643 P 0.76 R 0.81 | gpu 1.88G | 151s
+epoch 68/120 loss 0.817 defect-mIoU 0.432 * | any-defect IoU 0.644 P 0.76 R 0.81 | gpu 1.88G | 151s
+epoch 69/120 loss 0.840 defect-mIoU 0.435 * | any-defect IoU 0.645 P 0.76 R 0.81 | gpu 1.88G | 147s
+epoch 70/120 loss 0.805 defect-mIoU 0.438 * | any-defect IoU 0.646 P 0.76 R 0.81 | gpu 1.88G | 158s
+epoch 71/120 loss 0.830 defect-mIoU 0.440 * | any-defect IoU 0.646 P 0.76 R 0.81 | gpu 1.88G | 163s
+epoch 72/120 loss 0.832 defect-mIoU 0.441 * | any-defect IoU 0.646 P 0.76 R 0.81 | gpu 1.88G | 147s
+epoch 73/120 loss 0.783 defect-mIoU 0.443 * | any-defect IoU 0.647 P 0.76 R 0.81 | gpu 1.88G | 150s
+epoch 74/120 loss 0.783 defect-mIoU 0.443 * | any-defect IoU 0.647 P 0.76 R 0.81 | gpu 1.88G | 148s
+epoch 75/120 loss 0.804 defect-mIoU 0.445 * | any-defect IoU 0.648 P 0.76 R 0.81 | gpu 1.88G | 150s
+epoch 76/120 loss 0.780 defect-mIoU 0.446 * | any-defect IoU 0.649 P 0.77 R 0.81 | gpu 1.88G | 154s
+epoch 77/120 loss 0.799 defect-mIoU 0.448 * | any-defect IoU 0.650 P 0.77 R 0.81 | gpu 1.88G | 149s
+epoch 78/120 loss 0.805 defect-mIoU 0.446 | any-defect IoU 0.651 P 0.77 R 0.80 | gpu 1.88G | 147s
+epoch 79/120 loss 0.770 defect-mIoU 0.447 | any-defect IoU 0.651 P 0.77 R 0.81 | gpu 1.88G | 143s
+epoch 80/120 loss 0.764 defect-mIoU 0.447 | any-defect IoU 0.651 P 0.77 R 0.81 | gpu 1.88G | 143s
+epoch 81/120 loss 0.787 defect-mIoU 0.448 * | any-defect IoU 0.652 P 0.77 R 0.81 | gpu 1.88G | 145s
+epoch 82/120 loss 0.754 defect-mIoU 0.448 * | any-defect IoU 0.652 P 0.77 R 0.81 | gpu 1.88G | 149s
+epoch 83/120 loss 0.791 defect-mIoU 0.448 * | any-defect IoU 0.652 P 0.77 R 0.81 | gpu 1.88G | 145s
+epoch 84/120 loss 0.759 defect-mIoU 0.450 * | any-defect IoU 0.653 P 0.77 R 0.81 | gpu 1.88G | 152s
+epoch 85/120 loss 0.773 defect-mIoU 0.452 * | any-defect IoU 0.654 P 0.77 R 0.81 | gpu 1.88G | 168s
+epoch 86/120 loss 0.764 defect-mIoU 0.453 * | any-defect IoU 0.654 P 0.77 R 0.81 | gpu 1.88G | 146s
+epoch 87/120 loss 0.766 defect-mIoU 0.454 * | any-defect IoU 0.655 P 0.77 R 0.81 | gpu 1.88G | 165s
+epoch 88/120 loss 0.747 defect-mIoU 0.457 * | any-defect IoU 0.656 P 0.77 R 0.82 | gpu 1.88G | 170s
+epoch 89/120 loss 0.755 defect-mIoU 0.459 * | any-defect IoU 0.657 P 0.77 R 0.82 | gpu 1.88G | 156s
+epoch 90/120 loss 0.768 defect-mIoU 0.459 * | any-defect IoU 0.657 P 0.77 R 0.82 | gpu 1.88G | 164s
+epoch 91/120 loss 0.745 defect-mIoU 0.460 * | any-defect IoU 0.657 P 0.77 R 0.82 | gpu 1.88G | 164s
+epoch 92/120 loss 0.772 defect-mIoU 0.460 | any-defect IoU 0.658 P 0.77 R 0.82 | gpu 1.88G | 154s
+epoch 93/120 loss 0.734 defect-mIoU 0.461 * | any-defect IoU 0.659 P 0.77 R 0.82 | gpu 1.88G | 154s
+epoch 94/120 loss 0.744 defect-mIoU 0.462 * | any-defect IoU 0.660 P 0.77 R 0.82 | gpu 1.88G | 165s
+epoch 95/120 loss 0.758 defect-mIoU 0.463 * | any-defect IoU 0.660 P 0.77 R 0.82 | gpu 1.88G | 183s
+epoch 96/120 loss 0.734 defect-mIoU 0.464 * | any-defect IoU 0.660 P 0.77 R 0.82 | gpu 1.88G | 158s
+epoch 97/120 loss 0.753 defect-mIoU 0.463 | any-defect IoU 0.660 P 0.77 R 0.82 | gpu 1.88G | 158s
+epoch 98/120 loss 0.752 defect-mIoU 0.463 | any-defect IoU 0.660 P 0.77 R 0.82 | gpu 1.88G | 151s
+epoch 99/120 loss 0.729 defect-mIoU 0.464 | any-defect IoU 0.660 P 0.77 R 0.82 | gpu 1.88G | 151s
+epoch 100/120 loss 0.729 defect-mIoU 0.464 | any-defect IoU 0.660 P 0.77 R 0.82 | gpu 1.88G | 171s
+epoch 101/120 loss 0.723 defect-mIoU 0.464 | any-defect IoU 0.660 P 0.77 R 0.82 | gpu 1.88G | 148s
+epoch 102/120 loss 0.735 defect-mIoU 0.463 | any-defect IoU 0.660 P 0.77 R 0.82 | gpu 1.88G | 145s
+epoch 103/120 loss 0.717 defect-mIoU 0.464 | any-defect IoU 0.660 P 0.77 R 0.82 | gpu 1.88G | 159s
+epoch 104/120 loss 0.733 defect-mIoU 0.464 * | any-defect IoU 0.661 P 0.77 R 0.82 | gpu 1.88G | 145s
+epoch 105/120 loss 0.718 defect-mIoU 0.465 * | any-defect IoU 0.661 P 0.77 R 0.82 | gpu 1.88G | 144s
+epoch 106/120 loss 0.741 defect-mIoU 0.465 * | any-defect IoU 0.661 P 0.77 R 0.82 | gpu 1.88G | 151s
+epoch 107/120 loss 0.719 defect-mIoU 0.465 | any-defect IoU 0.661 P 0.77 R 0.82 | gpu 1.88G | 151s
+epoch 108/120 loss 0.718 defect-mIoU 0.465 * | any-defect IoU 0.661 P 0.77 R 0.82 | gpu 1.88G | 169s
+epoch 109/120 loss 0.709 defect-mIoU 0.467 * | any-defect IoU 0.661 P 0.77 R 0.82 | gpu 1.88G | 184s
+epoch 110/120 loss 0.720 defect-mIoU 0.467 * | any-defect IoU 0.662 P 0.77 R 0.82 | gpu 1.88G | 150s
+epoch 111/120 loss 0.725 defect-mIoU 0.468 * | any-defect IoU 0.662 P 0.77 R 0.82 | gpu 1.88G | 156s
+epoch 112/120 loss 0.722 defect-mIoU 0.468 * | any-defect IoU 0.662 P 0.77 R 0.82 | gpu 1.88G | 162s
+epoch 113/120 loss 0.716 defect-mIoU 0.469 * | any-defect IoU 0.662 P 0.77 R 0.82 | gpu 1.88G | 146s
+epoch 114/120 loss 0.706 defect-mIoU 0.469 * | any-defect IoU 0.662 P 0.77 R 0.82 | gpu 1.88G | 144s
+epoch 115/120 loss 0.711 defect-mIoU 0.470 * | any-defect IoU 0.662 P 0.77 R 0.82 | gpu 1.88G | 152s
+epoch 116/120 loss 0.729 defect-mIoU 0.470 * | any-defect IoU 0.662 P 0.77 R 0.82 | gpu 1.88G | 193s
+epoch 117/120 loss 0.742 defect-mIoU 0.470 | any-defect IoU 0.662 P 0.78 R 0.82 | gpu 1.88G | 160s
+epoch 118/120 loss 0.722 defect-mIoU 0.469 | any-defect IoU 0.662 P 0.77 R 0.82 | gpu 1.88G | 194s
+epoch 119/120 loss 0.725 defect-mIoU 0.469 | any-defect IoU 0.662 P 0.77 R 0.82 | gpu 1.88G | 164s
+epoch 120/120 loss 0.721 defect-mIoU 0.469 | any-defect IoU 0.662 P 0.77 R 0.82 | gpu 1.88G | 191s
+
+Best checkpoint on validation (IoU, share of labelled pixels found):
+  background_sound           0.951   97.2%
+  af_paint_deterioration     0.502   76.3%
+  dirt                       0.509   72.7%
+  exposed_ac_paint           0.456   56.6%
+  exposed_steel_plate        0.527   76.1%
+  marine_organisms           0.428   62.0%
+  rust                       0.395   59.8%
+  defect-mIoU (classes 1-6): 0.470
+  any-defect vs sound: IoU 0.662 precision 0.775 recall 0.820
+Saved C:\labelstudio\runs\semseg\hull_v6_all
+=== finished exit 0 2026-10-15 15:58
