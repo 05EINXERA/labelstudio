@@ -236,15 +236,25 @@ def mask_to_predictions(class_map, confidence, classes, scale, min_area, max_pol
     return [prediction for _, prediction in found[:max_polygons]]
 
 
-def segment_semantic(image_data):
-    """Segment a whole image into hull-condition polygons."""
-    if not semseg_available():
-        raise DetectionClientError("Semantic segmentation is not enabled on this server.")
+def flip_passes(flips: str) -> list[tuple[int, ...]]:
+    """Tensor dims to mirror for each network pass: "" -> one plain pass,
+    "h" -> plain + left-right, "hv" -> plain, left-right, up-down and both."""
+    axes = [dim for flag, dim in (("h", -1), ("v", -2)) if flag in (flips or "").lower()]
+    passes = [()]
+    for dim in axes:
+        passes += [dims + (dim,) for dims in passes]
+    return passes
+
+
+def probabilities_for(model, image: Image.Image, scale: float, device, flips: str = "") -> np.ndarray:
+    """Blurred class probabilities (classes, h, w) of `image` at `scale`.
+
+    With `flips` the network also sees mirrored copies of the photo; each
+    answer is mirrored back and the passes are averaged (flip_passes).
+    """
     import torch  # see get_semseg_model
     from .semseg_arch import STRIDE
 
-    image = decode_image(image_data)
-    model, classes, device, scale = get_semseg_model()
     size = (max(STRIDE, round(image.width * scale)), max(STRIDE, round(image.height * scale)))
     resized = np.asarray(image.resize(size, Image.BILINEAR))
     # The network needs sides divisible by its stride; pad, then cut the pad off.
@@ -252,14 +262,52 @@ def segment_semantic(image_data):
     padded = np.pad(resized, ((0, pad_h), (0, pad_w), (0, 0)), mode="reflect")
     array = (padded.astype(np.float32) / 255.0 - _MEAN) / _STD
     tensor = torch.from_numpy(array.transpose(2, 0, 1))[None].to(device)
+    passes = flip_passes(flips)
+    total = None
     with torch.inference_mode(), torch.autocast(device.type, enabled=device.type == "cuda"):
-        probabilities = model(tensor)["out"].float().softmax(1)[0, :, :size[1], :size[0]]
-    probabilities = probabilities.cpu().numpy()
+        for dims in passes:
+            # Mirroring the padded tensor moves the pad to the other side, so
+            # the answer is mirrored back before the pad is cut off.
+            logits = model(tensor.flip(dims) if dims else tensor)["out"]
+            probabilities = logits.float().softmax(1)
+            probabilities = probabilities.flip(dims) if dims else probabilities
+            total = probabilities if total is None else total + probabilities
+    probabilities = (total / len(passes))[0, :, :size[1], :size[0]].cpu().numpy()
     for channel in probabilities:  # in place: smooth borders before argmax
         cv2.GaussianBlur(channel, (0, 0), _PROBABILITY_SIGMA, dst=channel)
+    return probabilities
+
+
+def pick_classes(probabilities: np.ndarray, damage_min_probability: float = 0.0):
+    """(class_map, confidence) from (classes, h, w) probabilities.
+
+    Each pixel takes its likeliest class. With `damage_min_probability` > 0 a
+    pixel whose likeliest damage class reaches that probability takes it even
+    when sound hull is likelier: more damage is found, more of it wrongly.
+    """
+    class_map = probabilities.argmax(0)
+    confidence = probabilities.max(0)
+    if damage_min_probability > 0 and len(probabilities) > 1:
+        damage = probabilities[1:].argmax(0) + 1
+        damage_probability = np.take_along_axis(probabilities, damage[None], 0)[0]
+        found = (class_map == 0) & (damage_probability >= damage_min_probability)
+        class_map = np.where(found, damage, class_map)
+        confidence = np.where(found, damage_probability, confidence)
+    return class_map, confidence
+
+
+def segment_semantic(image_data):
+    """Segment a whole image into hull-condition polygons."""
+    if not semseg_available():
+        raise DetectionClientError("Semantic segmentation is not enabled on this server.")
+
+    image = decode_image(image_data)
+    model, classes, device, scale = get_semseg_model()
+    probabilities = probabilities_for(model, image, scale, device, config.SEMSEG_FLIPS)
+    class_map, confidence = pick_classes(probabilities, config.SEMSEG_DAMAGE_MIN_PROBABILITY)
     predictions = mask_to_predictions(
-        probabilities.argmax(0), probabilities.max(0), classes,
-        size[0] / image.width, config.SEMSEG_MIN_AREA_PX, config.SEMSEG_MAX_POLYGONS,
+        class_map, confidence, classes,
+        probabilities.shape[2] / image.width, config.SEMSEG_MIN_AREA_PX, config.SEMSEG_MAX_POLYGONS,
         min_confidence=config.SEMSEG_MIN_CONFIDENCE, vertex_spacing=config.SEMSEG_VERTEX_SPACING_PX,
     )
     return {"predictions": predictions, "model": _info}

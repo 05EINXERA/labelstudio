@@ -153,6 +153,14 @@ SEMSEG_MAX_POLYGONS = int(os.environ.get("SEMSEG_MAX_POLYGONS", "200"))
 # fewer, more reliable regions: on the 2026-10-13 validation set 0.6 gave
 # precision 0.81 / recall 0.44, against 0.75 / 0.63 with no cut-off.
 SEMSEG_MIN_CONFIDENCE = float(os.environ.get("SEMSEG_MIN_CONFIDENCE", "0"))
+# Recall over speed, both off by default. SEMSEG_FLIPS "h", "v" or "hv" also
+# runs the model on mirrored copies of the photo and averages the answers
+# ("hv" = 4 passes, about 4x the GPU time). SEMSEG_DAMAGE_MIN_PROBABILITY
+# (0-1) draws the likeliest damage class wherever it reaches this probability,
+# even where sound hull is likelier: lower finds more damage and more false
+# regions. Measured settings: .devnotes/semantic-segmentation/v6_final_data.md.
+SEMSEG_FLIPS = os.environ.get("SEMSEG_FLIPS", "").strip().lower()
+SEMSEG_DAMAGE_MIN_PROBABILITY = float(os.environ.get("SEMSEG_DAMAGE_MIN_PROBABILITY", "0"))
 # Distance between vertices on Hull outlines, in source-image pixels. Outlines
 # are smoothed and resampled to this spacing, like freehand drawing, instead of
 # following the pixel staircase of the model's mask.

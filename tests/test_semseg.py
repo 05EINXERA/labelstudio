@@ -207,6 +207,54 @@ def test_unknown_architecture_is_rejected():
         build_semseg_net("not-a-model", 8)
 
 
+def test_flip_passes():
+    assert semseg.flip_passes("") == [()]
+    assert semseg.flip_passes("h") == [(), (-1,)]
+    assert sorted(semseg.flip_passes("hv")) == sorted([(), (-1,), (-2,), (-1, -2)])
+
+
+class _PixelModel(torch.nn.Module):
+    """Logits from each pixel's own colour only, so a mirrored photo gives the
+    mirrored answer: flip averaging must then change nothing."""
+
+    def __init__(self):
+        super().__init__()
+        self.conv = torch.nn.Conv2d(3, 3, 1)
+
+    def forward(self, x):
+        return {"out": self.conv(x)}
+
+
+def test_mirrored_passes_land_back_on_the_photo():
+    """The photo is padded to the network stride; a mirrored pass must be
+    mirrored back before the pad is cut, or every region shifts by the pad."""
+    from PIL import Image
+
+    torch.manual_seed(0)
+    model = _PixelModel().eval()
+    rng = np.random.default_rng(0)
+    image = Image.fromarray(rng.integers(0, 255, (45, 70, 3), dtype=np.uint8))  # not stride-aligned
+    plain = semseg.probabilities_for(model, image, 1.0, torch.device("cpu"))
+    mirrored = semseg.probabilities_for(model, image, 1.0, torch.device("cpu"), flips="hv")
+    assert plain.shape == (3, 45, 70)
+    np.testing.assert_allclose(mirrored, plain, atol=1e-5)
+
+
+def test_damage_min_probability_takes_damage_over_likelier_sound():
+    probabilities = np.zeros((3, 1, 4), np.float32)
+    probabilities[:, 0, 0] = [0.55, 0.40, 0.05]  # sound wins, AF paint at 0.40
+    probabilities[:, 0, 1] = [0.75, 0.05, 0.20]  # sound wins, rust only 0.20
+    probabilities[:, 0, 2] = [0.20, 0.10, 0.70]  # rust already wins
+    probabilities[:, 0, 3] = [0.40, 0.35, 0.25]  # sound wins narrowly
+
+    plain, _ = semseg.pick_classes(probabilities)
+    assert plain[0].tolist() == [0, 0, 2, 0]
+
+    eager, confidence = semseg.pick_classes(probabilities, damage_min_probability=0.3)
+    assert eager[0].tolist() == [1, 0, 2, 1]
+    assert confidence[0].tolist() == pytest.approx([0.40, 0.75, 0.70, 0.35])
+
+
 def test_merged_dirt_class_maps_to_the_dirt_1_label():
     class_map, confidence = _maps()
     class_map[10:50, 20:80] = 1
