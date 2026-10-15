@@ -47,6 +47,8 @@ from .semseg import (
     segment_semantic,
     semseg_available,
     semseg_model_info,
+    semseg_model_path,
+    semseg_models,
 )
 
 __all__ = [
@@ -84,4 +86,6 @@ __all__ = [
     "segment_semantic",
     "semseg_available",
     "semseg_model_info",
+    "semseg_model_path",
+    "semseg_models",
 ]

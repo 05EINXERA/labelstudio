@@ -22,6 +22,8 @@ from ml import (
     segment_semantic,
     semseg_available,
     semseg_model_info,
+    semseg_model_path,
+    semseg_models,
     get_inference_semaphore,
 )
 from schemas import (
@@ -160,7 +162,7 @@ def run_embed_job(job_id: str, payload: EmbedPayload):
 
 
 def run_semantic_job(job_id: str, payload: SemanticPayload):
-    _run_inference_job(job_id, "Semantic segmentation", lambda: segment_semantic(payload.image))
+    _run_inference_job(job_id, "Semantic segmentation", lambda: segment_semantic(payload.image, payload.model))
 
 
 @router.get("/status/{job_id}")
@@ -212,6 +214,9 @@ def get_ai_availability():
         # {"name", "epoch"} shown on the Hull button, so users can tell which
         # model produced their regions.
         "semantic_model": semseg_model_info() if semantic else None,
+        # [{"id", "name", "epoch", "default"}] for the model picker beside the
+        # Hull button; it is shown only when there is more than one.
+        "semantic_models": semseg_models() if semantic else [],
     }
 
 
@@ -253,6 +258,10 @@ def semantic(payload: SemanticPayload, background_tasks: BackgroundTasks, db: Se
     _require_ai_enabled()
     if not semseg_available():
         raise HTTPException(status_code=503, detail="Semantic segmentation is not enabled on this server.")
+    try:
+        semseg_model_path(payload.model)  # refuse an unknown model now, not in the job
+    except DetectionClientError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     job_id = _create_job(db)
     background_tasks.add_task(run_semantic_job, job_id, payload)
     return {"job_id": job_id}

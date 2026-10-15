@@ -4,11 +4,17 @@ One class per pixel, trained by scripts/train_semseg.py; the network itself
 is defined in ml/semseg_arch.py and named by the checkpoint. The class map is cut
 into polygons shaped like `detect_objects` predictions so the canvas can add
 them the same way. Off unless config.SEMSEG_ENABLED and the weights exist.
+
+Several hull models can be installed side by side (hull_semseg*.pt); the
+user picks one per request on the Hull button, config.SEMSEG_MODEL is the
+default.
 """
+import glob
 import logging
 import os
 import pickle
 import threading
+from collections import OrderedDict
 
 import cv2
 import numpy as np
@@ -64,14 +70,17 @@ LABEL_PREFIXES = {
     "rust": "rust",
 }
 
-_model = None
-_classes = None
-_device = None
-_scale = DEFAULT_SCALE
-_info = None  # semseg_model_info() of the loaded checkpoint
+# Weights files offered in the Hull model picker: these in the detector folder,
+# plus config.SEMSEG_MODEL wherever it is.
+MODEL_GLOB = "hull_semseg*.pt"
+# Hull models kept loaded at once (about 100 MB of GPU memory each); choosing
+# another drops the least recently used.
+MAX_LOADED_MODELS = 2
+
 _model_lock = threading.RLock()
-# Details of the weights file before the model is loaded, keyed on
-# (path, mtime, size) so a swapped file is read again.
+# path -> (file key, model, classes, device, scale, info), most recently used last.
+_loaded = OrderedDict()
+# path -> (file key, info): a weights file's details read without loading it.
 _file_info = {}
 
 
@@ -98,60 +107,119 @@ def _checkpoint_info(checkpoint: dict, path: str) -> dict:
     }
 
 
-def semseg_model_info():
-    """{"name", "epoch"} of the hull model, or None when it is unavailable.
+def _file_key(path: str):
+    stat = os.stat(path)
+    return stat.st_mtime_ns, stat.st_size
 
-    Once the model is loaded this describes the one in memory: the weights
-    file can be replaced while the app runs, but only a restart loads it.
-    Before that the file's metadata is read memory-mapped (the weights are
-    not pulled into RAM) and cached until the file changes.
+
+def _file_details(path: str):
+    """{"name", "epoch"} of a weights file, or None if it cannot be read.
+
+    Read memory-mapped (the weights are not pulled into RAM) and cached until
+    the file changes, so replacing a file is noticed without a restart.
     """
-    if _info is not None:
-        return _info
-    if not semseg_available():
-        return None
-    path = semseg_weights_path()
     try:
-        stat = os.stat(path)
-        key = (path, stat.st_mtime_ns, stat.st_size)
-        if key not in _file_info:
+        key = _file_key(path)
+        cached = _file_info.get(path)
+        if cached is None or cached[0] != key:
             import torch  # see get_semseg_model
             checkpoint = torch.load(path, map_location="cpu", weights_only=True, mmap=True)
-            _file_info.clear()
-            _file_info[key] = _checkpoint_info(checkpoint, path)
-        return _file_info[key]
+            cached = _file_info[path] = (key, _checkpoint_info(checkpoint, path))
+        return cached[1]
     except (ImportError, OSError, RuntimeError, pickle.UnpicklingError) as error:
         logger.warning("Could not read hull model details from %s: %s", path, error)
         return None
 
 
-def get_semseg_model():
-    """Load the checkpoint once; returns (model, classes, device, scale)."""
-    global _model, _classes, _device, _scale, _info
-    if _model is None:
-        with _model_lock:
-            if _model is None:
-                # Imported here, like the other ml loaders: torch/torchvision are
-                # heavy and the app must start (and run every other feature)
-                # on a machine where this optional model is not installed.
-                try:
-                    import torch
-                    from .semseg_arch import build_semseg_net
-                except ImportError as error:
-                    raise RuntimeError("Please install torch and torchvision to use semantic segmentation.") from error
-                path = semseg_weights_path()
-                logger.info("Loading semantic segmentation model %s", path)
-                checkpoint = torch.load(path, map_location="cpu", weights_only=True)
-                classes = checkpoint["classes"]
-                model = build_semseg_net(checkpoint.get("arch", DEFAULT_ARCH), len(classes))
-                model.load_state_dict(checkpoint["model"])
-                device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-                _classes, _device = classes, device
-                _scale = float(checkpoint.get("scale", DEFAULT_SCALE))
-                _info = _checkpoint_info(checkpoint, path)
-                _model = model.to(device).eval()
-                logger.info("Hull model %s (epoch %s) loaded", _info["name"], _info["epoch"])
-    return _model, _classes, _device, _scale
+def semseg_model_info():
+    """{"name", "epoch"} of the default hull model, or None when it is unavailable."""
+    if not semseg_available():
+        return None
+    return _file_details(semseg_weights_path())
+
+
+def _model_files():
+    """[(id, path, info)] for the picker: the default first, then the newest.
+
+    The id is the file name, the only thing a client may send back. Files
+    holding the same run and epoch (a copy kept under a second name) are
+    listed once, under the first name found.
+    """
+    if not semseg_available():
+        return []
+    default = semseg_weights_path()
+    same = os.path.normcase(os.path.abspath(default))
+    others = [p for p in glob.glob(os.path.join(DETECTOR_MODEL_DIR, MODEL_GLOB))
+              if os.path.normcase(os.path.abspath(p)) != same]
+    others.sort(key=lambda p: (-os.path.getmtime(p), os.path.basename(p)))
+    found, seen = [], set()
+    for path in [default] + others:
+        info = _file_details(path)
+        if info is None or (info["name"], info["epoch"]) in seen:
+            continue
+        seen.add((info["name"], info["epoch"]))
+        found.append((os.path.basename(path), path, info))
+    return found
+
+
+def semseg_models() -> list[dict]:
+    """[{"id", "name", "epoch", "default"}] of the hull models a user can pick."""
+    return [{"id": model_id, **info, "default": index == 0}
+            for index, (model_id, _, info) in enumerate(_model_files())]
+
+
+def semseg_model_path(model_id=None) -> str:
+    """Weights path for a picker id; the default for None or "".
+
+    Only ids from semseg_models() are accepted, so a request cannot name an
+    arbitrary file.
+    """
+    if not model_id:
+        return semseg_weights_path()
+    for candidate, path, _ in _model_files():
+        if candidate == model_id:
+            return path
+    raise DetectionClientError(f"Unknown hull model {model_id!r}.")
+
+
+def get_semseg_model(path=None):
+    """Load a checkpoint (the default without `path`), keeping recent ones.
+
+    Returns (model, classes, device, scale, info). A file replaced on disk is
+    loaded again on its next use.
+    """
+    path = path or semseg_weights_path()
+    with _model_lock:
+        key = _file_key(path)
+        entry = _loaded.get(path)
+        if entry is not None and entry[0] == key:
+            _loaded.move_to_end(path)
+            return entry[1:]
+        # Imported here, like the other ml loaders: torch/torchvision are
+        # heavy and the app must start (and run every other feature)
+        # on a machine where this optional model is not installed.
+        try:
+            import torch
+            from .semseg_arch import build_semseg_net
+        except ImportError as error:
+            raise RuntimeError("Please install torch and torchvision to use semantic segmentation.") from error
+        logger.info("Loading semantic segmentation model %s", path)
+        checkpoint = torch.load(path, map_location="cpu", weights_only=True)
+        classes = checkpoint["classes"]
+        model = build_semseg_net(checkpoint.get("arch", DEFAULT_ARCH), len(classes))
+        model.load_state_dict(checkpoint["model"])
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        info = _checkpoint_info(checkpoint, path)
+        _loaded.pop(path, None)
+        _loaded[path] = (key, model.to(device).eval(), classes, device,
+                         float(checkpoint.get("scale", DEFAULT_SCALE)), info)
+        while len(_loaded) > MAX_LOADED_MODELS:
+            dropped, _ = _loaded.popitem(last=False)
+            logger.info("Unloaded hull model %s", dropped)
+        if device.type == "cuda":
+            torch.cuda.empty_cache()
+        logger.info("Hull model %s (epoch %s) loaded", info["name"], info["epoch"])
+        return _loaded[path][1:]
 
 
 def smooth_outline(points: np.ndarray, spacing: float, sigma: float = _OUTLINE_SIGMA_PX) -> np.ndarray:
@@ -305,13 +373,17 @@ def pick_classes(probabilities: np.ndarray, damage_min_probability: float = 0.0)
     return class_map, confidence
 
 
-def segment_semantic(image_data):
-    """Segment a whole image into hull-condition polygons."""
+def segment_semantic(image_data, model_id=None):
+    """Segment a whole image into hull-condition polygons.
+
+    `model_id` picks one of semseg_models(); the default model without it.
+    """
     if not semseg_available():
         raise DetectionClientError("Semantic segmentation is not enabled on this server.")
 
+    path = semseg_model_path(model_id)
     image = decode_image(image_data)
-    model, classes, device, scale = get_semseg_model()
+    model, classes, device, scale, info = get_semseg_model(path)
     probabilities = probabilities_for(model, image, scale, device, config.SEMSEG_FLIPS)
     class_map, confidence = pick_classes(probabilities, config.SEMSEG_DAMAGE_MIN_PROBABILITY)
     predictions = mask_to_predictions(
@@ -319,4 +391,4 @@ def segment_semantic(image_data):
         probabilities.shape[2] / image.width, config.SEMSEG_MIN_AREA_PX, config.SEMSEG_MAX_POLYGONS,
         min_confidence=config.SEMSEG_MIN_CONFIDENCE, vertex_spacing=config.SEMSEG_VERTEX_SPACING_PX,
     )
-    return {"predictions": predictions, "model": _info}
+    return {"predictions": predictions, "model": info}

@@ -4,6 +4,11 @@
  * Posts the image to /api/detect/semantic and adds the returned polygons to
  * the canvas. The button stays hidden unless the server reports the optional
  * model as available (GET /api/detect/availability -> semantic).
+ *
+ * When the server has several hull models (availability -> semantic_models),
+ * a picker beside the button chooses which one runs. The choice is a
+ * per-browser convenience kept in localStorage; the server's default is used
+ * when nothing (or a model that no longer exists) was chosen.
  */
 import { generateUUID, round } from "../utils.js?v=3";
 import { apiFetch, pollJob } from "../api.js?v=3";
@@ -19,7 +24,11 @@ const SOURCE = "hull-detect";
 const TIMEOUT_MS = 120000;
 
 const button = document.querySelector("#hullDetectButton");
+const picker = document.querySelector("#hullModelSelect");
 const BASE_TITLE = button ? button.title : "";
+const PICKER_STORAGE_KEY = "hullModel";
+// [{id, name, epoch, default}] from availability; empty without a picker.
+let models = [];
 // Name of the server's hull model ("hull_v5_own"), from availability and
 // refreshed by each result; shown on the button and in the status line.
 let modelName = "";
@@ -33,6 +42,50 @@ function showModel(model) {
   }
 }
 
+function modelLabel(model) {
+  const epoch = model.epoch == null ? "" : ` · epoch ${model.epoch}`;
+  return `${model.name}${epoch}${model.default ? " (default)" : ""}`;
+}
+
+function readSavedModel() {
+  try {
+    return window.localStorage.getItem(PICKER_STORAGE_KEY);
+  } catch (error) {
+    console.warn("Could not read the saved hull model:", error);
+    return null;
+  }
+}
+
+function saveModel(id) {
+  try {
+    window.localStorage.setItem(PICKER_STORAGE_KEY, id);
+  } catch (error) {
+    console.warn("Could not save the hull model choice:", error);
+  }
+}
+
+/** The picked model's id, or null to let the server use its default. */
+function chosenModelId() {
+  return picker && !picker.hidden && picker.value ? picker.value : null;
+}
+
+function fillPicker(list) {
+  models = Array.isArray(list) ? list : [];
+  if (!picker) return;
+  picker.replaceChildren(...models.map((model) => {
+    const option = document.createElement("option");
+    option.value = model.id;
+    option.textContent = modelLabel(model);
+    return option;
+  }));
+  picker.hidden = models.length < 2;
+  if (picker.hidden) return;
+  const saved = readSavedModel();
+  const initial = models.find((model) => model.id === saved) || models.find((model) => model.default) || models[0];
+  picker.value = initial.id;
+  showModel(initial);
+}
+
 function withModel(text) {
   return modelName ? `${text} · ${modelName}` : text;
 }
@@ -41,6 +94,7 @@ function setBusy(isBusy) {
   detectState.detectionBusy = isBusy;
   if (!button) return;
   button.disabled = isBusy;
+  if (picker) picker.disabled = isBusy;
   const label = button.querySelector(".btn-label");
   if (label) label.textContent = isBusy ? "Segmenting..." : "Hull";
 }
@@ -88,7 +142,7 @@ export async function detectHullCondition() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       signal: controller.signal,
-      body: JSON.stringify({ image: await getImageSrcForAPI() })
+      body: JSON.stringify({ image: await getImageSrcForAPI(), model: chosenModelId() })
     });
     const payload = await response.json();
     if (!response.ok) {
@@ -131,10 +185,24 @@ export async function detectHullCondition() {
 
 export function initHullDetect() {
   if (button) button.addEventListener("click", () => detectHullCondition());
+  if (picker) {
+    picker.addEventListener("change", () => {
+      const model = models.find((item) => item.id === picker.value);
+      if (!model) return;
+      saveModel(model.id);
+      showModel(model);
+      setStatus(`Hull model: ${model.name}`);
+    });
+  }
 }
 
-/** Show or hide the button from the server's availability answer. */
-export function setHullDetectAvailable(available, model) {
+/** Show or hide the button (and model picker) from the server's availability answer. */
+export function setHullDetectAvailable(available, model, list = []) {
   if (button) button.hidden = !available;
-  if (available) showModel(model);
+  if (!available) {
+    fillPicker([]);
+    return;
+  }
+  showModel(model);
+  fillPicker(list);
 }

@@ -301,6 +301,9 @@ class EmbedPayload(BaseModel):
 
 class SemanticPayload(BaseModel):
     image: str
+    # Picker id from /api/detect/availability `semantic_models` (a weights
+    # file name); the server's default hull model when omitted.
+    model: Optional[str] = Field(None, max_length=200)
 
 class AIJobCreated(BaseModel):
     job_id: str

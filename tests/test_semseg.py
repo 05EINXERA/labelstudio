@@ -4,6 +4,7 @@ The model itself is not loaded here (no weights, no GPU in CI); the polygon
 extraction is pure numpy/OpenCV and is what decides what reaches the canvas.
 """
 import os
+from collections import OrderedDict
 
 import numpy as np
 import pytest
@@ -122,13 +123,80 @@ def test_model_info_falls_back_to_file_name_and_rereads_a_replaced_file(monkeypa
     assert semseg.semseg_model_info() == {"name": "hull_next", "epoch": 9}
 
 
-def test_model_info_reports_the_loaded_model(monkeypatch, tmp_path):
-    """Once loaded, the model in memory is what runs, whatever the file now holds."""
-    weights = _checkpoint(tmp_path / "hull_semseg.pt", name="on_disk", epoch=1)
-    monkeypatch.setattr(config, "SEMSEG_MODEL", str(weights))
+def _touch_later(path, seconds):
+    """Give a file a distinct mtime (coarse clocks, and the picker sorts on it)."""
+    stat = os.stat(path)
+    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + seconds * 10**9))
+
+
+def _model_folder(monkeypatch, tmp_path):
+    """A detector folder holding several hull checkpoints; hull_semseg.pt is the default."""
+    monkeypatch.setattr(semseg, "DETECTOR_MODEL_DIR", str(tmp_path))
+    monkeypatch.setattr(config, "SEMSEG_MODEL", "hull_semseg.pt")
     monkeypatch.setattr(config, "SEMSEG_ENABLED", True)
-    monkeypatch.setattr(semseg, "_info", {"name": "in_memory", "epoch": 2})
-    assert semseg.semseg_model_info() == {"name": "in_memory", "epoch": 2}
+    _checkpoint(tmp_path / "hull_semseg.pt", name="hull_v6_all", epoch=120)
+    _checkpoint(tmp_path / "hull_semseg_v6_all.pt", name="hull_v6_all", epoch=120)  # same model, second name
+    _touch_later(_checkpoint(tmp_path / "hull_semseg_v5.pt", name="hull_v5", epoch=74), 1)
+    _touch_later(_checkpoint(tmp_path / "hull_semseg_v6.pt", name="hull_v6", epoch=110), 2)
+    (tmp_path / "hull_semseg_broken.pt").write_bytes(b"not a checkpoint")
+    _checkpoint(tmp_path / "other.pt", name="not_hull", epoch=1)  # outside the hull_semseg*.pt pattern
+
+
+def test_picker_lists_default_first_then_newest_without_duplicates(monkeypatch, tmp_path):
+    _model_folder(monkeypatch, tmp_path)
+    assert semseg.semseg_models() == [
+        {"id": "hull_semseg.pt", "name": "hull_v6_all", "epoch": 120, "default": True},
+        {"id": "hull_semseg_v6.pt", "name": "hull_v6", "epoch": 110, "default": False},
+        {"id": "hull_semseg_v5.pt", "name": "hull_v5", "epoch": 74, "default": False},
+    ]
+    monkeypatch.setattr(config, "SEMSEG_ENABLED", False)
+    assert semseg.semseg_models() == []
+
+
+def test_only_listed_models_can_be_requested(monkeypatch, tmp_path):
+    _model_folder(monkeypatch, tmp_path)
+    assert semseg.semseg_model_path(None) == str(tmp_path / "hull_semseg.pt")
+    assert semseg.semseg_model_path("") == str(tmp_path / "hull_semseg.pt")
+    assert semseg.semseg_model_path("hull_semseg_v6.pt") == str(tmp_path / "hull_semseg_v6.pt")
+    for refused in ("other.pt", "hull_semseg_broken.pt", "../hull_semseg_v6.pt",
+                    str(tmp_path / "hull_semseg_v6.pt"), "hull_semseg_v6_all.pt"):
+        with pytest.raises(semseg.DetectionClientError):
+            semseg.semseg_model_path(refused)
+
+
+class _TinyNet(torch.nn.Module):
+    def __init__(self, classes):
+        super().__init__()
+        self.conv = torch.nn.Conv2d(3, classes, 1)
+
+    def forward(self, x):
+        return {"out": self.conv(x)}
+
+
+def test_loaded_models_are_reused_capped_and_reloaded_when_replaced(monkeypatch, tmp_path):
+    from ml import semseg_arch
+
+    monkeypatch.setattr(semseg_arch, "build_semseg_net", lambda arch, classes: _TinyNet(classes))
+    monkeypatch.setattr(semseg, "_loaded", OrderedDict())
+    monkeypatch.setattr(semseg, "MAX_LOADED_MODELS", 2)
+
+    def write(name, epoch):
+        path = tmp_path / f"{name}.pt"
+        torch.save({"model": _TinyNet(len(CLASSES)).state_dict(), "classes": CLASSES,
+                    "name": name, "epoch": epoch, "arch": "tiny"}, path)
+        return str(path)
+
+    a, b, c = write("a", 1), write("b", 1), write("c", 1)
+    first = semseg.get_semseg_model(a)
+    assert semseg.get_semseg_model(a)[0] is first[0]  # reused, not reloaded
+    assert first[4] == {"name": "a", "epoch": 1}
+    semseg.get_semseg_model(b)
+    semseg.get_semseg_model(c)
+    assert list(semseg._loaded) == [b, c]  # a, least recently used, was dropped
+
+    write("b", 2)
+    _touch_later(b, 1)
+    assert semseg.get_semseg_model(b)[4] == {"name": "b", "epoch": 2}
 
 
 def test_model_info_is_none_for_unreadable_or_missing_weights(monkeypatch, tmp_path):
@@ -156,7 +224,7 @@ def test_endpoint_refused_by_ai_kill_switch(client, alice, monkeypatch, tmp_path
     res = client.post("/api/detect/semantic", json={"image": IMAGE}, headers=alice)
     assert res.status_code == 503, res.text
     assert client.get("/api/detect/availability", headers=alice).json() == {
-        "enabled": False, "semantic": False, "semantic_model": None}
+        "enabled": False, "semantic": False, "semantic_model": None, "semantic_models": []}
 
 
 def test_endpoint_requires_auth(client):
@@ -176,10 +244,11 @@ def test_enabled_endpoint_queues_a_job(client, alice, monkeypatch, tmp_path):
     stub = {"predictions": [{"class": "rust", "label_prefix": "rust", "score": 0.8,
                              "bbox": [0, 0, 4, 4], "points": [{"x": 0, "y": 0}, {"x": 4, "y": 0}, {"x": 4, "y": 4}]}],
             "model": {"name": "hull_test", "epoch": 7}}
-    monkeypatch.setattr(detect, "segment_semantic", lambda image: stub)
+    monkeypatch.setattr(detect, "segment_semantic", lambda image, model=None: stub)
 
     assert client.get("/api/detect/availability", headers=alice).json() == {
-        "enabled": True, "semantic": True, "semantic_model": {"name": "hull_test", "epoch": 7}}
+        "enabled": True, "semantic": True, "semantic_model": {"name": "hull_test", "epoch": 7},
+        "semantic_models": [{"id": "hull.pt", "name": "hull_test", "epoch": 7, "default": True}]}
     res = client.post("/api/detect/semantic", json={"image": IMAGE}, headers=alice)
     assert res.status_code == 200, res.text
     job_id = res.json()["job_id"]
@@ -333,3 +402,25 @@ def test_smoothing_keeps_the_region_where_it_was():
 def test_tiny_regions_still_get_a_usable_polygon():
     outline = semseg.smooth_outline(np.array([[0, 0], [1, 0], [1, 1], [0, 1]], float) * 4, spacing=10)
     assert len(outline) == semseg._MIN_VERTICES
+
+
+def test_endpoint_runs_the_picked_model_and_refuses_unknown_ones(client, alice, monkeypatch, tmp_path):
+    from api.routers import detect
+
+    _model_folder(monkeypatch, tmp_path)
+    monkeypatch.setattr(config, "AI_FEATURES_ENABLED", True)
+    used = []
+    monkeypatch.setattr(detect, "segment_semantic",
+                        lambda image, model=None: used.append(model) or {"predictions": [], "model": None})
+
+    models = client.get("/api/detect/availability", headers=alice).json()["semantic_models"]
+    assert [m["id"] for m in models] == ["hull_semseg.pt", "hull_semseg_v6.pt", "hull_semseg_v5.pt"]
+
+    assert client.post("/api/detect/semantic", json={"image": IMAGE, "model": "hull_semseg_v5.pt"},
+                       headers=alice).status_code == 200
+    assert client.post("/api/detect/semantic", json={"image": IMAGE}, headers=alice).status_code == 200
+    assert used == ["hull_semseg_v5.pt", None]
+
+    res = client.post("/api/detect/semantic", json={"image": IMAGE, "model": "../../other.pt"}, headers=alice)
+    assert res.status_code == 400, res.text
+    assert used == ["hull_semseg_v5.pt", None]  # nothing queued

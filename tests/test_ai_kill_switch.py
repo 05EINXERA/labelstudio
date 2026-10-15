@@ -17,14 +17,14 @@ def test_availability_reports_enabled(client, alice, monkeypatch):
     _set_ai(monkeypatch, True)
     res = client.get("/api/detect/availability", headers=alice)
     assert res.status_code == 200, res.text
-    assert res.json() == {"enabled": True, "semantic": False, "semantic_model": None}
+    assert res.json() == {"enabled": True, "semantic": False, "semantic_model": None, "semantic_models": []}
 
 
 def test_availability_reports_disabled(client, alice, monkeypatch):
     _set_ai(monkeypatch, False)
     res = client.get("/api/detect/availability", headers=alice)
     assert res.status_code == 200, res.text
-    assert res.json() == {"enabled": False, "semantic": False, "semantic_model": None}
+    assert res.json() == {"enabled": False, "semantic": False, "semantic_model": None, "semantic_models": []}
 
 
 def test_ai_endpoints_refused_when_disabled(client, alice, monkeypatch):
