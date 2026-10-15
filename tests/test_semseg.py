@@ -240,6 +240,26 @@ def test_mirrored_passes_land_back_on_the_photo():
     np.testing.assert_allclose(mirrored, plain, atol=1e-5)
 
 
+def test_large_photos_are_shrunk_before_the_model(monkeypatch):
+    """A 20 MP photo must not reach the network at full size (it overflowed
+    the GPU into system RAM); polygons still come back in source pixels."""
+    from PIL import Image
+
+    monkeypatch.setattr(semseg, "MAX_SIDE_PX", 64)
+    model = _PixelModel().eval()
+    small = semseg.probabilities_for(model, Image.new("RGB", (60, 40)), 1.0, torch.device("cpu"))
+    large = semseg.probabilities_for(model, Image.new("RGB", (128, 96)), 1.0, torch.device("cpu"))
+    assert small.shape[1:] == (40, 60)  # under the cap: untouched
+    assert large.shape[1:] == (48, 64)  # long side capped, aspect kept
+
+    class_map = np.zeros(large.shape[1:], np.int64)
+    class_map[10:30, 20:40] = 1
+    ratio = large.shape[2] / 128
+    region = semseg.mask_to_predictions(class_map, np.ones(class_map.shape, np.float32), CLASSES,
+                                        ratio, 0, 10)[0]
+    assert region["bbox"] == pytest.approx([40.0, 20.0, 40.0, 40.0], abs=3)
+
+
 def test_damage_min_probability_takes_damage_over_likelier_sound():
     probabilities = np.zeros((3, 1, 4), np.float32)
     probabilities[:, 0, 0] = [0.55, 0.40, 0.05]  # sound wins, AF paint at 0.40

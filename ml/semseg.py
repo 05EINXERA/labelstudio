@@ -41,6 +41,12 @@ _OUTLINE_SIGMA_PX = 5.0
 _CLEANUP_KERNEL = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
 # Fewest vertices an outline is given, however small the region.
 _MIN_VERTICES = 6
+# Longest photo side the model is run on, in source pixels. Most photos are
+# 2592 x 1944; some projects hold 5184 x 3888 ones, which need four times the
+# memory, overflow a 4 GB GPU into system RAM and took a review run past 9 GB
+# (2026-10-15). They are shrunk to this first. Training saw them at 0.5-1.0
+# zoom, so half size is within what the model knows.
+MAX_SIDE_PX = 2592
 
 # Model class name -> lower-case prefix of the project label it stands for.
 # Projects spell the labels out in full ("AF Paint Deterioration / Peeling"),
@@ -249,12 +255,15 @@ def flip_passes(flips: str) -> list[tuple[int, ...]]:
 def probabilities_for(model, image: Image.Image, scale: float, device, flips: str = "") -> np.ndarray:
     """Blurred class probabilities (classes, h, w) of `image` at `scale`.
 
+    Photos longer than MAX_SIDE_PX are shrunk to it first, so the result can
+    be smaller than `scale` implies; callers take the ratio from its shape.
     With `flips` the network also sees mirrored copies of the photo; each
     answer is mirrored back and the passes are averaged (flip_passes).
     """
     import torch  # see get_semseg_model
     from .semseg_arch import STRIDE
 
+    scale *= min(1.0, MAX_SIDE_PX / max(image.size))
     size = (max(STRIDE, round(image.width * scale)), max(STRIDE, round(image.height * scale)))
     resized = np.asarray(image.resize(size, Image.BILINEAR))
     # The network needs sides divisible by its stride; pad, then cut the pad off.
