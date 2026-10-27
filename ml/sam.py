@@ -6,6 +6,7 @@ from PIL import Image
 
 from .common import (
     CONFIDENCE,
+    DetectionClientError,
     NMS_THRESHOLD,
     WAND_MODEL_DIR,
     COCO_CLASSES,
@@ -13,6 +14,7 @@ from .common import (
     _evict_cache_if_needed,
 )
 from .images import decode_image, pil_to_bgr
+from .sam_refine import refine_box
 from .weights import resolve_model_path
 from .yolo import run_inference, _model_lock
 
@@ -292,3 +294,57 @@ def segment_point(image_data, points=None, labels=None, prompt=None, precision=0
     return {
         "points": points_res
     }
+
+
+def refine_boxes(image_data, boxes, sam_model=None):
+    """Tighten boxes to SAM's mask of the object inside each one.
+
+    `boxes` are [x, y, width, height] in image pixels. Returns one entry per
+    box, in order: {"bbox": [x, y, width, height], "refined": bool}. A box whose
+    mask disagrees with it comes back unchanged with refined=False.
+    """
+    global _sam_model
+    if not boxes:
+        return {"boxes": []}
+    try:
+        import torch
+        from ultralytics import SAM
+    except ImportError:
+        raise RuntimeError("Please install ultralytics and torch to use SAM.")
+
+    sam_model_file = resolve_model_path(sam_model or 'sam_b.pt', WAND_MODEL_DIR)
+    if sam_model_file == "facebook/sam2-hiera-large":
+        raise DetectionClientError("Box refinement needs an Ultralytics SAM model, not SAM 2.")
+
+    image_bgr = pil_to_bgr(decode_image(image_data))
+    height, width = image_bgr.shape[:2]
+    prompts = []
+    for x, y, w, h in boxes:
+        prompts.append([max(0.0, x), max(0.0, y), min(float(width), x + w), min(float(height), y + h)])
+
+    with _sam_lock:
+        if type(_sam_model) is not dict:
+            _sam_model = {}
+        if sam_model_file not in _sam_model:
+            _sam_model[sam_model_file] = SAM(sam_model_file)
+            if torch.cuda.is_available():
+                _sam_model[sam_model_file].to('cuda')
+        results = _sam_model[sam_model_file](image_bgr, bboxes=prompts, verbose=False)
+
+    data = None
+    if results and results[0].masks is not None and results[0].masks.data is not None:
+        data = results[0].masks.data.cpu().numpy()
+
+    refined_boxes = []
+    for index, prompt in enumerate(prompts):
+        box, refined = tuple(prompt), False
+        if data is not None and index < len(data):
+            mask = (data[index] > 0.5).astype(np.uint8)
+            if mask.shape != (height, width):
+                mask = cv2.resize(mask, (width, height), interpolation=cv2.INTER_NEAREST)
+            box, refined = refine_box(mask, prompt)
+        refined_boxes.append({
+            "bbox": [float(box[0]), float(box[1]), float(box[2] - box[0]), float(box[3] - box[1])],
+            "refined": refined,
+        })
+    return {"boxes": refined_boxes}

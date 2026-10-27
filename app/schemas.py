@@ -299,6 +299,20 @@ class EmbedPayload(BaseModel):
     image: str
     sam_model: Optional[str] = None
 
+class RefineBoxesPayload(BaseModel):
+    image: str
+    # [x, y, width, height] in image pixels; capped so one request cannot
+    # hold the single inference slot for minutes.
+    boxes: List[List[float]] = Field(..., min_length=1, max_length=100)
+    sam_model: Optional[str] = Field(None, max_length=200)
+
+    @field_validator("boxes")
+    @classmethod
+    def _four_numbers_each(cls, boxes):
+        if any(len(box) != 4 or box[2] <= 0 or box[3] <= 0 for box in boxes):
+            raise ValueError("each box must be [x, y, width, height] with positive size")
+        return boxes
+
 class SemanticPayload(BaseModel):
     image: str
     # Picker id from /api/detect/availability `semantic_models` (a weights

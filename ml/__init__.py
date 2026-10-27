@@ -42,6 +42,7 @@ from .clip import (
 from .sam import (
     embed_image,
     segment_point,
+    refine_boxes,
 )
 from .semseg import (
     segment_semantic,
@@ -83,6 +84,7 @@ __all__ = [
     "classify_image",
     "embed_image",
     "segment_point",
+    "refine_boxes",
     "segment_semantic",
     "semseg_available",
     "semseg_model_info",

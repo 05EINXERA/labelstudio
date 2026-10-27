@@ -18,6 +18,7 @@ from ml import (
     classify_image,
     detect_objects,
     embed_image,
+    refine_boxes,
     segment_point,
     segment_semantic,
     semseg_available,
@@ -27,7 +28,8 @@ from ml import (
     get_inference_semaphore,
 )
 from schemas import (
-    AIJobCreated, ClassifyPayload, DetectPayload, EmbedPayload, SegmentPayload, SemanticPayload,
+    AIJobCreated, ClassifyPayload, DetectPayload, EmbedPayload, RefineBoxesPayload, SegmentPayload,
+    SemanticPayload,
 )
 
 logger = logging.getLogger(__name__)
@@ -161,6 +163,12 @@ def run_embed_job(job_id: str, payload: EmbedPayload):
     ))
 
 
+def run_refine_boxes_job(job_id: str, payload: RefineBoxesPayload):
+    _run_inference_job(job_id, "Box refinement", lambda: refine_boxes(
+        payload.image, payload.boxes, sam_model=payload.sam_model,
+    ))
+
+
 def run_semantic_job(job_id: str, payload: SemanticPayload):
     _run_inference_job(job_id, "Semantic segmentation", lambda: segment_semantic(payload.image, payload.model))
 
@@ -249,6 +257,15 @@ def embed(payload: EmbedPayload, background_tasks: BackgroundTasks, db: Session 
     _require_ai_enabled()
     job_id = _create_job(db)
     background_tasks.add_task(run_embed_job, job_id, payload)
+    return {"job_id": job_id}
+
+
+@router.post("/refine-boxes", response_model=AIJobCreated)
+def refine_boxes_endpoint(payload: RefineBoxesPayload, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    """Queue SAM refinement of existing boxes (tighten each to its object's mask)."""
+    _require_ai_enabled()
+    job_id = _create_job(db)
+    background_tasks.add_task(run_refine_boxes_job, job_id, payload)
     return {"job_id": job_id}
 
 

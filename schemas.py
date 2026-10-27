@@ -12,6 +12,7 @@ from app.schemas import (
     ExportJobStatus,
     AIJobCreated,
     SemanticPayload,
+    RefineBoxesPayload,
     ExportRequest,
     EXPORT_FORMATS,
     EXPORT_FORMAT_ALIASES,
