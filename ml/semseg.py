@@ -68,7 +68,51 @@ LABEL_PREFIXES = {
     "exposed_steel_plate": "exposed steel",
     "marine_organisms": "residual marine",
     "rust": "rust",
+    # Direct class title/value fallbacks (for v7+ configs)
+    "AFPaintDeteriorationPeeling": "af paint",
+    "Dirt1RubberMarksHeavyRustStainsOilStainsRemainingWashResidue": "dirt 1",
+    "Dirt2LightRustStainsWaterStainsetc.": "dirt 2",
+    "ExposedACPaintArea": "exposed ac",
+    "ExposedSteelPlateArea": "exposed steel",
+    "ResidualMarineOrganismsMarineFouling": "residual marine",
+    "RustArea": "rust",
 }
+
+_V7_VALUE_TO_NAME = {
+    "SoundAreaIncludingNormalAFPaintWear": "background_sound",
+    "AFPaintDeteriorationPeeling": "af_paint_deterioration",
+    "Dirt1RubberMarksHeavyRustStainsOilStainsRemainingWashResidue": "dirt1",
+    "Dirt2LightRustStainsWaterStainsetc.": "dirt2",
+    "ExposedACPaintArea": "exposed_ac_paint",
+    "ExposedSteelPlateArea": "exposed_steel_plate",
+    "ResidualMarineOrganismsMarineFouling": "marine_organisms",
+    "RustArea": "rust",
+}
+
+
+def _normalize_classes(raw_classes) -> list[dict]:
+    """Normalize classes across checkpoint versions.
+
+    Older models store `[{"id": 0, "name": "..."}, ...]`.
+    v7+ models store `[{"index": 0, "title": "...", "value": "..."}, ...]`.
+    Ensure every entry is a dict with at least "id" and "name".
+    """
+    normalized = []
+    for idx, c in enumerate(raw_classes):
+        if isinstance(c, str):
+            normalized.append({"id": idx, "name": c})
+        elif isinstance(c, dict):
+            entry = dict(c)
+            if "name" not in entry:
+                value = entry.get("value", "")
+                title = entry.get("title", "")
+                entry["name"] = _V7_VALUE_TO_NAME.get(value) or (title.lower().replace(" ", "_") if title else f"class_{idx}")
+            if "id" not in entry:
+                entry["id"] = entry.get("index", idx)
+            normalized.append(entry)
+        else:
+            normalized.append({"id": idx, "name": str(c)})
+    return normalized
 
 # Weights files offered in the Hull model picker: these in the detector folder,
 # plus config.SEMSEG_MODEL wherever it is.
@@ -200,25 +244,38 @@ def get_semseg_model(path=None):
         # on a machine where this optional model is not installed.
         try:
             import torch
-            from .semseg_arch import build_semseg_net
+            from .semseg_arch import build_semseg_net, build_smp_net
         except ImportError as error:
             raise RuntimeError("Please install torch and torchvision to use semantic segmentation.") from error
         logger.info("Loading semantic segmentation model %s", path)
         checkpoint = torch.load(path, map_location="cpu", weights_only=True)
-        classes = checkpoint["classes"]
-        model = build_semseg_net(checkpoint.get("arch", DEFAULT_ARCH), len(classes))
-        model.load_state_dict(checkpoint["model"])
+        classes = _normalize_classes(checkpoint["classes"])
+
+        cfg = checkpoint.get("cfg", {})
+        train_cfg = cfg.get("train", {}) if isinstance(cfg, dict) else {}
+        if train_cfg.get("arch"):
+            model = build_smp_net(train_cfg["arch"], train_cfg.get("encoder", "resnet34"), len(classes))
+        elif "arch" in checkpoint:
+            model = build_semseg_net(checkpoint["arch"], len(classes))
+        else:
+            model = build_semseg_net(DEFAULT_ARCH, len(classes))
+
+        state_dict = checkpoint.get("state_dict") if "state_dict" in checkpoint else checkpoint.get("model")
+        if state_dict is None:
+            raise ValueError(f"No model weights found in {path} (expected 'model' or 'state_dict').")
+        model.load_state_dict(state_dict)
+
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         info = _checkpoint_info(checkpoint, path)
-        _loaded.pop(path, None)
-        _loaded[path] = (key, model.to(device).eval(), classes, device,
-                         float(checkpoint.get("scale", DEFAULT_SCALE)), info)
+        checkpoint_scale = float(checkpoint.get("scale", DEFAULT_SCALE))
+        scale = config.SEMSEG_SCALE if config.SEMSEG_SCALE > 0 else checkpoint_scale
+        _loaded[path] = (key, model.to(device).eval(), classes, device, scale, info)
         while len(_loaded) > MAX_LOADED_MODELS:
             dropped, _ = _loaded.popitem(last=False)
             logger.info("Unloaded hull model %s", dropped)
         if device.type == "cuda":
             torch.cuda.empty_cache()
-        logger.info("Hull model %s (epoch %s) loaded", info["name"], info["epoch"])
+        logger.info("Hull model %s (epoch %s) loaded on %s", info["name"], info["epoch"], device)
         return _loaded[path][1:]
 
 

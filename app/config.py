@@ -165,6 +165,9 @@ SEMSEG_DAMAGE_MIN_PROBABILITY = float(os.environ.get("SEMSEG_DAMAGE_MIN_PROBABIL
 # are smoothed and resampled to this spacing, like freehand drawing, instead of
 # following the pixel staircase of the model's mask.
 SEMSEG_VERTEX_SPACING_PX = float(os.environ.get("SEMSEG_VERTEX_SPACING_PX", "10"))
+# Optional photo scaling factor (0.0 to 1.0). 0 uses the checkpoint's default (typically 0.5).
+# Higher values (e.g. 0.75 or 1.0) increase resolution of small defect contours.
+SEMSEG_SCALE = float(os.environ.get("SEMSEG_SCALE", "0"))
 
 # Hugging Face models (CLIP, SAM) are already cached under ~/.cache/huggingface
 # after first download, but `from_pretrained` still makes a round trip per file

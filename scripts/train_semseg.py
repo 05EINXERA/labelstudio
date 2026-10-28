@@ -28,7 +28,9 @@ from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
-from ml.semseg_arch import STRIDE, build_semseg_net  # noqa: E402
+from ml.semseg_arch import STRIDE, build_semseg_net, build_smp_net  # noqa: E402
+
+SMP_ARCHS = ["unet", "unet++", "fpn", "deeplabv3plus"]
 
 MEAN = np.array([0.485, 0.456, 0.406], np.float32)
 STD = np.array([0.229, 0.224, 0.225], np.float32)
@@ -133,6 +135,15 @@ def dice_loss(logits: torch.Tensor, target: torch.Tensor, n: int) -> torch.Tenso
     return 1 - ((2 * inter + 1) / (denom + 1))[present].mean()
 
 
+def focal_ce(logits: torch.Tensor, target: torch.Tensor, weight: torch.Tensor, gamma: float) -> torch.Tensor:
+    """Class-weighted cross-entropy scaled by (1 - p_true)^gamma, so easy pixels
+    contribute little and gradient goes to hard boundaries and rare classes."""
+    logp = F.log_softmax(logits.float(), 1)
+    logp_true = logp.gather(1, target[:, None])[:, 0]
+    per_pixel = -weight[target] * (1 - logp_true.exp()).pow(gamma) * logp_true
+    return per_pixel.sum() / weight[target].sum()
+
+
 def predict(model, img: torch.Tensor) -> torch.Tensor:
     """Class map for a batch of whole images, padded up to the network stride."""
     h, w = img.shape[-2:]
@@ -187,7 +198,13 @@ def main() -> None:
     ap.add_argument("--data", required=True)
     ap.add_argument("--name", default="hull_semseg")
     ap.add_argument("--out", default=str(REPO / "runs" / "semseg"), help="parent folder for the run")
-    ap.add_argument("--arch", default="unet_resnet34", choices=["unet_resnet34", "deeplabv3_mobilenet_v3_large"])
+    ap.add_argument("--arch", default="unet_resnet34", choices=["unet_resnet34", "deeplabv3_mobilenet_v3_large"] + SMP_ARCHS,
+                    help="unet_resnet34 / deeplabv3_mobilenet_v3_large are the built-in nets; "
+                         "unet, unet++, fpn, deeplabv3plus use segmentation_models_pytorch with --encoder")
+    ap.add_argument("--encoder", default="resnet34",
+                    help="smp encoder, e.g. resnet50, efficientnet-b3, mit_b2, tu-convnext_small")
+    ap.add_argument("--loss", default="ce_dice", choices=["ce_dice", "focal_dice"])
+    ap.add_argument("--focal-gamma", type=float, default=2.0)
     ap.add_argument("--epochs", type=int, default=150)
     ap.add_argument("--patience", type=int, default=30,
                     help="stop after this many epochs without a new best score; 0 never stops early")
@@ -244,11 +261,16 @@ def main() -> None:
                               persistent_workers=args.workers > 0)
     val_loader = DataLoader(val, batch_size=1, num_workers=min(2, args.workers))
 
+    def build(pretrained: bool):
+        if args.arch in SMP_ARCHS:
+            return build_smp_net(args.arch, args.encoder, n, pretrained)
+        return build_semseg_net(args.arch, n, pretrained)
+
     try:
-        model = build_semseg_net(args.arch, n, pretrained=not args.no_pretrained)
+        model = build(not args.no_pretrained)
     except OSError as exc:  # no network for the one-off ImageNet weight download
         print(f"WARNING: could not load pretrained encoder ({exc}); training from scratch")
-        model = build_semseg_net(args.arch, n, pretrained=False)
+        model = build(False)
     if args.init:
         model.load_state_dict(torch.load(args.init, map_location="cpu", weights_only=True)["model"])
         print(f"initialised from {args.init}")
@@ -264,7 +286,7 @@ def main() -> None:
                                                 pct_start=0.1)
     scaler = torch.amp.GradScaler(device.type, enabled=device.type == "cuda")
     with_rare = sum(1 for present in train.rare_present if present)
-    print(f"{args.arch} on {device} | train {len(train.images)} photos ({with_rare} with a rare class), "
+    print(f"{args.arch}{'/' + args.encoder if args.arch in SMP_ARCHS else ''} on {device} | train {len(train.images)} photos ({with_rare} with a rare class), "
           f"val {len(val.images)} | {len(train_loader)} it/epoch | "
           f"class weights {[round(float(w), 2) for w in weights]}", flush=True)
 
@@ -297,7 +319,10 @@ def main() -> None:
                 img, mask = img.to(device, non_blocking=True), mask.to(device, non_blocking=True)
                 with torch.autocast(device.type, enabled=device.type == "cuda"):
                     logits = model(img)["out"]
-                    loss = F.cross_entropy(logits, mask, weight=weights) + dice_loss(logits, mask, n)
+                    if args.loss == "focal_dice":
+                        loss = focal_ce(logits, mask, weights, args.focal_gamma) + dice_loss(logits, mask, n)
+                    else:
+                        loss = F.cross_entropy(logits, mask, weight=weights) + dice_loss(logits, mask, n)
                 optim.zero_grad(set_to_none=True)
                 scaler.scale(loss).backward()
                 scaler.step(optim)
@@ -318,6 +343,8 @@ def main() -> None:
             fh.flush()
             state = {"model": scored.state_dict(), "classes": classes, "arch": args.arch, "name": args.name,
                      "scale": args.eval_scale, "epoch": epoch, "miou_defects": defects}
+            if args.arch in SMP_ARCHS:  # how ml.semseg rebuilds the net
+                state["cfg"] = {"train": {"arch": args.arch, "encoder": args.encoder}}
             torch.save(state, out / "last.pt")
             if defects > best:
                 best, best_epoch = defects, epoch

@@ -79,9 +79,26 @@ if ($env:APP_ENV -eq "production") {
     }
 }
 
+# Prefer the project virtual environment (venv) where PyTorch with CUDA is installed
+$venvPython = (Resolve-Path (Join-Path $PSScriptRoot "..\venv\Scripts\python.exe") -ErrorAction SilentlyContinue).Path
+if (-not $venvPython -or -not (Test-Path $venvPython)) {
+    $venvPython = "python"
+    Write-Host "⚠️  venv not found at ..\venv\Scripts\python.exe; falling back to global 'python' on PATH." -ForegroundColor Yellow
+} else {
+    Write-Host "✓ Using Python: $venvPython" -ForegroundColor Green
+}
+
+# Quick GPU check
+try {
+    $gpuInfo = & $venvPython -c "import torch; print('GPU: ' + torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'No GPU (CPU mode)')" 2>$null
+    if ($gpuInfo) {
+        Write-Host "✓ $gpuInfo" -ForegroundColor Green
+    }
+} catch {}
+
 Write-Host "`nStarting uvicorn (single-worker process, AnyIO threadpool enabled, proxy headers enabled)...`n" -ForegroundColor Cyan
 
 $forwardedIps = if ($env:FORWARDED_ALLOW_IPS) { $env:FORWARDED_ALLOW_IPS } else { "127.0.0.1" }
 
 # Run the app in single-worker mode to unify ML model singletons and embedding cache
-& python -m uvicorn main:app --host $env:APP_HOST --port $env:APP_PORT --workers 1 --proxy-headers --forwarded-allow-ips $forwardedIps
+& $venvPython -m uvicorn main:app --host $env:APP_HOST --port $env:APP_PORT --workers 1 --proxy-headers --forwarded-allow-ips $forwardedIps

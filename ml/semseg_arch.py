@@ -71,3 +71,56 @@ def build_semseg_net(arch: str, num_classes: int, pretrained: bool = False) -> n
         backbone = MobileNet_V3_Large_Weights.IMAGENET1K_V2 if pretrained else None
         return deeplabv3_mobilenet_v3_large(weights=None, weights_backbone=backbone, num_classes=num_classes)
     raise ValueError(f"Unknown semantic segmentation architecture: {arch!r}")
+
+
+class _SmpWrapper(nn.Module):
+    """Wrap a segmentation_models_pytorch model so it returns ``{"out": logits}``.
+
+    smp models return a raw tensor; the rest of the inference pipeline
+    (``probabilities_for``) indexes the output with ``["out"]``.
+    """
+
+    def __init__(self, model: nn.Module):
+        super().__init__()
+        self.model = model
+
+    def forward(self, x):
+        return {"out": self.model(x)}
+
+    def load_state_dict(self, state_dict, strict: bool = True):
+        if any(k.startswith("model.") for k in state_dict.keys()):
+            return super().load_state_dict(state_dict, strict=strict)
+        return self.model.load_state_dict(state_dict, strict=strict)
+
+
+def build_smp_net(arch: str, encoder: str, num_classes: int,
+                  pretrained: bool = False) -> nn.Module:
+    """Build a segmentation_models_pytorch network, wrapped for this app.
+
+    ``arch`` and ``encoder`` come from the checkpoint's
+    ``cfg.train.arch`` / ``cfg.train.encoder`` (e.g. ``"unet"`` /
+    ``"resnet34"``).
+    """
+    try:
+        import segmentation_models_pytorch as smp
+    except ImportError as error:
+        raise RuntimeError(
+            "Please install segmentation-models-pytorch to use this hull model: "
+            "pip install segmentation-models-pytorch"
+        ) from error
+    arch_lower = arch.lower()
+    encoder_weights = "imagenet" if pretrained else None
+    if arch_lower == "unet":
+        model = smp.Unet(encoder_name=encoder, encoder_weights=encoder_weights, classes=num_classes)
+    elif arch_lower == "unetplusplus" or arch_lower == "unet++":
+        model = smp.UnetPlusPlus(encoder_name=encoder, encoder_weights=encoder_weights, classes=num_classes)
+    elif arch_lower == "deeplabv3":
+        model = smp.DeepLabV3(encoder_name=encoder, encoder_weights=encoder_weights, classes=num_classes)
+    elif arch_lower == "deeplabv3plus" or arch_lower == "deeplabv3+":
+        model = smp.DeepLabV3Plus(encoder_name=encoder, encoder_weights=encoder_weights, classes=num_classes)
+    elif arch_lower == "fpn":
+        model = smp.FPN(encoder_name=encoder, encoder_weights=encoder_weights, classes=num_classes)
+    else:
+        raise ValueError(f"Unknown smp architecture: {arch!r}")
+    return _SmpWrapper(model)
+

@@ -88,6 +88,16 @@ async def lifespan(app: FastAPI):
     except Exception as exc:  # pragma: no cover - never worth failing startup
         logger.warning("Could not set threadpool cap (%s); using anyio default", exc)
 
+    # Log PyTorch hardware acceleration device
+    try:
+        import torch
+        if torch.cuda.is_available():
+            logger.info("PyTorch GPU acceleration enabled: %s (CUDA)", torch.cuda.get_device_name(0))
+        else:
+            logger.info("PyTorch running on CPU (CUDA not available in current environment)")
+    except Exception:
+        pass
+
     # Team work-activity checkpointing. Wrapped so monitoring can never fail
     # startup; it is a no-op unless MONITOR_ENABLED.
     try:

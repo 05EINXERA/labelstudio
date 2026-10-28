@@ -26,8 +26,8 @@ def main() -> None:
 
     path = Path(args.checkpoint)
     state = torch.load(path, map_location="cpu", weights_only=True)
-    if not isinstance(state, dict) or "model" not in state or "classes" not in state:
-        sys.exit(f"Error: {path} is not a train_semseg.py checkpoint")
+    if not isinstance(state, dict) or ("model" not in state and "state_dict" not in state) or "classes" not in state:
+        sys.exit(f"Error: {path} is not a valid semseg checkpoint")
     previous = state.get("name")
     state["name"] = args.name
     stat = path.stat()

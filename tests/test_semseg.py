@@ -424,3 +424,43 @@ def test_endpoint_runs_the_picked_model_and_refuses_unknown_ones(client, alice, 
     res = client.post("/api/detect/semantic", json={"image": IMAGE, "model": "../../other.pt"}, headers=alice)
     assert res.status_code == 400, res.text
     assert used == ["hull_semseg_v5.pt", None]  # nothing queued
+
+
+def test_smp_architecture_contract():
+    import torch
+    from ml.semseg_arch import STRIDE, build_smp_net
+
+    model = build_smp_net("unet", "resnet34", num_classes=8).eval()
+    with torch.no_grad():
+        out = model(torch.zeros(1, 3, STRIDE * 2, STRIDE * 3))["out"]
+    assert out.shape == (1, 8, STRIDE * 2, STRIDE * 3)
+
+    # Test load_state_dict delegation with raw smp state_dict
+    raw_sd = model.model.state_dict()
+    model.load_state_dict(raw_sd)
+
+
+def test_v7_checkpoint_normalization_and_loading(tmp_path, monkeypatch):
+    import torch
+    from ml import semseg
+    from ml.semseg_arch import build_smp_net
+
+    raw_net = build_smp_net("unet", "resnet34", num_classes=3)
+    ckpt_path = tmp_path / "hull_semseg_v7.pt"
+    v7_data = {
+        "state_dict": raw_net.model.state_dict(),
+        "cfg": {"train": {"arch": "unet", "encoder": "resnet34"}},
+        "classes": [
+            {"index": 0, "title": "Sound Area (Including Normal AF Paint Wear)", "value": "SoundAreaIncludingNormalAFPaintWear", "color": "#000000"},
+            {"index": 1, "title": "AF Paint Deterioration / Peeling", "value": "AFPaintDeteriorationPeeling", "color": "#ff13a6"},
+            {"index": 2, "title": "Rust Area", "value": "RustArea", "color": "#D95319"},
+        ],
+        "epoch": 149,
+    }
+    torch.save(v7_data, ckpt_path)
+
+    model, classes, device, scale, info = semseg.get_semseg_model(str(ckpt_path))
+    assert info == {"name": "hull_semseg_v7", "epoch": 149}
+    assert classes[0]["name"] == "background_sound"
+    assert classes[1]["name"] == "af_paint_deterioration"
+    assert classes[2]["name"] == "rust"

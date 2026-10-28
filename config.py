@@ -51,6 +51,7 @@ from app.config import (
     SEMSEG_MIN_CONFIDENCE,
     SEMSEG_VERTEX_SPACING_PX,
     SEMSEG_MODEL,
+    SEMSEG_SCALE,
     THREADPOOL_CAP,
     validate_config,
 )
@@ -98,6 +99,7 @@ __all__ = [
     "SEMSEG_MIN_CONFIDENCE",
     "SEMSEG_VERTEX_SPACING_PX",
     "SEMSEG_MODEL",
+    "SEMSEG_SCALE",
     "THREADPOOL_CAP",
     "validate_config",
 ]
