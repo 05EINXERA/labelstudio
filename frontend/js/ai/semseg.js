@@ -25,7 +25,8 @@ import { setStatus, save, render } from "../components/workspace.js?v=17";
 // Its own source tag, so re-running replaces only earlier hull results and
 // the YOLO "Detect" button never wipes them (it replaces "auto-detect").
 const SOURCE = "hull-detect";
-const TIMEOUT_MS = 120000;
+// Multi-model runs (1 picked + up to 3 extras) can take noticeably longer on
+// large images; no artificial client timeout is enforced so models have as much time as needed.
 
 const button = document.querySelector("#hullDetectButton");
 const picker = document.querySelector("#hullModelSelect");
@@ -206,7 +207,7 @@ export async function detectHullCondition() {
   setBusy(true);
   setStatus(withModel("Segmenting hull"));
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
 
   try {
     const response = await apiFetch(`${window.location.origin}/api/detect/semantic`, {
@@ -245,11 +246,11 @@ export async function detectHullCondition() {
     console.error(error);
     setStatus("Segmentation failed");
     window.alert(error.name === "AbortError" || error.message === "Aborted"
-      ? "Hull segmentation timed out."
+      ? "Hull segmentation was cancelled."
       : (error.message || "Hull segmentation failed."));
     return 0;
   } finally {
-    clearTimeout(timeoutId);
+
     setBusy(false);
   }
 }

@@ -41,7 +41,7 @@ router = APIRouter(
 )
 
 # Maximum age (in seconds) for unpolled jobs before they are automatically evicted from storage.
-JOB_TTL_SECONDS = 600.0  # 10 minutes
+JOB_TTL_SECONDS = 1800.0  # 30 minutes
 
 
 def _cleanup_stale_jobs(db: Optional[Session] = None, max_age_seconds: float = JOB_TTL_SECONDS) -> int:
