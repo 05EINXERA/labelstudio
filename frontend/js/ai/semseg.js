@@ -33,6 +33,8 @@ const extraBox = document.querySelector("#hullExtraModels");
 const extraList = document.querySelector("#hullExtraList");
 const extraSummary = document.querySelector("#hullExtraSummary");
 const EXTRA_STORAGE_KEY = "hullExtraModels";
+// The server refuses more than this many extra models (4 combined with the picked one).
+const MAX_EXTRA = 3;
 const BASE_TITLE = button ? button.title : "";
 const PICKER_STORAGE_KEY = "hullModel";
 // [{id, name, epoch, default}] from availability; empty without a picker.
@@ -117,12 +119,16 @@ function saveExtras(ids) {
 function chosenExtraIds() {
   if (!extraList || !extraBox || extraBox.hidden) return [];
   const primary = chosenModelId();
-  return [...extraList.querySelectorAll("input:checked")].map((box) => box.value).filter((id) => id !== primary);
+  return [...extraList.querySelectorAll("input:checked")].map((box) => box.value).filter((id) => id !== primary).slice(0, MAX_EXTRA);
 }
 
 function updateExtraSummary() {
   if (!extraSummary) return;
   const count = chosenExtraIds().length;
+  // At the limit, the other models can only be ticked after unticking one.
+  if (extraList) {
+    for (const box of extraList.querySelectorAll("input")) box.disabled = !box.checked && count >= MAX_EXTRA;
+  }
   extraSummary.textContent = count ? `+ ${count} more` : "+ Fill gaps";
 }
 
@@ -130,13 +136,15 @@ function fillExtras() {
   if (!extraBox || !extraList) return;
   const primary = chosenModelId();
   const saved = new Set(readSavedExtras());
+  let ticked = 0;
   extraList.replaceChildren(...models.filter((model) => model.id !== primary).map((model) => {
+    const over = saved.has(model.id) && ++ticked > MAX_EXTRA;
     const row = document.createElement("label");
     row.style.cssText = "display: flex; gap: 6px; align-items: center; cursor: pointer;";
     const box = document.createElement("input");
     box.type = "checkbox";
     box.value = model.id;
-    box.checked = saved.has(model.id);
+    box.checked = saved.has(model.id) && !over;
     box.addEventListener("change", () => {
       saveExtras([...extraList.querySelectorAll("input:checked")].map((item) => item.value));
       updateExtraSummary();
