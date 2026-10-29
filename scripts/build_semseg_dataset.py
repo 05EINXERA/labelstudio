@@ -2,11 +2,13 @@
 
 Masks are rendered straight from the annotation database, so every mask is
 aligned with the exact image it was drawn on. Optionally merges hand-supplied
-image/mask pairs (`--extra`) and lists exported masks that have no photo
-(`--exports`). The DB and uploads are only read. Run from the repo root:
+image/mask pairs (`--extra`), per-task JSON exports with their photos
+(`--extra-json`), and lists exported masks that have no photo (`--exports`).
+The DB and uploads are only read. Run from the repo root:
 
     python scripts/build_semseg_dataset.py --dst C:\\datasets\\semseg \\
-        [--extra C:\\datasets\\semseg_extra] [--exports C:\\Users\\me\\Downloads\\Exports]
+        [--extra C:\\datasets\\semseg_extra] [--extra-json C:\\datasets\\Final] \\
+        [--exports C:\\Users\\me\\Downloads\\Exports]
 
 Class ids: 0 background/sound (Sound Area is black, the same colour as the
 unlabelled background in exported masks, so the two are one class), 1..7 defects.
@@ -31,7 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import models
 from config import DATA_DIR
 from database import SessionLocal
-from formats.common import ordered_annotations, polygon_points, safe_stem
+from formats.common import from_external_status, ordered_annotations, polygon_points, safe_stem
 
 CLASSES = [
     ("background_sound", (0, 0, 0)),
@@ -54,6 +56,8 @@ MIN_MAPPED_LABELS = 6  # a project must carry at least this many standard classe
 # model that unlabelled damage is background.
 FINISHED_STATUSES = ("Completed", "Passed", "Reviewed", "Approved", "Monitored", "Checked")
 IMAGE_EXTS = (".jpg", ".jpeg", ".png")
+# Photo sub-folders tried, in order, next to `jsons/` in a `--extra-json` project.
+JSON_IMAGE_DIRS = ("original_image", "images")
 # Project-name prefix for hand-supplied pairs, so they never collide with a DB project.
 EXTRA_PREFIX = "extra:"
 
@@ -107,17 +111,24 @@ def file_md5(path: str) -> str:
     return h.hexdigest()
 
 
-def render_task(task, label_class: dict, size: tuple[int, int], scale: float) -> Image.Image:
+def render_shapes(shapes, size: tuple[int, int], scale: float) -> Image.Image:
+    """Paint (class id, [(x, y), ...]) shapes in order; later ones win overlaps."""
     width, height = size
     mask = Image.new("L", (round(width * scale), round(height * scale)), 0)
     draw = ImageDraw.Draw(mask)
+    for cid, poly in shapes:
+        draw.polygon([(x * scale, y * scale) for x, y in poly], fill=cid)
+    return mask
+
+
+def render_task(task, label_class: dict, size: tuple[int, int], scale: float) -> Image.Image:
+    shapes = []
     for ann in ordered_annotations(task):
         cid = label_class.get(ann.get("labelId"))
         poly = polygon_points(ann)
-        if cid is None or poly is None:
-            continue
-        draw.polygon([(x * scale, y * scale) for x, y in poly], fill=cid)
-    return mask
+        if cid is not None and poly is not None:
+            shapes.append((cid, poly))
+    return render_shapes(shapes, size, scale)
 
 
 def pack_mask(sample: dict, mask: Image.Image) -> None:
@@ -219,6 +230,63 @@ def load_extra(folder: Path, scale: float):
     return samples
 
 
+def load_extra_json(folder: Path, scale: float, min_polygons: int, statuses: set[str]):
+    """Per-task JSON exports: <folder>/<project>/jsons/*.json + original_image/*.
+
+    The app's own interop task JSON (formats/annotations_json.py): polygons with
+    a label `title`, flat `points` and paint `order`. Filtered by the same task
+    statuses and polygon minimum as database tasks, and rendered the same way.
+    """
+    roots = [d for d in sorted(folder.iterdir()) if (d / "jsons").is_dir()] if folder.is_dir() else []
+    samples, skipped, unmapped = [], Counter(), Counter()
+    for root in roots:
+        photos = {}
+        for sub in reversed(JSON_IMAGE_DIRS):  # earlier folders win
+            if (root / sub).is_dir():
+                photos.update({p.stem.lower(): p for p in (root / sub).iterdir()
+                               if p.suffix.lower() in IMAGE_EXTS})
+        for jpath in sorted((root / "jsons").glob("*.json")):
+            task = json.loads(jpath.read_text(encoding="utf-8"))
+            status = from_external_status(task.get("status"), task.get("externalStatus"))
+            if statuses and status not in statuses:
+                skipped[f"status {status}"] += 1
+                continue
+            photo = photos.get(Path(task.get("name") or jpath.name).stem.lower())
+            if photo is None:
+                skipped["no photo"] += 1
+                continue
+            ordered = sorted(enumerate(task.get("annotations") or []),
+                             key=lambda pair: (pair[1].get("order", pair[0]), pair[0]))
+            shapes = []
+            for _, ann in ordered:
+                flat = ann.get("points") or []
+                if ann.get("type") != "polygon" or len(flat) < 6:
+                    continue
+                cid = class_of_label(ann.get("title"))
+                if cid is None:
+                    unmapped[ann.get("title")] += 1
+                    continue
+                shapes.append((cid, list(zip(flat[0::2], flat[1::2]))))
+            if len(shapes) < min_polygons:
+                skipped["too few polygons"] += 1
+                continue
+            with Image.open(photo) as im:
+                size = im.size
+            if size != (task.get("width"), task.get("height")):
+                print(f"extra-json: {root.name}/{photo.name} is {size}, its JSON says "
+                      f"{task.get('width')}x{task.get('height')}; skipped")
+                skipped["size mismatch"] += 1
+                continue
+            sample = {"project": EXTRA_PREFIX + root.name, "stem": photo.stem, "image_path": str(photo),
+                      "polygons": len(shapes), "size": size}
+            pack_mask(sample, render_shapes(shapes, size, scale))
+            samples.append(sample)
+    print(f"extra-json: {len(samples)} tasks from {len(roots)} projects; skipped {dict(skipped)}")
+    if unmapped:
+        print(f"extra-json: polygons with labels outside the class list, ignored: {dict(unmapped)}")
+    return samples
+
+
 def pick_val_projects(by_project: dict[str, int], fraction: float, seed: int) -> set[str]:
     names = sorted(by_project)
     random.Random(seed).shuffle(names)
@@ -254,6 +322,9 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dst", required=True, help="output folder (recreated)")
     ap.add_argument("--extra", help="folder of <project>/images + <project>/masks (direct-colour PNG) to add to train")
+    ap.add_argument("--extra-json", help="folder of <project>/jsons (per-task JSON export) + "
+                                         "<project>/original_image; trains unless named in "
+                                         "--val-projects as extra:<project>")
     ap.add_argument("--exports", help="folder of exported semantic PNGs; masks without a photo go to missing_photos.csv")
     ap.add_argument("--scale", type=float, default=0.5, help="resize factor stored on disk (default 0.5)")
     ap.add_argument("--min-polygons", type=int, default=20, help="skip tasks with fewer polygons")
@@ -285,11 +356,25 @@ def main() -> None:
             best[key] = s
     print(f"after dropping duplicate photos: {len(best)}")
     samples = list(best.values())
+    extra = []
+    if args.extra_json:
+        extra += load_extra_json(Path(args.extra_json), args.scale, args.min_polygons, statuses)
     if args.extra:
-        extra = load_extra(Path(args.extra), args.scale)
-        # A photo already in the database is taken from there (its mask is the live annotation).
-        fresh = [s for s in extra if file_md5(s["image_path"]) not in best]
-        print(f"extra: {len(extra)} pairs, {len(extra) - len(fresh)} already in the database and skipped")
+        extra += load_extra(Path(args.extra), args.scale)
+    if extra:
+        # A photo already in the database is taken from there (its mask is the
+        # live annotation); among extras the first copy wins.
+        fresh, in_db = [], Counter()
+        for s in extra:
+            key = file_md5(s["image_path"])
+            if key in best:
+                in_db[s["project"]] += 1
+            else:
+                best[key] = s
+                fresh.append(s)
+        print(f"extra: {len(extra)} pairs, {sum(in_db.values())} already in the database and skipped "
+              f"({', '.join(f'{k}={v}' for k, v in sorted(in_db.items()))}), "
+              f"{len(extra) - len(fresh) - sum(in_db.values())} duplicate extras skipped")
         samples += fresh
 
     by_project = Counter(s["project"] for s in samples)
