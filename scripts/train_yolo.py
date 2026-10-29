@@ -1,94 +1,82 @@
+"""Train a YOLOv8 segmentation model on a dataset prepared from an app export.
+
+    python scripts/prepare_yolo_dataset.py --export ~/Downloads/<project>.zip
+    python scripts/train_yolo.py --data datasets/<project>
+
+The app exports polygons (YOLO segmentation labels), so the default base model
+is a -seg model. Training runs on the first CUDA GPU and refuses to fall back
+to the CPU silently; pass --device cpu to opt in.
+"""
 import argparse
 import os
 import sys
 
 try:
+    import torch
     from ultralytics import YOLO
 except ImportError:
-    print("Error: The 'ultralytics' package is not installed.")
-    print("Please install it by running: pip install ultralytics")
+    print("Error: 'torch' / 'ultralytics' are not installed in this Python environment.")
+    print("Use the training venv: .venv-train\\Scripts\\python.exe scripts\\train_yolo.py ...")
     sys.exit(1)
 
+
+def find_yaml(path):
+    if os.path.isfile(path) and path.endswith(".yaml"):
+        return path
+    if os.path.isdir(path):
+        for f in sorted(os.listdir(path)):
+            if f.endswith(".yaml"):
+                return os.path.join(path, f)
+    return None
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Train a YOLOv8 model using an exported dataset from the annotation app.")
-    parser.add_argument(
-        "--data", 
-        type=str, 
-        required=True, 
-        help="Path to the extracted YOLO export folder (must contain a .yaml file, e.g., dataset.yaml or data.yaml)"
-    )
-    parser.add_argument(
-        "--model", 
-        type=str, 
-        default="yolov8n.pt", 
-        help="Base YOLOv8 model to start training from (default: yolov8n.pt). Options: yolov8n.pt, yolov8m.pt, yolov8l.pt, yolov8x.pt"
-    )
-    parser.add_argument(
-        "--epochs", 
-        type=int, 
-        default=100, 
-        help="Number of epochs to train for (default: 100)"
-    )
-    parser.add_argument(
-        "--imgsz", 
-        type=int, 
-        default=640, 
-        help="Target image size for training (default: 640)"
-    )
-    parser.add_argument(
-        "--batch", 
-        type=int, 
-        default=16, 
-        help="Batch size (default: 16). Lower this if you run out of GPU memory."
-    )
-    
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--data", required=True,
+                        help="Dataset folder (or data.yaml) from scripts/prepare_yolo_dataset.py")
+    parser.add_argument("--model", default="yolov8n-seg.pt",
+                        help="Base model (default: yolov8n-seg.pt; 4 GB GPUs suit n/s)")
+    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--imgsz", type=int, default=640)
+    parser.add_argument("--batch", type=int, default=8,
+                        help="Batch size (default: 8). Use -1 for auto-sizing to GPU memory.")
+    parser.add_argument("--workers", type=int, default=4, help="Dataloader workers (default: 4)")
+    parser.add_argument("--device", default="0", help="'0' (first GPU, default) or 'cpu'")
+    parser.add_argument("--name", default="custom_yolo", help="Run name under training_runs/")
     args = parser.parse_args()
-    
-    # Check if the data path exists
-    if not os.path.exists(args.data):
-        print(f"Error: The provided data path '{args.data}' does not exist.")
-        sys.exit(1)
-        
-    # Find the YAML file in the data directory
-    yaml_file = None
-    if os.path.isfile(args.data) and args.data.endswith('.yaml'):
-        yaml_file = args.data
-    elif os.path.isdir(args.data):
-        for f in os.listdir(args.data):
-            if f.endswith('.yaml'):
-                yaml_file = os.path.join(args.data, f)
-                break
-                
+
+    yaml_file = find_yaml(args.data)
     if not yaml_file:
-        print(f"Error: Could not find a .yaml configuration file in '{args.data}'.")
-        print("Please provide the exact path to the .yaml file or the folder containing it.")
+        print(f"Error: no .yaml found at '{args.data}'. Run scripts/prepare_yolo_dataset.py first.")
         sys.exit(1)
-        
-    print(f"--- Starting YOLOv8 Training ---")
-    print(f"Model:   {args.model}")
-    print(f"Dataset: {yaml_file}")
-    print(f"Epochs:  {args.epochs}")
-    print(f"Image Size: {args.imgsz}")
-    print(f"Batch Size: {args.batch}")
-    print("--------------------------------")
-    
-    # Initialize the model
+
+    if args.device != "cpu" and not torch.cuda.is_available():
+        print("Error: CUDA is not available to this PyTorch build "
+              f"(torch {torch.__version__}). Install a CUDA wheel, or pass --device cpu.")
+        sys.exit(1)
+
+    gpu = torch.cuda.get_device_name(int(args.device)) if args.device != "cpu" else "CPU"
+    print(f"--- YOLO training on {gpu} ---")
+    print(f"Model {args.model} | data {yaml_file} | epochs {args.epochs} | imgsz {args.imgsz} | batch {args.batch}")
+
     model = YOLO(args.model)
-    
-    # Train the model
-    results = model.train(
+    model.train(
         data=yaml_file,
         epochs=args.epochs,
         imgsz=args.imgsz,
         batch=args.batch,
+        workers=args.workers,
+        device=args.device,
         project="training_runs",
-        name="custom_yolo"
+        name=args.name,
+        exist_ok=True,
     )
-    
+
     print("\n=== Training Complete ===")
-    print("Your new trained weights are located in:")
-    print("  training_runs/custom_yolo/weights/best.pt")
-    print("\nTo use this model in the annotation app, copy the 'best.pt' file into the 'models/' folder of your labelstudio repository.")
+    print(f"Weights: training_runs/{args.name}/weights/best.pt")
+    print("Note: the app's detector (ml/yolo.py) is hardcoded to the 80 COCO classes and")
+    print("yolov8<size>-seg.onnx, so these weights cannot be dropped into models/ as-is.")
+
 
 if __name__ == "__main__":
     main()

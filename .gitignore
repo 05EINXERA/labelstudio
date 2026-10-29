@@ -40,6 +40,10 @@ logs/
 # Local database backups (contain real annotation data)
 backups/
 
+# YOLO training: prepared datasets and run output (scripts/prepare_yolo_dataset.py, train_yolo.py)
+datasets/
+training_runs/
+
 # Team Credentials
 team_credentials.txt
 
