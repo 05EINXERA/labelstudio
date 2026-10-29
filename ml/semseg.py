@@ -119,7 +119,7 @@ def _normalize_classes(raw_classes) -> list[dict]:
 MODEL_GLOB = "hull_semseg*.pt"
 # Hull models kept loaded at once (about 100 MB of GPU memory each); choosing
 # another drops the least recently used.
-MAX_LOADED_MODELS = 2
+MAX_LOADED_MODELS = 4
 
 _model_lock = threading.RLock()
 # path -> (file key, model, classes, device, scale, info), most recently used last.

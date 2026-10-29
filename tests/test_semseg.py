@@ -199,6 +199,24 @@ def test_loaded_models_are_reused_capped_and_reloaded_when_replaced(monkeypatch,
     assert semseg.get_semseg_model(b)[4] == {"name": "b", "epoch": 2}
 
 
+def test_default_max_loaded_models_keeps_four_models_loaded(monkeypatch, tmp_path):
+    from ml import semseg_arch
+
+    monkeypatch.setattr(semseg_arch, "build_semseg_net", lambda arch, classes: _TinyNet(classes))
+    monkeypatch.setattr(semseg, "_loaded", OrderedDict())
+
+    def write(name):
+        path = tmp_path / f"{name}.pt"
+        torch.save({"model": _TinyNet(len(CLASSES)).state_dict(), "classes": CLASSES,
+                    "name": name, "epoch": 1, "arch": "tiny"}, path)
+        return str(path)
+
+    paths = [write(f"m{i}") for i in range(4)]
+    for p in paths:
+        semseg.get_semseg_model(p)
+    assert list(semseg._loaded) == paths
+
+
 def test_model_info_is_none_for_unreadable_or_missing_weights(monkeypatch, tmp_path):
     weights = tmp_path / "hull.pt"
     monkeypatch.setattr(config, "SEMSEG_MODEL", str(weights))
