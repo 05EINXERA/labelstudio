@@ -318,6 +318,9 @@ class SemanticPayload(BaseModel):
     # Picker id from /api/detect/availability `semantic_models` (a weights
     # file name); the server's default hull model when omitted.
     model: Optional[str] = Field(None, max_length=200)
+    # Further picker ids, in priority order: each only segments what the models
+    # before it left unsegmented (ml.semseg.combine_class_maps).
+    extra_models: List[str] = Field(default_factory=list, max_length=3)
 
 class AIJobCreated(BaseModel):
     job_id: str

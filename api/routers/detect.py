@@ -170,7 +170,7 @@ def run_refine_boxes_job(job_id: str, payload: RefineBoxesPayload):
 
 
 def run_semantic_job(job_id: str, payload: SemanticPayload):
-    _run_inference_job(job_id, "Semantic segmentation", lambda: segment_semantic(payload.image, payload.model))
+    _run_inference_job(job_id, "Semantic segmentation", lambda: segment_semantic(payload.image, payload.model, payload.extra_models))
 
 
 @router.get("/status/{job_id}")
@@ -276,7 +276,9 @@ def semantic(payload: SemanticPayload, background_tasks: BackgroundTasks, db: Se
     if not semseg_available():
         raise HTTPException(status_code=503, detail="Semantic segmentation is not enabled on this server.")
     try:
-        semseg_model_path(payload.model)  # refuse an unknown model now, not in the job
+        # Refuse an unknown model now, not in the job.
+        for model_id in [payload.model, *payload.extra_models]:
+            semseg_model_path(model_id)
     except DetectionClientError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     job_id = _create_job(db)
