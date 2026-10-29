@@ -9,6 +9,10 @@
  * a picker beside the button chooses which one runs. The choice is a
  * per-browser convenience kept in localStorage; the server's default is used
  * when nothing (or a model that no longer exists) was chosen.
+ *
+ * "+ Fill gaps" ticks further models. They run after the picked one and only
+ * segment what the models before them left unsegmented, so more of the photo
+ * gets regions. Ticked models are also kept in localStorage.
  */
 import { generateUUID, round } from "../utils.js?v=3";
 import { apiFetch, pollJob } from "../api.js?v=3";
@@ -25,6 +29,10 @@ const TIMEOUT_MS = 120000;
 
 const button = document.querySelector("#hullDetectButton");
 const picker = document.querySelector("#hullModelSelect");
+const extraBox = document.querySelector("#hullExtraModels");
+const extraList = document.querySelector("#hullExtraList");
+const extraSummary = document.querySelector("#hullExtraSummary");
+const EXTRA_STORAGE_KEY = "hullExtraModels";
 const BASE_TITLE = button ? button.title : "";
 const PICKER_STORAGE_KEY = "hullModel";
 // [{id, name, epoch, default}] from availability; empty without a picker.
@@ -84,6 +92,60 @@ function fillPicker(list) {
   const initial = models.find((model) => model.id === saved) || models.find((model) => model.default) || models[0];
   picker.value = initial.id;
   showModel(initial);
+  fillExtras();
+}
+
+function readSavedExtras() {
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(EXTRA_STORAGE_KEY) || "[]");
+    return Array.isArray(saved) ? saved : [];
+  } catch (error) {
+    console.warn("Could not read the saved extra hull models:", error);
+    return [];
+  }
+}
+
+function saveExtras(ids) {
+  try {
+    window.localStorage.setItem(EXTRA_STORAGE_KEY, JSON.stringify(ids));
+  } catch (error) {
+    console.warn("Could not save the extra hull models:", error);
+  }
+}
+
+/** Ids ticked under "+ Fill gaps", in list order, never the primary model. */
+function chosenExtraIds() {
+  if (!extraList || !extraBox || extraBox.hidden) return [];
+  const primary = chosenModelId();
+  return [...extraList.querySelectorAll("input:checked")].map((box) => box.value).filter((id) => id !== primary);
+}
+
+function updateExtraSummary() {
+  if (!extraSummary) return;
+  const count = chosenExtraIds().length;
+  extraSummary.textContent = count ? `+ ${count} more` : "+ Fill gaps";
+}
+
+function fillExtras() {
+  if (!extraBox || !extraList) return;
+  const primary = chosenModelId();
+  const saved = new Set(readSavedExtras());
+  extraList.replaceChildren(...models.filter((model) => model.id !== primary).map((model) => {
+    const row = document.createElement("label");
+    row.style.cssText = "display: flex; gap: 6px; align-items: center; cursor: pointer;";
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.value = model.id;
+    box.checked = saved.has(model.id);
+    box.addEventListener("change", () => {
+      saveExtras([...extraList.querySelectorAll("input:checked")].map((item) => item.value));
+      updateExtraSummary();
+    });
+    row.append(box, document.createTextNode(modelLabel(model)));
+    return row;
+  }));
+  extraBox.hidden = models.length < 2;
+  updateExtraSummary();
 }
 
 function withModel(text) {
@@ -95,6 +157,7 @@ function setBusy(isBusy) {
   if (!button) return;
   button.disabled = isBusy;
   if (picker) picker.disabled = isBusy;
+  if (extraBox) extraBox.style.pointerEvents = isBusy ? "none" : "";
   const label = button.querySelector(".btn-label");
   if (label) label.textContent = isBusy ? "Segmenting..." : "Hull";
 }
@@ -142,7 +205,7 @@ export async function detectHullCondition() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       signal: controller.signal,
-      body: JSON.stringify({ image: await getImageSrcForAPI(), model: chosenModelId() })
+      body: JSON.stringify({ image: await getImageSrcForAPI(), model: chosenModelId(), extra_models: chosenExtraIds() })
     });
     const payload = await response.json();
     if (!response.ok) {
@@ -191,6 +254,7 @@ export function initHullDetect() {
       if (!model) return;
       saveModel(model.id);
       showModel(model);
+      fillExtras();
       setStatus(`Hull model: ${model.name}`);
     });
   }
@@ -201,6 +265,7 @@ export function setHullDetectAvailable(available, model, list = []) {
   if (button) button.hidden = !available;
   if (!available) {
     fillPicker([]);
+    if (extraBox) extraBox.hidden = true;
     return;
   }
   showModel(model);

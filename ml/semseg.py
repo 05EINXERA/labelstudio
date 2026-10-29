@@ -430,22 +430,105 @@ def pick_classes(probabilities: np.ndarray, damage_min_probability: float = 0.0)
     return class_map, confidence
 
 
-def segment_semantic(image_data, model_id=None):
+# Names a model may use for the same hull class (a dirt-merged model predicts
+# one "dirt", which the app treats as dirt1). Keeps models with different class
+# lists combinable.
+_CLASS_ALIASES = {"dirt": "dirt1"}
+# Models in one combined run; each needs a load and a pass over the photo.
+MAX_COMBINED_MODELS = 4
+
+
+def _canonical_name(name: str) -> str:
+    return _CLASS_ALIASES.get(name, name)
+
+
+def _predict_maps(path, image):
+    """(class_map, confidence, classes, scale, info) of one model on `image`.
+
+    Pixels below SEMSEG_MIN_CONFIDENCE become background (class 0), so a model
+    only claims what it is sure about and leaves the rest to the next one.
+    """
+    model, classes, device, scale, info = get_semseg_model(path)
+    probabilities = probabilities_for(model, image, scale, device, config.SEMSEG_FLIPS)
+    class_map, confidence = pick_classes(probabilities, config.SEMSEG_DAMAGE_MIN_PROBABILITY)
+    if config.SEMSEG_MIN_CONFIDENCE > 0:
+        class_map = np.where(confidence >= config.SEMSEG_MIN_CONFIDENCE, class_map, 0)
+    return class_map, confidence, classes, probabilities.shape[2] / image.width, info
+
+
+def combine_class_maps(results):
+    """Merge several models' answers, earlier models first.
+
+    `results` is a list of (class_map, confidence, classes) at any resolutions.
+    The first model's pixels win; each later model only fills pixels every
+    earlier model left as background, so regions found by any model are kept
+    and nothing is segmented twice. Classes are matched by name across models
+    (see _CLASS_ALIASES); classes only a later model knows are appended.
+    Returns (class_map, confidence, classes) at the first model's resolution.
+    """
+    base_map, base_conf, base_classes = results[0]
+    classes = [dict(c) for c in base_classes]
+    index = {_canonical_name(c["name"]): i for i, c in enumerate(classes)}
+    merged = base_map.copy()
+    merged_conf = base_conf.copy()
+    shape = (base_map.shape[1], base_map.shape[0])
+    for class_map, confidence, model_classes in results[1:]:
+        lookup = np.zeros(len(model_classes), dtype=np.int64)
+        for i, entry in enumerate(model_classes):
+            if i == 0:
+                continue  # background / sound
+            name = _canonical_name(entry["name"])
+            if name not in index:
+                index[name] = len(classes)
+                classes.append(dict(entry))
+            lookup[i] = index[name]
+        if class_map.shape != base_map.shape:
+            class_map = cv2.resize(class_map.astype(np.uint8), shape, interpolation=cv2.INTER_NEAREST)
+            confidence = cv2.resize(confidence.astype(np.float32), shape, interpolation=cv2.INTER_LINEAR)
+        mapped = lookup[class_map]
+        fill = (merged == 0) & (mapped != 0)
+        merged = np.where(fill, mapped, merged)
+        merged_conf = np.where(fill, confidence, merged_conf)
+    return merged, merged_conf, classes
+
+
+def segment_semantic(image_data, model_id=None, extra_model_ids=None):
     """Segment a whole image into hull-condition polygons.
 
     `model_id` picks one of semseg_models(); the default model without it.
+    `extra_model_ids` lists further models that only fill what the models
+    before them left unsegmented (combine_class_maps).
     """
     if not semseg_available():
         raise DetectionClientError("Semantic segmentation is not enabled on this server.")
 
-    path = semseg_model_path(model_id)
+    paths = [semseg_model_path(model_id)]
+    for extra in extra_model_ids or []:
+        path = semseg_model_path(extra)
+        if path not in paths:
+            paths.append(path)
+    if len(paths) > MAX_COMBINED_MODELS:
+        raise DetectionClientError(f"At most {MAX_COMBINED_MODELS} models can be combined.")
+
     image = decode_image(image_data)
-    model, classes, device, scale, info = get_semseg_model(path)
-    probabilities = probabilities_for(model, image, scale, device, config.SEMSEG_FLIPS)
-    class_map, confidence = pick_classes(probabilities, config.SEMSEG_DAMAGE_MIN_PROBABILITY)
+    results, infos, scale = [], [], None
+    for path in paths:
+        class_map, confidence, classes, model_scale, info = _predict_maps(path, image)
+        results.append((class_map, confidence, classes))
+        infos.append(info)
+        scale = scale or model_scale
+    if len(results) == 1:
+        class_map, confidence, classes = results[0]
+    else:
+        class_map, confidence, classes = combine_class_maps(results)
+    # The confidence cut is already applied to each model's map.
     predictions = mask_to_predictions(
-        class_map, confidence, classes,
-        probabilities.shape[2] / image.width, config.SEMSEG_MIN_AREA_PX, config.SEMSEG_MAX_POLYGONS,
-        min_confidence=config.SEMSEG_MIN_CONFIDENCE, vertex_spacing=config.SEMSEG_VERTEX_SPACING_PX,
+        class_map, confidence, classes, scale, config.SEMSEG_MIN_AREA_PX, config.SEMSEG_MAX_POLYGONS,
+        vertex_spacing=config.SEMSEG_VERTEX_SPACING_PX,
     )
+    info = infos[0] if len(infos) == 1 else {
+        "name": " + ".join(i["name"] for i in infos),
+        "epoch": None,
+        "models": infos,
+    }
     return {"predictions": predictions, "model": info}

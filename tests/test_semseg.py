@@ -244,7 +244,7 @@ def test_enabled_endpoint_queues_a_job(client, alice, monkeypatch, tmp_path):
     stub = {"predictions": [{"class": "rust", "label_prefix": "rust", "score": 0.8,
                              "bbox": [0, 0, 4, 4], "points": [{"x": 0, "y": 0}, {"x": 4, "y": 0}, {"x": 4, "y": 4}]}],
             "model": {"name": "hull_test", "epoch": 7}}
-    monkeypatch.setattr(detect, "segment_semantic", lambda image, model=None: stub)
+    monkeypatch.setattr(detect, "segment_semantic", lambda image, model=None, extra=None: stub)
 
     assert client.get("/api/detect/availability", headers=alice).json() == {
         "enabled": True, "semantic": True, "semantic_model": {"name": "hull_test", "epoch": 7},
@@ -411,7 +411,7 @@ def test_endpoint_runs_the_picked_model_and_refuses_unknown_ones(client, alice, 
     monkeypatch.setattr(config, "AI_FEATURES_ENABLED", True)
     used = []
     monkeypatch.setattr(detect, "segment_semantic",
-                        lambda image, model=None: used.append(model) or {"predictions": [], "model": None})
+                        lambda image, model=None, extra=None: used.append((model, extra)) or {"predictions": [], "model": None})
 
     models = client.get("/api/detect/availability", headers=alice).json()["semantic_models"]
     assert [m["id"] for m in models] == ["hull_semseg.pt", "hull_semseg_v6.pt", "hull_semseg_v5.pt"]
@@ -419,11 +419,15 @@ def test_endpoint_runs_the_picked_model_and_refuses_unknown_ones(client, alice, 
     assert client.post("/api/detect/semantic", json={"image": IMAGE, "model": "hull_semseg_v5.pt"},
                        headers=alice).status_code == 200
     assert client.post("/api/detect/semantic", json={"image": IMAGE}, headers=alice).status_code == 200
-    assert used == ["hull_semseg_v5.pt", None]
+    assert used == [("hull_semseg_v5.pt", []), (None, [])]
+    assert client.post("/api/detect/semantic", json={"image": IMAGE, "extra_models": ["hull_semseg_v6.pt"]},
+                       headers=alice).status_code == 200
 
     res = client.post("/api/detect/semantic", json={"image": IMAGE, "model": "../../other.pt"}, headers=alice)
     assert res.status_code == 400, res.text
-    assert used == ["hull_semseg_v5.pt", None]  # nothing queued
+    assert used == [("hull_semseg_v5.pt", []), (None, []), (None, ["hull_semseg_v6.pt"])]
+    assert client.post("/api/detect/semantic", json={"image": IMAGE, "extra_models": ["nope.pt"]},
+                       headers=alice).status_code == 400  # nothing queued
 
 
 def test_smp_architecture_contract():
@@ -464,3 +468,23 @@ def test_v7_checkpoint_normalization_and_loading(tmp_path, monkeypatch):
     assert classes[0]["name"] == "background_sound"
     assert classes[1]["name"] == "af_paint_deterioration"
     assert classes[2]["name"] == "rust"
+
+
+def test_combine_class_maps_later_model_only_fills_gaps():
+    import numpy as np
+    from ml.semseg import combine_class_maps
+
+    classes_a = [{"name": "background_sound"}, {"name": "rust"}, {"name": "dirt1"}]
+    classes_b = [{"name": "background_sound"}, {"name": "dirt"}, {"name": "rust"}, {"name": "marine_organisms"}]
+    map_a = np.array([[0, 1, 0, 0]])
+    conf_a = np.full((1, 4), 0.9, dtype=np.float32)
+    # Model B (own resolution: 2 px wide) claims left half as dirt and right half as marine.
+    map_b = np.array([[1, 3]])
+    conf_b = np.full((1, 2), 0.6, dtype=np.float32)
+
+    merged, conf, classes = combine_class_maps([(map_a, conf_a, classes_a), (map_b, conf_b, classes_b)])
+
+    names = [classes[i]["name"] for i in merged[0]]
+    # A keeps its rust pixel; B's "dirt" maps to dirt1 and its marine class is appended.
+    assert names == ["dirt1", "rust", "marine_organisms", "marine_organisms"]
+    assert conf[0].tolist() == pytest.approx([0.6, 0.9, 0.6, 0.6])
