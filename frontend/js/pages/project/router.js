@@ -54,7 +54,7 @@ const VIEW_LOADERS = {
   home: () => import("./home.js?v=3"),
   tasks: () => import("./tasks.js?v=15"),
   classes: () => import("./classes.js?v=1"),
-  imports: () => import("./imports.js?v=1"),
+  imports: () => import("./imports.js?v=2"),
   exports: () => import("./exports.js?v=4"),
   images: () => import("./images.js?v=1"),
 };

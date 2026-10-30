@@ -20,9 +20,9 @@ let ctx = null;
 let abortController = null;
 
 // Preview state for the annotation tab — held here so "Apply" can re-use the
-// upload result without re-sending the file.
-let pendingFile = null;
-let pendingPreview = null;
+// upload results without re-sending the files.
+// Each entry: { file: File, preview: object }
+let pendingFiles = [];
 
 // ---------------------------------------------------------------------------
 // Template
@@ -138,7 +138,7 @@ function template() {
             style="padding:9px 18px; border-radius:8px; font-weight:600;">
             Choose file…
           </button>
-          <input type="file" id="annFileInput" accept=".json,.zip" style="display:none;">
+          <input type="file" id="annFileInput" accept=".json,.zip" multiple style="display:none;">
           <span id="annFileName" style="font-size:.85rem; color:var(--muted); margin-left:12px;"></span>
         </div>
       </div>
@@ -264,14 +264,15 @@ function bindClassImport() {
 // Annotations tab — preview
 // ---------------------------------------------------------------------------
 
-function renderPreview(preview) {
+function renderPreview(preview, fileCount) {
   const matched = preview.matched || [];
   const unmatched = preview.unmatched || [];
   const newLabels = preview.new_labels || [];
+  const fileLabel = fileCount > 1 ? `${fileCount} files` : "file";
 
   let html = `<p style="font-size:.88rem; margin-bottom:12px;">
     <strong>${preview.total_annotations}</strong> annotation${preview.total_annotations === 1 ? "" : "s"}
-    across <strong>${matched.length + unmatched.length}</strong> image${(matched.length + unmatched.length) === 1 ? "" : "s"} in file.
+    across <strong>${matched.length + unmatched.length}</strong> image${(matched.length + unmatched.length) === 1 ? "" : "s"} in ${escapeHTML(fileLabel)}.
   </p>`;
 
   if (matched.length > 0) {
@@ -322,8 +323,7 @@ function renderPreview(preview) {
 }
 
 function resetAnnotationTab() {
-  pendingFile = null;
-  pendingPreview = null;
+  pendingFiles = [];
   el("annPreviewSection").style.display = "none";
   el("annResultSection").style.display = "none";
   el("annFileName").textContent = "";
@@ -334,95 +334,140 @@ function bindAnnotationImport() {
   el("annChooseBtn").addEventListener("click", () => el("annFileInput").click());
 
   el("annFileInput").addEventListener("change", async (e) => {
-    const file = e.target.files[0];
+    const files = [...e.target.files];
     e.target.value = "";
-    if (!file) return;
+    if (files.length === 0) return;
 
     clearError();
-    pendingFile = file;
-    el("annFileName").textContent = file.name;
+    pendingFiles = [];
+    const names = files.map((f) => f.name);
+    el("annFileName").textContent = names.length === 1 ? names[0] : `${names.length} files`;
     el("annPreviewSection").style.display = "none";
     el("annResultSection").style.display = "none";
-    el("annPreviewBody").innerHTML = `<p style="color:var(--muted); font-size:.88rem;">Loading preview…</p>`;
+    el("annPreviewBody").innerHTML = `<p style="color:var(--muted); font-size:.88rem;">Loading preview${files.length > 1 ? ` (1 / ${files.length})` : ""}…</p>`;
     el("annPreviewSection").style.display = "";
 
-    const formData = new FormData();
-    formData.append("file", file);
-
-    try {
-      const res = await apiFetch(
-        `/api/imports/annotations/preview?projectId=${encodeURIComponent(ctx.projectId)}`,
-        { method: "POST", body: formData }
-      );
-      if (!res) return;
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        showError(body?.detail || `Preview failed (${res.status}).`);
-        el("annPreviewSection").style.display = "none";
-        return;
+    // Preview each file sequentially, then merge the results.
+    const previews = [];
+    let failed = false;
+    for (let i = 0; i < files.length; i++) {
+      if (files.length > 1) {
+        el("annPreviewBody").innerHTML = `<p style="color:var(--muted); font-size:.88rem;">Loading preview (${i + 1} / ${files.length})…</p>`;
       }
-      pendingPreview = await res.json();
-      el("annPreviewBody").innerHTML = renderPreview(pendingPreview);
-      // Disable Apply if nothing matched
-      el("annApplyBtn").disabled = (pendingPreview.matched || []).length === 0;
-    } catch (err) {
-      console.error("Annotation preview failed", err);
-      showError("Could not preview the file.");
-      el("annPreviewSection").style.display = "none";
+      const formData = new FormData();
+      formData.append("file", files[i]);
+      try {
+        const res = await apiFetch(
+          `/api/imports/annotations/preview?projectId=${encodeURIComponent(ctx.projectId)}`,
+          { method: "POST", body: formData }
+        );
+        if (!res) return;
+        if (!res.ok) {
+          const body = await res.json().catch(() => null);
+          showError(body?.detail || `Preview failed for ${escapeHTML(files[i].name)} (${res.status}).`);
+          failed = true;
+          break;
+        }
+        const preview = await res.json();
+        previews.push({ file: files[i], preview });
+      } catch (err) {
+        console.error("Annotation preview failed", err);
+        showError(`Could not preview ${escapeHTML(files[i].name)}.`);
+        failed = true;
+        break;
+      }
     }
+
+    if (failed || previews.length === 0) {
+      el("annPreviewSection").style.display = "none";
+      return;
+    }
+
+    pendingFiles = previews;
+
+    // Merge previews into a combined view.
+    const combined = {
+      matched: previews.flatMap((p) => p.preview.matched || []),
+      unmatched: previews.flatMap((p) => p.preview.unmatched || []),
+      new_labels: [...new Set(previews.flatMap((p) => p.preview.new_labels || []))],
+      total_annotations: previews.reduce((sum, p) => sum + (p.preview.total_annotations || 0), 0),
+    };
+    el("annPreviewBody").innerHTML = renderPreview(combined, files.length);
+    el("annApplyBtn").disabled = combined.matched.length === 0;
   });
 
   el("annCancelBtn").addEventListener("click", () => resetAnnotationTab());
 
   el("annApplyBtn").addEventListener("click", async () => {
-    if (!pendingFile || !pendingPreview) return;
-    const matched = pendingPreview.matched || [];
-    if (matched.length === 0) return;
+    if (pendingFiles.length === 0) return;
+    const anyMatched = pendingFiles.some((p) => (p.preview.matched || []).length > 0);
+    if (!anyMatched) return;
 
     const mode = root.querySelector('input[name="annImportMode"]:checked')?.value || "merge";
 
     el("annApplyBtn").disabled = true;
     el("annApplyBtn").textContent = "Importing…";
 
-    const formData = new FormData();
-    formData.append("file", pendingFile);
+    let totalTasks = 0;
+    let totalAnnotations = 0;
+    let totalSkipped = 0;
+    let failed = false;
 
-    try {
-      const res = await apiFetch(
-        `/api/imports/annotations?projectId=${encodeURIComponent(ctx.projectId)}&mode=${mode}`,
-        { method: "POST", body: formData }
-      );
-      if (!res) return;
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        showError(body?.detail || `Import failed (${res.status}).`);
-        el("annApplyBtn").disabled = false;
-        el("annApplyBtn").textContent = "Apply import";
-        return;
+    for (let i = 0; i < pendingFiles.length; i++) {
+      const entry = pendingFiles[i];
+      if ((entry.preview.matched || []).length === 0) continue;
+
+      if (pendingFiles.length > 1) {
+        el("annApplyBtn").textContent = `Importing (${i + 1} / ${pendingFiles.length})…`;
       }
-      const body = await res.json();
-      el("annPreviewSection").style.display = "none";
-      el("annResultSection").style.display = "";
 
-      const skipped = (body.unmatched || []).length;
-      el("annResultBody").innerHTML = `
-        <div class="mgmt-empty" style="text-align:left; padding:14px 18px;
-             background:var(--panel-2); border-radius:8px; color:var(--accent-dark);
-             border:1px solid var(--line);">
-          ✓ Import complete —
-          <strong>${body.tasks_updated}</strong> task${body.tasks_updated === 1 ? "" : "s"} updated,
-          <strong>${body.annotations_imported}</strong> annotation${body.annotations_imported === 1 ? "" : "s"} imported.
-          ${skipped ? `<br><span style="color:var(--muted);">${skipped} image${skipped === 1 ? "" : "s"} not matched (skipped).</span>` : ""}
-        </div>`;
-      pendingFile = null;
-      pendingPreview = null;
-      el("annFileName").textContent = "";
-    } catch (err) {
-      console.error("Annotation import failed", err);
-      showError("Could not import annotations.");
+      const formData = new FormData();
+      formData.append("file", entry.file);
+
+      try {
+        const res = await apiFetch(
+          `/api/imports/annotations?projectId=${encodeURIComponent(ctx.projectId)}&mode=${mode}`,
+          { method: "POST", body: formData }
+        );
+        if (!res) return;
+        if (!res.ok) {
+          const body = await res.json().catch(() => null);
+          showError(body?.detail || `Import failed for ${escapeHTML(entry.file.name)} (${res.status}).`);
+          failed = true;
+          break;
+        }
+        const body = await res.json();
+        totalTasks += body.tasks_updated || 0;
+        totalAnnotations += body.annotations_imported || 0;
+        totalSkipped += (body.unmatched || []).length;
+      } catch (err) {
+        console.error("Annotation import failed", err);
+        showError(`Could not import ${escapeHTML(entry.file.name)}.`);
+        failed = true;
+        break;
+      }
+    }
+
+    if (failed) {
       el("annApplyBtn").disabled = false;
       el("annApplyBtn").textContent = "Apply import";
+      return;
     }
+
+    el("annPreviewSection").style.display = "none";
+    el("annResultSection").style.display = "";
+
+    el("annResultBody").innerHTML = `
+      <div class="mgmt-empty" style="text-align:left; padding:14px 18px;
+           background:var(--panel-2); border-radius:8px; color:var(--accent-dark);
+           border:1px solid var(--line);">
+        ✓ Import complete —
+        <strong>${totalTasks}</strong> task${totalTasks === 1 ? "" : "s"} updated,
+        <strong>${totalAnnotations}</strong> annotation${totalAnnotations === 1 ? "" : "s"} imported.
+        ${totalSkipped ? `<br><span style="color:var(--muted);">${totalSkipped} image${totalSkipped === 1 ? "" : "s"} not matched (skipped).</span>` : ""}
+      </div>`;
+    pendingFiles = [];
+    el("annFileName").textContent = "";
   });
 
   el("annImportAnotherBtn").addEventListener("click", () => resetAnnotationTab());
@@ -446,8 +491,7 @@ export async function mount(hostRoot, hostCtx) {
 export function unmount() {
   abortController?.abort();
   abortController = null;
-  pendingFile = null;
-  pendingPreview = null;
+  pendingFiles = [];
   root = null;
   ctx = null;
 }
