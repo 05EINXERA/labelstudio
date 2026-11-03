@@ -52,6 +52,10 @@ from app.config import (
     SEMSEG_VERTEX_SPACING_PX,
     SEMSEG_MODEL,
     SEMSEG_SCALE,
+    ADMIN_USERNAMES,
+    HULL_TRAIN_VAL_PROJECTS,
+    HULL_TRAIN_EPOCHS,
+    HULL_TRAIN_WORKERS,
     THREADPOOL_CAP,
     validate_config,
 )
@@ -100,6 +104,10 @@ __all__ = [
     "SEMSEG_VERTEX_SPACING_PX",
     "SEMSEG_MODEL",
     "SEMSEG_SCALE",
+    "ADMIN_USERNAMES",
+    "HULL_TRAIN_VAL_PROJECTS",
+    "HULL_TRAIN_EPOCHS",
+    "HULL_TRAIN_WORKERS",
     "THREADPOOL_CAP",
     "validate_config",
 ]

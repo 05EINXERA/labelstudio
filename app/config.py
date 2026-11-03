@@ -169,6 +169,19 @@ SEMSEG_VERTEX_SPACING_PX = float(os.environ.get("SEMSEG_VERTEX_SPACING_PX", "10"
 # Higher values (e.g. 0.75 or 1.0) increase resolution of small defect contours.
 SEMSEG_SCALE = float(os.environ.get("SEMSEG_SCALE", "0"))
 
+# "Train" button on the Hull toolbar (api/hull_training.py): retrains the hull
+# model from the finished tasks in the database and adds it to the model picker.
+# Only the usernames in ADMIN_USERNAMES (comma-separated, case-insensitive) may
+# start or cancel a run; accounts have no role of their own. Empty = nobody.
+ADMIN_USERNAMES = frozenset(
+    name.strip().lower() for name in os.environ.get("ADMIN_USERNAMES", "").split(",") if name.strip()
+)
+# Projects held out as validation photos (comma-separated names) so scores stay
+# comparable between runs. Empty = the builder picks ~18% of projects itself.
+HULL_TRAIN_VAL_PROJECTS = os.environ.get("HULL_TRAIN_VAL_PROJECTS", "").strip()
+HULL_TRAIN_EPOCHS = int(os.environ.get("HULL_TRAIN_EPOCHS", "150"))
+HULL_TRAIN_WORKERS = int(os.environ.get("HULL_TRAIN_WORKERS", "2"))
+
 # Hugging Face models (CLIP, SAM) are already cached under ~/.cache/huggingface
 # after first download, but `from_pretrained` still makes a round trip per file
 # to huggingface.co to check the cache is current unless told not to. On the

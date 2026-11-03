@@ -325,6 +325,25 @@ class SemanticPayload(BaseModel):
 class AIJobCreated(BaseModel):
     job_id: str
 
+class HullTrainingStatus(BaseModel):
+    """Progress of the hull-model training run behind the Hull "Train" button."""
+    can_train: bool = False
+    # idle (never run) | running | done | failed | cancelled
+    state: str = "idle"
+    # building dataset | training | installing, while running
+    stage: Optional[str] = None
+    message: Optional[str] = None
+    name: Optional[str] = None
+    epoch: Optional[int] = None
+    epochs: Optional[int] = None
+    # Best validation defect-mIoU so far (0-1), and the latest epoch's.
+    best: Optional[float] = None
+    last: Optional[float] = None
+    train_photos: Optional[int] = None
+    val_photos: Optional[int] = None
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+
 class LabelStudioPayload(BaseModel):
     projectId: Optional[str] = None
     taskId: Optional[str] = None

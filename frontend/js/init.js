@@ -29,6 +29,7 @@ import { initVertexSizeControl } from "./components/vertex-size-control.js?v=2";
 import { initConnectionMonitor, onConnectionChange } from "./connection.js?v=4";
 import { NotificationManager } from "./components/notifications.js?v=4";
 import { initHullDetect, setHullDetectAvailable } from "./ai/semseg.js?v=6";
+import { initHullTrain, loadHullTrain } from "./ai/hull-train.js?v=1";
 import { initRefineBoxes, setRefineBoxesAvailable } from "./ai/refine-boxes.js?v=1";
 
 if (!localStorage.getItem('logged_in')) {
@@ -165,6 +166,7 @@ async function fetchAiAvailability() {
       setRefineBoxesAvailable(toolAvailability.ai);
       setHullDetectAvailable(data.semantic === true, data.semantic_model, data.semantic_models);
       render();
+      loadHullTrain();
     }
   } catch (err) {
     console.error("Could not resolve AI availability; leaving controls enabled:", err);
@@ -271,6 +273,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initZoomControl();
   initModeControls();
   initHullDetect();
+  initHullTrain(fetchAiAvailability);
   initRefineBoxes();
   initGalleryNavigation();
   initModals({

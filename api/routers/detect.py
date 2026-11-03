@@ -10,6 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 import models
+from api import hull_training
 from api.auth import get_current_user, require_csrf
 import config
 from database import SessionLocal, commit_with_retry, get_db
@@ -201,6 +202,13 @@ def _require_ai_enabled() -> None:
         raise HTTPException(
             status_code=503,
             detail="AI features are temporarily disabled. Manual annotation is unaffected.",
+        )
+    # Training holds the whole 4 GB GPU for hours; a detect job would run it out of memory.
+    if hull_training.is_training():
+        raise HTTPException(
+            status_code=503,
+            detail="The hull model is being trained, so AI tools are paused until it finishes. "
+                   "Manual annotation is unaffected.",
         )
 
 

@@ -11,6 +11,7 @@ import bcrypt
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+import config
 import models
 from config import (
     COOKIE_SAMESITE,
@@ -256,4 +257,16 @@ def get_current_user(token: Optional[str] = Depends(get_token), db: Session = De
     # the session and transparently re-acquires one on next use.
     # See .devnotes/deployment-hardening/08_POOL_EXHAUSTION.md.
     db.rollback()
+    return user
+
+
+def is_admin(username: str) -> bool:
+    """True for usernames listed in config.ADMIN_USERNAMES (read per call, so it is patchable)."""
+    return (username or "").strip().lower() in config.ADMIN_USERNAMES
+
+
+def require_admin(user: models.User = Depends(get_current_user)) -> models.User:
+    """Dependency for actions only the deployment's admins may take (see ADMIN_USERNAMES)."""
+    if not is_admin(user.username):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin only.")
     return user

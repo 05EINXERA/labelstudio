@@ -30,3 +30,4 @@ openpyxl>=3.1.0
 pytest>=9.0.0
 httpx>=0.28.0
 pyinstaller>=6.0.0
+psutil>=5.9
