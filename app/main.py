@@ -67,6 +67,7 @@ from api.routers import (
     team,
     team_activity,
     teams,
+    training,
 )
 
 logger = logging.getLogger(__name__)
@@ -211,6 +212,7 @@ app.include_router(auth.router)
 app.include_router(imports.router)
 app.include_router(exports.router)
 app.include_router(notifications.router)
+app.include_router(training.router)
 
 
 @app.get("/health")

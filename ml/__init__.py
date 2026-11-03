@@ -44,6 +44,7 @@ from .sam import (
     segment_point,
     refine_boxes,
 )
+from .release import release_gpu_models
 from .semseg import (
     segment_semantic,
     semseg_available,
@@ -90,4 +91,5 @@ __all__ = [
     "semseg_model_info",
     "semseg_model_path",
     "semseg_models",
+    "release_gpu_models",
 ]
